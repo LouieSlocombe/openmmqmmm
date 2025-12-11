@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "template_python"
+name = "openmmqmmm"
 version = "0.0.1"
 description = "Template"
 readme = { file = "README.md", content-type = "text/markdown" }
@@ -31,15 +31,15 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LouieSlocombe/template_python"
-Repository = "https://github.com/LouieSlocombe/template_python"
+Homepage = "https://github.com/LouieSlocombe/openmmqmmm"
+Repository = "https://github.com/LouieSlocombe/openmmqmmm"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["template_python", "template_python.*"]
+include = ["openmmqmmm", "openmmqmmm.*"]
 
 [tool.setuptools.package-data]
-"template_python" = ["data/*"]
+"openmmqmmm" = ["data/*"]
