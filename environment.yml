@@ -1,8 +1,8 @@
-name: conda environment for ASH
+name: ash
 #Only conda-forge allowed for now
 channels:
   - conda-forge
-#Some basic easy-to-install packages for ASH
+#Packages for the ORCA+OpenMM QM/MM distribution of ASH
 dependencies:
   - python=3.11
   - pip
@@ -10,9 +10,12 @@ dependencies:
   - pdbfixer
   - mdtraj
   - numpy
-  - xtb
-  - xtb-python
   - typing_extensions
   - pip:
     - geometric
-    - pyscf
+#Optional extras (uncomment as needed):
+#  - openbabel
+#  - matplotlib
+#  - scipy
+#  - parmed
+#  - openmm-plumed

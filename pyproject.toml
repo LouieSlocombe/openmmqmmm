@@ -1,7 +1,7 @@
 [project]
 name = "ash"
 version = "0.99"
-description = "ASH is a multiscale, multitheory modelling program"
+description = "ORCA + OpenMM QM/MM for biomolecular calculations (trimmed ASH distribution)"
 authors = [
   {name = "R. Bjornsson", email = "ragnar.bjornsson@gmail.com" }
 ]
