@@ -1,8 +1,9 @@
 # openmmqmmm — ORCA + OpenMM QM/MM
 
 A trimmed distribution of the [ASH](https://github.com/RagnarB83/ash) multiscale modelling program, reduced to the
-**ORCA + OpenMM QM/MM stack for biomolecular calculations**. The Python package and API keep the upstream `ash` name, so
-existing ORCA/OpenMM QM/MM scripts work unchanged.
+**ORCA + OpenMM QM/MM stack for biomolecular calculations**. The Python package is named `openmmqmmm`; the API keeps the
+upstream ASH class and function names, so existing ORCA/OpenMM QM/MM scripts only need their import changed from `ash`
+to `openmmqmmm`.
 
 **What is included**
 
@@ -35,7 +36,7 @@ Use a conda/mamba environment providing OpenMM, then install the package with pi
 
 ```sh
 conda env create -f environment.yml
-conda activate ash
+conda activate openmmqmmm
 pip install -e .
 ```
 
@@ -44,7 +45,7 @@ ORCA must be installed separately and available in `PATH` (or via `orcadir`/`~/a
 **Basic example**
 
 ```py
-from ash import *
+from openmmqmmm import *
 
 coords="""
 H 0.0 0.0 0.0
@@ -74,7 +75,7 @@ MolecularDynamics(fragment=HF_frag, theory=ORCAcalc, timestep=0.001, simulation_
 **QM/MM example**
 
 ```py
-from ash import *
+from openmmqmmm import *
 
 # Defining a fragment
 fragment = Fragment(pdbfile="system.pdb")
@@ -98,7 +99,7 @@ MolecularDynamics(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_ti
 **Tests**
 
 ```sh
-cd ash/tests && pytest -q
+cd openmmqmmm/tests && pytest -q
 ```
 
 The OpenMM/fragment/optimizer tests run without ORCA; the QM/MM tests are skipped automatically when no `orca` binary is

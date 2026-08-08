@@ -1,4 +1,4 @@
-name: ash
+name: openmmqmmm
 #Only conda-forge allowed for now
 channels:
   - conda-forge
