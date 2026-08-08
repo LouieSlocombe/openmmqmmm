@@ -37,8 +37,8 @@ settings_dict["print_input"] = True
 settings_dict["scale"] = 1.0
 settings_dict["tol"] = 0.1
 settings_dict["conndepth"] = 10
-settings_dict["connectivity_code"] = "julia"
-settings_dict["nonbondedMM_code"] = "julia"
+settings_dict["connectivity_code"] = "py"
+settings_dict["nonbondedMM_code"] = "py"
 # Exit command
 settings_dict["print_exit_footer"] = True
 settings_dict["print_full_timings"] = True
@@ -73,26 +73,7 @@ def try_read_setting(stringvalue, datatype):
 #NOTE: Warning. If user added quotation marks around string then things go awry. Look into
 # Keywords to look up in ash_user_settings.ini
 try_read_setting("orcadir", "string")
-try_read_setting("xtbdir", "string")
-try_read_setting("gxtbdir", "string")
-try_read_setting("cp2kdir", "string")
-try_read_setting("dracodir", "string")
-try_read_setting("mrccdir", "string")
-try_read_setting("daltondir", "string")
-try_read_setting("psi4dir", "string")
-try_read_setting("cfourdir", "string")
-try_read_setting("crestdir", "string")
-try_read_setting("gaussiandir", "string")
-try_read_setting("mndodir", "string")
 try_read_setting("multiwfndir", "string")
-try_read_setting("nwchemdir", "string")
-try_read_setting("pymbedir", "string")
-try_read_setting("quickdir", "string")
-try_read_setting("terachemdir", "string")
-try_read_setting("turbomoledir", "string")
-try_read_setting("demondir", "string")
-try_read_setting("dicedir", "string")
-try_read_setting("packmoldir", "string")
 
 try_read_setting("connectivity_code", "string")
 try_read_setting("nonbondedMM_code", "string")

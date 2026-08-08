@@ -1,6 +1,8 @@
 """
 ASH - A MULTISCALE MODELLING PROGRAM
 R. Bjornsson
+
+Trimmed distribution: ORCA + OpenMM QM/MM functionality for biomolecular calculations.
 """
 # Python libraries
 import numpy as np
@@ -16,7 +18,6 @@ print("ashpath:", ashpath)
 ###############
 # ASH modules
 ###############
-# import ash
 # Adding modules,interfaces directories to sys.path
 sys.path.insert(0, ashpath)
 print("Sys path:", sys.path)
@@ -27,15 +28,12 @@ from .functions.functions_general import create_ash_env_file,blankline, BC, list
 # Test if inputfile has a bad name
 inputfile_base=os.path.splitext(sys.argv[0])[0]
 pyfiles_in_dir =  glob.glob('*.py')
-forbidden_inputfilenames = ['ash', 'openmm', 'xtb', 'mlatom', 'torch', 'pyscf', 'knarr', 'mace']
+forbidden_inputfilenames = ['ash', 'openmm', 'geometric', 'mdtraj', 'openbabel']
 for pyfile in pyfiles_in_dir:
     if os.path.splitext(pyfile)[0] in forbidden_inputfilenames:
         print(f"Error: Current directory contains file : {inputfile_base}.py with a forbidden name. Please rename it")
         print("Forbidden names:", forbidden_inputfilenames)
         ashexit()
-
-# New API test
-#from . import job
 
 #Results dataclass
 from .modules.module_results import ASH_Results,read_results_from_file
@@ -52,7 +50,7 @@ from .modules.module_coords import remove_atoms_from_system_CHARMM, add_atoms_to
 # Singlepoint
 import ash.modules.module_singlepoint
 from .modules.module_singlepoint import Singlepoint, newSinglepoint, ZeroTheory, ScriptTheory, Singlepoint_fragments,\
-     Singlepoint_theories, Singlepoint_fragments_and_theories, Singlepoint_reaction
+     Singlepoint_theories, Singlepoint_fragments_and_theories, Singlepoint_reaction, ReactionEnergy
 
 # Parallel
 import ash.functions.functions_parallel
@@ -77,15 +75,6 @@ from .functions.functions_elstructure import read_cube, write_cube, write_cube_d
 #multiwfn interface
 import ash.interfaces.interface_multiwfn
 from .interfaces.interface_multiwfn import multiwfn_run
-# Spinprojection
-from .modules.module_spinprojection import SpinProjectionTheory
-# HybridTheory: DualTheory and WrapTheory
-from .modules.module_hybridtheory import DualTheory,WrapTheory
-#ONIOM
-from .modules.module_oniom import ONIOMTheory
-
-# Surface
-from .modules.module_surface_new import calc_surface, calc_surface_fromXYZ, read_surfacedict_from_file, write_surfacedict_to_file, RestraintTheory,analyze_surface
 
 # # QMcode interfaces
 from .interfaces.interface_ORCA import ORCATheory, counterpoise_calculation_ORCA, ORCA_External_Optimizer, run_orca_plot, MolecularOrbitalGrab, \
@@ -94,38 +83,6 @@ from .interfaces.interface_ORCA import ORCATheory, counterpoise_calculation_ORCA
         new_ORCA_natorbsfile_from_density, ORCA_orbital_setup, create_ORCA_FCIDUMP, print_gradient_in_ORCAformat
 import ash.interfaces.interface_ORCA
 
-from .interfaces.interface_Psi4 import Psi4Theory
-from .interfaces.interface_dalton import DaltonTheory
-from .interfaces.interface_pyscf import PySCFTheory, pyscf_MR_correction, pyscf_CCSD_T_natorb_selection,KS_inversion_kspies,DFA_error_analysis,pySCF_write_Moldenfile
-density_potential_inversion=KS_inversion_kspies #Temporary
-from .interfaces.interface_ipie import ipieTheory
-from .interfaces.interface_dice import DiceTheory
-from .interfaces.interface_block import BlockTheory
-from .interfaces.interface_MRCC import MRCCTheory, run_MRCC_HLC_correction, convert_MRCC_Molden_file
-from .interfaces.interface_QUICK import QUICKTheory
-from .interfaces.interface_TeraChem import TeraChemTheory
-from .interfaces.interface_sparrow import SparrowTheory
-from .interfaces.interface_NWChem import NWChemTheory
-from .interfaces.interface_Gaussian import GaussianTheory
-from .interfaces.interface_Turbomole import TurbomoleTheory
-from .interfaces.interface_ReSpect import ReSpectTheory
-from .interfaces.interface_CP2K import CP2KTheory
-from .interfaces.interface_BigDFT import BigDFTTheory
-from .interfaces.interface_deMon import deMon2kTheory
-from .interfaces.interface_ccpy import ccpyTheory
-from .interfaces.interface_MNDO import MNDOTheory
-
-from .interfaces.interface_CFour import CFourTheory, run_CFour_HLC_correction, run_CFour_DBOC_correction, convert_CFour_Molden_file
-from .interfaces.interface_xtb import xTBTheory, gxTBTheory,tbliteTheory
-from .interfaces.interface_DFTB import DFTBTheory
-from .interfaces.interface_PyMBE import PyMBETheory
-from .interfaces.interface_MLatom import MLatomTheory
-from .interfaces.interface_DRACO import get_draco_radii
-from .interfaces.interface_Grimme_corrections import DFTD4Theory, calc_DFTD4, calc_gcp, gcpTheory
-from .interfaces.interface_torch import TorchTheory
-from .interfaces.interface_mace import MACETheory
-from .interfaces.interface_fairchem import FairchemTheory
-from .interfaces.interface_packmol import packmol_solvate
 from .interfaces.interface_openbabel import OpenBabelTheory, pdb_to_smiles, mol_to_pdb, sdf_to_pdb, writepdb_with_connectivity, \
                                             xyz_to_pdb_with_connectivity
 
@@ -134,7 +91,6 @@ from .interfaces.interface_OpenMM import OpenMMTheory, OpenMM_MD, OpenMM_MDclass
      OpenMM_box_equilibration, write_nonbonded_FF_for_ligand, solvate_small_molecule, small_molecule_parameterizer, \
         OpenMM_metadynamics, OpenMM_MD_plumed, Gentle_warm_up_MD, check_gradient_for_bad_atoms, get_free_energy_from_biasfiles, \
         free_energy_from_bias_array,metadynamics_plot_data, merge_pdb_files
-#define_uff
 
 # General aliases
 MolecularDynamics = OpenMM_MD
@@ -154,76 +110,15 @@ from .modules.module_theory import Theory, QMTheory, NumGradclass, MECPGradclass
 
 # QM/MM
 from .modules.module_QMMM import QMMMTheory, actregiondefine, read_charges_from_psf, compute_decomposed_QM_MM_energy
-from .modules.module_polembed import PolEmbedTheory
-
-# Knarric_optimizer_alte
-from .interfaces.interface_knarr import NEB, NEBTS, interpolation_geodesic
-
-# FSM
-from .interfaces.interface_fsm import FSM
-
-#VMD
-from .interfaces.interface_VMD import write_VMD_script_cube
-
-# ASE-Dynamics
-from .interfaces.interface_ASE import Dynamics_ASE
-
-# Plumed interface
-from .interfaces.interface_plumed import plumed_ASH, plumed_MTD_analyze, plumed_FES_plot_1CV
-
-# Solvation
-# NOTE: module_solvation.py or module_solvation2.py To be cleaned up
-import ash.functions.functions_solv
-
-# Molcrys
-import ash.modules.module_molcrys
-from .modules.module_molcrys import molcrys, Fragmenttype
-
-# Geometry optimization
-from .functions.functions_optimization import SimpleOpt, BernyOpt, periodic_optimizer_alternating, Cart_optimizer, Cart_optimizer_class
 
 # geomeTRIC interface
 from .interfaces.interface_geometric_new import geomeTRICOptimizer,GeomeTRICOptimizerClass
 Optimizer = geomeTRICOptimizer
 Opt = geomeTRICOptimizer
 
-# PES
-from .modules.module_PES_rewrite import PhotoElectron, potential_adjustor_DFT, plot_PES_Spectrum,Read_old_PES_results
-
-# Workflows, benchmarking etc
-import ash.modules.module_workflows
-import ash.modules.module_highlevel_workflows
-from .modules.module_highlevel_workflows import ORCA_CC_CBS_Theory, Reaction_FCI_Analysis, make_ICE_theory, Auto_ICE_CAS,ORCA_MRCI_CBS_Theory
-
-CC_CBS_Theory = ORCA_CC_CBS_Theory #TODO: Temporary alias
-
-from .modules.module_workflows import ReactionEnergy, thermochemprotocol_reaction, thermochemprotocol_single, \
-    confsampler_protocol, auto_active_space, calc_xyzfiles, ProjectResults, Reaction_Highlevel_Analysis, FormationEnthalpy, \
-    AutoNonAufbau, ExcitedStateSCFOptimizer,TDDFT_vib_ave
-import ash.modules.module_benchmarking
-from .modules.module_benchmarking import run_benchmark
-
-#Small helper tools
-from .interfaces.interface_small_helpers import create_adaptive_minimal_basis_set
-
-#Machine-learning tools
-from .modules.module_machine_learning import create_ML_training_data, Ml_print_model_stats
-# To be deleted
-Mlatom_print_model_stats=Ml_print_model_stats
-
 # Plotting
 import ash.modules.module_plotting
 from .modules.module_plotting import reactionprofile_plot, contourplot, volumeplot, plot_Spectrum, MOplot_vertical, ASH_plot
-
-# DL-FIND
-from ash.interfaces.interface_dlfind import DLFIND_optimizer,DLFIND_optimizerClass
-
-# Sella
-from ash.interfaces.interface_sella import SellaOptimizer, SellaoptimizerClass, SellaIRC
-
-# Other
-import ash.interfaces.interface_crest
-from .interfaces.interface_crest import call_crest, call_crest_entropy, get_crest_conformers, new_call_crest
 
 # Initialize settings
 import ash.settings_ash
@@ -237,22 +132,3 @@ if ash.settings_ash.settings_dict["print_exit_footer"] is True:
     atexit.register(ash.ash_header.print_footer)
     if ash.settings_ash.settings_dict["print_full_timings"] is True:
         atexit.register(ash.ash_header.print_timings)
-
-# Julia dependency. Load in the beginning or not.
-# As PythonCall can be a bit slow to load, it is best to only load when needed (current behaviour)
-if ash.settings_ash.settings_dict["load_julia"] is True:
-    try:
-        print("Importing Julia interface and loading functions")
-        Juliafunctions = load_julia_interface()
-
-    except ImportError:
-        print("Problem importing Julia interface")
-        print(
-            "Make sure Julia is installed, Pythoncall/juliacall and the required Julia packages have been installed.")
-        print("Proceeding. Slower Python routines will used instead when possible")
-        # Connectivity code in Fragment
-        ash.settings_ash.settings_dict["connectivity_code"] = "py"
-        # LJ+Coulomb and pairpot arrays in nonbonded MM
-        ash.settings_ash.settings_dict["nonbondedMM_code"] = "py"
-
-
