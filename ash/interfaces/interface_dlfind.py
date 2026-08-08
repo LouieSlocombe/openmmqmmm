@@ -15,7 +15,7 @@ from ash.modules.module_coords import check_charge_mult, print_internal_coordina
 from ash.modules.module_coords_PBC import write_CIF_file, write_XSF_file, write_POSCAR_file, cell_vectors_to_params, cell_volume, align_to_standard_orientation
 from ash.modules.module_theory import NumGradclass
 from ash.modules.module_results import ASH_Results
-from ash.modules.module_freq import NumFreq,AnFreq,calc_hessian_xtb
+from ash.modules.module_freq import NumFreq,AnFreq
 from ash.modules.module_QMMM import QMMMTheory
 from ash.modules.module_oniom import ONIOMTheory
 

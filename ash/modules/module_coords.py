@@ -83,7 +83,7 @@ class Reaction:
 # ASH Fragment class
 class Fragment:
     def __init__(self, fragments=None, coordsstring=None, fragfile=None, databasefile=None, xyzfile=None, pdbfile=None, pdbxfile=None, grofile=None,
-                 amber_inpcrdfile=None, amber_prmtopfile=None, trexiofile=None, smiles=None,
+                 amber_inpcrdfile=None, amber_prmtopfile=None, smiles=None,
                  chemshellfile=None, coords=None, elems=None, connectivity=None, atom=None, diatomic=None, diatomic_bondlength=None,
                  bondlength=None,
                  atomcharges=None, atomtypes=None, conncalc=False, scale=None, tol=None, printlevel=2, charge=None,
@@ -244,26 +244,6 @@ class Fragment:
         elif fragfile is not None:
             self.label = fragfile.split('/')[-1].split('.')[0]
             self.read_fragment_from_file(fragfile)
-        # Trexio
-        elif trexiofile is not None:
-            from ash.interfaces.interface_TREXIO import read_trexio_file
-            print("Reading TREXIO file:", trexiofile)
-            if 'h5' in trexiofile or 'hdf5' in trexiofile:
-                print("Assuming TREXIO HDF5 format based on file suffix")
-                charges, coords, labels = read_trexio_file(filename=trexiofile, back_end_type="hdf5")
-            elif '.text' in trexiofile:
-                print("Assuming TREXIO TEXT format based on file suffix")
-                charges, coords, labels = read_trexio_file(filename=trexiofile, back_end_type="text")
-            else:
-                print("No recognized suffix in TREXIO file found. Exiting")
-                ashexit()
-
-            self.coords = np.array(coords)
-            elems = [reformat_element(el) for el in labels]
-            # Converting charges to elements
-            self.elems = nucchargestoelems(charges)
-            # NOTE: Labels not currently used
-
         # Reading an XYZ-file from the ASH database
         elif databasefile is not None:
             databasepath=ashpath+"/databases/fragments/"
@@ -976,10 +956,6 @@ class Fragment:
                 line = "{:4} {:>12.6f} {:>12.6f} {:>12.6f}".format(el, c[0], c[1], c[2])
                 ofile.write(line + '\n')
 
-    def write_trexio(self,filename=None,format="text"):
-        from ash.interfaces.interface_TREXIO import write_trexio_file
-        write_trexio_file(self, filename=filename, back_end_type=format)
-
     # Function to get subset-coordinates with linkatoms
     #TODO: add more options for linkatoms
     def get_subset_coords_with_linkatoms(self,qmatoms):
@@ -1226,7 +1202,67 @@ def remove_zero_charges(charges, coords):
             newcoords.append(coord)
     return newcharges, newcoords
 
-# NEW function to print internal coordinate table for active atoms based on connectivity. 
+# Covalent radii (Angstrom) used for simple connectivity detection.
+# Subset covering most common elements; extend as needed.
+_COVALENT_RADII = {
+    'H': 0.31, 'He': 0.28,
+    'Li': 1.28, 'Be': 0.96, 'B': 0.84, 'C': 0.76, 'N': 0.71, 'O': 0.66,
+    'F': 0.57, 'Ne': 0.58,
+    'Na': 1.66, 'Mg': 1.41, 'Al': 1.21, 'Si': 1.11, 'P': 1.07, 'S': 1.05,
+    'Cl': 1.02, 'Ar': 1.06,
+    'K': 2.03, 'Ca': 1.76, 'Sc': 1.70, 'Ti': 1.60, 'V': 1.53, 'Cr': 1.39,
+    'Mn': 1.61, 'Fe': 1.52, 'Co': 1.50, 'Ni': 1.24, 'Cu': 1.32, 'Zn': 1.22,
+    'Ga': 1.22, 'Ge': 1.20, 'As': 1.19, 'Se': 1.20, 'Br': 1.20, 'Kr': 1.16,
+    'Rb': 2.20, 'Sr': 1.95, 'Y': 1.90, 'Zr': 1.75, 'Nb': 1.64, 'Mo': 1.54,
+    'Tc': 1.47, 'Ru': 1.46, 'Rh': 1.42, 'Pd': 1.39, 'Ag': 1.45, 'Cd': 1.44,
+    'In': 1.42, 'Sn': 1.39, 'Sb': 1.39, 'Te': 1.38, 'I': 1.39, 'Xe': 1.40,
+    'Cs': 2.44, 'Ba': 2.15, 'La': 2.07, 'Ce': 2.04, 'Pr': 2.03, 'Nd': 2.01,
+    'Hf': 1.75, 'Ta': 1.70, 'W': 1.62, 'Re': 1.51, 'Os': 1.44, 'Ir': 1.41,
+    'Pt': 1.36, 'Au': 1.36, 'Hg': 1.32, 'Tl': 1.45, 'Pb': 1.46, 'Bi': 1.48,
+}
+_DEFAULT_RADIUS = 1.50   # fallback for unknown elements
+_CONNECTIVITY_TOLERANCE = 0.40  # Angstrom added to sum of covalent radii
+
+
+def _build_connectivity(coords, elems, atom_indices=None):
+    coords = np.asarray(coords)
+    n = len(elems)
+
+    radii = np.array([
+        _COVALENT_RADII.get(e.capitalize(), _DEFAULT_RADIUS)
+        for e in elems
+    ])
+
+    # Keep full-length connectivity list so downstream code
+    # can continue using global atom indices
+    conn = [set() for _ in range(n)]
+
+    # Default behaviour: full-system connectivity
+    if atom_indices is None:
+        atom_indices = range(n)
+    else:
+        atom_indices = list(atom_indices)
+
+    nsel = len(atom_indices)
+
+    for a in range(nsel):
+        i = atom_indices[a]
+
+        for b in range(a + 1, nsel):
+            j = atom_indices[b]
+
+            dist = np.linalg.norm(coords[i] - coords[j])
+            threshold = radii[i] + radii[j] + _CONNECTIVITY_TOLERANCE
+
+            # Ignore very short distances
+            if 0.4 < dist < threshold:
+                conn[i].add(j)
+                conn[j].add(i)
+
+    return conn
+
+
+# NEW function to print internal coordinate table for active atoms based on connectivity.
 
 def print_internal_coordinate_table_new(fragment, actatoms=None):
     """
@@ -1259,7 +1295,6 @@ def print_internal_coordinate_table_new(fragment, actatoms=None):
 
     coords = fragment.coords
     elems = fragment.elems
-    from ash.modules.module_surface_new import _build_connectivity
     conn = _build_connectivity(coords, elems)
     
     # Header

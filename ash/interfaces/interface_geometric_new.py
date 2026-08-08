@@ -6,7 +6,6 @@ import time
 import ash.constants
 from ash.modules.module_QMMM import QMMMTheory
 from ash.modules.module_theory import MicroIterativeclass
-#from ash.modules.module_oniom import ONIOMTheory
 from ash.interfaces.interface_OpenMM import OpenMMTheory
 from ash.modules.module_coords import print_coords_for_atoms,print_internal_coordinate_table_new,write_XYZ_for_atoms,write_xyzfile,write_coords_all
 from ash.modules.module_coords import check_charge_mult, fullindex_to_actindex
@@ -14,7 +13,7 @@ from ash.modules.module_coords_PBC import cell_volume, cell_vectors_to_params, w
                                         align_to_standard_orientation
 from ash.functions.functions_general import ashexit, blankline,BC,print_time_rel,print_line_with_mainheader,print_line_with_subheader1,print_if_level, pygrep2
 
-from ash.modules.module_freq import write_hessian,calc_hessian_xtb, approximate_full_Hessian_from_smaller, read_hessian
+from ash.modules.module_freq import write_hessian, approximate_full_Hessian_from_smaller, read_hessian
 from ash.modules.module_results import ASH_Results
 from ash.modules.module_theory import NumGradclass
 
@@ -179,10 +178,6 @@ class GeomeTRICOptimizerClass:
                         print("Theory class: QMMMTheory")
                         print("Will by default print only QM-region in output (use print_atoms_list option to change)")
                         self.print_atoms_list=theory.qmatoms
-                    elif isinstance(theory,ash.ONIOMTheory):
-                        print("Theory class: ONIOMTheory")
-                        print("Will by default print only Region1 in output (use print_atoms_list option to change)")
-                        self.print_atoms_list=theory.regions_N[0]
                     else:
                         #Print actatoms since using Active Region (can be too much)
                         self.print_atoms_list=self.actatoms
@@ -478,12 +473,9 @@ class GeomeTRICOptimizerClass:
 
             elif type(self.hessian) == str:
                 print("Hessian option provided is a string")
-                #Do xtB Hessian to get Hessian file if requestd
                 if self.hessian == "xtb":
-                    print("xTB Hessian option requested")
-                    #Calling xtb to get Hessian, written to disk. Returns name of Hessianfile
-                    hessianfile = calc_hessian_xtb(fragment=fragment, actatoms=atomsused, numcores=theory.numcores, use_xtb_feature=True, charge=charge, mult=mult)
-                    self.hessian="file:"+hessianfile
+                    print("Error: hessian='xtb' is not available in this ORCA+OpenMM build. Use '1point', '2point', 'partial' or a Hessian file instead.")
+                    ashexit()
                 #NumFreq 1 and 2-point Hessians
                 elif self.hessian == "1point":
                     print("Requested Hessian from Numfreq 1-point approximation (running in serial)")

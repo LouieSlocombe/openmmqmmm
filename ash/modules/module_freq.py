@@ -12,7 +12,6 @@ from ash.modules.module_coords import check_charge_mult, check_multiplicity,read
 from ash.modules.module_results import ASH_Results
 import ash.interfaces.interface_ORCA
 from ash.modules.module_QMMM import QMMMTheory
-from ash.modules.module_oniom import ONIOMTheory
 from ash.interfaces.interface_ORCA import read_ORCA_Hessian
 import ash.constants
 
@@ -143,13 +142,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
             print("Error: No hessatoms option was provided. This is required for QM/MM Theories")
             print("Please provide a list of atom indices to the hessatoms keyword of NumFreq to define the partial Hessian")
             print("For QM/MM numerical frequencies you want the list of hessatoms to be the same atoms used to define the \nactive-region in the optimization (or the QM-region)")
-            print("Exiting now.")
-            ashexit()
-        elif isinstance(theory,ONIOMTheory):
-            print("Theory object provided is a ONIOM Theory")
-            print("Error: No hessatoms option was provided. This is required for ONIOM Theories")
-            print("Please provide a list of atom indices to the hessatoms keyword of NumFreq to define the partial Hessian")
-            print("For ONIOM numerical frequencies you want the list of hessatoms to be the same atoms used to define the \nactive-region in the optimization (or Region1)")
             print("Exiting now.")
             ashexit()
         else:
@@ -1439,23 +1431,9 @@ def approximate_full_Hessian_from_smaller(fragment, hessian_small, small_atomind
             ashexit()
         usedfragment.charge=charge; usedfragment.mult=mult
         fullhessian = calc_model_Hessian_ORCA(usedfragment,model=restHessian)
-    #GFN-xTB restHessian
     elif restHessian == 'xtb':
-        print("restHessian option is xtb")
-        if charge is None or mult is None:
-            print("Error: For restHessian=xtb option we require charge and multiplicity information to be provided")
-            ashexit()
-        #if check_multiplicity(subelems,usedfragment.charge,usedfragment.mult, exit=False) == False:
-        #    print("Bad multiplicity. Using dummy")
-        #    #Dummy charge/mult
-        #    usedfragment.charge=0
-        #    if isodd(usedfragment.nuccharge):
-        #        usedfragment.mult=2
-        #    else:
-        #        usedfragment.mult=1
-
-        xtb = ash.xTBTheory(xtbmethod=xtbmethod)
-        fullhessian = xtb.Hessian(fragment=usedfragment, charge=charge, mult=mult)
+        print("Error: restHessian='xtb' is not available in this ORCA+OpenMM build. Use an ORCA model Hessian, 'unit' or 'zero' instead.")
+        ashexit()
     #Or with unit matrix
     elif restHessian == 'unit' or restHessian == 'identity':
         print("restHessian is unit/identity")
@@ -1944,43 +1922,6 @@ def read_hessian(file):
     print(f"Reading Hessian from file: {file}")
     hessian = np.loadtxt(file)
     return hessian
-
-
-#Calculate Hessian in various ways.
-
-#Calculate Hessian (GFN1) for a fragment.
-def calc_hessian_xtb(fragment=None, runmode='serial', actatoms=None, numcores=1, use_xtb_feature=True,
-    charge=None, mult=None, xtbmethod="GFN1"):
-
-    print_line_with_mainheader("calc_hessian_xtb")
-
-    #Check charge/mult
-    charge,mult = check_charge_mult(charge, mult, "QM", fragment, "calc_hessian_xtb")
-
-    if actatoms != None:
-        print("Creating subfragment")
-        #Keep original fragment
-        origfragment=copy.copy(fragment)
-        #Create new fragment from actatoms
-        subcoords, subelems = fragment.get_coords_for_atoms(actatoms)
-        fragment = ash.Fragment(elems=subelems,coords=subcoords, printlevel=0)
-    print("Will now calculate xTB Hessian")
-    #Creating xtb theory object
-    xtb = ash.xTBTheory(xtbmethod=xtbmethod, numcores=numcores)
-
-    #Get Hessian from xTB directly (avoiding ASH NumFreq)
-    if use_xtb_feature == True:
-        print("xTB program will calculate Hessian")
-        hessian = xtb.Hessian(fragment=fragment, charge=charge, mult=mult)
-        write_hessian(hessian,hessfile="Hessian_from_xtb")
-        hessianfile="Hessian_from_xtb"
-    #ASH NumFreq. Not sure how much we will use this one
-    else:
-        freqresult = ash.NumFreq(theory=xtb, fragment=fragment, printlevel=0, runmode=runmode, numcores=1)
-        hessianfile="Hessian_from_xtb"
-        shutil.copyfile("Numfreq_dir/Hessian",hessianfile)
-    #Returning name of Hessian-file
-    return hessianfile
 
 
 #Detect if geometry is linear, either via fragment or coords array

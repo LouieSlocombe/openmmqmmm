@@ -11,7 +11,7 @@ import ash
 import ash.constants as constants
 from ash.functions.functions_general import ashexit,print_time_rel,print_line_with_mainheader, BC,print_line_with_subheader1,print_line_with_subheader2
 from ash.modules.module_coords import check_charge_mult, write_xyzfile, get_conn_atoms_for_list
-from ash.modules.module_freq import write_hessian, approximate_full_Hessian_from_smaller, calc_model_Hessian_ORCA, calc_hessian_xtb
+from ash.modules.module_freq import write_hessian, approximate_full_Hessian_from_smaller, calc_model_Hessian_ORCA
 from ash.modules.module_results import ASH_Results
 
 #This makes Knarr part of python path
