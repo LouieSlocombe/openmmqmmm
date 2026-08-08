@@ -12,7 +12,7 @@ dependencies:
   - numpy
   - typing_extensions
   - pip:
-    - geometric
+      - geometric
 #Optional extras (uncomment as needed):
 #  - openbabel
 #  - matplotlib

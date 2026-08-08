@@ -1,7 +1,9 @@
-import os
-from ash.functions.functions_general import ashexit
 import numpy as np
+import os
+
+from ash.functions.functions_general import ashexit
 from ash.modules.module_coords import write_xyzfile, Fragment
+
 
 def MDtraj_import():
     print("Importing mdtraj (https://www.mdtraj.org)")
@@ -15,13 +17,13 @@ def MDtraj_import():
 
 def MDtraj_RMSF(trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True):
     print("Inside MDtraj_RMSF")
-    #Import mdtraj library
+    # Import mdtraj library
     mdtraj = MDtraj_import()
 
     # Load trajectory
     print("Loading trajectory using mdtraj.")
     traj = mdtraj.load(trajectory, top=pdbtopology)
-    firstframe=traj[0]
+    firstframe = traj[0]
     rmsflist = mdtraj.rmsf(traj, reference=None, frame=0, atom_indices=None, parallel=parallel)
 
     if print_largest_values is True:
@@ -34,22 +36,23 @@ def MDtraj_RMSF(trajectory, pdbtopology, print_largest_values=True, threshold=0.
         print("Printing atoms with high root-mean-square fluctuations:")
         print("Index    Residue-atom           Coordinates                              RMSF")
         for i in large_rmsf_indices:
-            atom_string=str(firstframe.topology.atom(i))
-            rmsfvalue=rmsflist[i]
-            print(f"{i:>6} {atom_string:<14} {firstframe.xyz[0][i][0]:>12.6f} {firstframe.xyz[0][i][1]:>12.6f} {firstframe.xyz[0][i][2]:>12.6f}      {rmsfvalue:>12.6f}")
+            atom_string = str(firstframe.topology.atom(i))
+            rmsfvalue = rmsflist[i]
+            print(
+                f"{i:>6} {atom_string:<14} {firstframe.xyz[0][i][0]:>12.6f} {firstframe.xyz[0][i][1]:>12.6f} {firstframe.xyz[0][i][2]:>12.6f}      {rmsfvalue:>12.6f}")
     return large_rmsf_indices
 
 
 def MDtraj_RMSD(trajectory, pdbtopology, atom_indices=None, parallel=True):
     print("Inside MDtraj_RMSD")
-    #Import mdtraj library
+    # Import mdtraj library
     mdtraj = MDtraj_import()
 
     # Load trajectory
     print("Loading trajectory using mdtraj.")
     traj = mdtraj.load(trajectory, top=pdbtopology)
 
-    #RMSD
+    # RMSD
     rmsds = mdtraj.rmsd(traj, traj, 0, atom_indices=atom_indices, parallel=parallel)
 
     return rmsds
@@ -58,12 +61,12 @@ def MDtraj_RMSD(trajectory, pdbtopology, atom_indices=None, parallel=True):
 # anchor_molecules. Use if automatic guess fails
 def MDtraj_imagetraj(trajectory, pdbtopology, format='DCD', unitcell_lengths=None, unitcell_angles=None,
                      solute_anchor=None):
-    #Trajectory basename
+    # Trajectory basename
     traj_basename = os.path.splitext(trajectory)[0]
-    #PDB-file basename
+    # PDB-file basename
     pdb_basename = os.path.splitext(pdbtopology)[0]
 
-    #Import mdtraj library
+    # Import mdtraj library
     mdtraj = MDtraj_import()
 
     # Load trajectory
@@ -73,8 +76,8 @@ def MDtraj_imagetraj(trajectory, pdbtopology, format='DCD', unitcell_lengths=Non
     numframes = len(traj._time)
     print("Found {} frames in trajectory.".format(numframes))
     print("PBC information in trajectory:")
-    #print("Unitcell lengths:", traj.unitcell_lengths[0])
-    #print("Unitcell angles", traj.unitcell_angles[0])
+    # print("Unitcell lengths:", traj.unitcell_lengths[0])
+    # print("Unitcell angles", traj.unitcell_angles[0])
     # If PBC information is missing from traj file (OpenMM: Charmmfiles, Amberfiles option etc) then provide this info
     if unitcell_lengths is not None:
         print("unitcell_lengths info provided by user.")
@@ -83,7 +86,6 @@ def MDtraj_imagetraj(trajectory, pdbtopology, format='DCD', unitcell_lengths=Non
         traj.unitcell_angles = np.array(unitcell_angles * numframes).reshape(numframes, 3)
     # else:
     #    print("Missing PBC info. This can be provided by unitcell_lengths and unitcell_angles keywords")
-
 
     # Also load the pdbfile as a trajectory-snapshot (in addition to being topology)
     pdbsnap = mdtraj.load(pdbtopology, top=pdbtopology)
@@ -94,7 +96,7 @@ def MDtraj_imagetraj(trajectory, pdbtopology, format='DCD', unitcell_lengths=Non
         print("anchors:", anchors)
         # Re-imaging trajectory
         imaged = traj.image_molecules(anchor_molecules=anchors)
-        #Reimaging PDB
+        # Reimaging PDB
         pdbsnap_imaged = pdbsnap.image_molecules(anchor_molecules=anchors)
     else:
         imaged = traj.image_molecules()
@@ -108,28 +110,27 @@ def MDtraj_imagetraj(trajectory, pdbtopology, format='DCD', unitcell_lengths=Non
         print("Saved reimaged trajectory:", traj_basename + '_imaged.pdb')
     else:
         print("Unknown trajectory format.")
-    #Save PDB-snapshot
+    # Save PDB-snapshot
     pdbsnap_imaged.save(pdb_basename + '_imaged.pdb')
     print("Saved reimaged PDB-file:", pdb_basename + '_imaged.pdb')
-    #Return last frame as coords or ASH fragment ?
-    #Last frame coordinates as Angstrom
-    lastframe=imaged[-1]._xyz[-1]*10
+    # Return last frame as coords or ASH fragment ?
+    # Last frame coordinates as Angstrom
+    lastframe = imaged[-1]._xyz[-1] * 10
 
     return lastframe
 
 
 # Slicing trajectory. Mostly to grab specific snapshot
-#TODO: allow option to grab by ps? Requires information about timestep and traj-frequency
+# TODO: allow option to grab by ps? Requires information about timestep and traj-frequency
 def MDtraj_slice(trajectory, pdbtopology, format='PDB', frames=None):
-
-    #Trajectory basename
-    #traj_basename = os.path.splitext(trajectory)[0]
+    # Trajectory basename
+    # traj_basename = os.path.splitext(trajectory)[0]
     traj_basename = os.path.basename(os.path.splitext(trajectory)[0])
     print("traj_basename:", traj_basename)
-    #os.path.basename(
-    #exit()
+    # os.path.basename(
+    # exit()
 
-    #Import mdtraj library
+    # Import mdtraj library
     mdtraj = MDtraj_import()
 
     # Load trajectory
@@ -143,29 +144,30 @@ def MDtraj_slice(trajectory, pdbtopology, format='PDB', frames=None):
         print("E.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames")
         print("Also possible to do: frames='first' or frames='last' to grab first or last")
         ashexit()
-    elif frames =="first":
-        frames = [0,1]
-    elif frames =="last":
-        frames = [traj.n_frames-1,traj.n_frames]
-    elif frames =="all":
-        frames = [0,traj.n_frames]
+    elif frames == "first":
+        frames = [0, 1]
+    elif frames == "last":
+        frames = [traj.n_frames - 1, traj.n_frames]
+    elif frames == "all":
+        frames = [0, traj.n_frames]
     elif len(frames) != 2:
         print("Error: frames keyword needs to be a list of two integers.")
         print("E.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames")
         print("Also possible to do: frames='first' or frames='last' to grab first or last")
         ashexit()
 
-    #Slicing trajectory
+    # Slicing trajectory
     print("Slicing trajectory using frame selection:", frames)
     tslice = traj[frames[0]:frames[1]]
     print(f"Trajectory slice contains {tslice.n_frames} frames")
     if tslice.n_frames == 0:
-        print(f"0 frames found when slicing. You probably should do: frames=[{frames[0]},{frames[1]+1}] instead")
+        print(f"0 frames found when slicing. You probably should do: frames=[{frames[0]},{frames[1] + 1}] instead")
         print("Exiting")
         ashexit()
 
     # Save trajectory in format
-    print(f"Writing sliced trajectory to file in format {format} (you can change this by format keyword to be 'DCD', 'XYZ' or 'PDB') ")
+    print(
+        f"Writing sliced trajectory to file in format {format} (you can change this by format keyword to be 'DCD', 'XYZ' or 'PDB') ")
     if format == 'DCD':
         tslice.save(traj_basename + f'_frame{frames[0]}_{frames[1]}.dcd')
         print("Saved sliced trajectory:", traj_basename + f'_frame{frames[0]}_{frames[1]}.dcd')
@@ -175,24 +177,26 @@ def MDtraj_slice(trajectory, pdbtopology, format='PDB', frames=None):
         print("Saved sliced trajectory:", traj_basename + f'_frame{frames[0]}_{frames[1]}.pdb')
         return traj_basename + f'_frame{frames[0]}_{frames[1]}.pdb'
     elif format == 'XYZ':
-        #Looping over selection and writing XYZ since mdtraj does not give proper elements
-        print("Warning: the MDtraj_slice XYZ-writing requires guessing element names based on atomnames in the topology PDB-file.")
+        # Looping over selection and writing XYZ since mdtraj does not give proper elements
+        print(
+            "Warning: the MDtraj_slice XYZ-writing requires guessing element names based on atomnames in the topology PDB-file.")
         print("This is not always successful (might require manual change of the atomnames in PDB-file)")
         dummyfrag = Fragment(pdbfile=pdbtopology, printlevel=0)
         elems = dummyfrag.elems
-        for i,t in enumerate(tslice):
-            coords = t._xyz[0]*10
-            write_xyzfile(elems, coords, traj_basename + f'_frame{frames[0]}_{frames[1]}', 
+        for i, t in enumerate(tslice):
+            coords = t._xyz[0] * 10
+            write_xyzfile(elems, coords, traj_basename + f'_frame{frames[0]}_{frames[1]}',
                           printlevel=1, writemode='a', title="title")
-        #tslice.save(traj_basename + f'_frame{frames[0]}_{frames[1]}.xyz')
-        #print("Saved sliced trajectory:", traj_basename + f'_frame{frames[0]}_{frames[1]}.xyz')
+        # tslice.save(traj_basename + f'_frame{frames[0]}_{frames[1]}.xyz')
+        # print("Saved sliced trajectory:", traj_basename + f'_frame{frames[0]}_{frames[1]}.xyz')
         return traj_basename + f'_frame{frames[0]}_{frames[1]}.xyz'
     else:
         print("Unknown trajectory format.")
     return
 
-#Function to get internal coordinates from trajectory fast
-#Give trajectory file
+
+# Function to get internal coordinates from trajectory fast
+# Give trajectory file
 def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=None):
     print("Inside MDtraj_coord_analyze")
     if indices is None:
@@ -201,14 +205,14 @@ def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=No
     print("Trajectory:", trajectory)
     print("Topology:", pdbtopology)
     print("Atom indices:", indices)
-    #Import mdtraj library
+    # Import mdtraj library
     mdtraj = MDtraj_import()
 
     if pdbtopology == None:
         print("A topology is required but was not provided")
         print("Checking if trajectory.pdb file (created by ASH_OpenMM_MD) is available:")
         try:
-            pdbtopology=("trajectory.pdb")
+            pdbtopology = ("trajectory.pdb")
         except:
             print("Found no file. Exiting")
             ashexit()
@@ -228,7 +232,7 @@ def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=No
     elif len(indices) == 2:
         print("2 atom indices given. This must be a distance.  Returning angle in Angstrom")
         output = mdtraj.compute_distances(traj, [indices], periodic=periodic, opt=True)
-        output = 10*output
+        output = 10 * output
         unit_label = "Angstrom"
     else:
         print("something wrong with indices supplied:", indices)
@@ -243,8 +247,7 @@ def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=No
     return output
 
 
-
-#Initial unfinished interface to mdanalysis
+# Initial unfinished interface to mdanalysis
 def MDAnalysis_transform(topfile, trajfile, solute_indices=None, trajoutputformat='PDB', trajname="MDAnalysis_traj"):
     # Load traj
     print("MDAnalysis interface: transform")
@@ -254,7 +257,7 @@ def MDAnalysis_transform(topfile, trajfile, solute_indices=None, trajoutputforma
         import MDAnalysis.transformations as trans
     except ImportError:
         print("Problem importing MDAnalysis library.")
-        #print("Install via: 'pip install mdtraj'")
+        # print("Install via: 'pip install mdtraj'")
         ashexit()
 
     print("Loading trajecory using MDAnalysis")

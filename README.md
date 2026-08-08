@@ -1,8 +1,8 @@
 # openmmqmmm — ORCA + OpenMM QM/MM
 
-A trimmed distribution of the [ASH](https://github.com/RagnarB83/ash) multiscale modelling program,
-reduced to the **ORCA + OpenMM QM/MM stack for biomolecular calculations**. The Python package and
-API keep the upstream `ash` name, so existing ORCA/OpenMM QM/MM scripts work unchanged.
+A trimmed distribution of the [ASH](https://github.com/RagnarB83/ash) multiscale modelling program, reduced to the
+**ORCA + OpenMM QM/MM stack for biomolecular calculations**. The Python package and API keep the upstream `ash` name, so
+existing ORCA/OpenMM QM/MM scripts work unchanged.
 
 **What is included**
 
@@ -13,21 +13,21 @@ API keep the upstream `ash` name, so existing ORCA/OpenMM QM/MM scripts work unc
   `solvate_small_molecule` and `small_molecule_parameterizer`
 - `QMMMTheory` — electrostatically embedded QM/MM with link atoms and charge-shifting
 - `Singlepoint` (+ fragment/theory/reaction variants), `Job_parallel`
-- `Optimizer` / `geomeTRICOptimizer` — geometry optimization via geomeTRIC, including
-  frozen/active-region optimizations of large biomolecular systems (`ActiveRegion`)
+- `Optimizer` / `geomeTRICOptimizer` — geometry optimization via geomeTRIC, including frozen/active-region optimizations
+  of large biomolecular systems (`ActiveRegion`)
 - `NumFreq` / `AnFreq` — numerical/analytical frequencies with partial Hessians and thermochemistry
 - `Fragment` — coordinates/topology handling incl. PDB, Amber, GROMACS file reading
-- Helper interfaces genuinely used by the above: mdtraj (trajectory processing), openbabel
-  (ligand conversion), Multiwfn (density/charge analysis), plotting
+- Helper interfaces genuinely used by the above: mdtraj (trajectory processing), openbabel (ligand conversion), Multiwfn
+  (density/charge analysis), plotting
 
-Everything else from upstream ASH (other QM-code interfaces, NEB/knarr, molcrys, PES,
-high-level workflows, ONIOM, machine-learning tools, …) has been removed.
+Everything else from upstream ASH (other QM-code interfaces, NEB/knarr, molcrys, PES, high-level workflows, ONIOM,
+machine-learning tools, …) has been removed.
 
 **Citation**
 
 This package is derived from ASH. If it is useful in your research please cite:
-[ASH: a Multi-scale, Multi-theory Modeling program](https://onlinelibrary.wiley.com/doi/10.1002/jcc.70359),
-R. Bjornsson, *J. Comput. Chem* **2026**, 47, e70359.
+[ASH: a Multi-scale, Multi-theory Modeling program](https://onlinelibrary.wiley.com/doi/10.1002/jcc.70359), R.
+Bjornsson, *J. Comput. Chem* **2026**, 47, e70359.
 
 **Installation**
 
@@ -101,8 +101,8 @@ MolecularDynamics(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_ti
 cd ash/tests && pytest -q
 ```
 
-The OpenMM/fragment/optimizer tests run without ORCA; the QM/MM tests are skipped automatically
-when no `orca` binary is found in `PATH`.
+The OpenMM/fragment/optimizer tests run without ORCA; the QM/MM tests are skipped automatically when no `orca` binary is
+found in `PATH`.
 
 **Documentation**
 

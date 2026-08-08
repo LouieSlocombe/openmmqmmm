@@ -1,12 +1,12 @@
 """
 Functions to print header, footer, logo, inputscript etc.
 """
-import time
 import os
 import sys
+import time
 
 import ash.settings_ash
-#import ash
+# import ash
 from ash.functions.functions_general import ashexit, BC, print_time_tot_color, timingsobject, \
     print_line_with_subheader1
 
@@ -61,13 +61,13 @@ def print_header():
 
     print("ASH path:", ash.settings_ash.ashpath)
 
-    #Check Python version
-    pythonversion=(sys.version_info[0],sys.version_info[1],sys.version_info[2])
-    print("Python version: {}.{}.{}".format(pythonversion[0],pythonversion[1],pythonversion[2]))
+    # Check Python version
+    pythonversion = (sys.version_info[0], sys.version_info[1], sys.version_info[2])
+    print("Python version: {}.{}.{}".format(pythonversion[0], pythonversion[1], pythonversion[2]))
     print("Python interpreter:", sys.executable)
-    if pythonversion < (3,6,0):
-      print("ASH requires Python version 3.6.0 or higher")
-      ashexit()
+    if pythonversion < (3, 6, 0):
+        print("ASH requires Python version 3.6.0 or higher")
+        ashexit()
 
     print("\nASH Settings after reading defaults and ~/ash_user_settings.ini : ")
     print("See https://ash.readthedocs.io/en/latest/basics.html#ash-settings on how to change settings.")
@@ -83,18 +83,18 @@ def print_header():
     # Print input script unless interactive session or pytest
     if ash.settings_ash.settings_dict["print_input"] is True:
         if ash.settings_ash.interactive_session is False:
-            #Ignore if pytest is active
+            # Ignore if pytest is active
             if "pytest" not in sys.modules:
                 try:
-                  inputfilepath = os.getcwd() + "/" + sys.argv[0]
-                  print("Input script:", inputfilepath)
-                  print(f"{BC.WARNING}{'=' * 80}")
-                  with open(inputfilepath) as f:
-                      for line in f:
-                          print("   >", line, end="")
+                    inputfilepath = os.getcwd() + "/" + sys.argv[0]
+                    print("Input script:", inputfilepath)
+                    print(f"{BC.WARNING}{'=' * 80}")
+                    with open(inputfilepath) as f:
+                        for line in f:
+                            print("   >", line, end="")
                 except Exception:
                     pass
-                print(f"{BC.WARNING}{'=' * 80}",BC.END)
+                print(f"{BC.WARNING}{'=' * 80}", BC.END)
                 print()
 
 
@@ -103,17 +103,17 @@ def print_logo():
     # https://textik.com/#91d6380098664f89
     # https://www.gridsagegames.com/rexpaint/
 
-#     ascii_banner = """
-#    ▄████████    ▄████████    ▄█    █▄
-#   ███    ███   ███    ███   ███    ███
-#   ███    ███   ███    █▀    ███    ███
-#   ███    ███   ███         ▄███▄▄▄▄███▄▄
-# ▀███████████ ▀███████████ ▀▀███▀▀▀▀███▀
-#   ███    ███          ███   ███    ███
-#   ███    ███    ▄█    ███   ███    ███
-#   ███    █▀   ▄████████▀    ███    █▀
+    #     ascii_banner = """
+    #    ▄████████    ▄████████    ▄█    █▄
+    #   ███    ███   ███    ███   ███    ███
+    #   ███    ███   ███    █▀    ███    ███
+    #   ███    ███   ███         ▄███▄▄▄▄███▄▄
+    # ▀███████████ ▀███████████ ▀▀███▀▀▀▀███▀
+    #   ███    ███          ███   ███    ███
+    #   ███    ███    ▄█    ███   ███    ███
+    #   ███    █▀   ▄████████▀    ███    █▀
 
-#     """
+    #     """
 
     ascii_banner_center = """
                             ▄████████    ▄████████    ▄█    █▄

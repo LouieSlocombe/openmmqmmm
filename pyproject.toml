@@ -3,7 +3,7 @@ name = "ash"
 version = "0.99"
 description = "ORCA + OpenMM QM/MM for biomolecular calculations (trimmed ASH distribution)"
 authors = [
-  {name = "R. Bjornsson", email = "ragnar.bjornsson@gmail.com" }
+    { name = "R. Bjornsson", email = "ragnar.bjornsson@gmail.com" }
 ]
 readme = "README.md"
 #Some problem with 3.12 (jan 2024) q

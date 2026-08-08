@@ -1,12 +1,13 @@
+import configparser
 import os
 import sys
-import configparser
 from pathlib import Path
 
 import ash
+
 parser = configparser.ConfigParser()
-userhome = str(Path.home()) #Path to user's home dir
-ashpath = os.path.dirname(ash.__file__) #Path to ASH
+userhome = str(Path.home())  # Path to user's home dir
+ashpath = os.path.dirname(ash.__file__)  # Path to ASH
 
 # Check if interactive session
 interactive_session = bool(getattr(sys, 'ps1', sys.flags.interactive))
@@ -22,7 +23,7 @@ settings_dict["debugflag"] = False
 
 # Julia usage
 settings_dict["load_julia"] = False
-settings_dict["julia_library"] = "pythoncall" #pythoncall is default. pyjulia was another option (not recommended)
+settings_dict["julia_library"] = "pythoncall"  # pythoncall is default. pyjulia was another option (not recommended)
 
 # Whether to use ANSI color escape sequences in output or not.
 settings_dict["use_ANSI_color"] = False
@@ -70,7 +71,8 @@ def try_read_setting(stringvalue, datatype):
     except Exception:
         pass
 
-#NOTE: Warning. If user added quotation marks around string then things go awry. Look into
+
+# NOTE: Warning. If user added quotation marks around string then things go awry. Look into
 # Keywords to look up in ash_user_settings.ini
 try_read_setting("orcadir", "string")
 try_read_setting("multiwfndir", "string")

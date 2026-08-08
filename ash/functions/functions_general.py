@@ -1,13 +1,12 @@
-
-import os
-import sys
+import atexit
+import math
 import numpy as np
+import os
+import re
+import shutil
+import sys
 import time
 from functools import wraps
-import math
-import shutil
-import re
-import atexit
 
 import ash.settings_ash
 from ash import ashpath
@@ -39,34 +38,39 @@ else:
         UNDERLINE = ''
 
 
-
-def check_program_location(directory,directory_name, bin_name):
+def check_program_location(directory, directory_name, bin_name):
     if directory != None:
         finaldirectory = directory
-        print(BC.OKGREEN,f"Using directory path provided: {finaldirectory}", BC.END)
+        print(BC.OKGREEN, f"Using directory path provided: {finaldirectory}", BC.END)
     else:
-        print(BC.WARNING, f"No {directory_name} argument passed. Attempting to find {directory_name} variable in ASH settings file (~/ash_user_settings.ini)", BC.END)
+        print(BC.WARNING,
+              f"No {directory_name} argument passed. Attempting to find {directory_name} variable in ASH settings file (~/ash_user_settings.ini)",
+              BC.END)
         try:
-            finaldirectory=ash.settings_ash.settings_dict[directory_name]
-            print(BC.OKGREEN,f"Using {directory_name} path provided from ASH settings file (~/ash_user_settings.ini): ", finaldirectory, BC.END)
+            finaldirectory = ash.settings_ash.settings_dict[directory_name]
+            print(BC.OKGREEN,
+                  f"Using {directory_name} path provided from ASH settings file (~/ash_user_settings.ini): ",
+                  finaldirectory, BC.END)
         except KeyError:
-            print(BC.WARNING,f"Found no {directory_name} variable in ASH settings file either.",BC.END)
-            print(BC.WARNING,f"Checking for {bin_name} in PATH environment variable.",BC.END)
+            print(BC.WARNING, f"Found no {directory_name} variable in ASH settings file either.", BC.END)
+            print(BC.WARNING, f"Checking for {bin_name} in PATH environment variable.", BC.END)
             try:
                 finaldirectory = os.path.dirname(shutil.which(f'{bin_name}'))
-                print(BC.OKGREEN,f"Found {bin_name} binary in PATH. Using the following directory:", finaldirectory, BC.END)
+                print(BC.OKGREEN, f"Found {bin_name} binary in PATH. Using the following directory:", finaldirectory,
+                      BC.END)
             except TypeError:
-                print(BC.FAIL,f"Found no {bin_name} binary in PATH environment variable either. Giving up.", BC.END)
+                print(BC.FAIL, f"Found no {bin_name} binary in PATH environment variable either. Giving up.", BC.END)
                 ashexit()
     return finaldirectory
 
-#Create ASH environment shell-file in home-dir
-#Simple shell script to active ASH environment for future calcs
+
+# Create ASH environment shell-file in home-dir
+# Simple shell script to active ASH environment for future calcs
 def create_ash_env_file():
-    ash_dir=ash.ashpath
-    path_to_python3_dir=os.path.dirname(sys.executable)
-    #Create set_environment_ash.sh file
-    ash_multiline_string=f"""
+    ash_dir = ash.ashpath
+    path_to_python3_dir = os.path.dirname(sys.executable)
+    # Create set_environment_ash.sh file
+    ash_multiline_string = f"""
 #!/bin/bash
 
 #################################
@@ -92,7 +96,6 @@ echo \"ASH is located in $ASHPATH\"
 echo \"The Python interpreter that you should be using is located in $python3path \"
     """
 
-
     with open(f"{os.path.expanduser('~')}/set_environment_ash.sh", "w") as f:
         f.write(ash_multiline_string)
     print("Created file:   set_environment_ash.sh      in your home-directory.")
@@ -107,54 +110,60 @@ echo \"The Python interpreter that you should be using is located in $python3pat
 # TODO: Avoid reloading
 julia_loaded = False
 
+
 def is_interactive() -> bool:
     try:
         shell = get_ipython().__class__.__name__
         if shell == 'ZMQInteractiveShell':
-            return True   # Jupyter notebook or qtconsole
+            return True  # Jupyter notebook or qtconsole
         elif shell == 'TerminalInteractiveShell':
             return True  # Terminal running IPython
         else:
             return False  # Other type (?)
     except NameError:
-        return False      # Probably standard Python interpreter
+        return False  # Probably standard Python interpreter
 
-#General function to exit ASH
-#NOTE: By default we exit with errorcode 1
+
+# General function to exit ASH
+# NOTE: By default we exit with errorcode 1
 def ashexit(errormessage=None, code=1):
-    print(BC.FAIL,"ASH exiting with code:", code, BC.END)
+    print(BC.FAIL, "ASH exiting with code:", code, BC.END)
 
     if errormessage != None:
-        print(BC.FAIL,"Error message:", errormessage, BC.END)
+        print(BC.FAIL, "Error message:", errormessage, BC.END)
 
-    #If in Jupyter notebook, then we do a softer return
+    # If in Jupyter notebook, then we do a softer return
     if is_interactive():
         raise SystemExit("ASH exiting due to error")
     else:
         sys.exit(1)
 
+
 def basename(filename):
     return os.path.splitext(filename)[0]
 
-#Attempt to generally find a 3rd-party program based on path, exename etc.
-#Either programdir variable is already set, else we try to find based on programdirname or exename
-def find_program(programdir,programdirname,exename,theorynamelabel):
+
+# Attempt to generally find a 3rd-party program based on path, exename etc.
+# Either programdir variable is already set, else we try to find based on programdirname or exename
+def find_program(programdir, programdirname, exename, theorynamelabel):
     if programdir == None:
-        print(BC.WARNING, f"No {programdirname} argument passed to {theorynamelabel}Theory. Attempting to find {programdir} variable inside settings_ash", BC.END)
+        print(BC.WARNING,
+              f"No {programdirname} argument passed to {theorynamelabel}Theory. Attempting to find {programdir} variable inside settings_ash",
+              BC.END)
         try:
             print("settings_ash.settings_dict:", ash.settings_ash.settings_dict)
-            finalpath=ash.settings_ash.settings_dict[programdirname]
+            finalpath = ash.settings_ash.settings_dict[programdirname]
         except KeyError:
-            print(BC.WARNING,f"Found no {programdirname} variable in settings_ash module either.",BC.END)
+            print(BC.WARNING, f"Found no {programdirname} variable in settings_ash module either.", BC.END)
             try:
                 finalpath = os.path.dirname(os.path.dirname(shutil.which(exename)))
-                print(BC.OKGREEN,f"Found {exename} executable in PATH. Setting {programdir} to:", finalpath, BC.END)
+                print(BC.OKGREEN, f"Found {exename} executable in PATH. Setting {programdir} to:", finalpath, BC.END)
             except:
-                print(BC.FAIL,f"Found no {exename} executable in PATH.", BC.END)
+                print(BC.FAIL, f"Found no {exename} executable in PATH.", BC.END)
                 ashexit()
     else:
         print("Program directory chosen to be:", programdir)
-     #Check if dir exists
+        # Check if dir exists
         if os.path.exists(programdir):
             print("It exists.")
         else:
@@ -163,16 +172,18 @@ def find_program(programdir,programdirname,exename,theorynamelabel):
         finalpath = programdir
     return finalpath
 
+
 def load_pythoncall():
     print("Now trying pythoncall/juliacall package. This will fail if :\n\
             - Juliacall Python package has not been installed (via pip)\n")
-            #- PythonCall julia packages has not been installed (via Julia Pkg)\n")
-            #- Julia Hungarian package has not been installed")
+    # - PythonCall julia packages has not been installed (via Julia Pkg)\n")
+    # - Julia Hungarian package has not been installed")
     from juliacall import Main as JuliaMain
     JuliaMain.include(ashpath + "/functions/functions_julia.jl")
     return JuliaMain
 
-#def load_pyjulia():
+
+# def load_pyjulia():
 #    print("Now loading PyJulia. This will fail if :\n\
 #        - Julia PyCall package has not been installed\n\
 #
@@ -184,33 +195,34 @@ def load_pythoncall():
 def load_julia_interface(julia_library=None):
     print("\nCalling Julia interface")
 
-    #If not set (rare) then get the settings_ash value
+    # If not set (rare) then get the settings_ash value
     if julia_library == None:
-        julia_library=ash.settings_ash.settings_dict["julia_library"]
+        julia_library = ash.settings_ash.settings_dict["julia_library"]
 
     print("Note: PythonCall/Juliacall is recommended (default).")
     # Loading pythoncall or pyjulia
     print("Library is set to:", julia_library)
-    #Global variables
+    # Global variables
     global julia_loaded
     global JuliaMain
 
-    #Only load if not loaded before
+    # Only load if not loaded before
     if julia_loaded is False:
         print("Now loading Julia interface.")
-        currtime=time.time()
-        #Checking for Julia binary in PATH
+        currtime = time.time()
+        # Checking for Julia binary in PATH
         print("This requires a Julia installation available in PATH")
         try:
-            juliapath=os.path.dirname(shutil.which('julia'))
+            juliapath = os.path.dirname(shutil.which('julia'))
             print("Found Julia in dir:", juliapath)
         except TypeError:
             print("Possible Problem. No julia binary found in PATH environment variable.")
-            print("Make sure the path to your desired Julia's bin directory is available in your shell-configuration or jobscript")
+            print(
+                "Make sure the path to your desired Julia's bin directory is available in your shell-configuration or jobscript")
             print("Will continue as pythoncall may be able to install Julia for you.")
-            #ashexit()
+            # ashexit()
 
-        #Importing the necessary interface library
+        # Importing the necessary interface library
         print("Loading a Python/Julia interface library")
         if julia_library == "pythoncall":
             print("Library: pythoncall/juliacall")
@@ -220,7 +232,7 @@ def load_julia_interface(julia_library=None):
             except:
                 print("Problem loading pythoncall/juliacall.")
                 ashexit()
-        #elif julia_library == "pyjulia":
+        # elif julia_library == "pyjulia":
         #    try:
         #        JuliaMain = load_pyjulia()
         #        print("Julia interface successfully loaded")
@@ -230,7 +242,7 @@ def load_julia_interface(julia_library=None):
         else:
             print("Unknown Julia library:", julia_library)
             ashexit()
-        julia_loaded = True  #Means an attempt was made to load Julia.
+        julia_loaded = True  # Means an attempt was made to load Julia.
         print_time_rel(currtime, modulename='loading julia interface', moduleindex=4)
     return JuliaMain.Juliafunctions
 
@@ -288,8 +300,9 @@ def pygrep2(string, file, print_output=False, errors=None):
         print(*l)
     return l
 
-#Simple function to do find and replace string in file
-def find_replace_string_in_file(file,findstring,replstring):
+
+# Simple function to do find and replace string in file
+def find_replace_string_in_file(file, findstring, replstring):
     with open(file, 'r') as f:
         filedata = f.read()
     # Replace the target string
@@ -329,23 +342,23 @@ def frange(start, stop=None, step=None, rounddigits=4):
         count += 1
 
 
-#Function to find n highest max values and indices
-#Quite ugly
-def n_max_values(l,num):
-    maxweight=max(l)
-    maxweight_index=l.index(max(l))
-    current_indices=[maxweight_index]
-    #Looping over
+# Function to find n highest max values and indices
+# Quite ugly
+def n_max_values(l, num):
+    maxweight = max(l)
+    maxweight_index = l.index(max(l))
+    current_indices = [maxweight_index]
+    # Looping over
 
-    for step in range(1,num):
-        current_highest_val=0.0
-        for index,weight in enumerate(l):
-            if index in current_indices: #Skipping previously found max
+    for step in range(1, num):
+        current_highest_val = 0.0
+        for index, weight in enumerate(l):
+            if index in current_indices:  # Skipping previously found max
                 pass
             else:
                 if weight > current_highest_val:
-                    current_highest_val=weight
-                    current_highest_index=index
+                    current_highest_val = weight
+                    current_highest_index = index
         current_indices.append(current_highest_index)
     return current_indices
 
@@ -354,16 +367,18 @@ def n_max_values(l,num):
 
 
 # Print string if printlevel equals or larger than reference
-def print_if_level(var, printlevel,refprintlevel):
+def print_if_level(var, printlevel, refprintlevel):
     if printlevel >= refprintlevel:
         print(var)
-    #else:
+    # else:
     #    print("Printlevel too low")
+
 
 # Debug print. Behaves like print but reads global debug var first
 def printdebug(string, var=''):
     if ash.settings_ash.settings_dict["debugflag"] is True:
         print(BC.OKRED, string, var, BC.END)
+
 
 # mainmodule header
 def print_line_with_mainheader(line):
@@ -371,14 +386,14 @@ def print_line_with_mainheader(line):
     offset = 12
     outer_line = f"{BC.OKGREEN}{'#' * (length + offset)}{BC.END}"
     midline = f"{BC.OKGREEN}#{' ' * (length + offset - 2)}#{BC.END}"
-    inner_line = f"{BC.OKGREEN}#{' ' * (offset//2 - 1)}{BC.BOLD}{line}{' ' * (offset//2 - 1)}#{BC.END}"
+    inner_line = f"{BC.OKGREEN}#{' ' * (offset // 2 - 1)}{BC.BOLD}{line}{' ' * (offset // 2 - 1)}#{BC.END}"
     print("\n")
     print(outer_line.center(80))
     print(midline.center(80))
     print(inner_line.center(80))
     print(midline.center(80))
     print(outer_line.center(80))
-    #print("\n")
+    # print("\n")
 
 
 # Submodule header
@@ -389,10 +404,12 @@ def print_line_with_subheader1(line):
     print(f"{BC.OKBLUE}{'-' * 80}{BC.END}")
     print("")
 
+
 # Submodule header
 def print_line_with_subheader1_end():
     print("")
     print(f"{BC.OKBLUE}{'-' * 80}{BC.END}")
+
 
 # Smaller header
 def print_line_with_subheader2(line):
@@ -473,12 +490,13 @@ def is_string_float_withdecimal(s):
         return False
 
 
-#Search list of lists. Returns list-index if match
+# Search list of lists. Returns list-index if match
 
 def search_list_of_lists_for_index(i, l):
     return next((c for c, f in enumerate(l) if i in f), None)
 
-#convert list of lists to dict
+
+# convert list of lists to dict
 def create_conn_dict(l):
     index = {}
     for c, sublist in enumerate(l):
@@ -488,11 +506,12 @@ def create_conn_dict(l):
     return index
 
 
-def search_list_of_lists_for_index_old(i,l):
-    for c,f in enumerate(l):
+def search_list_of_lists_for_index_old(i, l):
+    for c, f in enumerate(l):
         if i in f:
             return c
             break
+
 
 # Check if list of integers is sorted or not.
 def is_integerlist_ordered(list):
@@ -509,6 +528,7 @@ def islist(l):
     else:
         return False
 
+
 def numlines_in_file(file):
     with open(file, 'r') as fp:
         numlines = len(fp.readlines())
@@ -516,7 +536,7 @@ def numlines_in_file(file):
 
 
 # Read lines of file by slurping.
-#def readlinesfile(filename):
+# def readlinesfile(filename):
 #    try:
 #        f = open(filename)
 #        out = f.readlines()
@@ -568,11 +588,11 @@ def read_floatlist_from_file(filename):
     return floatlist
 
 
-#Read simple datafile (e.g. .dat and .stk files from ORCA).
+# Read simple datafile (e.g. .dat and .stk files from ORCA).
 # Separator is Python default whitespace.
 def read_datafile(filename, separator=None):
-    x=[]
-    y=[]
+    x = []
+    y = []
     with open(filename) as f:
         for line in f:
             if '#' not in line:
@@ -585,9 +605,10 @@ def read_datafile(filename, separator=None):
     if len(x) != len(y):
         print(f"Warning:Length of x ({len(x)}) and y {len(y)} are different!")
 
-    return np.array(x),np.array(y)
+    return np.array(x), np.array(y)
 
-#Write simple datafile
+
+# Write simple datafile
 # Separator is Python default whitespace.
 def write_datafile(x, y, filename="new.dat", separator="     "):
     if len(x) != len(y):
@@ -595,26 +616,27 @@ def write_datafile(x, y, filename="new.dat", separator="     "):
         ashexit()
     with open(filename, 'w') as f:
         f.write("# Created by ASH\n")
-        for i,j in zip(x,y):
+        for i, j in zip(x, y):
             f.write(f"{i}{separator}{j}\n")
     print("Wrote new datafile:", filename)
 
+
 # Fast numpy-array to file
 # https://stackoverflow.com/questions/53820891/speed-of-writing-a-numpy-array-to-a-text-file
-#Note: float_format needs to match dimension of array
+# Note: float_format needs to match dimension of array
 def fast_nparray_write(a, float_format="%-12.7f %-12.7f %-12.7f %-8.4f", filename="bla5", writemode="w"):
-    with open(filename,writemode) as f:
-        #fmt = ' '.join([float_format]*a.shape[1])
-        #fmt = '\n'.join([fmt]*a.shape[0])
-        #print("fmt:", fmt)
-        #print(type(fmt))
-        fmt = '\n'.join([float_format]*a.shape[0])
+    with open(filename, writemode) as f:
+        # fmt = ' '.join([float_format]*a.shape[1])
+        # fmt = '\n'.join([fmt]*a.shape[0])
+        # print("fmt:", fmt)
+        # print(type(fmt))
+        fmt = '\n'.join([float_format] * a.shape[0])
         data = fmt % tuple(a.ravel())
         f.write(data)
 
 
 # Write a string to file simply
-def writestringtofile(string, file,writemode='w'):
+def writestringtofile(string, file, writemode='w'):
     with open(file, writemode) as f:
         f.write(string)
 
@@ -662,8 +684,6 @@ def clean_number(number):
     return np.real_if_close(number)
 
 
-
-
 # Function to get unique values
 def uniq(seq, idfun=None):
     # order preserving
@@ -689,10 +709,10 @@ def column(matrix, i):
 
 
 # Various function to print time of module/step. Will add time also to Timings object
-#Printing if currprintlevel
+# Printing if currprintlevel
 def print_time_rel(timestamp, modulename='Unknown', moduleindex=4, currprintlevel=1, currthreshold=1):
     secs = time.time() - timestamp
-    #print("secs:", secs)
+    # print("secs:", secs)
     mins = secs / 60
     if currprintlevel >= currthreshold:
         print_line_with_subheader2(
@@ -779,7 +799,7 @@ class Timings:
         # Theory run: ORCATHeory, QM/MM Theory etc
         dictitems_index2 = [i for i in self.simple_dict if self.module_indices[i] == 2]
         # NOTE: Was not using index 3. Now using for object creation
-        dictitems_index3=[i for i in self.simple_dict if self.module_indices[i] == 3]
+        dictitems_index3 = [i for i in self.simple_dict if self.module_indices[i] == 3]
         # Other small modules. 4 is default
         dictitems_index4 = [i for i in self.simple_dict if self.module_indices[i] == 4]
 
@@ -828,32 +848,31 @@ class Timings:
         print("{:35}{:>20.2f}{:>10}".format("Total walltime", totalwalltime, 100.0))
 
 
-#General pretty table of things
-def print_pretty_table(list_of_objects=None, list_of_labels=None, title=None,  spacing=15, float_decimals=4,
+# General pretty table of things
+def print_pretty_table(list_of_objects=None, list_of_labels=None, title=None, spacing=15, float_decimals=4,
                        divider_line_length=70):
-
-    format_spec_string=f"{spacing}"
-    format_spec_float=f"{spacing}.{float_decimals}f"
-    #Header
-    print("="*divider_line_length)
+    format_spec_string = f"{spacing}"
+    format_spec_float = f"{spacing}.{float_decimals}f"
+    # Header
+    print("=" * divider_line_length)
     print(f"{title}")
-    print("="*divider_line_length)
-    headerstring=f""
+    print("=" * divider_line_length)
+    headerstring = f""
     for label in list_of_labels:
-        headerstring+= f"{label:>{format_spec_string}}"
+        headerstring += f"{label:>{format_spec_string}}"
     print(headerstring)
-    print("-"*divider_line_length)
-    tablestring=f""
+    print("-" * divider_line_length)
+    tablestring = f""
     for i in range(len(list_of_objects[0])):
         for j in range(len(list_of_objects)):
             val = list_of_objects[j][i]
             if type(val) == float:
-                tablestring+=f"{val:>{format_spec_float}}"
+                tablestring += f"{val:>{format_spec_float}}"
             else:
-                tablestring+=f"{val:>{format_spec_string}}"
-        tablestring+=f"\n"
+                tablestring += f"{val:>{format_spec_string}}"
+        tablestring += f"\n"
     print(tablestring)
-    print("-"*divider_line_length)
+    print("-" * divider_line_length)
     print()
 
 
