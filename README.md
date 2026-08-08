@@ -5,7 +5,7 @@ A trimmed distribution of the [ASH](https://github.com/RagnarB83/ash) multiscale
 upstream ASH class and function names, so existing ORCA/OpenMM QM/MM scripts only need their import changed from `ash`
 to `openmmqmmm`.
 
-**What is included**
+## What is included
 
 - `ORCATheory` — interface to the [ORCA](https://www.faccts.de/orca/) quantum chemistry program
 - `OpenMMTheory` — interface to the [OpenMM](https://openmm.org) MM library, plus
@@ -24,15 +24,27 @@ to `openmmqmmm`.
 Everything else from upstream ASH (other QM-code interfaces, NEB/knarr, molcrys, PES, high-level workflows, ONIOM,
 machine-learning tools, …) has been removed.
 
-**Citation**
+## Citation
 
 This package is derived from ASH. If it is useful in your research please cite:
 [ASH: a Multi-scale, Multi-theory Modeling program](https://onlinelibrary.wiley.com/doi/10.1002/jcc.70359), R.
 Bjornsson, *J. Comput. Chem* **2026**, 47, e70359.
 
-**Installation**
+## Installation
 
-Use a conda/mamba environment providing OpenMM, then install the package with pip:
+**Requirements**
+
+- Linux or macOS, Python ≥ 3.10 (developed and tested on 3.13)
+- [OpenMM](https://openmm.org) ≥ 8, [PDBFixer](https://github.com/openmm/pdbfixer) and
+  [mdtraj](https://www.mdtraj.org) — installed from conda-forge (PDBFixer is not on PyPI, so a
+  conda/mamba environment is the recommended route)
+- [geomeTRIC](https://github.com/leeping/geomeTRIC), numpy, packaging — pulled in automatically by pip
+- [ORCA](https://www.faccts.de/orca/) — installed separately (free for academic use); required for
+  `ORCATheory` and QM/MM, not for the pure-MM/OpenMM functionality
+
+**Conda environment (recommended)**
+
+From the repository root:
 
 ```sh
 conda env create -f environment.yml
@@ -40,9 +52,61 @@ conda activate openmmqmmm
 pip install -e .
 ```
 
-ORCA must be installed separately and available in `PATH` (or via `orcadir`/`~/ash_user_settings.ini`).
+`pip install -e .` is an editable (development) install: changes to the source tree take effect without
+reinstalling. Use `pip install .` for a regular install. The environment also provides `pytest` and
+`python-build` for testing and building.
 
-**Basic example**
+**Installing into an existing environment**
+
+```sh
+conda install -c conda-forge "openmm>=8" pdbfixer mdtraj
+pip install .
+```
+
+**Optional dependencies**
+
+Some functionality uses extra packages, all available on conda-forge: `openbabel` (ligand format
+conversion in `small_molecule_parameterizer`), `matplotlib`/`scipy` (plotting), `parmed`
+(Amber/GROMACS file handling in `OpenMMTheory`). They are listed, commented out, in
+`environment.yml`.
+
+**Configuring ORCA**
+
+Either make sure the `orca` binary is in `PATH`, or point the package at your ORCA installation in one
+of two ways:
+
+- pass `orcadir="/path/to/orca_directory"` to `ORCATheory`, or
+- create `~/ash_user_settings.ini`:
+
+  ```ini
+  [Settings]
+  orcadir = /path/to/orca_directory
+  ```
+
+For parallel ORCA runs (`numcores` > 1) the matching OpenMPI version must also be set up, as for any
+ORCA installation.
+
+**Verifying the installation**
+
+```sh
+python -c "import openmmqmmm"
+cd openmmqmmm/tests && pytest -q
+```
+
+The fragment/OpenMM/optimizer tests run without ORCA; the QM/MM tests are skipped automatically when
+no `orca` binary is found in `PATH`.
+
+## Building distributions
+
+```sh
+python -m build
+```
+
+This produces an sdist and a wheel under `dist/`. Wheels ship only the runtime data files
+(`log.ini`, the Multiwfn `settings.ini`); the test suite and its ~32 MB of reference data stay in the
+source repository, so run the tests from a checkout, not from an installed wheel.
+
+## Basic example
 
 ```py
 from openmmqmmm import *
@@ -72,7 +136,7 @@ NumFreq(theory=ORCAcalc,fragment=HF_frag)
 MolecularDynamics(fragment=HF_frag, theory=ORCAcalc, timestep=0.001, simulation_time=2)
 ```
 
-**QM/MM example**
+## QM/MM example
 
 ```py
 from openmmqmmm import *
@@ -96,15 +160,6 @@ Optimizer(theory=qm_mm,fragment=fragment, actatoms=qmatoms)
 MolecularDynamics(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
 ```
 
-**Tests**
-
-```sh
-cd openmmqmmm/tests && pytest -q
-```
-
-The OpenMM/fragment/optimizer tests run without ORCA; the QM/MM tests are skipped automatically when no `orca` binary is
-found in `PATH`.
-
-**Documentation**
+## Documentation
 
 Upstream ASH documentation (applies to the retained functionality): https://ash.readthedocs.io

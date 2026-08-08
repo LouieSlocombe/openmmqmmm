@@ -1,21 +1,32 @@
+# Conda environment for building, developing and running openmmqmmm.
+#
+# Usage (from the repository root):
+#   conda env create -f environment.yml
+#   conda activate openmmqmmm
+#   pip install -e .
+#
+# ORCA is not packaged here — install it separately and make sure `orca` is in
+# PATH (or set orcadir in ~/ash_user_settings.ini). See README.md.
 name: openmmqmmm
-#Only conda-forge allowed for now
 channels:
   - conda-forge
-#Packages for the ORCA+OpenMM QM/MM distribution of ASH
 dependencies:
-  - python=3.11
+  # Runtime — the OpenMM stack comes from conda-forge (pdbfixer is not on PyPI)
+  - python=3.13
   - pip
-  - openmm
+  - openmm >=8
   - pdbfixer
   - mdtraj
   - numpy
-  - typing_extensions
+  - packaging
+  # Development / build tooling
+  - pytest
+  - python-build
   - pip:
-      - geometric
-#Optional extras (uncomment as needed):
-#  - openbabel
-#  - matplotlib
-#  - scipy
-#  - parmed
-#  - openmm-plumed
+      # geomeTRIC optimizer
+      - geometric >=1.0.1
+# Optional extras — uncomment as needed:
+#  - openbabel     # ligand format conversion (small_molecule_parameterizer)
+#  - matplotlib    # plotting functions (module_plotting)
+#  - scipy         # analysis/plotting helpers
+#  - parmed        # Amber/GROMACS prmtop handling in OpenMMTheory

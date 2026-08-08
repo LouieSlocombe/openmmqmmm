@@ -21,3 +21,4 @@ TODO
 *.egg-info
 build
 .pre-commit-config.yaml
+dist/

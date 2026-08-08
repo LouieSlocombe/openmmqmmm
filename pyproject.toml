@@ -1,26 +1,45 @@
+[build-system]
+requires = ["setuptools >= 77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "openmmqmmm"
 version = "0.99"
 description = "ORCA + OpenMM QM/MM for biomolecular calculations (trimmed ASH distribution)"
-authors = [
-    { name = "R. Bjornsson", email = "ragnar.bjornsson@gmail.com" }
-]
 readme = "README.md"
-#Some problem with 3.12 (jan 2024) q
-requires-python = ">= 3.7"
-#geometric and numpy main dependencies
-dependencies = [
-    'geometric >=1.0.1',
-    'numpy', 'packaging', 'pytest',
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "R. Bjornsson", email = "ragnar.bjornsson@gmail.com" },
 ]
-#optional dependencies
+maintainers = [
+    { name = "Louie Slocombe", email = "louie.l.slocombe@gmail.com" },
+]
+requires-python = ">= 3.10"
+dependencies = [
+    "numpy",
+    "packaging",
+    "geometric >= 1.0.1",
+]
 
-[build-system]
-requires = ["setuptools >=61.0.0"]
-build-backend = "setuptools.build_meta"
+[project.optional-dependencies]
+# The OpenMM stack is best installed from conda-forge (see environment.yml);
+# pdbfixer in particular is not distributed on PyPI.
+openmm = ["openmm >= 8", "mdtraj"]
+extras = ["matplotlib", "scipy", "parmed"]
+test = ["pytest"]
+
+[project.urls]
+Documentation = "https://ash.readthedocs.io"
+Upstream = "https://github.com/RagnarB83/ash"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["openmmqmmm*"]
+exclude = ["openmmqmmm.tests*"]
+
+# Non-Python files required at runtime. Test data (~32 MB under
+# openmmqmmm/tests) is deliberately not shipped in wheels — run the test
+# suite from a source checkout.
 [tool.setuptools.package-data]
-"openmmqmmm" = ["**/*"]
+openmmqmmm = ["log.ini", "external/Multiwfn/settings.ini"]
