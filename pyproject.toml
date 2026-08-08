@@ -1,48 +1,26 @@
-[build-system]
-requires = ["setuptools>=61", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "openmmqmmm"
-version = "0.0.1"
-description = "QM/MM simulation framework built on OpenMM"
-readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.12"
-license = { text = "MIT" }
-
+name = "ash"
+version = "0.99"
+description = "ASH is a multiscale, multitheory modelling program"
 authors = [
-  { name = "Louie Slocombe", email = "louies@hotmail.co.uk" },
+  {name = "R. Bjornsson", email = "ragnar.bjornsson@gmail.com" }
 ]
-
+readme = "README.md"
+#Some problem with 3.12 (jan 2024) q
+requires-python = ">= 3.7"
+#geometric and numpy main dependencies
 dependencies = [
     'geometric >=1.0.1',
-    'numpy',
-    'packaging',
-    'pytest',
+    'numpy', 'packaging', 'pytest',
 ]
+#optional dependencies
 
-classifiers = [
-  "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
-  "Operating System :: OS Independent",
-]
-
-[project.optional-dependencies]
-dev = [
-  "pytest",
-  "pytest-cov",
-]
-
-[project.urls]
-Homepage = "https://github.com/LouieSlocombe/openmmqmmm"
-Repository = "https://github.com/LouieSlocombe/openmmqmmm"
-
-[tool.setuptools]
-include-package-data = true
+[build-system]
+requires = ["setuptools >=61.0.0"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["openmmqmmm", "openmmqmmm.*"]
-
+include = ["ash*"]
 [tool.setuptools.package-data]
-"*" = ["*.*"]
+"ash" = ["**/*"]
