@@ -179,7 +179,7 @@ def Singlepoint_fragments(theory=None, fragments=None, stoichiometry=None, relat
         #Setting charge/mult  from fragment
         charge=frag.charge; mult=frag.mult
 
-        #Setting orbital file for ORCATheory, PySCFTheory, DiceTheory or any other using moreadfile
+        #Setting orbital file for ORCATheory or any other theory using moreadfile
         try:
             theory.moreadfile=moreadfiles[i]
         except:
@@ -292,7 +292,7 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
 
     #Looping through fragments defined in Reaction object
     for i,frag in enumerate(reaction.fragments):
-        #Orbital file for ORCATheory, PySCFTheory, DiceTheory or any other using moreadfile
+        #Orbital file for ORCATheory or any other theory using moreadfile
         try:
             theory.moreadfile=reaction.orbital_dictionary[moreadfiles][i]
             print("Found orbital dictionary in reaction object")
