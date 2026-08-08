@@ -1344,7 +1344,7 @@ def grabtrajenergies(filename):
     return energies,stepvals
 
 
-#TODO: Limited, kept for now for module_PES compatibility. Better version below
+#TODO: Limited older version. Better version below
 def orbitalgrab(file):
     occorbsgrab=False
     virtorbsgrab=False

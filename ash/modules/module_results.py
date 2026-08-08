@@ -16,7 +16,7 @@ class ASH_Results:
     qmmm_energy: float = None
     gradient: np.array = None
     reaction_energy: float = None
-    # Energy contributions if e.g. ORCA_CC_CBS_Theory
+    # Optional per-component energy contributions
     energy_contributions: dict = None
 
     # Multi-energy job: Lists of energies and gradients

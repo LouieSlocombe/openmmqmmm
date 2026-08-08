@@ -2151,7 +2151,6 @@ def split_multimolxyzfile(file, writexyz=False, skipindex=1,return_fragments=Fal
 
 
 # Read Tcl-Chemshell fragment file and grab elems and coords. Coordinates converted from Bohr to Angstrom
-# Taken from functions_solv
 def read_chemshellfragfile_xyz(fragfile):
     # removing extension from fragfile name if present and then adding back.
     pathtofragfile = fragfile.split('.')[0] + '.c'
@@ -3223,8 +3222,6 @@ AXIS_REFLECTIONS = np.array([
 
 
 # Extend cell in general with original cell in center
-# NOTE: Taken from functions_molcrys.
-# TODO: Remove function from functions_molcrys
 def cell_extend_frag(cellvectors, coords, elems, cellextpars):
     printdebug("cellextpars:", cellextpars)
     permutations = []
@@ -3266,7 +3263,6 @@ def cell_extend_frag(cellvectors, coords, elems, cellextpars):
 
 
 # From Pymol. Not sure if useful
-# NOTE: also in functions_molcrys
 def cellbasis(angles, edges):
     from math import cos, sin, radians, sqrt
     """
@@ -3315,7 +3311,6 @@ def make_cluster_from_box(fragment=None, radius=10, center_atomindices=[0], cell
 
 
 # QM-region expand function. Finds whole fragments.
-# Used by molcrys. Similar to get_solvshell function in functions_solv.py
 def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
     # If needed (connectivity ==0):
     scale = ash.settings_ash.settings_dict["scale"]
