@@ -21,3 +21,7 @@ ash_user_settings.ini
 # Scratch output from manual runs in the repo root (test output is handled
 # by openmmqmmm/tests/.gitignore and cleaned by conftest.py)
 *_OPTtraj.tmp/
+
+# Job output scattered by manual runs in the repo root
+*.result
+results.json
