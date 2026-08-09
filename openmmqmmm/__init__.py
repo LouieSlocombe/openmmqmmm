@@ -5,6 +5,17 @@ R. Bjornsson
 Trimmed distribution: ORCA + OpenMM QM/MM functionality for biomolecular calculations.
 """
 
+# Exceptions
+from .exceptions import (
+    ExternalProgramError,
+    FileFormatError,
+    InputError,
+    InternalError,
+    MissingDependencyError,
+    OpenMMQMMMError,
+    require,
+)
+
 # Results dataclass
 # Parallel
 from .functions.functions_parallel import Job_parallel, Simple_parallel
@@ -117,10 +128,14 @@ __all__ = [
     "ASH_plot",
     # Frequencies
     "AnFreq",
+    "ExternalProgramError",
+    "FileFormatError",
     # Fragment and coordinate functions
     "Fragment",
     "Gentle_warm_up_MD",
     "GeomeTRICOptimizerClass",
+    "InputError",
+    "InternalError",
     # Parallel
     "Job_parallel",
     "MDtraj_RMSD",
@@ -130,6 +145,7 @@ __all__ = [
     "MDtraj_imagetraj",
     "MDtraj_slice",
     "MetaDynamics",
+    "MissingDependencyError",
     "MolecularDynamics",
     "NumFreq",
     # Numerical gradient
@@ -137,6 +153,8 @@ __all__ = [
     # ORCA
     "ORCATheory",
     "ORCA_External_Optimizer",
+    # Exceptions
+    "OpenMMQMMMError",
     # OpenMM
     "OpenMMTheory",
     "OpenMM_MD",
@@ -196,6 +214,7 @@ __all__ = [
     "read_results_from_file",
     "read_xyzfile",
     "read_xyzfiles",
+    "require",
     "sdf_to_pdb",
     "simple_get_water_constraints",
     "small_molecule_parameterizer",

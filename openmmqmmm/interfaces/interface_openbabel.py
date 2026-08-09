@@ -1,6 +1,8 @@
 import os
 
-from openmmqmmm.functions.functions_general import ashexit
+from openmmqmmm.exceptions import (
+    MissingDependencyError,
+)
 from openmmqmmm.modules.module_coords import reformat_element
 
 ###################################
@@ -13,9 +15,9 @@ def mol_to_pdb(file):
     try:
         from openbabel import pybel
     except ModuleNotFoundError:
-        print("Error: mol_to_pdb requires OpenBabel library but it could not be imported")
-        print("You can install like this:    conda install --yes -c conda-forge openbabel")
-        ashexit()
+        raise MissingDependencyError(
+            "Error: mol_to_pdb requires OpenBabel library but it could not be imported\nYou can install like this:    conda install --yes -c conda-forge openbabel"
+        ) from None
     mol = next(pybel.readfile("mol", file))
     mol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
     print("Wrote PDB-file:", os.path.splitext(file)[0] + ".pdb")
@@ -28,9 +30,9 @@ def sdf_to_pdb(file):
     try:
         from openbabel import openbabel, pybel
     except ModuleNotFoundError:
-        print("Error: sdf_to_pdb requires OpenBabel library but it could not be imported")
-        print("You can install like this:    conda install --yes -c conda-forge openbabel")
-        ashexit()
+        raise MissingDependencyError(
+            "Error: sdf_to_pdb requires OpenBabel library but it could not be imported\nYou can install like this:    conda install --yes -c conda-forge openbabel"
+        ) from None
     mol = next(pybel.readfile("sdf", file))
 
     # Write do disk as PDB-file
@@ -62,9 +64,9 @@ def writepdb_with_connectivity(file):
     try:
         from openbabel import pybel
     except ModuleNotFoundError:
-        print("Error: writepdb_with_connectivity requires OpenBabel library but it could not be imported")
-        print("You can install like this:    conda install --yes -c conda-forge openbabel")
-        ashexit()
+        raise MissingDependencyError(
+            "Error: writepdb_with_connectivity requires OpenBabel library but it could not be imported\nYou can install like this:    conda install --yes -c conda-forge openbabel"
+        ) from None
     mol = next(pybel.readfile("pdb", file))
     mol.write(format="pdb", filename=os.path.splitext(file)[0] + "_withcon.pdb", overwrite=True)
     print("Wrote PDB-file:", os.path.splitext(file)[0] + "_withcon.pdb")
@@ -78,9 +80,9 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
     try:
         from openbabel import openbabel, pybel
     except ModuleNotFoundError:
-        print("Error: xyz_to_pdb_with_connectivity requires OpenBabel library but it could not be imported")
-        print("You can install OpenBabel like this:    conda install --yes -c conda-forge openbabel")
-        ashexit()
+        raise MissingDependencyError(
+            "Error: xyz_to_pdb_with_connectivity requires OpenBabel library but it could not be imported\nYou can install OpenBabel like this:    conda install --yes -c conda-forge openbabel"
+        ) from None
     # Read in XYZ-file
     mol = next(pybel.readfile("xyz", file))
     # Write do disk as PDB-file
@@ -114,9 +116,9 @@ def pdb_to_smiles(fname: str) -> str:
     try:
         from openbabel import pybel
     except ModuleNotFoundError:
-        print("Error: pdb_to_smiles requires OpenBabel library but it could not be imported")
-        print("You can install like this:    conda install --yes -c conda-forge openbabel")
-        ashexit()
+        raise MissingDependencyError(
+            "Error: pdb_to_smiles requires OpenBabel library but it could not be imported\nYou can install like this:    conda install --yes -c conda-forge openbabel"
+        ) from None
     mol = next(pybel.readfile("pdb", fname))
     smi = mol.write(format="smi")
     return smi.split()[0].strip()
@@ -128,9 +130,9 @@ def smiles_to_coords(smiles_string):
     try:
         from openbabel import openbabel, pybel
     except ModuleNotFoundError:
-        print("Error: smiles_to_coords requires OpenBabel library but it could not be imported")
-        print("You can install like this:    conda install --yes -c conda-forge openbabel")
-        ashexit()
+        raise MissingDependencyError(
+            "Error: smiles_to_coords requires OpenBabel library but it could not be imported\nYou can install like this:    conda install --yes -c conda-forge openbabel"
+        ) from None
     print("Reading SMILES by OpenBabel")
     mol = pybel.readstring("smi", smiles_string)
     print("Guessing 3D coordinates (uses MMFF94 forcefield)")

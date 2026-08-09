@@ -5,7 +5,13 @@ import shutil
 import subprocess as sp
 import time
 
-from openmmqmmm.functions.functions_general import BC, ashexit, print_line_with_subheader1
+from openmmqmmm.exceptions import (
+    ExternalProgramError,
+    InputError,
+    MissingDependencyError,
+    OpenMMQMMMError,
+)
+from openmmqmmm.functions.functions_general import BC, print_line_with_subheader1
 from openmmqmmm.interfaces.interface_geometric_new import GeomeTRICOptimizerClass
 from openmmqmmm.modules.module_coords import Fragment, check_charge_mult
 from openmmqmmm.modules.module_QMMM import QMMMTheory
@@ -19,11 +25,10 @@ def check_OpenMPI():
     # Find mpirun and take path
     try:
         openmpibindir = os.path.dirname(shutil.which("mpirun"))
-    except:
-        print(
-            BC.FAIL, "No mpirun found in PATH. Make sure to add OpenMPI to PATH in your environment/jobscript", BC.END
-        )
-        ashexit()
+    except TypeError:
+        raise ExternalProgramError(
+            "No mpirun found in PATH. Make sure to add OpenMPI to PATH in your environment/jobscript"
+        ) from None
     print("OpenMPI binary directory found:", openmpibindir)
     # Test that mpirun is executable and grab OpenMPI version number for printout
     test_OpenMPI()
@@ -62,9 +67,9 @@ def import_mp(version="multiprocessing"):
 
             print("multiprocess library successfully loaded")
         except ImportError:
-            print("This requires the multiprocess library to be installed")
-            print("Please install using pip: pip install multiprocess")
-            ashexit()
+            raise MissingDependencyError(
+                "This requires the multiprocess library to be installed\nPlease install using pip: pip install multiprocess"
+            ) from None
     return mp, Pool
 
 
@@ -144,13 +149,11 @@ def Job_parallel(
 
     # Early exits
     if fragments is None and fragmentfiles is None:
-        print(BC.FAIL, "Job_parallel requires a list of ASH fragments or a list of fragmentfilenames", BC.END)
-        ashexit()
+        raise InputError("Job_parallel requires a list of ASH fragments or a list of fragmentfilenames")
     if theories is None or numcores is None:
-        print("theories:", theories)
-        print("numcores:", numcores)
-        print(BC.FAIL, "Job_parallel requires a theory object and a numcores value", BC.END)
-        ashexit()
+        raise InputError(
+            f"theories: {theories}\nnumcores: {numcores}\nJob_parallel requires a theory object and a numcores value"
+        )
     # Fragment objects passed or name of fragmentfiles
     if fragments is not None:
         if printlevel >= 2:
@@ -176,7 +179,7 @@ def Job_parallel(
         print(BC.FAIL, "Exception message:", message, BC.END)
         pool.terminate()
         event.set()
-        ashexit()
+        raise OpenMMQMMMError(f"Terminating pool processes due to worker exception: {message}")
 
     pool = Pool(numcores)
     # Manager
@@ -328,9 +331,7 @@ def Job_parallel(
                 )
             )
     else:
-        print("Multiple theories and multiple fragments provided.")
-        print("This is not supported. Exiting...")
-        ashexit()
+        raise InputError("Multiple theories and multiple fragments provided.\nThis is not supported. Exiting...")
 
     pool.close()
     pool.join()
@@ -519,7 +520,7 @@ def Worker_par(
     worker_dirname = "Pooljob_" + labelstring
     try:
         os.mkdir(worker_dirname)
-    except:
+    except FileExistsError:
         if printlevel >= 2:
             print("Dir exists. continuing")
     os.chdir(worker_dirname)
@@ -551,12 +552,12 @@ def Worker_par(
         try:
             dm = theory.get_dipole_moment()
             properties = {"dipole_moment": dm}
-        except:
+        except Exception:  # noqa: BLE001 - best-effort property grab
             pass
         try:
             polarizability = theory.get_polarizability_tensor()
             properties = {"polarizability": polarizability}
-        except:
+        except Exception:  # noqa: BLE001 - best-effort property grab
             pass
 
     # Singlepoint energy
@@ -618,7 +619,7 @@ def Simple_parallel(
         print(BC.FAIL, "Exception message:", message, BC.END)
         pool.terminate()
         event.set()
-        ashexit()
+        raise OpenMMQMMMError(f"Terminating pool processes due to worker exception: {message}")
 
     # ----------
     # START
@@ -628,7 +629,7 @@ def Simple_parallel(
             workerdir = f"Pooljob_{i}"
             print(f"separate_dirs option True. Creating dir {workerdir}")
             print("Creating workerdir:", workerdir)
-            with contextlib.suppress(BaseException):
+            with contextlib.suppress(FileExistsError):
                 os.mkdir(workerdir)
 
         # Default 0

@@ -13,7 +13,10 @@ import time
 import numpy as np
 
 import openmmqmmm
-from openmmqmmm.functions.functions_general import BC, ashexit, print_line_with_mainheader, print_time_rel
+from openmmqmmm.exceptions import (
+    InputError,
+)
+from openmmqmmm.functions.functions_general import BC, print_line_with_mainheader, print_time_rel
 from openmmqmmm.modules.module_coords import check_charge_mult
 from openmmqmmm.modules.module_results import ASH_Results
 
@@ -40,8 +43,7 @@ def Singlepoint(
         print_line_with_mainheader("Singlepoint function")
     module_init_time = time.time()
     if fragment is None or theory is None:
-        print(BC.FAIL, "Singlepoint requires a fragment and a theory object", BC.END)
-        ashexit()
+        raise InputError("Singlepoint requires a fragment and a theory object")
     coords = fragment.coords
     elems = fragment.elems
 
@@ -120,7 +122,7 @@ def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None, p
 
         # Preserve outputfile
         calc_label = "Frag_" + theory.__class__.__name__ + "_"
-        with contextlib.suppress(BaseException):
+        with contextlib.suppress(OSError, AttributeError):
             shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
 
         print(f"Theory Label: {theory.label} Energy: {result.energy} Eh")
@@ -179,18 +181,15 @@ def Singlepoint_fragments(
     # Looping through fragments
     for i, frag in enumerate(fragments):
         if frag.charge is None or frag.mult is None:
-            print(
-                BC.FAIL,
-                "Error: Singlepoint_fragments requires charge/mult information to be associated with each fragment.",
-                BC.END,
+            raise InputError(
+                "Error: Singlepoint_fragments requires charge/mult information to be associated with each fragment."
             )
-            ashexit()
         # Setting charge/mult  from fragment
         charge = frag.charge
         mult = frag.mult
 
         # Setting orbital file for ORCATheory or any other theory using moreadfile
-        with contextlib.suppress(BaseException):
+        with contextlib.suppress(IndexError, TypeError):
             theory.moreadfile = moreadfiles[i]
 
         # Running single-point
@@ -200,7 +199,7 @@ def Singlepoint_fragments(
 
         # Preserve outputfile
         calc_label = "Frag_" + str(frag.formula) + "_" + str(frag.charge) + "_" + str(frag.mult) + "_"
-        with contextlib.suppress(BaseException):
+        with contextlib.suppress(OSError, AttributeError):
             shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
 
         theory.cleanup()
@@ -323,8 +322,8 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
             theory.moreadfile = reaction.orbital_dictionary[moreadfiles][i]
             print("Found orbital dictionary in reaction object")
             print("Using orbital file:", theory.moreadfile)
-        except:
-            with contextlib.suppress(BaseException):
+        except (AttributeError, KeyError, IndexError, TypeError):
+            with contextlib.suppress(IndexError, TypeError):
                 theory.moreadfile = moreadfiles[i]
         # Running single-point
         result = Singlepoint(theory=theory, fragment=frag, charge=frag.charge, mult=frag.mult)
@@ -332,7 +331,7 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
         print(f"Fragment {frag.formula} . Label: {frag.label} Energy: {energy} Eh")
         # Preserve outputfile
         calc_label = "Frag_" + str(frag.formula) + "_" + str(frag.charge) + "_" + str(frag.mult) + "_"
-        with contextlib.suppress(BaseException):
+        with contextlib.suppress(OSError, AttributeError):
             shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
         theory.cleanup()
         reaction.energies.append(energy)
@@ -349,7 +348,7 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
                 reaction.properties["num_genCFGs"].append(theory.properties["num_genCFGs"])
                 reaction.properties["num_selected_CFGs"].append(theory.properties["num_selected_CFGs"])
                 reaction.properties["num_after_SD_CFGs"].append(theory.properties["num_after_SD_CFGs"])
-            except:
+            except KeyError:
                 pass
         # Adding energy as the fragment attribute
         frag.set_energy(energy)
@@ -459,8 +458,7 @@ def ReactionEnergy(
     reactant_energy = 0.0  # hartree
     product_energy = 0.0  # hartree
     if stoichiometry is None:
-        print("stoichiometry list is required")
-        ashexit()
+        raise InputError("stoichiometry list is required")
 
     if correction != 0.0:
         print("User-correction was added. ")
@@ -473,9 +471,7 @@ def ReactionEnergy(
     # List of energies option
     if list_of_energies is not None:
         if len(list_of_energies) != len(stoichiometry):
-            print("Number of energies not equal to number of stoichiometry values")
-            print("Exiting.")
-            ashexit()
+            raise InputError("Number of energies not equal to number of stoichiometry values\nExiting.")
 
         for i, stoich in enumerate(stoichiometry):
             if stoich < 0:

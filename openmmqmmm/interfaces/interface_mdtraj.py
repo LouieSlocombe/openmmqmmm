@@ -2,7 +2,10 @@ import os
 
 import numpy as np
 
-from openmmqmmm.functions.functions_general import ashexit
+from openmmqmmm.exceptions import (
+    InputError,
+    MissingDependencyError,
+)
 from openmmqmmm.modules.module_coords import Fragment, write_xyzfile
 
 
@@ -11,8 +14,9 @@ def MDtraj_import():
     try:
         import mdtraj
     except ImportError:
-        print("Problem importing mdtraj. Try: 'pip install mdtraj' or 'conda install -c conda-forge mdtraj'")
-        ashexit()
+        raise MissingDependencyError(
+            "Problem importing mdtraj. Try: 'pip install mdtraj' or 'conda install -c conda-forge mdtraj'"
+        ) from None
     return mdtraj
 
 
@@ -137,10 +141,9 @@ def MDtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
 
     print("User frame selection:", frames)
     if frames is None:
-        print("Error: frames keyword needs to be set. Should usually be a list of two integers.")
-        print("E.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames")
-        print("Also possible to do: frames='first' or frames='last' to grab first or last")
-        ashexit()
+        raise InputError(
+            "Error: frames keyword needs to be set. Should usually be a list of two integers.\nE.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or frames='last' to grab first or last"
+        )
     elif frames == "first":
         frames = [0, 1]
     elif frames == "last":
@@ -148,19 +151,20 @@ def MDtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
     elif frames == "all":
         frames = [0, traj.n_frames]
     elif len(frames) != 2:
-        print("Error: frames keyword needs to be a list of two integers.")
-        print("E.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames")
-        print("Also possible to do: frames='first' or frames='last' to grab first or last")
-        ashexit()
+        raise InputError(
+            "Error: frames keyword needs to be a list of two integers.\nE.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or frames='last' to grab first or last"
+        )
 
     # Slicing trajectory
     print("Slicing trajectory using frame selection:", frames)
     tslice = traj[frames[0] : frames[1]]
     print(f"Trajectory slice contains {tslice.n_frames} frames")
     if tslice.n_frames == 0:
-        print(f"0 frames found when slicing. You probably should do: frames=[{frames[0]},{frames[1] + 1}] instead")
-        print("Exiting")
-        ashexit()
+        raise InputError(
+            "{}\nExiting".format(
+                f"0 frames found when slicing. You probably should do: frames=[{frames[0]},{frames[1] + 1}] instead"
+            )
+        )
 
     # Save trajectory in format
     print(
@@ -203,8 +207,7 @@ def MDtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
 def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=None):
     print("Inside MDtraj_coord_analyze")
     if indices is None:
-        print("indices needs to be set")
-        ashexit()
+        raise InputError("indices needs to be set")
     print("Trajectory:", trajectory)
     print("Topology:", pdbtopology)
     print("Atom indices:", indices)
@@ -213,12 +216,10 @@ def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=No
 
     if pdbtopology is None:
         print("A topology is required but was not provided")
-        print("Checking if trajectory.pdb file (created by ASH_OpenMM_MD) is available:")
-        try:
-            pdbtopology = "trajectory.pdb"
-        except:
-            print("Found no file. Exiting")
-            ashexit()
+        print("Checking if trajectory.pdb file (created by the MD run) is available:")
+        if not os.path.isfile("trajectory.pdb"):
+            raise InputError("A topology file is required (no trajectory.pdb found either)")
+        pdbtopology = "trajectory.pdb"
 
     # Load trajectory
     print("Loading trajectory using mdtraj.")
@@ -238,8 +239,7 @@ def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=No
         output = 10 * output
         unit_label = "Angstrom"
     else:
-        print("something wrong with indices supplied:", indices)
-        ashexit()
+        raise InputError(f"something wrong with indices supplied: {indices}")
     print(f"List of coordinates ({len(output)}) for each frame:", output)
 
     ave = np.mean(output)

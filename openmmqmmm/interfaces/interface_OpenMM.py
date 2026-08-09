@@ -6,6 +6,13 @@ from sys import stdout
 import numpy as np
 from packaging import version
 
+from openmmqmmm.exceptions import (
+    FileFormatError,
+    InputError,
+    InternalError,
+    MissingDependencyError,
+)
+
 try:
     import openmm
     import openmm.app
@@ -25,7 +32,6 @@ import openmmqmmm.functions.functions_parallel
 import openmmqmmm.modules.module_plotting
 from openmmqmmm.functions.functions_general import (
     BC,
-    ashexit,
     create_conn_dict,
     find_replace_string_in_file,
     print_if_level,
@@ -140,8 +146,7 @@ class OpenMMTheory:
         # Early exits
         # TODO: To be removed
         if charmm_periodic_cell_dimensions is not None:
-            print("charmm_periodic_cell_dimensions is deprecated. Use periodic_cell_dimensions instead")
-            ashexit()
+            raise InputError("charmm_periodic_cell_dimensions is deprecated. Use periodic_cell_dimensions instead")
 
         # OpenMM variables
         if self.printlevel > 0:
@@ -172,8 +177,7 @@ class OpenMMTheory:
                 print("No automatic constraints")
             self.autoconstraints = None
         else:
-            print("Unknown autoconstraints option")
-            ashexit()
+            raise InputError("Unknown autoconstraints option")
         if self.printlevel > 0:
             print("AutoConstraint setting:", self.autoconstraints)
 
@@ -499,8 +503,7 @@ class OpenMMTheory:
             elif pdbxfile is not None:
                 pdb = openmm.app.PDBxFile(pdbxfile)
             else:
-                print("Error: No pdbfile or pdbxfile input provided")
-                ashexit()
+                raise InputError("Error: No pdbfile or pdbxfile input provided")
 
             # Check if PBC vectors in PDB-file
             pdb_pbc_vectors = pdb.topology.getPeriodicBoxVectors()
@@ -551,8 +554,7 @@ class OpenMMTheory:
                 elif self.nonbondedMethod_PBC == "CutoffPeriodic":
                     nonb_method_PBC = openmm.app.CutoffPeriodic
                 else:
-                    print("Unknown nonbonded method")
-                    ashexit()
+                    raise InputError("Unknown nonbonded method")
 
                 if self.printlevel > 0:
                     print("Nonbonded PBC method selected:", nonb_method_PBC)
@@ -678,8 +680,7 @@ class OpenMMTheory:
                 elif self.nonbondedMethod_noPBC == "CutoffNonPeriodic":
                     noPBC_nonbondedMethod = openmm.app.CutoffNonPeriodic
                 elif self.nonbondedMethod_noPBC == "CutoffPeriodic":
-                    print("nonbondedMethod_noPBC with CutoffPeriodic not currently allowed")
-                    ashexit()
+                    raise InputError("nonbondedMethod_noPBC with CutoffPeriodic not currently allowed")
                 if self.printlevel > 0:
                     print("System is non-periodic.")
                     print("nonbonded noPBC Method is:", noPBC_nonbondedMethod)
@@ -728,8 +729,7 @@ class OpenMMTheory:
                 # CASE CUSTOMNONBONDED FORCE
                 # REPLACING REGULAR NONBONDED FORCE
                 if customnonbondedforce is True:
-                    print("currently inactive")
-                    ashexit()
+                    raise InternalError("currently inactive")
                     # Create CustomNonbonded force
                     for i, force in enumerate(self.system.getForces()):
                         if isinstance(force, openmm.NonbondedForce):
@@ -823,7 +823,7 @@ class OpenMMTheory:
                                 "No PDBfile present either. Either fragment or PDBfile containing \
                                 coordinates is required for constraint definition"
                             )
-                        ashexit()
+                        raise InputError("Constraint definition requires a fragment or a PDB file with coordinates")
                     else:
                         fragment = Fragment(pdbfile=pdbfile, printlevel=0)
                 # Cleaning up constraint list. Adding distance if missing
@@ -903,7 +903,7 @@ class OpenMMTheory:
     def define_mm_elements(self, topology):
         try:
             self.mm_elements = [i.element.symbol for i in topology.atoms()]
-        except:
+        except AttributeError:
             print("Problem occurred while defining mm_elements.")
             print("This may be due to virtual sites present")
             print("mm_elements will be set to empty list")
@@ -934,8 +934,7 @@ class OpenMMTheory:
             with open(f"{outputname}.pdb", "w") as pdbfh:
                 openmm.app.PDBFile.writeFile(self.topology, positions, pdbfh)
         else:
-            print("Found neither system positions defined or an ASH fragment file. Can not write PDB-file.")
-            ashexit()
+            raise InputError("Found neither system positions defined or an ASH fragment file. Can not write PDB-file.")
 
     # Function that handles periodicity in forcefield objects (for Amber, CHARMM). TODO: Test GROMACS and XML
     def set_periodics_before_system_creation(
@@ -1054,8 +1053,7 @@ class OpenMMTheory:
         elif self.topology.getPeriodicBoxVectors() is not None:
             print("Found PBC information in topology object. Using this and continuing")
         else:
-            print("Found no PBC information, yet periodicity is requested. Exiting!")
-            ashexit()
+            raise FileFormatError("Found no PBC information, yet periodicity is requested. Exiting!")
 
     # Get PBC vectors from topology of openmm object. Convenient in a script
     def get_PBC_vectors(self):
@@ -1405,12 +1403,10 @@ class OpenMMTheory:
         cvforce_copy = copy.copy(cvforce)
         # TODO: periodic CV vs non-periodic
         if cvtype == "dihedral" or cvtype == "torsion":
-            print("Adding CV restraints for dihedrals is not available!")
-            ashexit()
+            raise InputError("Adding CV restraints for dihedrals is not available!")
             # Not sure whether there is ever a need
         elif cvtype == "angle":
-            print("Adding CV restraints for angles is not available!")
-            ashexit()
+            raise InputError("Adding CV restraints for angles is not available!")
             energy_expression = "(k/2)*max(0, var-var_max)^2"
             print("CV type: angle")
             print("Note: unit assumed to be in radians")
@@ -1428,8 +1424,7 @@ class OpenMMTheory:
             var_unit = 1.0
             var_unit_label = " "
         else:
-            print("Error: unknown cvtype for add_CV_restraint")
-            ashexit()
+            raise InputError("Error: unknown cvtype for add_CV_restraint")
         # Energy unit
         energy_unit = openmm.unit.kilocalories_per_mole / openmm.unit.angstroms**2
         energy_unit_label = "kcal/mol*Å^-2"
@@ -1648,13 +1643,9 @@ class OpenMMTheory:
                 self.timestep * openmm.unit.picoseconds,
             )
         else:
-            print(
-                BC.FAIL,
-                "Unknown integrator.\n Valid integrator keywords are: VerletIntegrator, VariableVerletIntegrator, "
-                "LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VariableLangevinIntegrator, RPMDIntegrator ",
-                BC.END,
+            raise InputError(
+                "Unknown integrator.\n Valid integrator keywords are: VerletIntegrator, VariableVerletIntegrator, LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VariableLangevinIntegrator, RPMDIntegrator"
             )
-            ashexit()
 
     # Create simulation object (now not part of OpenMMTheory)
     def create_simulation(self, internal=False):
@@ -1842,8 +1833,7 @@ class OpenMMTheory:
                         print("Using internal coordinates (from OpenMM object).")
                     current_coords = self.coords
                 else:
-                    print("Found no coordinates!")
-                    ashexit()
+                    raise FileFormatError("Found no coordinates!")
             else:
                 current_coords = fragment.coords
 
@@ -1865,7 +1855,10 @@ class OpenMMTheory:
             if self.force_run is True:
                 print("force_run is True. Will continue")
             else:
-                ashexit()
+                raise InputError(
+                    "OpenMMTheory constraints/frozen-atoms are incompatible with this run. "
+                    "Redefine OpenMMTheory with autoconstraints=None, rigidwater=False (or pass force_run=True)"
+                )
 
         if self.user_frozen_atoms or self.user_constraints or self.user_restraints:
             print(
@@ -1877,13 +1870,19 @@ class OpenMMTheory:
             if self.force_run is True:
                 print("force_run is True. Will continue")
             else:
-                ashexit()
+                raise InputError(
+                    "OpenMMTheory constraints/frozen-atoms are incompatible with this run. "
+                    "Redefine OpenMMTheory with autoconstraints=None, rigidwater=False (or pass force_run=True)"
+                )
         if defined_constraints != 0:
             print(BC.FAIL, "OpenMM constraints not zero. Exiting.", BC.END)
             if self.force_run is True:
                 print("force_run is True. Will continue")
             else:
-                ashexit()
+                raise InputError(
+                    "OpenMMTheory constraints/frozen-atoms are incompatible with this run. "
+                    "Redefine OpenMMTheory with autoconstraints=None, rigidwater=False (or pass force_run=True)"
+                )
 
         print_time_rel(
             timeA, modulename="OpenMMTheory.run: const-check", currprintlevel=self.printlevel, currthreshold=2
@@ -1989,7 +1988,8 @@ class OpenMMTheory:
 
         timeA = time.time()
         print("Updating LJ interaction strengths in OpenMM object.")
-        assert len(atomlist) == len(epsilons)
+        if len(atomlist) != len(epsilons):
+            raise InternalError("atomlist and epsilons size mismatch")
         for atomindex, newepsilon in zip(atomlist, epsilons, strict=False):
             charge, sigma, _oldepsilon = self.nonbonded_force.getParticleParameters(atomindex)
             # Different depending on type of NonbondedForce
@@ -2008,7 +2008,8 @@ class OpenMMTheory:
 
         timeA = time.time()
         print("Updating charges in OpenMM object.")
-        assert len(atomlist) == len(atomcharges)
+        if len(atomlist) != len(atomcharges):
+            raise InternalError("atomlist and atomcharges size mismatch")
         for atomindex, newcharge in zip(atomlist, atomcharges, strict=False):
             # Updating big chargelist of OpenMM object.
             # TODO: Is this actually used?
@@ -2346,15 +2347,13 @@ def OpenMM_Opt(
     print_line_with_mainheader("OpenMM Optimization")
 
     if fragment is None:
-        print("No fragment object. Exiting.")
-        ashexit()
+        raise InputError("No fragment object. Exiting.")
 
     # Distinguish between OpenMM theory or QM/MM theory
     if isinstance(theory, OpenMMTheory):
         openmmobject = theory
     else:
-        print("Only OpenMMTheory allowed in OpenMM_Opt. Exiting.")
-        ashexit()
+        raise InputError("Only OpenMMTheory allowed in OpenMM_Opt. Exiting.")
 
     if printlevel >= 1:
         print("Number of atoms:", fragment.numatoms)
@@ -2503,7 +2502,7 @@ def OpenMM_Opt(
             print("OpenMM versions >= 8.1. Will use a reporter to output progress")
             print("OpenMM_Opt trajectory will be written to: OpenMMOpt_traj.xyz")
         # Removing possible old traj file
-        with contextlib.suppress(BaseException):
+        with contextlib.suppress(OSError):
             os.remove("OpenMMOpt_traj.xyz")
         simulation.minimizeEnergy(maxIterations=maxiter, tolerance=tolerance, reporter=reporter)
         print("Minimization done.")
@@ -2605,13 +2604,12 @@ def OpenMM_Modeller(
     try:
         import pdbfixer
     except ImportError:
-        print("Problem importing pdbfixer. Install first via conda:")
-        print("conda install -c conda-forge pdbfixer")
-        ashexit()
+        raise MissingDependencyError(
+            "Problem importing pdbfixer. Install first via conda:\nconda install -c conda-forge pdbfixer"
+        ) from None
 
     if pdbfile is None:
-        print("You must provide a pdbfile keyword argument")
-        ashexit()
+        raise InputError("You must provide a pdbfile keyword argument")
 
     if residue_variants is None:
         residue_variants = {}
@@ -2645,8 +2643,7 @@ def OpenMM_Modeller(
         elif forcefield == "Amoeba2009":
             xmlfile = "amoeba2009.xml"
         else:
-            print("Unknown forcefield")
-            exit()
+            raise InputError("Unknown forcefield")
 
         # Water model selection for CHARMM forcefields
         if "CHARMM" in forcefield:
@@ -2694,8 +2691,7 @@ def OpenMM_Modeller(
             print("Using extra XML file:", extraxmlfile)
             # Checking if file exists first before continuing
             if os.path.isfile(extraxmlfile) is not True:
-                print(BC.FAIL, f"File {extraxmlfile} can not be found. Exiting.", BC.END)
-                ashexit()
+                raise InputError(f"File {extraxmlfile} can not be found. Exiting.")
         print("Now creating forcefield object")
         if extraxmlfile is None and waterxmlfile is None:
             forcefield_obj = openmm_app.forcefield.ForceField(xmlfile)
@@ -2714,8 +2710,7 @@ def OpenMM_Modeller(
             print("Warning: watermodel/waterxmlfile ignored when forcefield_object is supplied")
 
     else:
-        print("You must provide a forcefield name, forcefieldobject or xmlfile keywords!")
-        ashexit()
+        raise InputError("You must provide a forcefield name, forcefieldobject or xmlfile keywords!")
 
     print("PDBfile:", pdbfile)
     print("pH:", pH)
@@ -2824,8 +2819,7 @@ def OpenMM_Modeller(
 
     # NOTE: to be deleted
     if len(residue_states) != numresidues:
-        print("residue_states != numresidues. Something went wrong")
-        ashexit()
+        raise InputError("residue_states != numresidues. Something went wrong")
 
     # Adding hydrogens feeding in residue_states
     # This is were missing residue/atom errors will come
@@ -2856,13 +2850,9 @@ def OpenMM_Modeller(
         print(
             "\nASH interpretation. you probably have multiple matching templates in the forcefield XML-file for a residue"
         )
-        print("This occurs e.g. for the case of Fe2+ vs Fe3+ ion in the Amber FF.")
-        print("To deal with this problem, you have to provide a residuetemplate_choice dictionary to the ASH interface")
-        print("Example: residuetemplate_choice should be a dict like this: residuetemplate_choice={'FER':'FE2'}   ")
-        print(
-            "   where FER is here the name of the residue (in PDB-file) and FE2 is the name of the desired template in the forcefield XML-file"
-        )
-        exit()
+        raise InputError(
+            "This occurs e.g. for the case of Fe2+ vs Fe3+ ion in the Amber FF.\nTo deal with this problem, you have to provide a residuetemplate_choice dictionary to the ASH interface\nExample: residuetemplate_choice should be a dict like this: residuetemplate_choice={'FER':'FE2'}   \n   where FER is here the name of the residue (in PDB-file) and FE2 is the name of the desired template in the forcefield XML-file"
+        ) from e
     print("No problem with unmatched residues found. Continuing")
 
     try:
@@ -2877,11 +2867,9 @@ def OpenMM_Modeller(
             "Non-standard inorganic/organic residues require providing an additional XML-file via extraxmlfile= option"
         )
         print("Note that C-terminii require the dangling O-atom to be named OXT ")
-        print("Read the ASH documentation or the OpenMM documentation on dealing with this problem.")
-        print("\nFull error message from OpenMM:")
-        print(errormessage)
-        print()
-        ashexit()
+        raise InputError(
+            f"Read the ASH documentation or the OpenMM documentation on dealing with this problem.\n\nFull error message from OpenMM:\n{errormessage}"
+        ) from errormessage
 
     write_pdbfile_openMM(modeller.topology, modeller.positions, "system_afterH.pdb")
     print_systemsize(modeller)
@@ -3140,8 +3128,7 @@ def solvate_small_molecule(
 
     # Check if fragment is provided
     if fragment is None:
-        print("No fragment object provided. Exiting.")
-        ashexit()
+        raise InputError("No fragment object provided. Exiting.")
 
     # Check charge/mult
     charge, mult = check_charge_mult(charge, mult, "QM", fragment, "solvate_small_molecule")
@@ -3149,10 +3136,9 @@ def solvate_small_molecule(
     # Check xmlfile
 
     if xmlfile is None and skip_xmlfile is False:
-        print("\nNo xmlfile was provided. You must provide one")
-        print("""If you need a forcefield for the solute then try :
-              small_molecule_parameterizer""")
-        ashexit()
+        raise InputError(
+            "No xmlfile was provided. You must provide one\nIf you need a forcefield for the solute then try :\n              small_molecule_parameterizer"
+        )
 
     # Read XML-file and check for LJ treatment
     if skip_xmlfile is False:
@@ -3164,9 +3150,9 @@ def solvate_small_molecule(
             print("Found CHARMM-style format.")
             LJ_treatment = "charmm"
         else:
-            print("Unknown LJ14 scaling type in XML-file: neither CHARMM nor Amber format was recognized")
-            print("Solvation requires an Amber- or CHARMM-style forcefield XML-file")
-            ashexit()
+            raise InputError(
+                "Unknown LJ14 scaling type in XML-file: neither CHARMM nor Amber format was recognized\nSolvation requires an Amber- or CHARMM-style forcefield XML-file"
+            )
 
         print("LJ_treatment:", LJ_treatment)
 
@@ -3178,11 +3164,9 @@ def solvate_small_molecule(
         elif LJ_treatment == "charmm":
             waterxmlfile = "charmm36/water.xml"
         else:
-            print(f"Unsupported LJ_treatment ({LJ_treatment}): must be 'amber' or 'charmm'")
-            ashexit()
+            raise InputError(f"Unsupported LJ_treatment ({LJ_treatment}): must be 'amber' or 'charmm'")
     else:
-        print("Only TIP3P water supported for now")
-        ashexit()
+        raise InputError("Only TIP3P water supported for now")
 
     # Create forcefield object
     if skip_xmlfile is True:
@@ -3265,7 +3249,8 @@ def write_xmlfile_nonbonded(
     print("Inside write_xmlfile_nonbonded")
     # Always list of lists now
 
-    assert len(resnames) == len(atomnames_per_res) == len(atomtypes_per_res)
+    if not (len(resnames) == len(atomnames_per_res) == len(atomtypes_per_res)):
+        raise InternalError("Residue name/atomname/atomtype lists size mismatch")
     # Get list of all unique atomtypes, elements, masses
 
     # Create list of all AtomTypelines (unique)
@@ -3464,8 +3449,7 @@ def OpenMM_MD(
     elif simulation_time is not None:
         md.run(simulation_time=simulation_time)
     else:
-        print("Either simulation_steps or simulation_time need to be defined (not both).")
-        ashexit()
+        raise InputError("Either simulation_steps or simulation_time need to be defined (not both).")
 
     # Now calling finalize_simulation: writing final files etc.
     md.finalize_simulation()
@@ -3528,8 +3512,7 @@ class OpenMM_MDclass:
         print_line_with_mainheader("OpenMM Molecular Dynamics Initialization")
 
         if fragment is None:
-            print("No fragment object. Exiting.")
-            ashexit()
+            raise InputError("No fragment object. Exiting.")
         else:
             self.fragment = fragment
 
@@ -3742,8 +3725,7 @@ class OpenMM_MDclass:
         self.dummyatomrestraint = dummyatomrestraint
         if self.dummyatomrestraint is True:
             if solute_indices is None:
-                print("Dummyatomrestraint requires solute_indices to be set")
-                ashexit()
+                raise InputError("Dummyatomrestraint requires solute_indices to be set")
             print(
                 BC.WARNING,
                 "Warning: Using dummyatomrestraints. This means that we will add a dummy atom to topology and OpenMM coordinates",
@@ -3980,7 +3962,7 @@ class OpenMM_MDclass:
         elif self.trajectory_file_option == "XYZ":
             print("XYZ trajectory format selected (not available for classical MD). Warning: not very fast")
             print("Deleting possible old trajectory-file (OpenMMMD_traj.xyz)")
-            with contextlib.suppress(BaseException):
+            with contextlib.suppress(OSError):
                 os.remove("OpenMMMD_traj.xyz")
             # Done manually by write_xyzfile
 
@@ -3993,7 +3975,7 @@ class OpenMM_MDclass:
             )
         if self.energy_file_option is not None:
             print("Energyfile  selected.")
-            with contextlib.suppress(BaseException):
+            with contextlib.suppress(OSError):
                 os.remove(self.energy_file_option)
         print("simulation.reporters:", simulation.reporters)
 
@@ -4078,8 +4060,7 @@ class OpenMM_MDclass:
         print_line_with_mainheader("OpenMM Molecular Dynamics Run")
 
         if simulation_steps is None and simulation_time is None:
-            print("Either simulation_steps or simulation_time needs to be set.")
-            ashexit()
+            raise InputError("Either simulation_steps or simulation_time needs to be set.")
         if simulation_time is not None:
             simulation_steps = int(simulation_time / self.timestep)
         if simulation_steps is not None:
@@ -4120,7 +4101,7 @@ class OpenMM_MDclass:
         # Case native OpenMM metadynamcis
         if metadynamics is True:
             biasdir = metadyn_settings["biasdir"]
-            with contextlib.suppress(BaseException):
+            with contextlib.suppress(OSError):
                 os.remove("colvar")
             # Reference positions for RMSD. Currently limited to starting position
             if metadyn_settings["CV1_type"] == "rmsd" or metadyn_settings["CV2_type"] == "rmsd":
@@ -4322,9 +4303,9 @@ class OpenMM_MDclass:
             if self.datafilename is not None:
                 # RB addition: Delete file after each run
                 print("Deleting old datafile:", self.datafilename)
-                with contextlib.suppress(BaseException):
+                with contextlib.suppress(OSError):
                     os.remove(self.datafilename)
-                self.dataoutputoption = open(self.datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter  # noqa: SIM115 - handed to OpenMM reporter
+                self.dataoutputoption = open(self.datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
             # Setup data and simulation reporters for simulation object
             self.set_sim_reporters(self.simulation)
 
@@ -4348,9 +4329,10 @@ class OpenMM_MDclass:
                 print("Importing mdtraj")
                 try:
                     import mdtraj
-                except:
-                    print("Error: mdtraj not found, needs to be installed (pip install mdtraj)")
-                    exit()
+                except ImportError:
+                    raise MissingDependencyError(
+                        "Error: mdtraj not found, needs to be installed (pip install mdtraj)"
+                    ) from None
                 # Defining boxvectors for wrapping
                 boxvectors = self.simulation.context.getState().getPeriodicBoxVectors(asNumpy=True)
                 # Convert topology from openmm format to mdtraj format
@@ -4362,13 +4344,9 @@ class OpenMM_MDclass:
                         print("Theory-runtype is QMMM. Using QMatoms as wrapping_atoms")
                         wrapping_atoms = self.QM_MM_object.qmatoms
                     elif self.theory_runtype == "QM":
-                        print("Theory_runtype is QM but no wrapping_atoms have been set.")
-                        print("Exiting")
-                        ashexit()
+                        raise InputError("Theory_runtype is QM but no wrapping_atoms have been set.\nExiting")
                     elif self.theory_runtype == "dummy_MM":
-                        print("Theory_runtype is dummy_MM but no wrapping_atoms have been set.")
-                        print("Exiting")
-                        ashexit()
+                        raise InputError("Theory_runtype is dummy_MM but no wrapping_atoms have been set.\nExiting")
                     elif self.theory_runtype == "MM":
                         print("Theory_runtype is MM. No achoratoms needed")
                         wrapping_atoms = None
@@ -4724,10 +4702,9 @@ class OpenMM_MDclass:
                 # Running all steps in one go
                 self.simulation.step(simulation_steps)
         else:
-            print(
+            raise InputError(
                 f"Error: Unrecognized Theory runtype ({self.theory_runtype}) for MD. This might mean that this ASH Theory object is not yet supported for running MD. Exiting."
             )
-            ashexit()
 
         print_line_with_subheader2("OpenMM MD simulation finished!")
         print_time_rel(module_init_time, modulename="OpenMM_MD run", moduleindex=1)
@@ -4863,15 +4840,12 @@ def OpenMM_box_equilibration(
     module_init_time = time.time()
 
     if fragment is None or theory is None:
-        print("Fragment and theory required.")
-        ashexit()
+        raise InputError("Fragment and theory required.")
 
     if numsteps_per_NPT < traj_frequency:
-        print(
-            "Parameter 'numpsteps_per_NPT' must be greater than 'traj_frequency', otherwise"
-            " no data will be written during the equilibration!"
+        raise InputError(
+            "Parameter 'numpsteps_per_NPT' must be greater than 'traj_frequency', otherwise no data will be written during the equilibration!"
         )
-        ashexit()
 
     numpoints_for_convergence_check = numsteps_per_NPT // traj_frequency
 
@@ -5125,17 +5099,9 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
             writelisttofile(finalpdblines, "system_afteratlocfixes.pdb", separator="")
             return "system_afteratlocfixes.pdb"
         else:
-            print(
-                BC.WARNING,
-                "You should delete either the labelled A or B location of the residue-atom/atoms and then remove the A/B label from column 17 in the file",
+            raise InputError(
+                "You should delete either the labelled A or B location of the residue-atom/atoms and then remove the A/B label from column 17 in the file\nAlternatively, you can choose use_higher_occupancy=True keyword in OpenMM_Modeller and ASH will keep the higher occupied form and go on \nMake sure that there is always an A or B form present.\nExiting."
             )
-            print(
-                "Alternatively, you can choose use_higher_occupancy=True keyword in OpenMM_Modeller and ASH will keep the higher occupied form and go on ",
-                BC.END,
-            )
-            print("Make sure that there is always an A or B form present.")
-            print(BC.FAIL, "Exiting.", BC.END)
-            ashexit()
     # Returning original pdbfile if all OK
 
     return pdbfile
@@ -5225,28 +5191,23 @@ def OpenMM_metadynamics(
     biasdir_full_path = os.path.abspath(biasdir)
     print("Full path to biasdirectory is:", biasdir_full_path)
     if not os.path.isdir(biasdir_full_path):
-        print(f"Error: Biasdirectory: {biasdir_full_path} does not exist")
-        ashexit()
+        raise FileFormatError(f"Error: Biasdirectory: {biasdir_full_path} does not exist")
 
     if CV2_type is None:
         print("CV2 not specified. Assuming only 1 CV in simulation.")
         numCVs = 1
         if user_cvforce1 is None and (CV1_atoms is None or CV1_type is None):
-            print("Error: You must specify both CV1_atoms and CV1_type keywords")
-            ashexit()
+            raise InputError("Error: You must specify both CV1_atoms and CV1_type keywords")
     else:
         numCVs = 2
         if user_cvforce1 is None and (CV1_atoms is None or CV1_type is None):
-            print("Error: You must specify both CV1_atoms and CV1_type keywords")
-            ashexit()
+            raise InputError("Error: You must specify both CV1_atoms and CV1_type keywords")
         if user_cvforce2 is None and (CV2_atoms is None or CV2_type is None):
-            print("Error: You must specify both CV2_atoms and CV2_type keywords")
-            ashexit()
+            raise InputError("Error: You must specify both CV2_atoms and CV2_type keywords")
 
     # Parallelization
     if multiplewalkers is True and numcores == 1:
-        print("Error: For multiplewalkers=True  you must set numcores to the number of walkers")
-        ashexit()
+        raise InputError("Error: For multiplewalkers=True  you must set numcores to the number of walkers")
 
     # Creating MDclass
     md = OpenMM_MDclass(
@@ -5370,12 +5331,9 @@ def OpenMM_metadynamics(
     # Add restraining funnel for funnel metadynamics
     if funnel_restraint is not None:
         if funnel_parameters is None:
-            print("Error: funnel_restraint requires passing a dictionary with funnel definition parameters.")
-            print(
-                "Example: funnel_parameters = {'ligand_indices':[0,1,2], 'k_xyz':10.0, 'z_cc':11.0, 'alpha':35.0, \
-'R_cylinder':1.0, 'force_group':10}"
+            raise InputError(
+                "Error: funnel_restraint requires passing a dictionary with funnel definition parameters.\nExample: funnel_parameters = {'ligand_indices':[0,1,2], 'k_xyz':10.0, 'z_cc':11.0, 'alpha':35.0, 'R_cylinder':1.0, 'force_group':10}"
             )
-            ashexit()
 
         # Getting atom indices for host and guess
         guest_indices = funnel_parameters["ligand_indices"]
@@ -5385,8 +5343,7 @@ def OpenMM_metadynamics(
             host_indices = funnel_parameters["host_indices"]
             print("host_indices:", host_indices)
         else:
-            print("No host_indices found in funnel_parameters")
-            exit()
+            raise InputError("No host_indices found in funnel_parameters")
 
         md.openmmobject.add_funnel_restraint(
             host_indices,
@@ -5402,9 +5359,7 @@ def OpenMM_metadynamics(
     print("Now starting metadynamics simulation")
 
     if multiplewalkers is True:
-        print(f"Now launching Metadynamics job with {numcores} walkers")
-        print("Error: Disabled")
-        ashexit()
+        raise InputError("{}\nError: Disabled".format(f"Now launching Metadynamics job with {numcores} walkers"))
         # Input parameters passed as dictionary to Simple_parallel
         # NOTE: multiprocess library (instead of multiprocessing) is necessary.
         # Otherwise pickling problem involving _io.TextIOWrapper
@@ -5494,10 +5449,9 @@ def OpenMM_MD_plumed(
     try:
         import openmmplumed
     except ModuleNotFoundError:
-        print(
+        raise MissingDependencyError(
             "openmmplumed module plugin not found. See https://github.com/openmm/openmm-plumed \nYou can install via conda: \nconda install -c conda-forge openmm-plumed"
-        )
-        ashexit()
+        ) from None
 
     # Creating MDclass
     md = OpenMM_MDclass(
@@ -5599,12 +5553,10 @@ def Gentle_warm_up_MD(
     module_init_time = time.time()
     print("Trajectory filename:", trajfilename)
     if theory is None or fragment is None:
-        print("Gentle_warm_up_MD requires theory (OpenMM object) and fragment")
-        ashexit()
+        raise InputError("Gentle_warm_up_MD requires theory (OpenMM object) and fragment")
 
     if len(time_steps) != len(steps) or len(time_steps) != len(temperatures):
-        print("Error: Lists time_steps, steps and temperatures all need to be the same length. Exiting")
-        ashexit()
+        raise InputError("Error: Lists time_steps, steps and temperatures all need to be the same length. Exiting")
 
     # Gradient check before we proceed
     if check_gradient_first is True:
@@ -5630,7 +5582,7 @@ def Gentle_warm_up_MD(
         try:
             OpenMM_Opt(fragment=fragment, theory=theory, maxiter=maxoptsteps, tolerance=1)
             print("Minimization successful")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - MD warm-up continues even if pre-minimization fails
             print("Problem minimizing system")
             print("Error message:", e)
             print("Will go on to do MD")
@@ -5772,8 +5724,7 @@ def create_CV_bias(
     # Define collective variables for CV1 and CV2.
     if CV_type == "dihedral" or CV_type == "torsion":
         if len(CV_atoms) != 4:
-            print("Error: CV_atoms list must contain 4 atom indices")
-            ashexit()
+            raise InputError("Error: CV_atoms list must contain 4 atom indices")
         cvforce = openmm.CustomTorsionForce("theta")
         cvforce.addTorsion(*CV_atoms)
         CV_bias = openmm.app.BiasVariable(
@@ -5781,8 +5732,7 @@ def create_CV_bias(
         )
     elif CV_type == "angle":
         if len(CV_atoms) != 3:
-            print("Error: CV_atoms list must contain 3 atom indices")
-            ashexit()
+            raise InputError("Error: CV_atoms list must contain 3 atom indices")
         cvforce = openmm.CustomAngleForce("theta")
         cvforce.addAngle(*CV_atoms)
         CV_bias = openmm.app.BiasVariable(
@@ -5790,8 +5740,7 @@ def create_CV_bias(
         )
     elif CV_type == "distance" or CV_type == "bond":
         if len(CV_atoms) != 2:
-            print("Error: CV_atoms list must contain 2 atom indices")
-            ashexit()
+            raise InputError("Error: CV_atoms list must contain 2 atom indices")
         cvforce = openmm.CustomBondForce("r")
         cvforce.addBond(*CV_atoms)
         CV_bias = openmm.app.BiasVariable(
@@ -5810,11 +5759,9 @@ def create_CV_bias(
         print("CV type is CN")
 
         if CV_parameters is None:
-            print(
-                "Error: CV-type coordination number requires a threshold value (when the distance should not longer be considered a bond)"
+            raise InputError(
+                "Error: CV-type coordination number requires a threshold value (when the distance should not longer be considered a bond)\nThis should be passed as a list using CV1_parameters/CV2_parameters, e.g. CV1_parameters=[2.0]"
             )
-            print("This should be passed as a list using CV1_parameters/CV2_parameters, e.g. CV1_parameters=[2.0]")
-            ashexit()
         print(f"List CV_parameters contains: {CV_parameters}. Using {CV_parameters[0]} as threshold")
         # Defining custom cvforce
         energy_expression = "1/(1+x^6) ; x=r/threshold"
@@ -5840,8 +5787,7 @@ def create_CV_bias(
         print("cvforce:", cvforce)
         print("CV_bias:", CV_bias)
     else:
-        print("unsupported CV_type for native OpenMM metadynamics implementation")
-        ashexit()
+        raise InputError("unsupported CV_type for native OpenMM metadynamics implementation")
     return CV_bias, cvforce
 
 
@@ -5956,7 +5902,7 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat="png", plot_xlim=N
         print("Now plotting:")
         try:
             import matplotlib.pyplot
-        except:
+        except ImportError:
             print("Problem importing matplotlib")
             return
         # 2D CV plotting uisng scatter with colormap
@@ -6077,8 +6023,9 @@ def small_molecule_parameterizer(
     print("Input options: xyzfile, pdbfile, molfile, sdffile, smiles_string")
     print("Forcefield options: GAFF, OpenFF")
     if charge is None:
-        print("You have to specify a formal total charge of the molecule via the charge keyword (e.g. charge=0)")
-        ashexit()
+        raise InputError(
+            "You have to specify a formal total charge of the molecule via the charge keyword (e.g. charge=0)"
+        )
     if forcefield_option == "GAFF":
         print("Using GAFF forcefield")
         print("Options:")
@@ -6089,23 +6036,21 @@ def small_molecule_parameterizer(
         )
         print("Chosen forcefield is:", openff_file)
     else:
-        print("Unknown forcefield_option")
-        ashexit()
+        raise InputError("Unknown forcefield_option")
 
     # OpenMM
     try:
         from openmm.app import ForceField
     except ModuleNotFoundError:
-        print("OpenMM is required but could not be imported")
-        ashexit()
+        raise MissingDependencyError("OpenMM is required but could not be imported") from None
 
     # Parmed
     try:
         import parmed
     except ImportError:
-        print("Problem importing parmed Python library")
-        print("Parmed can be installed using pip: pip install parmed")
-        ashexit()
+        raise MissingDependencyError(
+            "Problem importing parmed Python library\nParmed can be installed using pip: pip install parmed"
+        ) from None
     print(f"Parmed version {parmed.__version__} imported")
     # OpenMMForcefields stuff
     try:
@@ -6113,10 +6058,9 @@ def small_molecule_parameterizer(
         from openff.toolkit.topology import Molecule
         from openmmforcefields.generators import GAFFTemplateGenerator
     except ImportError as errormessage:
-        print("OpenFF and openmmforcefields libraries are required but could not be imported")
-        print("You can install like this:   conda install --yes -c conda-forge openmmforcefields")
-        print("Python import error message:", errormessage)
-        ashexit()
+        raise MissingDependencyError(
+            f"OpenFF and openmmforcefields libraries are required but could not be imported\nYou can install like this:   conda install --yes -c conda-forge openmmforcefields\nPython import error message: {errormessage}"
+        ) from errormessage
     print()
 
     # How to read in file
@@ -6139,8 +6083,7 @@ def small_molecule_parameterizer(
     elif xyzfile:
         print("XYZ file provided:", xyzfile)
         if os.path.isfile(xyzfile) is False:
-            print("File does not exist. Exiting")
-            ashexit()
+            raise FileFormatError("File does not exist. Exiting")
         print("Will use RDKit to convert XYZ file to an RDKit Mol object and then to OpenFF Molecule object")
         # Now using rdkit for more reliable XYZ-Mol conversion (handles total charges and bond orders)
         from rdkit import Chem
@@ -6173,8 +6116,7 @@ def small_molecule_parameterizer(
         # Create a SMILES string from PDB-file
         # Create an OpenFF Molecule object from SMILES string
     else:
-        print("No inputfile provided. Exiting")
-        ashexit()
+        raise InputError("No inputfile provided. Exiting")
 
     # Changing residue name in molecule object (for each atom)
     # Affects both PDB-file and XML-file
@@ -6275,13 +6217,11 @@ def small_molecule_parameterizer(
     print("LJ_sys:", lj_sys)
     print()
     if abs(coulomb_xml - coulomb_sys) > 1e-5:
-        print("abs(coulomb_xml - coulomb_sys):", abs(coulomb_xml - coulomb_sys))
-        print("Problem with Coulomb-14 scaling in XML-file")
-        ashexit()
+        raise InputError(
+            f"abs(coulomb_xml - coulomb_sys): {abs(coulomb_xml - coulomb_sys)}\nProblem with Coulomb-14 scaling in XML-file"
+        )
     if abs(lj_xml - lj_sys) > 1e-5:
-        print("abs(lj_xml - lj_system):", abs(lj_xml - lj_sys))
-        print("Problem with LJ-14 scaling in XML-file")
-        ashexit()
+        raise InputError(f"abs(lj_xml - lj_system): {abs(lj_xml - lj_sys)}\nProblem with LJ-14 scaling in XML-file")
     print("XML-file and forcefield objects are consistent. All good!")
     #
     print("Now returning a Forcefield object containing ligand compatible with the Amber14 FF.\n")
@@ -6325,11 +6265,9 @@ def create_sys_and_check_14_scaling_nonbonding(
 
     print("Creating system from XML-file and topology")
     if topology is None:
-        print("Error: topology is required if system is not provided")
-        ashexit()
+        raise InputError("Error: topology is required if system is not provided")
     if xml_file is None:
-        print("Error: xml_file is required if system is not provided")
-        ashexit()
+        raise InputError("Error: xml_file is required if system is not provided")
     forcefield_from_xmlfile = openmm.app.ForceField(xml_file)
     system_from_xmlfile = forcefield_from_xmlfile.createSystem(topology)
 
@@ -6404,10 +6342,9 @@ def write_xmlfile_parmed(topology, system, xmlfilename):
     try:
         import parmed
     except ImportError:
-        print("Problem importing parmed Python library")
-        print("Make sure parmed is present in your Python.")
-        print("Parmed can be installed using pip: pip install parmed")
-        ashexit(code=9)
+        raise MissingDependencyError(
+            "Problem importing parmed Python library\nMake sure parmed is present in your Python.\nParmed can be installed using pip: pip install parmed"
+        ) from None
     st = parmed.openmm.load_topology(topology, system=system)
     w = parmed.amber.parameters.ParameterSet.from_structure(st)
     ww = parmed.openmm.parameters.OpenMMParameterSet.from_parameterset(w)

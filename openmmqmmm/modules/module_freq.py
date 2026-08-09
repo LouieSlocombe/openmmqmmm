@@ -9,9 +9,12 @@ import numpy as np
 import openmmqmmm.constants
 import openmmqmmm.interfaces.interface_ORCA
 import openmmqmmm.modules.module_coords
+from openmmqmmm.exceptions import (
+    InputError,
+    InternalError,
+)
 from openmmqmmm.functions.functions_general import (
     BC,
-    ashexit,
     blankline,
     clean_number,
     listdiff,
@@ -46,8 +49,7 @@ def AnFreq(
     print(BC.WARNING, BC.BOLD, "------------ANALYTICAL FREQUENCIES-------------", BC.END)
 
     if fragment is None or theory is None:
-        print("AnFreq requires a fragment and a theory object")
-        ashexit()
+        raise InputError("AnFreq requires a fragment and a theory object")
 
     # Checking for linearity. Determines how many Trans+Rot modes
     if detect_linear(coords=fragment.coords, elems=fragment.elems, threshold=rotmode_threshold) is True:
@@ -95,7 +97,7 @@ def AnFreq(
                 print("Found IR intensities, zero-capping needed")
                 IR_intens_values = [0.0] * 6 + list(IR_intens_values)
                 print("Found IR intensities")
-        except:
+        except (AttributeError, KeyError, TypeError):
             print("Found no IR intensities in theory object")
             IR_intens_values = None
         Raman_activities = None
@@ -148,8 +150,7 @@ def AnFreq(
         return result
 
     else:
-        print("Analytical frequencies not available for theory. Exiting.")
-        ashexit()
+        raise InputError("Analytical frequencies not available for theory. Exiting.")
 
 
 # Numerical frequencies function
@@ -184,8 +185,7 @@ def NumFreq(
     # Basic checks
     ################
     if fragment is None or theory is None:
-        print("NumFreq requires a fragment and a theory object")
-        ashexit()
+        raise InputError("NumFreq requires a fragment and a theory object")
     # Check charge/mult
     charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "NumFreq", theory=theory)
     ################
@@ -202,15 +202,9 @@ def NumFreq(
         print("No Hessatoms provided. Full Hessian assumed. Rot+trans projection is on!")
         if isinstance(theory, QMMMTheory):
             print("Theory object provided is a QM/MM Theory")
-            print("Error: No hessatoms option was provided. This is required for QM/MM Theories")
-            print(
-                "Please provide a list of atom indices to the hessatoms keyword of NumFreq to define the partial Hessian"
+            raise InputError(
+                "Error: No hessatoms option was provided. This is required for QM/MM Theories\nPlease provide a list of atom indices to the hessatoms keyword of NumFreq to define the partial Hessian\nFor QM/MM numerical frequencies you want the list of hessatoms to be the same atoms used to define the \nactive-region in the optimization (or the QM-region)\nExiting now."
             )
-            print(
-                "For QM/MM numerical frequencies you want the list of hessatoms to be the same atoms used to define the \nactive-region in the optimization (or the QM-region)"
-            )
-            print("Exiting now.")
-            ashexit()
         else:
             hessatoms = allatoms
             projection = True
@@ -235,12 +229,9 @@ def NumFreq(
 
     # If hessatoms_masses list was provided
     if hessatoms_masses is not None and len(hessatoms_masses) != len(hessatoms):
-        print(
-            BC.FAIL,
-            "Error: Number of provided masses (hessatoms_masses keyword) is not equal to number of Hessian-atoms.",
+        raise InputError(
+            "Error: Number of provided masses (hessatoms_masses keyword) is not equal to number of Hessian-atoms.\nCheck input masses!"
         )
-        print("Check input masses!", BC.END)
-        ashexit()
     # Checking for linearity. Determines how many Trans+Rot modes
     if detect_linear(coords=fragment.coords, elems=fragment.elems, threshold=rotmode_threshold) is True:
         TRmodenum = 5
@@ -262,7 +253,7 @@ def NumFreq(
         ):
             print("Copying GBW file into Numfreq_dir")
             shutil.copy("../" + theory.qm_theory.filename + ".gbw", "./" + theory.qm_theory.filename + ".gbw")
-    except:
+    except (OSError, AttributeError):
         pass
 
     ##########################
@@ -280,15 +271,13 @@ def NumFreq(
     if hessatoms != allatoms:
         print("This is a partial Hessian job.")
         if len(hessatoms) == 0:
-            print("hessatoms list is empty. Exiting.")
-            ashexit()
+            raise InputError("hessatoms list is empty. Exiting.")
     if npoint == 1:
         print("One-point formula used (forward difference)")
     elif npoint == 2:
         print("Two-point formula used (central difference)")
     else:
-        print("Unknown npoint option. npoint should be set to 1 (one-point) or 2 (two-point formula).")
-        ashexit()
+        raise InputError("Unknown npoint option. npoint should be set to 1 (one-point) or 2 (two-point formula).")
     if runmode == "serial":
         print("Numfreq running in serial mode")
     elif runmode == "parallel":
@@ -363,7 +352,8 @@ def NumFreq(
         all_disp_fragments.append(frag)
         list_of_labels.append(calclabel)
 
-    assert len(list_of_labels) == len(list_of_displaced_geos), "something is wrong"
+    if len(list_of_labels) != len(list_of_displaced_geos):
+        raise InternalError("Mismatch between number of labels and displaced geometries")
 
     ########################
     # RUNNING displacements
@@ -402,7 +392,7 @@ def NumFreq(
                 try:
                     displacement_dm = theory.get_dipole_moment()
                     displacement_dipole_dictionary[stringlabel] = displacement_dm
-                except:
+                except Exception:  # noqa: BLE001 - best-effort: theory may not provide dipoles
                     pass
 
             # Grabbing polarizability tensor if requested
@@ -414,7 +404,7 @@ def NumFreq(
                     if not np.any(displacement_pol):
                         print("Warning: no polarizability information found")
                     displacement_polarizability_dictionary[stringlabel] = displacement_pol
-                except:
+                except Exception:  # noqa: BLE001 - best-effort polarizability grab
                     print("Warning: Problem getting polarizability tensor from theory interface. Skipping")
 
     # TODO: Dipole moment/polarizability grab for parallel mode
@@ -444,17 +434,16 @@ def NumFreq(
         displacement_dipole_dictionary = result.displacement_dipole_dictionary
         displacement_polarizability_dictionary = result.displacement_polarizability_dictionary
     else:
-        print("Unknown runmode.")
-        ashexit()
+        raise InputError("Unknown runmode.")
 
     ############################################
     print("NumFreq Displacement calculations are done!")
     print()
 
     if len(displacement_grad_dictionary) == 0:
-        print("Missing gradients for displacement.")
-        print("Something went wrong in Numfreq displacement calculations.")
-        ashexit()
+        raise InputError(
+            "Missing gradients for displacement.\nSomething went wrong in Numfreq displacement calculations."
+        )
     print("Length of displacement_grad_dictionary", len(displacement_grad_dictionary))
     # Initialize empty Hessian
     hesslength = 3 * len(hessatoms)
@@ -1034,8 +1023,7 @@ def thermochemcalc(
             elif QRRHO_method == "Truhlar":
                 TS_vib = S_vib_QRRHO_Truhlar(freqs, temp, lowfreq_thresh=QRRHO_omega_0)
             else:
-                print("Unknown QRRHO_method. Exiting.")
-                ashexit()
+                raise InputError("Unknown QRRHO_method. Exiting.")
         else:
             TS_vib = S_vib(freqs, temp)
     else:
@@ -1265,9 +1253,7 @@ CARTESIAN COORDINATES (ANGSTROEM)
                     val5 = nmodes[j + 4][i]
                     val6 = nmodes[j + 5][i]
                 else:
-                    print("problem")
-                    print("hessdim - j : ", hessdim - j)
-                    ashexit()
+                    raise InputError(f"problem\nhessdim - j :  {hessdim - j}")
 
                 if chunk == chunks - 1:
                     for _k in range(index, index + left):
@@ -1313,8 +1299,7 @@ CARTESIAN COORDINATES (ANGSTROEM)
 def get_center(coords, masses=None, elems=None, printlevel=2):
     if masses is None:
         if elems is None:
-            print("Need to provide either masses or elems")
-            ashexit()
+            raise InputError("Need to provide either masses or elems")
         if printlevel >= 2:
             print("No masses provided. Using atom masses from ASH.")
         masses = [
@@ -1478,11 +1463,11 @@ def approximate_full_Hessian_from_smaller(
 
         # Check that atomindices (for small) are all part of hessatom
         if all(item in large_atomindices for item in small_atomindices) is False:
-            print(
-                f"small_atomindices: {small_atomindices} are not all present in large_atomindices: {large_atomindices}"
+            raise InputError(
+                "{}\nThis does not make sense. Exiting".format(
+                    f"small_atomindices: {small_atomindices} are not all present in large_atomindices: {large_atomindices}"
+                )
             )
-            print("This does not make sense. Exiting")
-            ashexit()
         # If large Hessian is a partial Hessian of the full system then we need to change small Hessian atomindices
         correct_small_atomindices = [large_atomindices.index(i) for i in small_atomindices]
         print("correct_small_atomindices:", correct_small_atomindices)
@@ -1492,10 +1477,9 @@ def approximate_full_Hessian_from_smaller(
             elems=subelems, coords=subcoords, printlevel=0, charge=fragment.charge, mult=fragment.mult
         )
     else:
-        print("small_atomindices:", small_atomindices)
-        print("large_atomindices:", large_atomindices)
-        print("Something went wrong")
-        ashexit()
+        raise InputError(
+            f"small_atomindices: {small_atomindices}\nlarge_atomindices: {large_atomindices}\nSomething went wrong"
+        )
 
     print("Initializing full size Hessian of dimension:", hess_size)
     fullhessian = np.zeros((hess_size, hess_size))
@@ -1510,16 +1494,16 @@ def approximate_full_Hessian_from_smaller(
     if restHessian == "Almloef" or restHessian == "Lindh" or restHessian == "Schlegel" or restHessian == "Swart":
         print("restHessian:", restHessian)
         if charge is None or mult is None:
-            print("Error: For this restHessian option we require charge and multiplicity information to be provided")
-            ashexit()
+            raise InputError(
+                "Error: For this restHessian option we require charge and multiplicity information to be provided"
+            )
         usedfragment.charge = charge
         usedfragment.mult = mult
         fullhessian = calc_model_Hessian_ORCA(usedfragment, model=restHessian)
     elif restHessian == "xtb":
-        print(
+        raise InputError(
             "Error: restHessian='xtb' is not available in this ORCA+OpenMM build. Use an ORCA model Hessian, 'unit' or 'zero' instead."
         )
-        ashexit()
     # Or with unit matrix
     elif restHessian == "unit" or restHessian == "identity":
         print("restHessian is unit/identity")

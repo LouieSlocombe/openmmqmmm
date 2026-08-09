@@ -9,9 +9,14 @@ import numpy as np
 
 import openmmqmmm.constants
 import openmmqmmm.dictionaries_lists
+from openmmqmmm.exceptions import (
+    FileFormatError,
+    InputError,
+    InternalError,
+    MissingDependencyError,
+)
 from openmmqmmm.functions.functions_general import (
     BC,
-    ashexit,
     isint,
     listdiff,
     natural_sort,
@@ -71,8 +76,7 @@ class Reaction:
     def check_fragments(self):
         for frag in self.fragments:
             if frag.charge is None or frag.mult is None:
-                print("Error: Missing charge/mult information in fragment:", frag.formula)
-                ashexit()
+                raise InputError(f"Error: Missing charge/mult information in fragment: {frag.formula}")
 
     def calculate_reaction_energy(self):
         if len(self.energies) == len(self.fragments):
@@ -174,13 +178,11 @@ class Fragment:
             # Adding coords as list of lists (or np.array). Conversion to numpy array
             self.coords = reformat_list_to_array(coords)
             if elems is None:
-                print("Error: Coords list provided but no elems list. Exiting.")
-                ashexit()
+                raise InputError("Error: Coords list provided but no elems list. Exiting.")
             if len(elems) != len(coords):
-                print(
+                raise InputError(
                     f"Error: Coords list (len {len(coords)}) and elems list ({len(elems)}) have different lengths. Exiting."
                 )
-                ashexit()
             self.elems = elems
             # If connectivity passed
             if connectivity is not None:
@@ -219,14 +221,12 @@ class Fragment:
             if bondlength is None:
                 # TODO: remove diatomic_bondlength and use bondlength only
                 if diatomic_bondlength is None:
-                    print(BC.FAIL, "diatomic option requires bondlength to be set. Exiting!", BC.END)
-                    ashexit()
+                    raise InputError("diatomic option requires bondlength to be set. Exiting!")
                 else:
                     bondlength = diatomic_bondlength
             self.elems = molformulatolist(diatomic)
             if len(self.elems) != 2:
-                print(f"Problem with molecular formula diatomic={diatomic} string!")
-                ashexit()
+                raise InputError(f"Problem with molecular formula diatomic={diatomic} string!")
             self.coords = reformat_list_to_array([[0.0, 0.0, 0.0], [0.0, 0.0, float(bondlength)]])
         # If coordsstring given, read elems and coords from it
         elif coordsstring is not None:
@@ -237,8 +237,7 @@ class Fragment:
         # If xyzfile argument, run read_xyzfile
         elif xyzfile is not None:
             if not os.path.isfile(xyzfile):
-                print(f"XYZ-file {xyzfile} not found. Exiting.")
-                ashexit()
+                raise InputError(f"XYZ-file {xyzfile} not found. Exiting.")
 
             self.label = xyzfile.split("/")[-1].split(".")[0]
             self.read_xyzfile(xyzfile, readchargemult=readchargemult, conncalc=conncalc)
@@ -259,8 +258,7 @@ class Fragment:
             self.label = amber_inpcrdfile.split("/")[-1].split(".")[0]
             print("Reading Amber INPCRD file")
             if amber_prmtopfile is None:
-                print("amber_prmtopfile argument must be provided as well!")
-                ashexit()
+                raise InputError("amber_prmtopfile argument must be provided as well!")
             self.read_amberfile(inpcrdfile=amber_inpcrdfile, prmtopfile=amber_prmtopfile, conncalc=conncalc)
         elif chemshellfile is not None:
             self.label = chemshellfile.split("/")[-1].split(".")[0]
@@ -271,7 +269,7 @@ class Fragment:
             self.read_fragment_from_file(fragfile)
         # If all else fails, exit
         else:
-            ashexit(errormessage="Fragment requires some kind of valid coordinate input!")
+            raise InputError("Fragment requires some kind of valid coordinate input!")
         # Label for fragment (string). Useful for distinguishing different fragments
         # This overrides label-definitions above (self.label=xyzfile etc)
         if label is not None:
@@ -318,11 +316,9 @@ class Fragment:
         if self.printlevel >= 2:
             print("Creating/Updating fragment attributes...")
         if len(self.coords) == 0:
-            print("No coordinates in fragment. Something went wrong. Exiting.")
-            ashexit()
+            raise InputError("No coordinates in fragment. Something went wrong. Exiting.")
         if not isinstance(self.coords, np.ndarray):
-            print("self.coords is not a numpy array. Something is wrong. Exiting.")
-            ashexit()
+            raise InputError("self.coords is not a numpy array. Something is wrong. Exiting.")
         self.nuccharge = nucchargelist(self.elems)
         self.nuc_charges = elemstonuccharges(self.elems)
         self.numatoms = len(self.coords)
@@ -443,8 +439,7 @@ class Fragment:
             elems, coords, _box_dims = read_ambercoordinates(prmtopfile=prmtopfile, inpcrdfile=inpcrdfile)
             # NOTE: boxdims not used. Could be set as fragment variable ?
         except FileNotFoundError:
-            print(f"File {prmtopfile} or {inpcrdfile} not found")
-            ashexit()
+            raise FileFormatError(f"File {prmtopfile} or {inpcrdfile} not found") from None
         self.coords = reformat_list_to_array(coords)
         self.elems = elems
         # if conncalc is True:
@@ -457,8 +452,7 @@ class Fragment:
             elems, coords, _boxdims = read_gromacsfile(filename)
             # NOTE: boxdims not used. Could be set as fragment variable ?
         except FileNotFoundError:
-            print(f"File '{filename}' not found")
-            ashexit()
+            raise FileFormatError(f"File '{filename}' not found") from None
         self.coords = coords
         self.elems = elems
         # if conncalc is True:
@@ -470,8 +464,7 @@ class Fragment:
         try:
             elems, coords = read_chemshellfragfile_xyz(filename)
         except FileNotFoundError:
-            print(f"File '{filename}' not found.")
-            ashexit()
+            raise FileFormatError(f"File '{filename}' not found.") from None
         self.coords = coords
         self.elems = elems
         # if conncalc is True:
@@ -483,8 +476,9 @@ class Fragment:
         try:
             import openmm.app
         except ImportError:
-            print("Error: OpenMM library not found. ASH requires OpenMM library to read PDB files.")
-            ashexit()
+            raise FileFormatError(
+                "Error: OpenMM library not found. ASH requires OpenMM library to read PDB files."
+            ) from None
         pdb = openmm.app.PDBFile(filename)
         self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
         self.elems = []
@@ -507,8 +501,9 @@ class Fragment:
         try:
             import openmm.app
         except ImportError:
-            print("Error: OpenMM library not found. ASH requires OpenMM library to read PDB files.")
-            ashexit()
+            raise FileFormatError(
+                "Error: OpenMM library not found. ASH requires OpenMM library to read PDB files."
+            ) from None
         pdb = openmm.app.PDBxFile(filename)
         self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
         self.elems = [atom.element.symbol for atom in pdb.topology.atoms()]
@@ -532,11 +527,12 @@ class Fragment:
                             self.charge = int(line.split()[0])
                             self.mult = int(line.split()[1])
                         except ValueError:
-                            print(
-                                f"Error: XYZ-file {filename} does not have a valid charge/mult in 2nd-line of header:"
-                            )
-                            print("Line:", line)
-                            ashexit()
+                            raise FileFormatError(
+                                "{}\nLine: {}".format(
+                                    f"Error: XYZ-file {filename} does not have a valid charge/mult in 2nd-line of header:",
+                                    line,
+                                )
+                            ) from None
                 elif count > 1 and len(line) > 3:
                     # Grabbing element and reformatting
                     if isint(line.split()[0]) is True:
@@ -550,8 +546,7 @@ class Fragment:
         # Convert to numpy
         self.coords = reformat_list_to_array(coords)
         if self.numatoms != len(self.coords):
-            print("Number of atoms in header not equal to number of coordinate-lines. Check XYZ file!")
-            ashexit()
+            raise FileFormatError("Number of atoms in header not equal to number of coordinate-lines. Check XYZ file!")
 
     def set_energy(self, energy):
         self.energy = float(energy)
@@ -595,11 +590,9 @@ class Fragment:
         for sublist in self.connectivity:
             conn_number_sum += len(sublist)
         if self.numatoms != conn_number_sum:
-            print(BC.FAIL, "Connectivity problem", BC.END)
-            print("self.connectivity:", self.connectivity)
-            print("conn_number_sum:", conn_number_sum)
-            print("self numatoms", self.numatoms)
-            ashexit()
+            raise InputError(
+                f"Connectivity problem\nself.connectivity: {self.connectivity}\nconn_number_sum: {conn_number_sum}\nself numatoms {self.numatoms}"
+            )
         self.connected_atoms_number = conn_number_sum
 
     # Centroid
@@ -635,8 +628,7 @@ class Fragment:
         try:
             import openmm.app
         except ImportError:
-            print("Error: OpenMM not found. Cannot define a topology")
-            ashexit()
+            raise InputError("Error: OpenMM not found. Cannot define a topology") from None
         print("Defining new basic single-chain, multi-residue topology")
         self.pdb_topology = openmm.app.Topology()
         chain = self.pdb_topology.addChain()
@@ -684,8 +676,9 @@ class Fragment:
         try:
             import openmm.app
         except ImportError:
-            print("Error: OpenMM library not found. ASH requires OpenMM library to write PDB files.")
-            ashexit()
+            raise InputError(
+                "Error: OpenMM library not found. ASH requires OpenMM library to write PDB files."
+            ) from None
 
         # Adding extension
         if ".pdb" not in filename:
@@ -775,11 +768,9 @@ class Fragment:
             print("Len elems:", len(self.elems))
             print("Len coords:", len(self.coords))
             print("Len atomcharges:", len(self.atomcharges))
-            print("Len atomtypes:", len(self.atomtypes))
-            print("Len fragmenttype_labels:", len(self.fragmenttype_labels))
-            print("fragmenttype_labels:", self.fragmenttype_labels)
-            print("This should not have happened. File a bugreport", BC.END)
-            ashexit()
+            raise InternalError(
+                f"Len atomtypes: {len(self.atomtypes)}\nLen fragmenttype_labels: {len(self.fragmenttype_labels)}\nfragmenttype_labels: {self.fragmenttype_labels}\nThis should not have happened. File a bugreport"
+            )
         with open(filename, "w") as outfile:
             outfile.write("Fragment: \n")
             outfile.write(f"Num atoms: {self.numatoms}\n")
@@ -833,8 +824,7 @@ class Fragment:
         with open(fragfile) as file:
             for n, line in enumerate(file):
                 if n == 0 and "Fragment:" not in line:
-                    print("This is not a valid ASH fragment file. Exiting.")
-                    ashexit()
+                    raise FileFormatError("This is not a valid ASH fragment file. Exiting.")
                 if "Num atoms:" in line:
                     int(line.split()[-1])
                 if "charge :" in line:
@@ -873,7 +863,7 @@ class Fragment:
                         y = y.strip("]")
                         try:
                             connlist = [int(i) for i in y.split(",")]
-                        except:
+                        except ValueError:
                             connlist = []
                         connectivity.append(connlist)
         self.elems = elems
@@ -895,8 +885,7 @@ def reformat_list_to_array(data):
     elif isinstance(data, list):
         # Checking if input is a list of lists or not
         if any(isinstance(el, list) for el in data) is False:
-            print(BC.FAIL, "Error (reformat_list_to_array): input should be a list of lists, not just a list", BC.END)
-            ashexit()
+            raise InputError("Error (reformat_list_to_array): input should be a list of lists, not just a list")
         return np.array(data)
 
 
@@ -1237,18 +1226,16 @@ def reformat_element(elem, isatomnum=False):
         try:
             el_correct = openmmqmmm.dictionaries_lists.element_dict_atnum[elem].symbol
         except KeyError:
-            print(f"Element-string: {elem} not found in element-dictionary!")
-            print("This is not a valid element as defined in ASH source-file: dictionaries_lists.py")
-            print("Fix element-information in coordinate-file.")
-            ashexit()
+            raise InputError(
+                f"Element-string {elem} is not a valid element. Fix the element information in the coordinate file."
+            ) from None
     else:
         try:
             el_correct = openmmqmmm.dictionaries_lists.element_dict_atname[elem.lower()].symbol
         except KeyError:
-            print(f"Element-string: {elem} not found in element-dictionary!")
-            print("This is not a valid element as defined in ASH source-file: dictionaries_lists.py")
-            print("Fix element-information in coordinate-file.")
-            ashexit()
+            raise InputError(
+                f"Element-string {elem} is not a valid element. Fix the element information in the coordinate file."
+            ) from None
     return el_correct
 
 
@@ -1526,8 +1513,7 @@ def print_internal_coordinate_table(fragment, actatoms=None):
 # From lists of coords,elems and atom indices, print coords with elem
 def print_coords_for_atoms(coords, elems, members, labels=None):
     if labels is not None and len(labels) != len(members):
-        print("Problem. Length of Labels note equal to length of members list")
-        ashexit()
+        raise InputError("Problem. Length of Labels note equal to length of members list")
     label = ""
     for i, m in enumerate(members):
         if labels is not None:
@@ -1914,14 +1900,13 @@ def read_xyzfile(filename, printlevel=2):
                     elems.append(el)
                 coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
     if len(coords) != numatoms:
-        print(
-            BC.FAIL,
-            f"Error: Number of coordinates in XYZ-file: {filename} does not match header line. Exiting.",
+        raise FileFormatError(
+            f"Error: Number of coordinates in XYZ-file: {filename} does not match header line. Exiting."
         )
-        ashexit()
     if len(coords) != len(elems):
-        print("Number of coordinates does not match elements. Something wrong with XYZ-file?: ", filename)
-        ashexit()
+        raise FileFormatError(
+            f"Number of coordinates does not match elements. Something wrong with XYZ-file?:  {filename}"
+        )
     return elems, coords
 
 
@@ -2052,15 +2037,17 @@ def conv_atomtypes_elems(atomtype):
     try:
         element = openmmqmmm.dictionaries_lists.atomtypes_dict[atomtype]
         return element
-    except:
+    except KeyError:
         # Assume correct element but could be wrongly formatted (e.g. FE instead of Fe) so reformatting
         try:
             element = reformat_element(atomtype)
             return element
-        except:
-            print(f"Atomtype: '{atomtype}' not recognized either as valid atomtype or element. Exiting.")
-            print("You might have to modify the atomtype/element information in coordinate file you're reading in.")
-            ashexit()
+        except InputError:
+            raise InputError(
+                "{}\nYou might have to modify the atomtype/element information in coordinate file you're reading in.".format(
+                    f"Atomtype: '{atomtype}' not recognized either as valid atomtype or element. Exiting."
+                )
+            ) from None
 
 
 # READ PDBfile
@@ -2098,26 +2085,19 @@ def read_pdbfile(filename, use_atomnames_as_elements=False):
                                 elemcol.append(reformat_element(elem))
                         else:
                             print("While reading line:")
-                            print(line)
-                            print("No element found in element-column of PDB-file")
-                            print(
-                                "Either fix element-column (columns 77-78) or try to use to read element-information from atomname-column:"
+                            raise FileFormatError(
+                                f"{line}\nNo element found in element-column of PDB-file\nEither fix element-column (columns 77-78) or try to use to read element-information from atomname-column:\n Fragment(pdbfile='X', use_atomnames_as_elements=True)"
                             )
-                            print(" Fragment(pdbfile='X', use_atomnames_as_elements=True) ")
-                            ashexit()
                 # if 'HETATM' in line:
     except FileNotFoundError:
-        print(f"File '{filename}' does not exist!")
-        ashexit()
+        raise FileFormatError(f"File '{filename}' does not exist!") from None
     # Create numpy array
     coords_np = reformat_list_to_array(coords)
 
     if len(elemcol) != len(coords):
-        print("len coords", len(coords))
-        print("len elemcol", len(elemcol))
-        print("did not find same number of elements as coordinates")
-        print("Need to define elements in some other way")
-        ashexit()
+        raise FileFormatError(
+            f"len coords {len(coords)}\nlen elemcol {len(elemcol)}\ndid not find same number of elements as coordinates\nNeed to define elements in some other way"
+        )
     else:
         elems = elemcol
     return elems, coords_np
@@ -2150,8 +2130,7 @@ def read_pdbfile_info(filename, use_atomnames_as_elements=False):
                 if line.startswith("CONECT"):
                     conect_lines.append(line)
     except FileNotFoundError:
-        print(f"File '{filename}' does not exist!")
-        ashexit()
+        raise FileFormatError(f"File '{filename}' does not exist!") from None
 
     return atomnames, residnames, residlabels, chainlabels, conect_lines
 
@@ -2204,8 +2183,7 @@ def read_gromacsfile(grofile):
                 coords.append([10 * coords_x, 10 * coords_y, 10 * coords_z])
     npcoords = reformat_list_to_array(coords)
     if len(npcoords) != len(elems):
-        print(BC.FAIL, f"Num coords not equal to num elems. Parsing of Gromacsfile: {grofile} failed. BUG!")
-        ashexit()
+        raise FileFormatError(f"Num coords not equal to num elems. Parsing of Gromacsfile: {grofile} failed. BUG!")
     return elems, npcoords, box_dims
 
 
@@ -2257,12 +2235,9 @@ def read_ambercoordinates(prmtopfile=None, inpcrdfile=None):
             if "%FLAG ATOMIC_NUMBER" in line:
                 grab_atomnumber = True
     if len(coords) != len(elems):
-        print(
-            BC.FAIL,
-            f"Num coords ({len(coords)}) not equal to num elems ({len(elems)}). Parsing of Amber files: {prmtopfile} and {inpcrdfile} failed. BUG!",
-            BC.END,
+        raise FileFormatError(
+            f"Num coords ({len(coords)}) not equal to num elems ({len(elems)}). Parsing of Amber files: {prmtopfile} and {inpcrdfile} failed. BUG!"
         )
-        ashexit()
     return elems, coords, box_dims
 
 
@@ -2321,11 +2296,9 @@ def write_pdbfile(
         print("ERROR: Problem with lists...")
         print("len: atomnames", len(atomnames))
         print("len: coords", len(coords))
-        print("len: resnames", len(resnames))
-        print("len: residlabels", len(residlabels))
-        print("len: segmentlabels", len(segmentlabels))
-        print("len elems:", len(elems))
-        ashexit()
+        raise InternalError(
+            f"len: resnames {len(resnames)}\nlen: residlabels {len(residlabels)}\nlen: segmentlabels {len(segmentlabels)}\nlen elems: {len(elems)}"
+        )
 
     with open(outputname + ".pdb", "w") as pfile:
         for count, (atomname, c, resname, chainlabel, resid, _seg, el) in enumerate(
@@ -2540,8 +2513,7 @@ def flexible_align(
             print("Subset for A:", subset[0])
             print("Subset for B:", subset[1])
             if len(subset[0]) != len(subset[1]):
-                print("Length of subsets not equal. This is not allowed. Exiting.")
-                ashexit()
+                raise InputError("Length of subsets not equal. This is not allowed. Exiting.")
             print("Will align using each list of indices for each fragment")
             subsetA_coords, subsetA_elems = fragmentA.get_coords_for_atoms(subset[0])
             subsetB_coords, subsetB_elems = fragmentB.get_coords_for_atoms(subset[1])
@@ -2643,8 +2615,7 @@ def calculate_RMSD(
             print("Subset for A:", subset[0])
             print("Subset for B:", subset[1])
             if len(subset[0]) != len(subset[1]):
-                print("Length of subsets not equal. This is not allowed. Exiting.")
-                ashexit()
+                raise InputError("Length of subsets not equal. This is not allowed. Exiting.")
             print("Will align using each list of indices for each fragment")
             subsetA_coords, subsetA_elems = fragmentA.get_coords_for_atoms(subset[0])
             subsetB_coords, subsetB_elems = fragmentB.get_coords_for_atoms(subset[1])
@@ -2766,8 +2737,7 @@ def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
     scale = CONNECTIVITY_SCALE
     tol = CONNECTIVITY_TOL
     if fragment is None or initial_atoms is None or radius is None:
-        print("Provide fragment, initial_atoms and radius keyword arguments to QMregionfragexpand!")
-        ashexit()
+        raise InputError("Provide fragment, initial_atoms and radius keyword arguments to QMregionfragexpand!")
     subsetelems = [fragment.elems[i] for i in initial_atoms]
     subsetcoords = np.take(fragment.coords, initial_atoms, axis=0)
     if len(fragment.connectivity) == 0:
@@ -2805,11 +2775,9 @@ def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
 # Function to do QM-region expansion based on QM/MM pointcharge gradient
 def QMPC_fragexpand(theory=None, fragment=None, thresh=5e-4):
     if theory is None and fragment is None:
-        print("QMPC_fragexpand requires fragment and theory")
-        ashexit()
+        raise InputError("QMPC_fragexpand requires fragment and theory")
     if not isinstance(theory, openmmqmmm.QMMMTheory):
-        print("Theory is not a QMMMTheory")
-        ashexit()
+        raise InputError("Theory is not a QMMMTheory")
 
     # QM/MM run
     openmmqmmm.Singlepoint(theory=theory, fragment=fragment, Grad=True)
@@ -2900,13 +2868,9 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
                     BC.END,
                 )
                 if unusualboundary is False:
-                    print(
-                        BC.WARNING,
-                        "Make sure you know what you are doing (also note that ASH counts atoms from 0 not 1). Exiting.",
-                        BC.END,
+                    raise InputError(
+                        "Make sure you know what you are doing (also note that ASH counts atoms from 0 not 1). Exiting.\nTo override exit, add: unusualboundary=True  to QMMMTheory object"
                     )
-                    print(BC.WARNING, "To override exit, add: unusualboundary=True  to QMMMTheory object ", BC.END)
-                    ashexit()
             # Adding to dict
             qm_mm_boundary_dict[qmatom] = [boundaryatom[0]]
     print("QM-MM boundary dictionary:", qm_mm_boundary_dict)
@@ -2974,9 +2938,7 @@ def get_linkatom_positions(
                     print("R_eq_QM_H:", R_eq_QM_H)
                     print("R_eq_QM_MM:", R_eq_QM_MM)
                     linkatom_ratio = R_eq_QM_H / R_eq_QM_MM
-                    print("Determined ratio:", linkatom_ratio)
-                    print("not yet ready")
-                    ashexit()
+                    raise InputError(f"Determined ratio: {linkatom_ratio}\nnot yet ready")
                 distance(qmatom_coords, mmatom_coords)
                 # See https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9314059/
                 linkatom_coords = linkatom_ratio * (mmatom_coords - qmatom_coords) + qmatom_coords
@@ -2996,8 +2958,7 @@ def get_linkatom_positions(
                     + (mmatom_coords - qmatom_coords) * (linkatom_distance / distance(qmatom_coords, mmatom_coords))
                 )
             else:
-                print("Invalid linkatom_method. Exiting.")
-                ashexit()
+                raise InputError("Invalid linkatom_method. Exiting.")
 
             linkatoms_dict[(qmatom, mmatom)] = linkatom_coords
     return linkatoms_dict
@@ -3025,23 +2986,19 @@ def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=Fa
 def getwaterconstraintslist(openmmtheoryobject=None, atomlist=None, watermodel="tip3p"):
     print("Inside getwaterconstraintslist")
     if openmmtheoryobject is None or atomlist is None:
-        print("getwaterconstraintslist requires openmmtheoryobject and atomlist to be set ")
-        ashexit()
+        raise InputError("getwaterconstraintslist requires openmmtheoryobject and atomlist to be set")
     if watermodel == "tip3p" or watermodel == "spc":
         water_resname = ["HOH", "WAT", "TIP"]
     else:
-        print("unknown watermodel")
-        ashexit()
+        raise InputError("unknown watermodel")
 
     resnames = openmmtheoryobject.resnames
     elements = openmmtheoryobject.mm_elements
 
     if len(resnames) == 0:
-        print("Error: No resnames found in OpenMMTheory object")
-        ashexit()
+        raise InputError("Error: No resnames found in OpenMMTheory object")
     if len(elements) == 0:
-        print("Error: No mm_elements found in OpenMMTheory object")
-        ashexit()
+        raise InputError("Error: No mm_elements found in OpenMMTheory object")
 
     waterconstraints = []
     if resnames:
@@ -3086,8 +3043,7 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None, 
                 charge = fragment.charge
                 mult = fragment.mult
             else:
-                print(BC.FAIL, "No charge/mult information present in fragment either. Exiting.", BC.END)
-                ashexit()
+                raise InputError("No charge/mult information present in fragment either. Exiting.")
     elif theorytype == "QM/MM":
         # Note: theory needs to be set
         if charge is None or mult is None:
@@ -3110,8 +3066,7 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None, 
                 charge = fragment.charge
                 mult = fragment.mult
             else:
-                print(BC.FAIL, "No charge/mult information present in fragment either. Exiting.", BC.END)
-                ashexit()
+                raise InputError("No charge/mult information present in fragment either. Exiting.")
     elif theorytype == "ONIOM":
         print("Checking if charge/mult information present in ONIOM object")
         if theory.fullregion_charge is not None and theory.fullregion_mult is not None:
@@ -3188,8 +3143,7 @@ def define_XH_constraints(fragment, actatoms=None, excludeatoms=None):
     final_list = []
     for XHpair in act_con_list:
         if len(XHpair) != 2:
-            print("XHpair is strange:", XHpair)
-            ashexit()
+            raise InternalError(f"XHpair is strange: {XHpair}")
         final_list.append([actindex_to_fullindex(XHpair[0], actatoms), actindex_to_fullindex(XHpair[1], actatoms)])
     return final_list
 
@@ -3213,13 +3167,13 @@ def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False):
     print("Warning: Note that water residues have to have O,H,H order and have to be at the end of the coordinate file")
     print("Starting index for first water oxygen:", starting_index)
     if starting_index is None:
-        print("Error: You must provide a starting_index value!")
-        ashexit()
+        raise InputError("Error: You must provide a starting_index value!")
     if fragment.elems[starting_index] != "O":
-        print("Starting atom for water fragment is not oxygen!")
-        print(f"Make sure starting index ({starting_index}) is correct")
-        print("Also note that water fragments must have O H H order!")
-        ashexit()
+        raise InputError(
+            "Starting atom for water fragment is not oxygen!\n{}\nAlso note that water fragments must have O H H order!".format(
+                f"Make sure starting index ({starting_index}) is correct"
+            )
+        )
     if onlyHH is False:
         print("onlyHH is False. Will create list of O-H1, O-H2 and H1-H2 constraints")
     elif onlyHH is True:
@@ -3284,8 +3238,7 @@ def insert_solute_into_solvent(
     if write_pdb:
         print("Write PDB option is active.")
         if solute_pdb is None or solvent_pdb is None:
-            print("Error: write_pdb is active but no input solute_pdb or solvent_pdb files were provided")
-            ashexit()
+            raise InputError("Error: write_pdb is active but no input solute_pdb or solvent_pdb files were provided")
     if solute is None and solute_pdb is not None:
         print("No solute fragment provided but solute_pdb is set. Reading solute fragment from PDB-file")
         solute = Fragment(pdbfile=solute_pdb)
@@ -3366,8 +3319,7 @@ def insert_solute_into_solvent(
         try:
             import openmm.app
         except ImportError:
-            print("Error: OpenMM library not found. Please install OpenMM")
-            ashexit()
+            raise MissingDependencyError("Error: OpenMM library not found. Please install OpenMM") from None
 
         # PDB-files
         pdb1 = openmm.app.PDBFile(solute_pdb)
@@ -3440,8 +3392,7 @@ def define_dummy_topology(elems, scale=1.0, tol=0.1, resname="MOL"):
     try:
         import openmm.app
     except ImportError:
-        print("Error: OpenMM not found. Cannot define a topology")
-        ashexit()
+        raise InputError("Error: OpenMM not found. Cannot define a topology") from None
     print("Defining new basic single-chain, multi-residue topology")
     pdb_topology = openmm.app.Topology()
     chain = pdb_topology.addChain()

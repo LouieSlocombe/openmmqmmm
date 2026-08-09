@@ -11,9 +11,13 @@ import openmmqmmm.constants
 import openmmqmmm.functions.functions_elstructure
 import openmmqmmm.functions.functions_parallel
 import openmmqmmm.modules.module_coords
+from openmmqmmm.exceptions import (
+    ExternalProgramError,
+    FileFormatError,
+    InputError,
+)
 from openmmqmmm.functions.functions_general import (
     BC,
-    ashexit,
     insert_line_into_file,
     listdiff,
     print_if_level,
@@ -98,23 +102,13 @@ class ORCATheory:
 
         # Checking if user added Opt, Freq keywords
         if " OPT" in orcasimpleinput.upper() or " FREQ" in orcasimpleinput.upper():
-            print(
-                BC.FAIL,
-                "Error. orcasimpleinput variable can not contain ORCA job-directives like: Opt, Freq, Numfreq",
-                BC.END,
+            raise InputError(
+                f"Error. orcasimpleinput variable can not contain ORCA job-directives like: Opt, Freq, Numfreq\nString: {orcasimpleinput.upper()}\norcasimpleinput should only contain information on electronic-structure method (e.g. functional), basis set, grid, SCF convergence etc."
             )
-            print("String:", orcasimpleinput.upper())
-            print(
-                "orcasimpleinput should only contain information on electronic-structure method (e.g. functional), basis set, grid, SCF convergence etc."
-            )
-            ashexit()
         if "!" not in orcasimpleinput:
-            print(
-                BC.FAIL,
-                "Error. orcasimpleinput should contain at least a '!' with method and basis set information",
-                BC.END,
+            raise InputError(
+                "Error. orcasimpleinput should contain at least a '!' with method and basis set information"
             )
-            ashexit()
 
         # Whether to check ORCA outputfile for errors and warnings or not
         # Generally recommended. Could be disabled to speed up I/O a tiny bit
@@ -128,8 +122,7 @@ class ORCATheory:
         self.keep_each_run_output = keep_each_run_output
         # Whether to save ORCA outputfile with given label
         if save_output_with_label is True and label is None:
-            print("Error: save_output_with_label option requires a label keyword also")
-            ashexit()
+            raise InputError("Error: save_output_with_label option requires a label keyword also")
         else:
             self.save_output_with_label = save_output_with_label
 
@@ -195,12 +188,9 @@ class ORCATheory:
         self.brokensym = brokensym
         self.HSmult = HSmult
         if isinstance(atomstoflip, int):
-            print(
-                BC.FAIL,
-                "Error: atomstoflip should be list of integers (e.g. [0] or [2,3,5]), not a single integer.",
-                BC.END,
+            raise InputError(
+                "Error: atomstoflip should be list of integers (e.g. [0] or [2,3,5]), not a single integer."
             )
-            ashexit()
         # Add UKS if not present for broken-symmetry jobs
         if self.brokensym is True and "UKS" not in self.orcasimpleinput and "UHF" not in self.orcasimpleinput:
             print("Warning: UKS/UHF keyword not present in orcasimpleinput for BS job. Adding.")
@@ -215,8 +205,7 @@ class ORCATheory:
         self.deltaSCF_confline = deltaSCF_confline
         self.deltaSCF_turn_off_automatically = deltaSCF_turn_off_automatically
         if self.deltaSCF is True and self.deltaSCF_confline is None:
-            print("Error: DELTASCF is True but no deltaSCF_confline provided. Exiting")
-            ashexit()
+            raise InputError("Error: DELTASCF is True but no deltaSCF_confline provided. Exiting")
         if self.deltaSCF is True:
             print("DeltaSCF True, turning on population analysis printing")
             self.print_population_analysis = True
@@ -256,8 +245,7 @@ class ORCATheory:
         self.NMF = NMF
         if self.NMF is True:
             if NMF_sigma is None:
-                print("NMF option requires setting NMF_sigma")
-                ashexit()
+                raise InputError("NMF option requires setting NMF_sigma")
             self.NMF_sigma = NMF_sigma
 
             print("NMF option is active. Will activate Fermi-smearing in ORCA input!")
@@ -354,8 +342,7 @@ end
         # if len(current_coords) != 0:
 
         if fragment is None:
-            print("No fragment provided to Opt.")
-            ashexit()
+            raise InputError("No fragment provided to Opt.")
         else:
             print("Fragment provided to Opt")
 
@@ -365,8 +352,7 @@ end
         charge, mult = check_charge_mult(charge, mult, self.theorytype, fragment, "ORCATheory.Opt", theory=self)
 
         if charge is None or mult is None:
-            print(BC.FAIL, "Error. charge and mult has not been defined for ORCATheory.Opt method", BC.END)
-            ashexit()
+            raise InputError("Error. charge and mult has not been defined for ORCATheory.Opt method")
 
         if numcores is None:
             numcores = self.numcores
@@ -421,11 +407,9 @@ end
 
                 fragment.replace_coords(fragment.elems, opt_coords)
             else:
-                print("ORCA optimization failed to converge. Check ORCA output")
-                ashexit()
+                raise ExternalProgramError("ORCA optimization failed to converge. Check ORCA output")
         else:
-            print("Something happened with ORCA job. Check ORCA output")
-            ashexit()
+            raise ExternalProgramError("Something happened with ORCA job. Check ORCA output")
 
         print("ORCA optimized energy:", self.energy)
         print("ASH fragment updated:", fragment)
@@ -478,19 +462,16 @@ end
         if current_coords is not None:
             pass
         else:
-            print("Error:no current_coords")
-            ashexit()
+            raise InputError("Error:no current_coords")
 
         # Checking if charge and mult has been provided
         if charge is None or mult is None:
-            print(BC.FAIL, "Error. charge and mult has not been defined for ORCATheory.run method", BC.END)
-            ashexit()
+            raise InputError("Error. charge and mult has not been defined for ORCATheory.run method")
 
         # What elemlist to use. If qm_elems provided then QM/MM job, otherwise use elems list
         if qm_elems is None:
             if elems is None:
-                print("No elems provided")
-                ashexit()
+                raise InputError("No elems provided")
             else:
                 qm_elems = elems
 
@@ -510,9 +491,9 @@ end
             try:
                 qmatomstoflip = [self.qmatoms.index(i) for i in self.atomstoflip]
             except ValueError:
-                print("Atoms to flip:", self.atomstoflip)
-                print("Error: Atoms to flip are not all in QM-region")
-                ashexit()
+                raise InputError(
+                    f"Atoms to flip: {self.atomstoflip}\nError: Atoms to flip are not all in QM-region"
+                ) from None
         else:
             qmatomstoflip = self.atomstoflip
             qmatoms_extrabasis = self.extrabasisatoms
@@ -558,8 +539,7 @@ end"""
             else:
                 print_if_level(f"File does not exist in current directory: {os.getcwd()}", self.printlevel, 2)
                 if os.path.isabs(self.moreadfile) is True:
-                    print("Error: Absolute path provided but file does not exists. Exiting")
-                    ashexit()
+                    raise FileFormatError("Error: Absolute path provided but file does not exists. Exiting")
                 else:
                     print_if_level("Checking if file exists in parentdir instead:", self.printlevel, 2)
                     if os.path.isfile(f"../{self.moreadfile}") is True:
@@ -615,11 +595,9 @@ end"""
                 print(f"Brokensymmetry SpinFlipping on! HSmult: {self.HSmult}.")
 
             if self.HSmult is None:
-                print("Error:HSmult keyword in ORCATheory has not been set. This is required. Exiting.")
-                ashexit()
+                raise InputError("Error:HSmult keyword in ORCATheory has not been set. This is required. Exiting.")
             if len(qmatomstoflip) == 0:
-                print("Error: atomstoflip keyword needs to be set. This is required. Exiting.")
-                ashexit()
+                raise InputError("Error: atomstoflip keyword needs to be set. This is required. Exiting.")
 
             for flipatom, qmflipatom in zip(self.atomstoflip, qmatomstoflip, strict=False):
                 if self.printlevel >= 2:
@@ -772,7 +750,9 @@ end"""
                 print(BC.FAIL, "Problem with ORCA run", BC.END)
                 print(BC.OKBLUE, BC.BOLD, "------------ENDING ORCA-INTERFACE-------------", BC.END)
                 print_time_rel(module_init_time, modulename="ORCA run", moduleindex=2)
-                ashexit()
+                raise ExternalProgramError(
+                    f"ORCA calculation did not terminate normally - check the output file: {outfile}"
+                )
 
             if self.printlevel >= 1:
                 print(f"ORCA converged in {numiterations} iterations")
@@ -904,7 +884,7 @@ end"""
             self.properties["num_genCFGs"] = num_genCFGs
             self.properties["num_selected_CFGs"] = num_selected_CFGs
             self.properties["num_after_SD_CFGs"] = num_after_SD_CFGs
-        except:
+        except Exception:  # noqa: BLE001 - best-effort: ICE-CI properties only exist for ICE-CI outputs
             pass
 
         # TDDFT results
@@ -1041,11 +1021,10 @@ def find_orca(orcadir=None, required=True):
             print(f"Using ORCA installation: {directory} (from {source})")
             return directory
         if required:
-            print(
+            raise ExternalProgramError(
                 f"The {source} points at {directory}, which is not a working ORCA installation "
                 "(orca binary plus orca_* helper binaries expected)"
             )
-            ashexit()
         return None
 
     orca_in_path = shutil.which("orca")
@@ -1057,9 +1036,9 @@ def find_orca(orcadir=None, required=True):
         print(f"Note: ignoring {orca_in_path} from PATH - not the ORCA quantum chemistry program")
 
     if required:
-        print("Found no working ORCA installation.")
-        print("Pass orcadir= , set the OPENMMQMMM_ORCADIR environment variable, or put the orca binary in PATH")
-        ashexit()
+        raise ExternalProgramError(
+            "Found no working ORCA installation.\nPass orcadir= , set the OPENMMQMMM_ORCADIR environment variable, or put the orca binary in PATH"
+        )
     return None
 
 
@@ -1118,7 +1097,7 @@ def run_orca_SP_ORCApar(
                 print("ignore_ORCA_error here")
                 return
             else:
-                ashexit()
+                raise ExternalProgramError(f"ORCA run failed - check the output file: {basename}.out") from e
 
 
 def grab_ORCA_warnings(filename):
@@ -1217,9 +1196,7 @@ def ORCAfinalenergygrab(file, errors="ignore"):
         for line in f:
             if "FINAL SINGLE POINT ENERGY" in line:
                 if "Wavefunction not fully converged!" in line:
-                    print("ORCA WF not fully converged!")
-                    print("Not using energy. Modify ORCA settings")
-                    ashexit()
+                    raise ExternalProgramError("ORCA WF not fully converged!\nNot using energy. Modify ORCA settings")
                 else:
                     # Changing: sometimes ORCA adds info to the right of energy
                     Energy = float(line.split()[5]) if "(MM)" in line else float(line.split()[4])
@@ -1267,7 +1244,7 @@ def ORCAtimingsgrab(file):
                 if "Point charge gradient       ...." in line:
                     pc_gradient = float(line.split()[4])
                     timings["pc_gradient"] = pc_gradient
-    except:
+    except (OSError, ValueError, IndexError):
         pass
     return timings
 
@@ -1757,8 +1734,7 @@ def grabspinpop_ORCA(chargemodel, outputfile):
                 if "LOEWDIN ATOMIC CHARGES AND SPIN POPULATIONS" in line:
                     grab = True
     else:
-        print("Unknown chargemodel. Exiting...")
-        ashexit()
+        raise FileFormatError("Unknown chargemodel. Exiting...")
     # If BS then we have grabbed charges for both high-spin and BS solution
     if BS is True:
         print("Broken-symmetry job detected. Only taking BS-state populations")
@@ -1882,8 +1858,7 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
                 if "IAO PARTIAL CHARGES" in line:
                     grab = True
     else:
-        print("Unknown chargemodel. Exiting...")
-        ashexit()
+        raise FileFormatError("Unknown chargemodel. Exiting...")
 
     # If BS then we have grabbed charges for both high-spin and BS solution
     if BS is True:
@@ -1996,8 +1971,7 @@ def ORCA_External_Optimizer(
 ):
     print_line_with_mainheader("ORCA_External_Optimizer")
     if fragment is None or theory is None:
-        print("ORCA_External_Optimizer requires fragment and theory keywords")
-        ashexit()
+        raise InputError("ORCA_External_Optimizer requires fragment and theory keywords")
 
     if charge is None or mult is None:
         print(BC.WARNING, "Warning: Charge/mult was not provided to ORCA_External_Optimizer", BC.END)
@@ -2011,8 +1985,7 @@ def ORCA_External_Optimizer(
             charge = fragment.charge
             mult = fragment.mult
         else:
-            print(BC.FAIL, "No charge/mult information present in fragment either. Exiting.", BC.END)
-            ashexit()
+            raise InputError("No charge/mult information present in fragment either. Exiting.")
 
     # Making sure we have a working ORCA installation
     orcadir = find_orca(orcadir)
@@ -2076,12 +2049,10 @@ end
     # Check if ORCA finished
     ORCAfinished, _iter = checkORCAfinished(basename + ".out")
     if ORCAfinished is not True:
-        print("Something failed about external ORCA job")
-        ashexit()
+        raise ExternalProgramError("Something failed about external ORCA job")
     # Check if optimization completed
     if checkORCAOptfinished(basename + ".out") is not True:
-        print("ORCA external job failed. Check outputfile:", basename + ".out")
-        ashexit()
+        raise ExternalProgramError("ORCA external job failed. Check outputfile: {}".format(basename + ".out"))
     print("ORCA external job finished")
 
     # Grabbing final geometry to update fragment object

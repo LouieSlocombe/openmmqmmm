@@ -6,9 +6,14 @@ import time
 import numpy as np
 
 import openmmqmmm.constants
+from openmmqmmm.exceptions import (
+    FileFormatError,
+    InputError,
+    MissingDependencyError,
+    OpenMMQMMMError,
+)
 from openmmqmmm.functions.functions_general import (
     BC,
-    ashexit,
     blankline,
     print_if_level,
     print_line_with_mainheader,
@@ -84,8 +89,7 @@ def geomeTRICOptimizer(
 
     # EARLY EXIT
     if theory is None or fragment is None:
-        print("geomeTRICOptimizer requires theory and fragment objects provided. Exiting.")
-        ashexit()
+        raise InputError("geomeTRICOptimizer requires theory and fragment objects provided. Exiting.")
     # NOTE: Class does not take fragment and theory
     optimizer = GeomeTRICOptimizerClass(
         theory=theory,
@@ -380,8 +384,7 @@ class GeomeTRICOptimizerClass:
                 "convergence_cmax": 1.0e-2,
             }
         else:
-            print("Unknown convergence setting. Exiting...")
-            ashexit()
+            raise InputError("Unknown convergence setting. Exiting...")
 
     # Parse the constraints into bond, angle, dihedral
     def define_constraints(self, constraints):
@@ -401,51 +404,21 @@ class GeomeTRICOptimizerClass:
 
         # Getting individual constraints from constraints dict
         if constraints is not None:
-            try:
-                bondconstraints = constraints["bond"]
-            except:
-                bondconstraints = None
-            try:
-                angleconstraints = constraints["angle"]
-            except:
-                angleconstraints = None
-            try:
-                if "dihedral" in constraints:
-                    dihedralconstraints = constraints["dihedral"]
-                elif "torsion" in constraints:
-                    dihedralconstraints = constraints["torsion"]
-                else:
-                    dihedralconstraints = None
-            except:
+            bondconstraints = constraints.get("bond")
+            angleconstraints = constraints.get("angle")
+            if "dihedral" in constraints:
+                dihedralconstraints = constraints["dihedral"]
+            elif "torsion" in constraints:
+                dihedralconstraints = constraints["torsion"]
+            else:
                 dihedralconstraints = None
-            try:
-                xyzconstraints = constraints["xyz"]
-            except:
-                xyzconstraints = None
-            try:
-                xconstraints = constraints["x"]
-            except:
-                xconstraints = None
-            try:
-                yconstraints = constraints["y"]
-            except:
-                yconstraints = None
-            try:
-                zconstraints = constraints["z"]
-            except:
-                zconstraints = None
-            try:
-                xyconstraints = constraints["xy"]
-            except:
-                xyconstraints = None
-            try:
-                xzconstraints = constraints["xz"]
-            except:
-                xzconstraints = None
-            try:
-                yzconstraints = constraints["yz"]
-            except:
-                yzconstraints = None
+            xyzconstraints = constraints.get("xyz")
+            xconstraints = constraints.get("x")
+            yconstraints = constraints.get("y")
+            zconstraints = constraints.get("z")
+            xyconstraints = constraints.get("xy")
+            xzconstraints = constraints.get("xz")
+            yzconstraints = constraints.get("yz")
         else:
             bondconstraints = None
             angleconstraints = None
@@ -626,13 +599,12 @@ class GeomeTRICOptimizerClass:
             # Sanity check. Check that the Hessian provided is compatible with actatoms
             print("Checking that Hessian is compatible with active atoms")
             if self.hessian.shape[0] != 3 * len(atomsused):
-                print(
-                    f"Error: Hessian shape is {self.hessian.shape}  which is incompatible with the  number of active atoms present ({len(atomsused)})"
+                raise InputError(
+                    "{}\n{}".format(
+                        f"Error: Hessian shape is {self.hessian.shape}  which is incompatible with the  number of active atoms present ({len(atomsused)})",
+                        f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
+                    )
                 )
-                print(
-                    f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})"
-                )
-                ashexit()
 
             print("Writing Hessian array to disk.")
 
@@ -644,10 +616,9 @@ class GeomeTRICOptimizerClass:
         elif isinstance(self.hessian, str):
             print("Hessian option provided is a string")
             if self.hessian == "xtb":
-                print(
+                raise InputError(
                     "Error: hessian='xtb' is not available in this ORCA+OpenMM build. Use '1point', '2point', 'partial' or a Hessian file instead."
                 )
-                ashexit()
             # NumFreq 1 and 2-point Hessians
             elif self.hessian == "1point":
                 print("Requested Hessian from Numfreq 1-point approximation (running in serial)")
@@ -669,8 +640,9 @@ class GeomeTRICOptimizerClass:
                 print("Partial Hessian option requested")
 
                 if self.partial_hessian_atoms is None:
-                    print("hessian='partial' option requires setting the partial_hessian_atoms option. Exiting.")
-                    ashexit()
+                    raise InputError(
+                        "hessian='partial' option requires setting the partial_hessian_atoms option. Exiting."
+                    )
 
                 print("Now doing partial Hessian calculation using atoms:", self.partial_hessian_atoms)
                 # Note: hardcoding runmode='serial' for now
@@ -702,8 +674,9 @@ class GeomeTRICOptimizerClass:
                 print("Partial Numpoint=2 Hessian option requested")
 
                 if self.partial_hessian_atoms is None:
-                    print("hessian='partial' option requires setting the partial_hessian_atoms option. Exiting.")
-                    ashexit()
+                    raise InputError(
+                        "hessian='partial' option requires setting the partial_hessian_atoms option. Exiting."
+                    )
 
                 print("Now doing partial Hessian calculation using atoms:", self.partial_hessian_atoms)
                 # Note: hardcoding runmode='serial' for now
@@ -740,26 +713,23 @@ class GeomeTRICOptimizerClass:
                 hessian_read = read_hessian(hessianfile)
                 print("actatoms:", actatoms)
                 if hessian_read.shape[0] != 3 * len(atomsused):
-                    print(
-                        f"Error: Hessian shape is {hessian_read.shape}  which is incompatible with the  number of active atoms present ({len(atomsused)})"
+                    raise InputError(
+                        "{}\n{}".format(
+                            f"Error: Hessian shape is {hessian_read.shape}  which is incompatible with the  number of active atoms present ({len(atomsused)})",
+                            f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
+                        )
                     )
-                    print(
-                        f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})"
-                    )
-                    ashexit()
 
         elif self.hessian is None:
             if self.printlevel >= 1:
                 print("No Hessian option provided.")
         else:
-            print("Unknown Hessian option")
-            ashexit()
+            raise InputError("Unknown Hessian option")
 
     # If using Active region then we write only those coordinates to disk (initialxyzfiletric)
     def setup_active_region_geometry(self, fragment):
         if len(self.actatoms) == 0:
-            print("Error: List of active atoms (actatoms) provided is empty. This is not allowed.")
-            ashexit()
+            raise InputError("Error: List of active atoms (actatoms) provided is empty. This is not allowed.")
         # Sorting list, otherwise trouble
         self.actatoms.sort()
         print("Active Region option Active. Passing only active-region coordinates to geomeTRIC.")
@@ -769,13 +739,11 @@ class GeomeTRICOptimizerClass:
         # Check that the actatoms list does not contain atom indices higher than the number of atoms
         largest_atom_index = max(self.actatoms)
         if largest_atom_index >= fragment.numatoms:
-            print(
-                BC.FAIL,
-                f"Found active-atom index ({largest_atom_index}) that is larger or equal (>=) than the number of atoms of system ({fragment.numatoms})!",
-                BC.END,
+            raise InputError(
+                "{}\nThis does not make sense. Please provide a correct actatoms list. Exiting.".format(
+                    f"Found active-atom index ({largest_atom_index}) that is larger or equal (>=) than the number of atoms of system ({fragment.numatoms})!"
+                )
             )
-            print(BC.FAIL, "This does not make sense. Please provide a correct actatoms list. Exiting.", BC.END)
-            ashexit()
         # Get active region coordinates and elements
         actcoords, actelems = fragment.get_coords_for_atoms(self.actatoms)
 
@@ -865,8 +833,7 @@ class GeomeTRICOptimizerClass:
         if self.constraintsinputfile is not None:
             print("constraintsinputfile provided:", self.constraintsinputfile)
             if os.path.isfile(self.constraintsinputfile) is False:
-                print(f"Error:File {self.constraintsinputfile} does not exist")
-                ashexit()
+                raise FileFormatError(f"Error:File {self.constraintsinputfile} does not exist")
             self.constraintsfile = self.constraintsinputfile
         #################
 
@@ -897,14 +864,9 @@ class GeomeTRICOptimizerClass:
             import geometric
         except Exception as e:
             blankline()
-            print(BC.FAIL, "Problem importing geomeTRIC module!", BC.END)
-            print(
-                BC.WARNING,
-                "Either install geomeTRIC using pip:\n conda install geometric\n or \n pip install geometric\n or manually from Github (https://github.com/leeping/geomeTRIC)",
-                BC.END,
-            )
-            print("Actual error message:", e)
-            ashexit(code=9)
+            raise MissingDependencyError(
+                f"Problem importing geomeTRIC module!\nEither install geomeTRIC using pip:\n conda install geometric\n or \n pip install geometric\n or manually from Github (https://github.com/leeping/geomeTRIC)\nActual error message: {e}"
+            ) from e
         # bondorders
         # generally unused, except PBC
         self.bothre = 0.0
@@ -1276,8 +1238,9 @@ class ASHengineclass:
     def calc(self, coords, tmp, read_data=None, copydir=None):
         print()
         if self.iteration_count == self.maxiter:
-            print("Maxiter reached. ASH is stopping.")
-            exit()
+            raise OpenMMQMMMError(
+                f"Geometry optimization stopped: maxiter ({self.maxiter}) reached without convergence"
+            )
 
         # Note: tmp and read_data not used. Needed for geomeTRIC version compatibility
         if self.printlevel >= 1:

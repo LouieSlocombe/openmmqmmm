@@ -56,14 +56,12 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "I", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB", "PLE", "PLW"]
+select = ["F", "E", "W", "I", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB", "PLE", "PLW", "BLE"]
 ignore = [
     # The formatter owns line wrapping; long scientific strings exist
     "E501",
     # Loop-variable reassignment pervades the file parsers
     "PLW2901",
-    # Temporary until the exceptions phase:
-    "E722",
 ]
 
 [tool.ruff.lint.per-file-ignores]

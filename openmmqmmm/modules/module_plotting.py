@@ -1,6 +1,9 @@
 import numpy as np
 
-from openmmqmmm.functions.functions_general import BC, ashexit, print_line_with_mainheader
+from openmmqmmm.exceptions import (
+    InputError,
+)
+from openmmqmmm.functions.functions_general import BC, print_line_with_mainheader
 
 
 class ASH_plot:
@@ -159,8 +162,7 @@ class ASH_plot:
         print("Adding new series to ASH_plot object")
 
         if bar is True and (scatter is True or line is True):
-            print("Error: you can not add a bar together with scatter and line at the same time")
-            ashexit()
+            raise InputError("Error: you can not add a bar together with scatter and line at the same time")
 
         self.addplotcount += 1
         curraxes = self.axs[subplot]
@@ -171,14 +173,11 @@ class ASH_plot:
         if surfacedictionary is None:
             # If Python lists
             if not isinstance(x_list, (list, np.ndarray)) or not isinstance(y_list, (list, np.ndarray)):
-                print(
-                    BC.FAIL,
-                    "Please provide either a valid x_list and y_list (can be Python lists or Numpy arrays) or a surfacedictionary (Python dict)",
-                    BC.END,
+                raise InputError(
+                    "Please provide either a valid x_list and y_list (can be Python lists or Numpy arrays) or a surfacedictionary (Python dict)\n{}\n{}".format(
+                        f"x_list: {x_list}", f"y_list: {y_list}"
+                    )
                 )
-                print(f"x_list: {x_list}")
-                print(f"y_list: {y_list}")
-                ashexit()
             else:
                 x = list(x_list)
                 y = list(y_list)
@@ -240,8 +239,7 @@ class ASH_plot:
             curraxes.set_title(self.figuretitle)  # Add a title to the axes if provided
         else:
             if self.x_axislabels is None:
-                print(BC.FAIL, "For multiple subplots, x_axislabels and y_axislabels must be set.", BC.END)
-                ashexit()
+                raise InputError("For multiple subplots, x_axislabels and y_axislabels must be set.")
             curraxes.set_xlabel(self.x_axislabels[subplot])  # Add an x-label to the axes.
             curraxes.set_ylabel(self.y_axislabels[subplot])  # Add a y-label to the axes.
             if self.subplot_titles is not None:

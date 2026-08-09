@@ -1,6 +1,8 @@
 import numpy as np
 
-from openmmqmmm.functions.functions_general import ashexit
+from openmmqmmm.exceptions import (
+    InputError,
+)
 
 
 def cell_params_to_vectors(parameters):
@@ -67,8 +69,7 @@ def cell_volume(vectors):
 # Write Cartesian-based POSCAR files
 def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, filename="POSCAR"):
     if cellvectors is None and celldimensions is None:
-        print("Error: Either cellvectors or celldimensions should be provided")
-        ashexit()
+        raise InputError("Error: Either cellvectors or celldimensions should be provided")
     elif celldimensions is not None:
         # converting
         cellvectors = cell_params_to_vectors(celldimensions)
@@ -101,8 +102,7 @@ def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, file
 # Write XSF files
 def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.xsf"):
     if cellvectors is None and celldimensions is None:
-        print("Error: Either cellvectors or celldimensions should be provided")
-        ashexit()
+        raise InputError("Error: Either cellvectors or celldimensions should be provided")
     elif celldimensions is not None:
         # Assuming your helper function handles the conversion
         cellvectors = cell_params_to_vectors(celldimensions)
@@ -132,8 +132,7 @@ def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
 
 def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.cif"):
     if cellvectors is None and celldimensions is None:
-        print("Error: Either cellvectors or celldimensions should be provided")
-        ashexit()
+        raise InputError("Error: Either cellvectors or celldimensions should be provided")
     elif celldimensions is not None:
         # Assuming your helper function handles the conversion
         cellvectors = cell_params_to_vectors(celldimensions)

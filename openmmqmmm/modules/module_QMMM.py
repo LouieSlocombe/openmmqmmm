@@ -5,9 +5,12 @@ import time
 import numpy as np
 
 import openmmqmmm.modules.module_coords
+from openmmqmmm.exceptions import (
+    InputError,
+    InternalError,
+)
 from openmmqmmm.functions.functions_general import (
     BC,
-    ashexit,
     blankline,
     print_if_level,
     print_line_with_mainheader,
@@ -57,12 +60,10 @@ class QMMMTheory:
 
         # Check for necessary keywords
         if qm_theory is None or qmatoms is None:
-            print("Error: QMMMTheory requires defining: qm_theory, qmatoms, fragment")
-            ashexit()
+            raise InputError("Error: QMMMTheory requires defining: qm_theory, qmatoms, fragment")
         # If fragment object has not been defined
         if fragment is None:
-            print("fragment= keyword has not been defined for QM/MM. Exiting")
-            ashexit()
+            raise InputError("fragment= keyword has not been defined for QM/MM. Exiting")
 
         # Defining charge/mult of QM-region
         self.qm_charge = qm_charge
@@ -141,8 +142,7 @@ class QMMMTheory:
         self.sum_xatom_mask = np.sum(self.xatom_mask)
 
         if len(self.qmatoms) == 0:
-            print("Error: List of qmatoms provided is empty. This is not allowed.")
-            ashexit()
+            raise InputError("Error: List of qmatoms provided is empty. This is not allowed.")
         self.mmatoms = np.setdiff1d(self.allatoms, self.qmatoms)
 
         print(f"QM region ({len(self.qmatoms)} atoms): {self.qmatoms}")
@@ -182,9 +182,7 @@ class QMMMTheory:
             or self.embedding.lower() == "pbcmm-electrostatic"
             or self.embedding.lower() == "pbcmm-electronic"
         ):
-            self.embedding = "pbcmm-elstat"
-            self.PC = True
-            exit()
+            raise InputError("embedding='pbcmm-elstat' is not supported in this distribution")
         elif self.embedding.lower() == "mechanical" or self.embedding.lower() == "mech":
             self.embedding = "mech"
             self.PC = False
@@ -192,10 +190,9 @@ class QMMMTheory:
             self.embedding = "polembed_drude"
             self.PC = True
         else:
-            print(
+            raise InputError(
                 "Unknown embedding. Valid options are: elstat (synonyms: electrostatic, electronic), mech (synonym: mechanical)"
             )
-            ashexit()
         print("Embedding:", self.embedding)
         # Whether to do dipole correction or not
         # Note: For regular electrostatic embedding this should be True
@@ -213,13 +210,13 @@ class QMMMTheory:
                 print("Getting system charges from OpenMM object")
                 self.charges = mm_theory.charges
             else:
-                print("Unrecognized MM theory for QMMMTheory")
-                ashexit()
+                raise InputError(
+                    "QMMMTheory requires either a charges list or an OpenMMTheory mm_theory providing charges"
+                )
         else:
             print("Reading in charges")
             if len(charges) != len(fragment.atomlist):
-                print(BC.FAIL, "Number of charges not matching number of fragment atoms. Exiting.", BC.END)
-                ashexit()
+                raise InputError("Number of charges not matching number of fragment atoms. Exiting.")
             self.charges = charges
 
             # Update charges in mm_theory if defined
@@ -227,8 +224,7 @@ class QMMMTheory:
                 self.mm_theory.update_charges(self.fragment.allatoms, self.charges)
 
         if len(self.charges) == 0:
-            print("No charges present in QM/MM object. Exiting...")
-            ashexit()
+            raise InputError("No charges present in QM/MM object. Exiting...")
 
         # Flag to check whether QMCharges have been zeroed in self.charges_qmregionzeroed list
         self.QMChargesZeroed = False
@@ -265,14 +261,11 @@ class QMMMTheory:
         if mm_theory is not None:
             # Sanity check. Same number of atoms in fragment and MM object ?
             if fragment.numatoms != mm_theory.numatoms:
-                print()
-                print(
-                    BC.FAIL,
-                    f"Number of atoms in fragment ({fragment.numatoms}) and MMtheory object differ ({mm_theory.numatoms})",
-                    BC.END,
+                raise InputError(
+                    "{}\nThis does not make sense. Check coordinates and forcefield files. Exiting...".format(
+                        f"Number of atoms in fragment ({fragment.numatoms}) and MMtheory object differ ({mm_theory.numatoms})"
+                    )
                 )
-                print(BC.FAIL, "This does not make sense. Check coordinates and forcefield files. Exiting...", BC.END)
-                ashexit()
 
             # Update: Tolerance modification to make sure we definitely catch connected atoms and get QM-MM boundary right.
             # Scale=1.0 and tol=0.1 fails for S-C bond in rubredoxin from a classical MD run
@@ -341,11 +334,9 @@ class QMMMTheory:
                 # Updating charges in MM object.
                 self.mm_theory.update_charges(self.qmatoms, [0.0 for i in self.qmatoms])
             elif self.embedding.lower() == "polembed_drude":
-                print("Polembed Drude embedding enabled.")
-                print("This means that QM-atoms will be zeroed for QM-MM interactions calculated by QM program")
-                print("But MM program will have charged defined for QM-region")
-                print("Not implemented yet. Exiting")
-                ashexit()
+                raise InputError(
+                    "Polembed Drude embedding enabled.\nThis means that QM-atoms will be zeroed for QM-MM interactions calculated by QM program\nBut MM program will have charged defined for QM-region\nNot implemented yet. Exiting"
+                )
                 self.ZeroQMCharges()  # Modifies self.charges_qmregionzeroed
                 # Also removing QM-MM Coulomb interaction exceptions in OpenMM
                 if self.mm_theory_name == "OpenMMTheory":
@@ -355,8 +346,7 @@ class QMMMTheory:
                 print("PBC Electrostatic embedding enabled.")
                 print("This means that QM-atoms will be zeroed for QM-MM interactions calculated by QM program")
                 print("But MM program will have charged defined for QM-region")
-                self.ZeroQMCharges()  # Modifies self.charges_qmregionzeroed
-                exit()
+                raise InputError("embedding='pbcmm-elstat' is not supported in this distribution")
 
                 # TODO: Exceptions
                 # Note: possible to set QM-charges to something specific: Mulliken, ESP
@@ -663,19 +653,21 @@ class QMMMTheory:
 
     # Method to grab dipole moment from outputfile (assumes run has been executed)
     def get_dipole_moment(self):
+        print("Grabbing dipole moment from QM-part of QM/MM theory.")
+        dipole = None
         try:
-            print("Grabbing dipole moment from QM-part of QM/MM theory.")
             dipole = self.qm_theory.get_dipole_moment()
-        except:
+        except AttributeError:
             print("Error: Could not grab dipole moment from QM-part of QM/MM theory.")
         return dipole
 
     # Method to polarizability from outputfile (assumes run has been executed)
     def get_polarizability_tensor(self):
+        print("Grabbing polarizability from QM-part of QM/MM theory.")
+        polarizability = None
         try:
-            print("Grabbing polarizability from QM-part of QM/MM theory.")
             polarizability = self.qm_theory.get_polarizability_tensor()
-        except:
+        except AttributeError:
             print("Error: Could not grab polarizability from QM-part of QM/MM theory.")
         return polarizability
 
@@ -718,8 +710,7 @@ class QMMMTheory:
 
         # Checking if charge and mult has been provided. Exit if not.
         if charge is None or mult is None:
-            print(BC.FAIL, "Error. charge and mult has not been defined for QMMMTheory.run method", BC.END)
-            ashexit()
+            raise InputError("Error. charge and mult has not been defined for QMMMTheory.run method")
 
         if self.printlevel > 1:
             print(f"QM-region Charge: {charge} Mult: {mult}")
@@ -771,8 +762,7 @@ class QMMMTheory:
                 mult=mult,
             )
         else:
-            print("Unknown embedding. Exiting")
-            ashexit()
+            raise InputError("Unknown embedding. Exiting")
 
     # Mechanical embedding run
     def mech_run(
@@ -873,9 +863,10 @@ class QMMMTheory:
             print("Will try to find charges attribute in QM-object")
             try:
                 newqmcharges = self.qm_theory.charges
-            except:
-                print("error: found no charges attribute of QMTheory object. update_QMregion_charges can not be used")
-                ashexit()
+            except AttributeError:
+                raise InputError(
+                    "Found no charges attribute on the QM-theory object - update_QMregion_charges can not be used"
+                ) from None
             # Removing linkatoms
             if self.num_linkatoms > 0:
                 newqmcharges = newqmcharges[0 : -self.num_linkatoms]
@@ -936,8 +927,7 @@ class QMMMTheory:
                         QM1grad_contrib = np.zeros(3)
                         MM1grad_contrib = np.zeros(3)
                     else:
-                        print("Unknown linkatom_forceproj_method. Exiting")
-                        ashexit()
+                        raise InputError("Unknown linkatom_forceproj_method. Exiting")
                     # Updating full QM_MM_gradient
                     self.QM_MM_gradient[fullatomindex_qm] += QM1grad_contrib
                     self.QM_MM_gradient[fullatomindex_mm] += MM1grad_contrib
@@ -1009,7 +999,8 @@ class QMMMTheory:
 
         if Grad:
             # Now assemble full QM/MM gradient by adding MM gradient
-            assert len(self.QM_MM_gradient) == len(self.MMgradient)
+            if len(self.QM_MM_gradient) != len(self.MMgradient):
+                raise InternalError("QM/MM gradient and MM gradient size mismatch")
             self.QM_MM_gradient = self.QM_MM_gradient + self.MMgradient
 
         # Final QM/MM Energy
@@ -1159,8 +1150,7 @@ class QMMMTheory:
                     print("Chargeboundary method is:  rcd  ")
                     self.pointcharges, _RCD_additional_charges = self.RCD_shifting_prep(self.charges_qmregionzeroed)
                 else:
-                    print("Unknown chargeboundary_method. Exiting")
-                    ashexit()
+                    raise InputError("Unknown chargeboundary_method. Exiting")
 
                 if self.printlevel > 1:
                     print("Number of pointcharges defined for whole system: ", len(self.pointcharges))
@@ -1440,8 +1430,7 @@ class QMMMTheory:
                         QM1grad_contrib = np.zeros(3)
                         MM1grad_contrib = np.zeros(3)
                     else:
-                        print("Unknown linkatom_forceproj_method. Exiting")
-                        ashexit()
+                        raise InputError("Unknown linkatom_forceproj_method. Exiting")
 
                     self.QM_PC_gradient[fullatomindex_qm] += QM1grad_contrib
                     self.QM_PC_gradient[fullatomindex_mm] += MM1grad_contrib
@@ -1473,8 +1462,7 @@ class QMMMTheory:
                 if self.printlevel >= 2:
                     print(f"Using MM on full system. Charges for QM region {self.qmatoms} have been set to zero ")
             else:
-                print("QMCharges have not been zeroed")
-                ashexit()
+                raise InternalError("QMCharges have not been zeroed")
             # Todo: Need to make sure OpenMM skips QM-QM Lj interaction => Exclude
             # Todo: Need to have OpenMM skip frozen region interaction for speed  => => Exclude
             if Grad is True:
@@ -1546,7 +1534,8 @@ class QMMMTheory:
             # Otherwise combine
             else:
                 # Now assemble full QM/MM gradient
-                assert len(self.QM_PC_gradient) == len(self.MMgradient)
+                if len(self.QM_PC_gradient) != len(self.MMgradient):
+                    raise InternalError("QM-PC gradient and MM gradient size mismatch")
                 self.QM_MM_gradient = self.QM_PC_gradient + self.MMgradient - self.subtractive_correction_G
 
             if self.printlevel >= 3:
@@ -1709,16 +1698,13 @@ def actregiondefine(pdbfile=None, mmtheory=None, psffile=None, fragment=None, ra
 
     # Checking if proper information has been provided
     if radius is None or originatom is None:
-        print("actregiondefine requires radius and originatom keyword arguments")
-        ashexit()
+        raise InputError("actregiondefine requires radius and originatom keyword arguments")
     if pdbfile is None and fragment is None:
-        print("actregiondefine requires either fragment or pdbfile arguments (for coordinates)")
-        ashexit()
+        raise InputError("actregiondefine requires either fragment or pdbfile arguments (for coordinates)")
     if pdbfile is None and mmtheory is None and psffile is None:
-        print(
+        raise InputError(
             "actregiondefine requires either pdbfile, psffile or mmtheory arguments (for residue topology information)"
         )
-        ashexit()
 
     # Creating fragment from pdbfile
     if fragment is None:
@@ -1731,8 +1717,7 @@ def actregiondefine(pdbfile=None, mmtheory=None, psffile=None, fragment=None, ra
     print("Will select all whole residues within region and export list")
     if mmtheory is not None:
         if not mmtheory.resids:
-            print(BC.FAIL, "mmtheory.resids list is empty! Something wrong with OpenMMTheory setup. Exiting", BC.END)
-            ashexit()
+            raise InputError("mmtheory.resids list is empty! Something wrong with OpenMMTheory setup. Exiting")
         # Defining list of residue from OpenMMTheory object
         resids = mmtheory.resids
     elif psffile is not None:
@@ -1857,12 +1842,10 @@ def compute_decomposed_QM_MM_energy(fragment=None, theory=None):
     print_line_with_mainheader("Decomposed QM/MM Energy Calculation")
 
     if isinstance(theory, QMMMTheory) is False:
-        print("Please provide a QMMMTheory object as theory.")
-        ashexit()
+        raise InputError("Please provide a QMMMTheory object as theory.")
     # if mm_theory is None:
     if theory.qm_charge is None or theory.qm_mult is None:
-        print("Please define qm_charge and qm_mult attributes in the QMMMtheory object")
-        ashexit()
+        raise InputError("Please define qm_charge and qm_mult attributes in the QMMMtheory object")
 
     # Single-point energy calculation of QM/MM object
     theory.printlevel = 0
@@ -1912,8 +1895,10 @@ def compute_decomposed_QM_MM_energy(fragment=None, theory=None):
     E_coupling = E_QM_MM_elstat + E_QM_MM_vdw + E_QM_MM_bond
 
     # Sanity check
-    assert E_QM_MM_tot - (E_QM_pol + E_MM_mod) < 1e-6
-    assert E_QM_MM_tot - (E_QM_pure + E_MM_pure + E_coupling) < 1e-6
+    if E_QM_MM_tot - (E_QM_pol + E_MM_mod) >= 1e-6:
+        raise InternalError("QM/MM energy decomposition inconsistency (E_QM_pol + E_MM_mod)")
+    if E_QM_MM_tot - (E_QM_pure + E_MM_pure + E_coupling) >= 1e-6:
+        raise InternalError("QM/MM energy decomposition inconsistency (pure + coupling terms)")
 
     print()
     print("=" * 70)

@@ -5,7 +5,7 @@ import subprocess as sp
 import numpy as np
 
 import openmmqmmm.modules.module_coords
-from openmmqmmm.functions.functions_general import ashexit
+from openmmqmmm.exceptions import ExternalProgramError, InternalError
 
 # CM5 parameters (data from paper for elements 1-118)
 _radii = np.array(
@@ -281,7 +281,8 @@ def calc_cm5(atomicNumbers, coords, hirschfeldcharges):
     RzSum = np.tile(Rz, (len(Rz), 1))
     RzSum = np.add(RzSum, np.transpose(RzSum))
     Bkk = np.exp(-_alpha * (np.subtract(distances, RzSum)), out=np.zeros_like(distances), where=distances != 0)
-    assert (np.diagonal(Bkk) == 0).all()
+    if not (np.diagonal(Bkk) == 0).all():
+        raise InternalError("Bkk matrix diagonal is not zero")
 
     Tkk = np.zeros(shape=Bkk.shape)
     shape = Tkk.shape
@@ -316,9 +317,11 @@ def calc_cm5(atomicNumbers, coords, hirschfeldcharges):
                     Tkk[i, j] *= -1.0
             else:
                 Tkk[i, j] = _Dz[numbers[0] - 1] - _Dz[numbers[1] - 1]
-    assert (np.diagonal(Tkk) == 0).all()
+    if not (np.diagonal(Tkk) == 0).all():
+        raise InternalError("Tkk matrix diagonal is not zero")
     product = np.multiply(Tkk, Bkk)
-    assert (np.diagonal(product) == 0).all()
+    if not (np.diagonal(product) == 0).all():
+        raise InternalError("Product matrix diagonal is not zero")
     result = np.sum(product, axis=1)
     return np.array(hirschfeldcharges) + result
 
@@ -332,9 +335,8 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
         try:
             postgdir = os.path.dirname(shutil.which("postg"))
             print("Found postg in path. Setting postgdir.")
-        except:
-            print("Found no postg executable in path. Exiting... ")
-            ashexit()
+        except TypeError:
+            raise ExternalProgramError("Found no postg executable in PATH") from None
 
     parameterdict = {
         "pw86pbe": [0.7564, 1.4545],

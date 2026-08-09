@@ -1,10 +1,12 @@
 import os
-import sys
 import time
 
 import numpy as np
 
 import openmmqmmm.settings_ash
+from openmmqmmm.exceptions import (
+    FileFormatError,
+)
 
 # ANSI colors: http://jafrog.com/2013/11/23/colors-in-terminal.html
 if openmmqmmm.settings_ash.settings_dict["use_ANSI_color"] is True:
@@ -33,30 +35,6 @@ else:
         END = ""
         BOLD = ""
         UNDERLINE = ""
-
-
-def is_interactive() -> bool:
-    try:
-        shell = get_ipython().__class__.__name__
-        # ZMQInteractiveShell: Jupyter notebook/qtconsole; TerminalInteractiveShell: IPython terminal
-        return shell in ("ZMQInteractiveShell", "TerminalInteractiveShell")
-    except NameError:
-        return False  # Probably standard Python interpreter
-
-
-# General function to exit ASH
-# NOTE: By default we exit with errorcode 1
-def ashexit(errormessage=None, code=1):
-    print(BC.FAIL, "ASH exiting with code:", code, BC.END)
-
-    if errormessage is not None:
-        print(BC.FAIL, "Error message:", errormessage, BC.END)
-
-    # If in Jupyter notebook, then we do a softer return
-    if is_interactive():
-        raise SystemExit("ASH exiting due to error")
-    else:
-        sys.exit(1)
 
 
 def basename(filename):
@@ -214,8 +192,7 @@ def read_intlist_from_file(filename, offset=0):
                     if isint(digits):
                         intlist.append(int(digits) + offset)
     except FileNotFoundError:
-        print(f"File '{filename}' does not exists!")
-        ashexit()
+        raise FileFormatError(f"File '{filename}' does not exists!") from None
     intlist.sort()
     return intlist
 
