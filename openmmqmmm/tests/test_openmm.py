@@ -12,8 +12,13 @@ def test_openmm_basic():
     fragment = Fragment(pdbfile=pdbfile)
 
     # Creating new OpenMM object from OpenMM full system file
-    omm = OpenMMTheory(xmlfiles=["charmm36.xml", "charmm36/water.xml"], pdbfile=pdbfile, periodic=True,
-                       autoconstraints=None, rigidwater=False)
+    omm = OpenMMTheory(
+        xmlfiles=["charmm36.xml", "charmm36/water.xml"],
+        pdbfile=pdbfile,
+        periodic=True,
+        autoconstraints=None,
+        rigidwater=False,
+    )
     # Singlepoint MM energy
     Singlepoint(theory=omm, fragment=fragment, Grad=True)
 
@@ -23,6 +28,12 @@ def test_openmm_modeller():
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki.pdb"
 
     # Setting up new system, adding hydrogens, solvent, ions and defining forcefield, topology
-    openmmobject, ashfragment = OpenMM_Modeller(pdbfile=pdbfile, forcefield='CHARMM36', watermodel="tip3p", pH=7.0,
-                                                solvent_padding=10.0, ionicstrength=0.1, platform='CPU')
-
+    openmmobject, ashfragment = OpenMM_Modeller(
+        pdbfile=pdbfile,
+        forcefield="CHARMM36",
+        watermodel="tip3p",
+        pH=7.0,
+        solvent_padding=10.0,
+        ionicstrength=0.1,
+        platform="CPU",
+    )

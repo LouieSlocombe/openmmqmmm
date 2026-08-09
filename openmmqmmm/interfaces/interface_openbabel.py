@@ -7,6 +7,7 @@ from openmmqmmm.modules.module_coords import reformat_element
 ###################################
 ###################################
 
+
 # Function to convert Mol file to PDB-file via OpenBabel
 def mol_to_pdb(file):
     # OpenBabel
@@ -17,9 +18,9 @@ def mol_to_pdb(file):
         print("You can install like this:    conda install --yes -c conda-forge openbabel")
         ashexit()
     mol = next(pybel.readfile("mol", file))
-    mol.write(format='pdb', filename=os.path.splitext(file)[0] + '.pdb', overwrite=True)
-    print("Wrote PDB-file:", os.path.splitext(file)[0] + '.pdb')
-    return os.path.splitext(file)[0] + '.pdb'
+    mol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
+    print("Wrote PDB-file:", os.path.splitext(file)[0] + ".pdb")
+    return os.path.splitext(file)[0] + ".pdb"
 
 
 # Function to convert SDF file to PDB-file via OpenBabel
@@ -35,10 +36,10 @@ def sdf_to_pdb(file):
     mol = next(pybel.readfile("sdf", file))
 
     # Write do disk as PDB-file
-    mol.write(format='pdb', filename=os.path.splitext(file)[0] + 'temp.pdb', overwrite=True)
+    mol.write(format="pdb", filename=os.path.splitext(file)[0] + "temp.pdb", overwrite=True)
     # Read-in again (this will create a Residue)
-    newmol = next(pybel.readfile("pdb", os.path.splitext(file)[0] + 'temp.pdb'))
-    os.remove(os.path.splitext(file)[0] + 'temp.pdb')
+    newmol = next(pybel.readfile("pdb", os.path.splitext(file)[0] + "temp.pdb"))
+    os.remove(os.path.splitext(file)[0] + "temp.pdb")
 
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
     print("Creating new atomnames for PDBfile")
@@ -51,9 +52,9 @@ def sdf_to_pdb(file):
             atomname = res.GetAtomID(atom)
 
     # Write final PDB-file
-    newmol.write(format='pdb', filename=os.path.splitext(file)[0] + '.pdb', overwrite=True)
-    print("Wrote PDB-file:", os.path.splitext(file)[0] + '.pdb')
-    return os.path.splitext(file)[0] + '.pdb'
+    newmol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
+    print("Wrote PDB-file:", os.path.splitext(file)[0] + ".pdb")
+    return os.path.splitext(file)[0] + ".pdb"
 
 
 # Function to read in PDB-file and write new one with CONECT lines (geometry needs to be sensible)
@@ -67,9 +68,9 @@ def writepdb_with_connectivity(file):
         print("You can install like this:    conda install --yes -c conda-forge openbabel")
         ashexit()
     mol = next(pybel.readfile("pdb", file))
-    mol.write(format='pdb', filename=os.path.splitext(file)[0] + '_withcon.pdb', overwrite=True)
-    print("Wrote PDB-file:", os.path.splitext(file)[0] + '_withcon.pdb')
-    return os.path.splitext(file)[0] + '_withcon.pdb'
+    mol.write(format="pdb", filename=os.path.splitext(file)[0] + "_withcon.pdb", overwrite=True)
+    print("Wrote PDB-file:", os.path.splitext(file)[0] + "_withcon.pdb")
+    return os.path.splitext(file)[0] + "_withcon.pdb"
 
 
 # Function to read in XYZ-file (small molecule) and create PDB-file with CONECT lines (geometry needs to be sensible)
@@ -86,11 +87,11 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
     # Read in XYZ-file
     mol = next(pybel.readfile("xyz", file))
     # Write do disk as PDB-file
-    mol.write(format='pdb', filename=os.path.splitext(file)[0] + 'temp.pdb', overwrite=True)
+    mol.write(format="pdb", filename=os.path.splitext(file)[0] + "temp.pdb", overwrite=True)
     # Read-in again (this will create a Residue)
-    newmol = next(pybel.readfile("pdb", os.path.splitext(file)[0] + 'temp.pdb'))
+    newmol = next(pybel.readfile("pdb", os.path.splitext(file)[0] + "temp.pdb"))
 
-    os.remove(os.path.splitext(file)[0] + 'temp.pdb')
+    os.remove(os.path.splitext(file)[0] + "temp.pdb")
 
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
     print("Creating new atomnames for PDBfile")
@@ -105,9 +106,9 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
             atomname = res.GetAtomID(atom)
 
     # Write final PDB-file
-    newmol.write(format='pdb', filename=os.path.splitext(file)[0] + '.pdb', overwrite=True)
-    print("Wrote PDB-file:", os.path.splitext(file)[0] + '.pdb')
-    return os.path.splitext(file)[0] + '.pdb'
+    newmol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
+    print("Wrote PDB-file:", os.path.splitext(file)[0] + ".pdb")
+    return os.path.splitext(file)[0] + ".pdb"
 
 
 # Function to convert PDB-file to SMILES string

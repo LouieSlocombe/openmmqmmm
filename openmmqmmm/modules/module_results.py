@@ -7,6 +7,7 @@ from openmmqmmm.modules.module_coords import Fragment
 
 # Dataclasses https://realpython.com/python-data-classes/
 
+
 # Results dataclass that ASH job-functions return
 @dataclass
 class ASH_Results:
@@ -57,7 +58,10 @@ class ASH_Results:
     displacement_polarizability_dictionary: dict = None
 
     # Print only defined attributes
-    def print_defined(self, printlevel=2, ):
+    def print_defined(
+        self,
+        printlevel=2,
+    ):
         print_if_level("\nPrinting defined attributes of ASH_Results dataclass", printlevel, 2)
         for k, v in self.__dict__.items():
             if v is not None:
@@ -65,8 +69,9 @@ class ASH_Results:
 
     def write_to_disk(self, filename="ASH.result", printlevel=2):
         import json
+
         print_if_level("\nWriting to disk defined attributes of ASH_Results dataclass", printlevel, 2)
-        f = open(filename, 'w')
+        f = open(filename, "w")
 
         newdict = {}
         # Looping over attributes, converting ndarrays to lists and skipping ASH objects

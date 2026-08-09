@@ -21,7 +21,7 @@ def cell_params_to_vectors(parameters):
 
     cx = c * np.cos(rad_b)
     cy = c * (np.cos(rad_a) - np.cos(rad_b) * np.cos(rad_g)) / np.sin(rad_g)
-    cz = np.sqrt(c ** 2 - cx ** 2 - cy ** 2)
+    cz = np.sqrt(c**2 - cx**2 - cy**2)
 
     vectors = np.array([[ax, ay, az], [bx, by, bz], [cx, cy, cz]])
     return vectors
@@ -35,7 +35,7 @@ def cell_vectors_to_params(vectors):
     b = np.linalg.norm(vb)
     c = np.linalg.norm(vc)
 
-    # Calculate angles using the dot product formula: 
+    # Calculate angles using the dot product formula:
     # cos(theta) = (v1 . v2) / (|v1| * |v2|)
     alpha_rad = np.arccos(np.dot(vb, vc) / (b * c))
     beta_rad = np.arccos(np.dot(va, vc) / (a * c))
@@ -70,7 +70,7 @@ def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, file
         print("Error: Either cellvectors or celldimensions should be provided")
         ashexit()
     elif celldimensions is not None:
-        # converting 
+        # converting
         cellvectors = cell_params_to_vectors(celldimensions)
 
     # Unique elements in original order
@@ -81,7 +81,7 @@ def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, file
     # Count atoms of each elemtype
     counts = [elems.count(e) for e in unique_elements]
 
-    with open(filename, 'w') as f:
+    with open(filename, "w") as f:
         f.write("ASH created POSCAR file" + "\n")
         f.write("1.0" + "\n")
         f.write(f"{cellvectors[0, 0]:.4f} {cellvectors[0, 1]:.4f} {cellvectors[0, 2]:.4f} " + "\n")
@@ -107,7 +107,7 @@ def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
         # Assuming your helper function handles the conversion
         cellvectors = cell_params_to_vectors(celldimensions)
 
-    with open(filename, 'w') as f:
+    with open(filename, "w") as f:
         # Header for periodic structures
         f.write("CRYSTAL\n")
 
@@ -121,7 +121,7 @@ def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
         # Header for coordinates: [Number of atoms] [Number of units, usually 1]
         f.write(f"{len(elems)} 1\n")
 
-        # XSF supports either Atomic Number or Element Symbol. 
+        # XSF supports either Atomic Number or Element Symbol.
         # Using Element Symbol is more human-readable and works perfectly in VMD.
         for el, c in zip(elems, coords):
             f.write(f"{el}  {c[0]:.10f}  {c[1]:.10f}  {c[2]:.10f}\n")
@@ -146,7 +146,7 @@ def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
     # celldimensions should be [a, b, c, alpha, beta, gamma]
     a, b, c, alpha, beta, gamma = celldimensions
 
-    with open(filename, 'w') as f:
+    with open(filename, "w") as f:
         f.write("data_ASH_output\n")
         f.write(f"_cell_length_a    {a:.6f}\n")
         f.write(f"_cell_length_b    {b:.6f}\n")

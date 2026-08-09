@@ -17,12 +17,12 @@ def test_fragread():
     HF_frag = Fragment(coordsstring=fragcoords)
     ####################################################
     # From lists
-    elems = ['H', 'Cl']
+    elems = ["H", "Cl"]
     coords = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.9]]
     HCl_frag = Fragment(elems=elems, coords=coords)
     ##############################
     # From np array
-    elems2 = ['H', 'Cl']
+    elems2 = ["H", "Cl"]
     coords2 = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.9]])
     HCl_frag_np = Fragment(elems=elems2, coords=coords2)
     ##############################
@@ -33,7 +33,7 @@ def test_fragread():
     HF_frag2 = Fragment(coordsstring=fragcoords)
     ##################################
     # Replace coordinates in fragment
-    elems = ['H', 'Cl']
+    elems = ["H", "Cl"]
     coords = [[0.0, 0.0, 0.0], [0.0, 0.0, 1.1]]
     HCl_frag.replace_coords(elems, coords)
     ##############################
@@ -61,10 +61,10 @@ def test_fragread_files():
     HF_frag = Fragment(coordsstring=fragcoords)
     print("HF_frag conn", HF_frag.connectivity)
     # Print frag to disk
-    HF_frag.print_system('HF_frag.ygg')
+    HF_frag.print_system("HF_frag.ygg")
 
     # Creating Ash fragment by reading file (above)
-    New_frag = Fragment(fragfile='HF_frag.ygg')
+    New_frag = Fragment(fragfile="HF_frag.ygg")
 
     print("New_frag:", New_frag)
     print("New_frag dict:", New_frag.__dict__)

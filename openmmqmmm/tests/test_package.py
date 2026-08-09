@@ -11,7 +11,9 @@ def test_import_silent():
     """Importing the package must produce no output (no banner, no settings dump)."""
     result = subprocess.run(
         [sys.executable, "-c", "import openmmqmmm"],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
@@ -44,8 +46,7 @@ def test_find_orca_env_var(tmp_path, monkeypatch):
 def test_find_orca_rejects_impostor_in_path(tmp_path, monkeypatch):
     """A lone orca binary in PATH without orca_* helpers (e.g. the GNOME
     screen reader) must not be mistaken for the quantum chemistry program."""
-    impostor_dir = _make_fake_orca_install(tmp_path / "usr_bin", with_helpers=False,
-                                           output="not the qc program")
+    impostor_dir = _make_fake_orca_install(tmp_path / "usr_bin", with_helpers=False, output="not the qc program")
     monkeypatch.delenv("OPENMMQMMM_ORCADIR", raising=False)
     monkeypatch.setenv("PATH", str(impostor_dir))
     assert find_orca(required=False) is None

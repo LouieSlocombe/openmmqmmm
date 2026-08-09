@@ -7,39 +7,39 @@ import openmmqmmm.settings_ash
 
 # ANSI colors: http://jafrog.com/2013/11/23/colors-in-terminal.html
 if openmmqmmm.settings_ash.settings_dict["use_ANSI_color"] is True:
+
     class BC:
-        HEADER = '\033[95m'
-        OKBLUE = '\033[94m'
-        OKGREEN = '\033[92m'
-        OKMAGENTA = '\033[95m'
-        OKRED = '\033[31m'
-        WARNING = '\033[93m'
-        FAIL = '\033[91m'
-        END = '\033[0m'
-        BOLD = '\033[1m'
-        UNDERLINE = '\033[4m'
+        HEADER = "\033[95m"
+        OKBLUE = "\033[94m"
+        OKGREEN = "\033[92m"
+        OKMAGENTA = "\033[95m"
+        OKRED = "\033[31m"
+        WARNING = "\033[93m"
+        FAIL = "\033[91m"
+        END = "\033[0m"
+        BOLD = "\033[1m"
+        UNDERLINE = "\033[4m"
 else:
+
     class BC:
-        HEADER = ''
-        OKBLUE = ''
-        OKGREEN = ''
-        OKMAGENTA = ''
-        OKRED = ''
-        WARNING = ''
-        FAIL = ''
-        END = ''
-        BOLD = ''
-        UNDERLINE = ''
-
-
+        HEADER = ""
+        OKBLUE = ""
+        OKGREEN = ""
+        OKMAGENTA = ""
+        OKRED = ""
+        WARNING = ""
+        FAIL = ""
+        END = ""
+        BOLD = ""
+        UNDERLINE = ""
 
 
 def is_interactive() -> bool:
     try:
         shell = get_ipython().__class__.__name__
-        if shell == 'ZMQInteractiveShell':
+        if shell == "ZMQInteractiveShell":
             return True  # Jupyter notebook or qtconsole
-        elif shell == 'TerminalInteractiveShell':
+        elif shell == "TerminalInteractiveShell":
             return True  # Terminal running IPython
         else:
             return False  # Other type (?)
@@ -90,18 +90,18 @@ def pygrep2(string, file, print_output=False, errors=None):
 
 # Simple function to do find and replace string in file
 def find_replace_string_in_file(file, findstring, replstring):
-    with open(file, 'r') as f:
+    with open(file, "r") as f:
         filedata = f.read()
     # Replace the target string
     filedata = filedata.replace(findstring, replstring)
     # Write the file out again
-    with open(file, 'w') as f:
+    with open(file, "w") as f:
         f.write(filedata)
 
 
 # Give difference of two lists, sorted. List1: Bigger list
 def listdiff(list1, list2):
-    diff = (list(set(list1) - set(list2)))
+    diff = list(set(list1) - set(list2))
     diff.sort()
     return diff
 
@@ -113,7 +113,7 @@ def print_if_level(var, printlevel, refprintlevel):
 
 
 # Debug print. Behaves like print but reads global debug var first
-def printdebug(string, var=''):
+def printdebug(string, var=""):
     if openmmqmmm.settings_ash.settings_dict["debugflag"] is True:
         print(BC.OKRED, string, var, BC.END)
 
@@ -161,14 +161,14 @@ def print_line_with_subheader2(line):
 # option: Once=True means only added for first match
 def insert_line_into_file(file, string, addedstring, Once=True):
     Added = False
-    with open(file, 'r') as ffr:
+    with open(file, "r") as ffr:
         contents = ffr.readlines()
-    with open(file, 'w') as ffw:
+    with open(file, "w") as ffw:
         for l in contents:
             ffw.write(l)
             if string in l:
                 if Added is False:
-                    ffw.write(addedstring + '\n')
+                    ffw.write(addedstring + "\n")
                     if Once is True:
                         Added = True
 
@@ -189,6 +189,7 @@ def isint(s):
 
 
 # Search list of lists. Returns list-index if match
+
 
 def search_list_of_lists_for_index(i, l):
     return next((c for c, f in enumerate(l) if i in f), None)
@@ -213,7 +214,7 @@ def read_intlist_from_file(filename, offset=0):
             for line in f:
                 for l in line.split():
                     # Removing non-numeric part
-                    l = ''.join(i for i in l if i.isdigit())
+                    l = "".join(i for i in l if i.isdigit())
                     if isint(l):
                         intlist.append(int(l) + offset)
     except FileNotFoundError:
@@ -224,14 +225,14 @@ def read_intlist_from_file(filename, offset=0):
 
 
 # Write a string to file simply
-def writestringtofile(string, file, writemode='w'):
+def writestringtofile(string, file, writemode="w"):
     with open(file, writemode) as f:
         f.write(string)
 
 
 # Write a Python list to file simply
 def writelisttofile(pylist, file, separator=" "):
-    with open(file, 'w') as f:
+    with open(file, "w") as f:
         for l in pylist:
             f.write(str(l) + separator)
     print("Wrote list to file:", file)
@@ -240,8 +241,9 @@ def writelisttofile(pylist, file, separator=" "):
 # Natural (human) sorting of list
 def natural_sort(l):
     import re
+
     convert = lambda text: int(text) if text.isdigit() else text.lower()
-    alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
+    alphanum_key = lambda key: [convert(c) for c in re.split("([0-9]+)", key)]
     return sorted(l, key=alphanum_key)
 
 
@@ -259,17 +261,18 @@ def column(matrix, i):
 
 # Various function to print time of module/step. Will add time also to Timings object
 # Printing if currprintlevel
-def print_time_rel(timestamp, modulename='Unknown', moduleindex=4, currprintlevel=1, currthreshold=1):
+def print_time_rel(timestamp, modulename="Unknown", moduleindex=4, currprintlevel=1, currthreshold=1):
     secs = time.time() - timestamp
     mins = secs / 60
     if currprintlevel >= currthreshold:
         print_line_with_subheader2(
-            "Time to calculate step ({}): {:4.3f} seconds, {:3.1f} minutes.".format(modulename, secs, mins))
+            "Time to calculate step ({}): {:4.3f} seconds, {:3.1f} minutes.".format(modulename, secs, mins)
+        )
     # Adding time to Timings object
     timingsobject.add(modulename, secs, moduleindex=moduleindex)
 
 
-def print_time_tot_color(time_initial, modulename='Unknown', moduleindex=4):
+def print_time_tot_color(time_initial, modulename="Unknown", moduleindex=4):
     secs = time.time() - time_initial
     mins = secs / 60
     print(BC.WARNING, "-------------------------------------------------------------------", BC.END)
