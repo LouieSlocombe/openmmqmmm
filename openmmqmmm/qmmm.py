@@ -5,13 +5,13 @@ import time
 
 import numpy as np
 
-import openmmqmmm.modules.module_coords
+import openmmqmmm.coords
 from openmmqmmm.exceptions import (
     InputError,
     InternalError,
 )
-from openmmqmmm.functions.functions_general import log_time_since, main_header, writelisttofile
-from openmmqmmm.modules.module_coords import CONNECTIVITY_SCALE, CONNECTIVITY_TOL, Fragment
+from openmmqmmm.utils import log_time_since, main_header, writelisttofile
+from openmmqmmm.coords import CONNECTIVITY_SCALE, CONNECTIVITY_TOL, Fragment
 
 logger = logging.getLogger(__name__)
 
@@ -269,11 +269,11 @@ class QMMMTheory:
 
             # If QM-MM boundary issue and ASH exits then printing QM-coordinates is useful
             logger.info("QM-region coordinates (before linkatoms):")
-            openmmqmmm.modules.module_coords.print_coords_for_atoms(
+            openmmqmmm.coords.print_coords_for_atoms(
                 self.coords, self.elems, self.qmatoms, labels=self.qmatoms
             )
             logger.info("")
-            self.boundaryatoms = openmmqmmm.modules.module_coords.get_boundary_atoms(
+            self.boundaryatoms = openmmqmmm.coords.get_boundary_atoms(
                 self.qmatoms,
                 self.coords,
                 self.elems,
@@ -373,7 +373,7 @@ class QMMMTheory:
         for QM1atom, MM1atom in self.boundaryatoms.items():
             if isinstance(MM1atom, list):
                 for mat in MM1atom:
-                    connatoms = openmmqmmm.modules.module_coords.get_connected_atoms(
+                    connatoms = openmmqmmm.coords.get_connected_atoms(
                         self.coords, self.elems, scale, tol, mat
                     )
                     # Deleting QM-atom from connatoms list
@@ -382,7 +382,7 @@ class QMMMTheory:
             # OLD: should never apply anymore, we always have a list
             # TODO: delete
             else:
-                connatoms = openmmqmmm.modules.module_coords.get_connected_atoms(
+                connatoms = openmmqmmm.coords.get_connected_atoms(
                     self.coords, self.elems, scale, tol, MM1atom
                 )
                 # Deleting QM-atom from connatoms list
@@ -498,12 +498,12 @@ class QMMMTheory:
 
     # Create dipole charge (twice) for each MM2 atom that gets fraction of MM1 charge
     def get_dipole_charge(self, delq, direction, mm1index, mm2index, current_coords):
-        # oldMM_distance = openmmqmmm.modules.module_coords.distance_between_atoms(fragment=self.fragment,
+        # oldMM_distance = openmmqmmm.coords.distance_between_atoms(fragment=self.fragment,
         #                                                               atoms=[mm1index, mm2index])
         # Coordinates and distance
         mm1coords = np.array(current_coords[mm1index])
         mm2coords = np.array(current_coords[mm2index])
-        MM_distance = openmmqmmm.modules.module_coords.distance(mm1coords, mm2coords)  # Distance between MM1 and MM2
+        MM_distance = openmmqmmm.coords.distance(mm1coords, mm2coords)  # Distance between MM1 and MM2
 
         SHIFT = 0.15
 
@@ -569,7 +569,7 @@ class QMMMTheory:
                 f"This is QM/MM run no. {self.TruncatedPCcalls}.  Will calculate Full-Trunc correction in this step"
             )
             # Origin coords point is center of QM-region
-            origincoords = openmmqmmm.modules.module_coords.get_centroid(used_qmcoords)
+            origincoords = openmmqmmm.coords.get_centroid(used_qmcoords)
             # Determine the indices associated with the truncated PC field once
             self.determine_truncatedPC_indices(origincoords)
             logger.info(f"Truncated PC-region size: {len(self.truncated_PC_region_indices)} charges")
@@ -597,7 +597,7 @@ class QMMMTheory:
     def determine_truncatedPC_indices(self, origincoords):
         region_indices = []
         for index, allc in enumerate(self.pointchargecoords):
-            dist = openmmqmmm.modules.module_coords.distance(origincoords, allc)
+            dist = openmmqmmm.coords.distance(origincoords, allc)
             if dist < self.TruncPCRadius:
                 region_indices.append(index)
         # Only unique and sorting:
@@ -975,7 +975,7 @@ class QMMMTheory:
         if Grad is True:
             if logger.isEnabledFor(logging.DEBUG):
                 # Writing QM gradient only
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.QMgradient_wo_linkatoms,
                     self.qmelems,
                     indices=self.qmatoms,
@@ -983,7 +983,7 @@ class QMMMTheory:
                     description=f"QM gradient w/o linkatoms {label} (au/Bohr):",
                 )
                 # Writing QM+Linkatoms gradient
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.MMgradient,
                     self.elems,
                     indices=self.allatoms,
@@ -991,7 +991,7 @@ class QMMMTheory:
                     description=f"MM gradient {label} (au/Bohr):",
                 )
                 # Writing full QM/MM gradient
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.QM_MM_gradient,
                     self.elems,
                     indices=self.allatoms,
@@ -1008,7 +1008,7 @@ class QMMMTheory:
     def create_linkatoms(self, current_coords):
         checkpoint = time.time()
         # Get linkatom coordinates
-        self.linkatoms_dict = openmmqmmm.modules.module_coords.get_linkatom_positions(
+        self.linkatoms_dict = openmmqmmm.coords.get_linkatom_positions(
             self.boundaryatoms,
             self.qmatoms,
             current_coords,
@@ -1421,7 +1421,7 @@ class QMMMTheory:
                 self.QM_MM_gradient = self.QM_PC_gradient + self.MMgradient - self.subtractive_correction_G
 
             if logger.isEnabledFor(logging.DEBUG):
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.QMgradient_wo_linkatoms,
                     self.qmelems,
                     indices=self.qmatoms,
@@ -1429,35 +1429,35 @@ class QMMMTheory:
                     description=f"QM gradient w/o linkatoms {label} (au/Bohr):",
                 )
                 # Writing QM+Linkatoms gradient
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.QMgradient,
                     self.qmelems + ["L" for i in range(self.num_linkatoms)],
                     indices=self.qmatoms + [0 for i in range(self.num_linkatoms)],
                     file=f"QMgradient-with-linkatoms_{label}",
                     description=f"QM gradient with linkatoms {label} (au/Bohr):",
                 )
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.PCgradient,
                     self.mmelems,
                     indices=self.mmatoms,
                     file=f"PCgradient_{label}",
                     description=f"PC gradient {label} (au/Bohr):",
                 )
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.QM_PC_gradient,
                     self.elems,
                     indices=self.allatoms,
                     file=f"QM+PCgradient_{label}",
                     description=f"QM+PC gradient {label} (au/Bohr):",
                 )
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.MMgradient,
                     self.elems,
                     indices=self.allatoms,
                     file=f"MMgradient_{label}",
                     description=f"MM gradient {label} (au/Bohr):",
                 )
-                openmmqmmm.modules.module_coords.write_coords_all(
+                openmmqmmm.coords.write_coords_all(
                     self.QM_MM_gradient,
                     self.elems,
                     indices=self.allatoms,
@@ -1610,7 +1610,7 @@ def actregiondefine(pdbfile=None, mmtheory=None, psffile=None, fragment=None, ra
     logger.info("Origin-atom coordinates: %s", origincoords)
     act_indices = []
     for index, allc in enumerate(fragment.coords):
-        dist = openmmqmmm.modules.module_coords.distance(origincoords, allc)
+        dist = openmmqmmm.coords.distance(origincoords, allc)
         if dist < radius:
             # Get residue ID for this atom index
             resid_value = resids[index]
@@ -1635,7 +1635,7 @@ def actregiondefine(pdbfile=None, mmtheory=None, psffile=None, fragment=None, ra
         'The active_atoms list  can be read-into Python script like this:	 actatoms = read_intlist_from_file("active_atoms")'
     )
     # Print XYZ file with active region shown
-    openmmqmmm.modules.module_coords.write_XYZ_for_atoms(fragment.coords, fragment.elems, act_indices, "ActiveRegion")
+    openmmqmmm.coords.write_XYZ_for_atoms(fragment.coords, fragment.elems, act_indices, "ActiveRegion")
     logger.info("Wrote Active region XYZfile: ActiveRegion.xyz  (inspect with visualization program)")
     return act_indices
 
@@ -1643,8 +1643,8 @@ def actregiondefine(pdbfile=None, mmtheory=None, psffile=None, fragment=None, ra
 # This projects the linkatom force onto the respective QM atom and MM atom
 def linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad):
     # QM1-L and QM1-MM1 distances
-    QLdistance = openmmqmmm.modules.module_coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ang2bohr
-    MQdistance = openmmqmmm.modules.module_coords.distance(Mcoord, Qcoord) * openmmqmmm.constants.ang2bohr
+    QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ang2bohr
+    MQdistance = openmmqmmm.coords.distance(Mcoord, Qcoord) * openmmqmmm.constants.ang2bohr
     # Coords in Bohr
     Mcoord = Mcoord * openmmqmmm.constants.ang2bohr
     Qcoord = Qcoord * openmmqmmm.constants.ang2bohr
@@ -1685,8 +1685,8 @@ def linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad):
 # Should be what ORCA uses
 def linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad):
     # QM1-L and QM1-MM1 distances
-    QLdistance = openmmqmmm.modules.module_coords.distance(Qcoord, Lcoord)
-    MQdistance = openmmqmmm.modules.module_coords.distance(Mcoord, Qcoord)
+    QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord)
+    MQdistance = openmmqmmm.coords.distance(Mcoord, Qcoord)
     # scaling factor
     scal = QLdistance / MQdistance
     gradMM = Lgrad * scal
@@ -1697,7 +1697,7 @@ def linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad):
 # simplistic, unused
 def linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad):
     # QM1-L and QM1-MM1 distances
-    QLdistance = openmmqmmm.modules.module_coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ang2bohr
+    QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ang2bohr
     vec = (Mcoord - Qcoord) * openmmqmmm.constants.ang2bohr
     R2 = vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]
     oneR = 1.0 / math.sqrt(R2)

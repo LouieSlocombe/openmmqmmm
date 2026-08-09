@@ -3,7 +3,7 @@ import logging
 import numpy as np
 
 import openmmqmmm
-from openmmqmmm.modules.module_coords import print_coords_all
+from openmmqmmm.coords import print_coords_all
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class NumGradclass:
             logger.info("Numgrad: runmode is parallel")
             origfrag = openmmqmmm.Fragment(coords=current_coords, elems=elems, label="orig", charge=charge, mult=mult)
             all_disp_fragments = [origfrag, *all_disp_fragments]
-            result = openmmqmmm.functions.functions_parallel.Job_parallel(
+            result = openmmqmmm.parallel.Job_parallel(
                 fragments=all_disp_fragments,
                 theories=[self.theory],
                 numcores=self.numcores,

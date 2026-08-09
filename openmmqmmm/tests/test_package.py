@@ -2,7 +2,7 @@ import stat
 import subprocess
 import sys
 
-from openmmqmmm.interfaces.interface_ORCA import find_orca
+from openmmqmmm.orca import find_orca
 
 ORCA_PROBE_OUTPUT = "This program requires the name of a parameterfile"
 

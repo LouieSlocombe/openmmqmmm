@@ -5,7 +5,7 @@ import numpy as np
 from openmmqmmm.exceptions import (
     InputError,
 )
-from openmmqmmm.functions.functions_general import main_header
+from openmmqmmm.utils import main_header
 
 logger = logging.getLogger(__name__)
 

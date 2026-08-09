@@ -17,9 +17,9 @@ import openmmqmmm
 from openmmqmmm.exceptions import (
     InputError,
 )
-from openmmqmmm.functions.functions_general import log_time_since, main_header
-from openmmqmmm.modules.module_coords import check_charge_mult
-from openmmqmmm.modules.module_results import ASH_Results
+from openmmqmmm.utils import log_time_since, main_header
+from openmmqmmm.coords import check_charge_mult
+from openmmqmmm.results import ASH_Results
 
 logger = logging.getLogger(__name__)
 

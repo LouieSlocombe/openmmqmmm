@@ -12,11 +12,11 @@ from openmmqmmm.exceptions import (
     MissingDependencyError,
     OpenMMQMMMError,
 )
-from openmmqmmm.functions.functions_general import sub_header
-from openmmqmmm.interfaces.interface_geometric_new import GeomeTRICOptimizerClass
-from openmmqmmm.modules.module_coords import Fragment, check_charge_mult
-from openmmqmmm.modules.module_QMMM import QMMMTheory
-from openmmqmmm.modules.module_results import ASH_Results
+from openmmqmmm.utils import sub_header
+from openmmqmmm.geometric import GeomeTRICOptimizerClass
+from openmmqmmm.coords import Fragment, check_charge_mult
+from openmmqmmm.qmmm import QMMMTheory
+from openmmqmmm.results import ASH_Results
 
 logger = logging.getLogger(__name__)
 

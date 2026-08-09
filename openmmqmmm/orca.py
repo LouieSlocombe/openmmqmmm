@@ -9,15 +9,15 @@ import time
 import numpy as np
 
 import openmmqmmm.constants
-import openmmqmmm.functions.functions_elstructure
-import openmmqmmm.functions.functions_parallel
-import openmmqmmm.modules.module_coords
+import openmmqmmm.elstructure
+import openmmqmmm.parallel
+import openmmqmmm.coords
 from openmmqmmm.exceptions import (
     ExternalProgramError,
     FileFormatError,
     InputError,
 )
-from openmmqmmm.functions.functions_general import (
+from openmmqmmm.utils import (
     insert_line_into_file,
     listdiff,
     log_time_since,
@@ -26,7 +26,7 @@ from openmmqmmm.functions.functions_general import (
     pygrep2,
     search_list_of_lists_for_index,
 )
-from openmmqmmm.modules.module_coords import check_charge_mult, print_internal_coordinate_table_new
+from openmmqmmm.coords import check_charge_mult, print_internal_coordinate_table_new
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class ORCATheory:
             logger.info(
                 f"ORCA parallel job requested with numcores: {numcores} . Make sure that the correct OpenMPI version (for the ORCA version) is available in your environment"
             )
-            openmmqmmm.functions.functions_parallel.check_OpenMPI()
+            openmmqmmm.parallel.check_OpenMPI()
 
         # Bind to core option when calling ORCA: i.e. execute: /path/to/orca file.inp "--bind-to none"
         # TODO: Default False; make True?
@@ -400,7 +400,7 @@ end
                 logger.info("ORCA geometry optimization finished")
                 self.energy = ORCAfinalenergygrab(outfile)
                 # Grab optimized coordinates from filename.xyz
-                _opt_elems, opt_coords = openmmqmmm.modules.module_coords.read_xyzfile(self.filename + ".xyz")
+                _opt_elems, opt_coords = openmmqmmm.coords.read_xyzfile(self.filename + ".xyz")
                 logger.info("%s", opt_coords)
 
                 fragment.replace_coords(fragment.elems, opt_coords)
@@ -853,7 +853,7 @@ end"""
             logger.info("Fractional ccupations (Fermi distribution): %s", occupations)
             logger.info("Now also calculating correlation energy from the fractional occupation numbers")
             logger.info("Assuming Fermi distribution")
-            Ec = openmmqmmm.functions.functions_elstructure.get_ec_entropy(occupations, self.NMF_sigma, method="fermi")
+            Ec = openmmqmmm.elstructure.get_ec_entropy(occupations, self.NMF_sigma, method="fermi")
             logger.info("Ec: %s", Ec)
             self.properties["NMF_occupations"] = occupations
             self.properties["E_NMF"] = E_NMF
@@ -890,7 +890,7 @@ end"""
 
         # XDM option: WFX file should have been created.
         if self.xdm:
-            dispE, dispgrad = openmmqmmm.functions.functions_elstructure.xdm_run(
+            dispE, dispgrad = openmmqmmm.elstructure.xdm_run(
                 wfxfile=self.filename + ".wfx", a1=self.xdm_a1, a2=self.xdm_a2, functional=self.xdm_func
             )
             logger.info("XDM dispersion energy: %s", dispE)
@@ -1786,8 +1786,8 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
                     charges = []
                     grab = True
         logger.info("Hirshfeld charges : %s", charges)
-        atomicnumbers = openmmqmmm.modules.module_coords.elemstonuccharges(elems)
-        charges = openmmqmmm.functions.functions_elstructure.calc_cm5(atomicnumbers, coords, charges)
+        atomicnumbers = openmmqmmm.coords.elemstonuccharges(elems)
+        charges = openmmqmmm.elstructure.calc_cm5(atomicnumbers, coords, charges)
         logger.info("CM5 charges : %s", list(charges))
     elif chargemodel.upper() == "MULLIKEN":
         with open(outputfile) as ofile:
@@ -1917,7 +1917,7 @@ def create_ASH_otool(basename=None, theoryfile=None, scriptlocation=None, charge
         otool.write("gradient = result.gradient\n")
         otool.write("print(gradient)\n")
         otool.write(
-            f'openmmqmmm.interfaces.interface_ORCA.print_gradient_in_ORCAformat(energy,gradient,"{basename}")\n'
+            f'openmmqmmm.orca.print_gradient_in_ORCAformat(energy,gradient,"{basename}")\n'
         )
     st = os.stat(scriptlocation + "/otool_external")
     os.chmod(scriptlocation + "/otool_external", st.st_mode | stat.S_IEXEC)
@@ -2020,7 +2020,7 @@ end
     logger.info("ORCA external job finished")
 
     # Grabbing final geometry to update fragment object
-    _elems, coords = openmmqmmm.modules.module_coords.read_xyzfile(basename + ".xyz")
+    _elems, coords = openmmqmmm.coords.read_xyzfile(basename + ".xyz")
     fragment.coords = coords
 
     # Grabbing final energy

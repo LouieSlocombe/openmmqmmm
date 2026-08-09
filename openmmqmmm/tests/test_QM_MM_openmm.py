@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from openmmqmmm import *
-from openmmqmmm.interfaces.interface_ORCA import find_orca
+from openmmqmmm.orca import find_orca
 
 TEST_DIR = Path(__file__).parent
 

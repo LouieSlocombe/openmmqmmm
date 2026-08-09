@@ -29,9 +29,9 @@ except ImportError:
 import contextlib
 
 import openmmqmmm.constants
-import openmmqmmm.functions.functions_parallel
-import openmmqmmm.modules.module_plotting
-from openmmqmmm.functions.functions_general import (
+import openmmqmmm.parallel
+import openmmqmmm.plotting
+from openmmqmmm.utils import (
     create_conn_dict,
     find_replace_string_in_file,
     log_time_since,
@@ -42,9 +42,9 @@ from openmmqmmm.functions.functions_general import (
     writelisttofile,
     writestringtofile,
 )
-from openmmqmmm.interfaces.interface_mdtraj import MDtraj_imagetraj, MDtraj_import, MDtraj_RMSF
-from openmmqmmm.interfaces.interface_openbabel import xyz_to_pdb_with_connectivity
-from openmmqmmm.modules.module_coords import (
+from openmmqmmm.mdtraj import MDtraj_imagetraj, MDtraj_import, MDtraj_RMSF
+from openmmqmmm.openbabel import xyz_to_pdb_with_connectivity
+from openmmqmmm.coords import (
     Fragment,
     change_origin_to_centroid,
     check_charge_mult,
@@ -55,8 +55,8 @@ from openmmqmmm.modules.module_coords import (
     write_pdbfile,
     write_xyzfile,
 )
-from openmmqmmm.modules.module_coords_PBC import cell_params_to_vectors, cell_vectors_to_params
-from openmmqmmm.modules.module_singlepoint import Singlepoint
+from openmmqmmm.coords_pbc import cell_params_to_vectors, cell_vectors_to_params
+from openmmqmmm.singlepoint import Singlepoint
 
 logger = logging.getLogger(__name__)
 
@@ -5137,7 +5137,7 @@ def OpenMM_metadynamics(
         # Input parameters passed as dictionary to Simple_parallel
         # NOTE: multiprocess library (instead of multiprocessing) is necessary.
         # Otherwise pickling problem involving _io.TextIOWrapper
-        openmmqmmm.functions.functions_parallel.Simple_parallel(
+        openmmqmmm.parallel.Simple_parallel(
             jobfunction=md.run,
             parameter_dict={
                 "simulation_steps": simulation_steps,
@@ -5731,7 +5731,7 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat="png", plot_xlim=N
         logger.info("Now plotting:")
         CVlabel = f"{CV1_type} ({CV1_unit_label})"
         y_axislabel = "Energy (kcal(/mol))"
-        eplot = openmmqmmm.modules.module_plotting.ASH_plot(
+        eplot = openmmqmmm.plotting.ASH_plot(
             "Metadynamics", num_subplots=1, x_axislabel=CVlabel, y_axislabel=y_axislabel
         )
         eplot.addseries(0, x_list=xvalues, y_list=rel_free_energy, legend=None, color="blue", line=True, scatter=False)

@@ -9,14 +9,14 @@ from math import sqrt
 import numpy as np
 
 import openmmqmmm.constants
-import openmmqmmm.dictionaries_lists
+import openmmqmmm.elements
 from openmmqmmm.exceptions import (
     FileFormatError,
     InputError,
     InternalError,
     MissingDependencyError,
 )
-from openmmqmmm.functions.functions_general import (
+from openmmqmmm.utils import (
     isint,
     listdiff,
     log_time_since,
@@ -377,7 +377,7 @@ class Fragment:
 
     def create_coords_from_smiles(self, smiles):
         logger.info("Creating coordinates from SMILES string: %s", smiles)
-        from openmmqmmm.interfaces.interface_openbabel import smiles_to_coords
+        from openmmqmmm.openbabel import smiles_to_coords
 
         elems, coords = smiles_to_coords(smiles)
         self.elems = elems
@@ -648,7 +648,7 @@ class Fragment:
             logger.info("----------------___")
 
         logger.info("Adding connectivity to PDB topology")
-        openmmqmmm.interfaces.interface_OpenMM.openmm_add_bonds_to_topology(self.pdb_topology, connectivity_dict)
+        openmmqmmm.openmm.openmm_add_bonds_to_topology(self.pdb_topology, connectivity_dict)
 
         return self.pdb_topology
 
@@ -684,7 +684,7 @@ class Fragment:
             logger.info("Connectivity calculation requested for Fragment")
             connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, 1.0, 0.1)
             logger.info("Adding connectivity to PDB topology")
-            openmmqmmm.interfaces.interface_OpenMM.openmm_add_bonds_to_topology(self.pdb_topology, connectivity_dict)
+            openmmqmmm.openmm.openmm_add_bonds_to_topology(self.pdb_topology, connectivity_dict)
 
         # If no_connectivity is True, we skip adding connectivity to PDB-file
         if skip_connectivity is True:
@@ -1205,14 +1205,14 @@ eldict_covrad["M"] = 0.0
 def reformat_element(elem, isatomnum=False):
     if isatomnum is True:
         try:
-            el_correct = openmmqmmm.dictionaries_lists.element_dict_atnum[elem].symbol
+            el_correct = openmmqmmm.elements.element_dict_atnum[elem].symbol
         except KeyError:
             raise InputError(
                 f"Element-string {elem} is not a valid element. Fix the element information in the coordinate file."
             ) from None
     else:
         try:
-            el_correct = openmmqmmm.dictionaries_lists.element_dict_atname[elem.lower()].symbol
+            el_correct = openmmqmmm.elements.element_dict_atname[elem.lower()].symbol
         except KeyError:
             raise InputError(
                 f"Element-string {elem} is not a valid element. Fix the element information in the coordinate file."
@@ -2014,7 +2014,7 @@ def conv_atomtypes_elems(atomtype):
         [str]: [description]
     """
     try:
-        element = openmmqmmm.dictionaries_lists.atomtypes_dict[atomtype]
+        element = openmmqmmm.elements.atomtypes_dict[atomtype]
         return element
     except KeyError:
         # Assume correct element but could be wrongly formatted (e.g. FE instead of Fe) so reformatting
@@ -2053,7 +2053,7 @@ def read_pdbfile(filename, use_atomnames_as_elements=False):
                     elem = line[76:78].replace(" ", "").replace("\n", "")
                     # Option to use atomnamecolumn for element information instead of element-column
                     if use_atomnames_as_elements is True:
-                        elem_name = openmmqmmm.dictionaries_lists.atomtypes_dict[atom_name]
+                        elem_name = openmmqmmm.elements.atomtypes_dict[atom_name]
                         elemcol.append(elem_name)
                     else:
                         if len(elem) != 0:
@@ -3337,7 +3337,7 @@ def insert_solute_into_solvent(
                 modeller.topology.setPeriodicBoxVectors(solvent_box_vectors)
 
         # Write merged topology and positions to new PDB file
-        openmmqmmm.interfaces.interface_OpenMM.write_pdbfile_openMM(modeller.topology, mergedPositions, outputname)
+        openmmqmmm.openmm.write_pdbfile_openMM(modeller.topology, mergedPositions, outputname)
     return new_frag
 
 

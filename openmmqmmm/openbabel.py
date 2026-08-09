@@ -4,7 +4,7 @@ import os
 from openmmqmmm.exceptions import (
     MissingDependencyError,
 )
-from openmmqmmm.modules.module_coords import reformat_element
+from openmmqmmm.coords import reformat_element
 
 logger = logging.getLogger(__name__)
 

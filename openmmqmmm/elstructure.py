@@ -5,7 +5,7 @@ import subprocess as sp
 
 import numpy as np
 
-import openmmqmmm.modules.module_coords
+import openmmqmmm.coords
 from openmmqmmm.exceptions import ExternalProgramError, InternalError
 
 logger = logging.getLogger(__name__)
@@ -270,7 +270,7 @@ _DNO = -0.0346
 def distance_matrix_from_coords(coords):
     distmatrix = []
     for i in coords:
-        dist_row = [openmmqmmm.modules.module_coords.distance(i, j) for j in coords]
+        dist_row = [openmmqmmm.coords.distance(i, j) for j in coords]
         distmatrix.append(dist_row)
     return distmatrix
 

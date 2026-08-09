@@ -19,24 +19,24 @@ from .exceptions import (
 )
 
 # Logging setup helper
-from .functions.functions_general import configure_logging
+from .utils import configure_logging
 
 # Results dataclass
 # Parallel
-from .functions.functions_parallel import Job_parallel, Simple_parallel
+from .parallel import Job_parallel, Simple_parallel
 
 # MDtraj
 # geomeTRIC interface
-from .interfaces.interface_geometric_new import GeomeTRICOptimizerClass, geomeTRICOptimizer
-from .interfaces.interface_mdtraj import MDtraj_coord_analyze, MDtraj_imagetraj, MDtraj_RMSD, MDtraj_RMSF, MDtraj_slice
-from .interfaces.interface_openbabel import (
+from .geometric import GeomeTRICOptimizerClass, geomeTRICOptimizer
+from .mdtraj import MDtraj_coord_analyze, MDtraj_imagetraj, MDtraj_RMSD, MDtraj_RMSF, MDtraj_slice
+from .openbabel import (
     mol_to_pdb,
     pdb_to_smiles,
     sdf_to_pdb,
     writepdb_with_connectivity,
     xyz_to_pdb_with_connectivity,
 )
-from .interfaces.interface_OpenMM import (
+from .openmm import (
     Gentle_warm_up_MD,
     OpenMM_box_equilibration,
     OpenMM_MD,
@@ -57,10 +57,10 @@ from .interfaces.interface_OpenMM import (
 
 # Constants
 # # QMcode interfaces
-from .interfaces.interface_ORCA import ORCA_External_Optimizer, ORCATheory
+from .orca import ORCA_External_Optimizer, ORCATheory
 
 # Fragment class and coordinate functions
-from .modules.module_coords import (
+from .coords import (
     Fragment,
     QMPC_fragexpand,
     QMregionfragexpand,
@@ -89,7 +89,7 @@ from .modules.module_coords import (
 )
 
 # Freq
-from .modules.module_freq import (
+from .freq import (
     AnFreq,
     NumFreq,
     approximate_full_Hessian_from_smaller,
@@ -99,14 +99,14 @@ from .modules.module_freq import (
 )
 
 # Plotting
-from .modules.module_plotting import ASH_plot
+from .plotting import ASH_plot
 
 # QM/MM
-from .modules.module_QMMM import QMMMTheory, actregiondefine, compute_decomposed_QM_MM_energy, read_charges_from_psf
-from .modules.module_results import ASH_Results, read_results_from_file
+from .qmmm import QMMMTheory, actregiondefine, compute_decomposed_QM_MM_energy, read_charges_from_psf
+from .results import ASH_Results, read_results_from_file
 
 # Singlepoint
-from .modules.module_singlepoint import (
+from .singlepoint import (
     ReactionEnergy,
     Singlepoint,
     Singlepoint_fragments,
@@ -117,7 +117,7 @@ from .modules.module_singlepoint import (
 )
 
 # Numerical gradient
-from .modules.module_theory import NumGradclass
+from .numgrad import NumGradclass
 
 # Library convention: silent unless the application configures logging.
 # configure_logging() sets up ASH-style console output in one call.

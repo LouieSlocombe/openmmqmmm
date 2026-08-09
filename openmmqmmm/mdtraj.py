@@ -7,7 +7,7 @@ from openmmqmmm.exceptions import (
     InputError,
     MissingDependencyError,
 )
-from openmmqmmm.modules.module_coords import Fragment, write_xyzfile
+from openmmqmmm.coords import Fragment, write_xyzfile
 
 logger = logging.getLogger(__name__)
 

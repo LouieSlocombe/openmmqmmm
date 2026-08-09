@@ -13,9 +13,9 @@ from openmmqmmm.exceptions import (
     MissingDependencyError,
     OpenMMQMMMError,
 )
-from openmmqmmm.functions.functions_general import log_time_since, main_header, pygrep2, sub_header
-from openmmqmmm.interfaces.interface_OpenMM import OpenMMTheory
-from openmmqmmm.modules.module_coords import (
+from openmmqmmm.utils import log_time_since, main_header, pygrep2, sub_header
+from openmmqmmm.openmm import OpenMMTheory
+from openmmqmmm.coords import (
     check_charge_mult,
     fullindex_to_actindex,
     print_coords_for_atoms,
@@ -24,7 +24,7 @@ from openmmqmmm.modules.module_coords import (
     write_XYZ_for_atoms,
     write_xyzfile,
 )
-from openmmqmmm.modules.module_coords_PBC import (
+from openmmqmmm.coords_pbc import (
     align_to_standard_orientation,
     cell_vectors_to_params,
     cell_volume,
@@ -32,10 +32,10 @@ from openmmqmmm.modules.module_coords_PBC import (
     write_POSCAR_file,
     write_XSF_file,
 )
-from openmmqmmm.modules.module_freq import approximate_full_Hessian_from_smaller, read_hessian, write_hessian
-from openmmqmmm.modules.module_QMMM import QMMMTheory
-from openmmqmmm.modules.module_results import ASH_Results
-from openmmqmmm.modules.module_theory import NumGradclass
+from openmmqmmm.freq import approximate_full_Hessian_from_smaller, read_hessian, write_hessian
+from openmmqmmm.qmmm import QMMMTheory
+from openmmqmmm.results import ASH_Results
+from openmmqmmm.numgrad import NumGradclass
 
 logger = logging.getLogger(__name__)
 
@@ -1131,7 +1131,7 @@ class ASHengineclass:
                 self.BOmatrix = np.zeros((len(self.M.elem), len(self.M.elem)), dtype=int)
                 # bond orders based on fragment connectivity
                 self.fragment.calc_connectivity()
-                from openmmqmmm.modules.module_coords import get_connected_atoms_dict
+                from openmmqmmm.coords import get_connected_atoms_dict
 
                 conndict = get_connected_atoms_dict(self.fragment.coords, self.fragment.elems, 1.0, 0.1)
                 logger.info("conndict: %s", conndict)

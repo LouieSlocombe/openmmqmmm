@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from openmmqmmm.modules.module_coords import Fragment
+from openmmqmmm.coords import Fragment
 
 logger = logging.getLogger(__name__)
 

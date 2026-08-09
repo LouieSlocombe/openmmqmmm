@@ -8,16 +8,16 @@ import time
 import numpy as np
 
 import openmmqmmm.constants
-import openmmqmmm.interfaces.interface_ORCA
-import openmmqmmm.modules.module_coords
+import openmmqmmm.orca
+import openmmqmmm.coords
 from openmmqmmm.exceptions import (
     InputError,
     InternalError,
 )
-from openmmqmmm.functions.functions_general import clean_number, listdiff, log_time_since, main_header
-from openmmqmmm.modules.module_coords import check_charge_mult
-from openmmqmmm.modules.module_QMMM import QMMMTheory
-from openmmqmmm.modules.module_results import ASH_Results
+from openmmqmmm.utils import clean_number, listdiff, log_time_since, main_header
+from openmmqmmm.coords import check_charge_mult
+from openmmqmmm.qmmm import QMMMTheory
+from openmmqmmm.results import ASH_Results
 
 logger = logging.getLogger(__name__)
 
@@ -238,12 +238,12 @@ def NumFreq(
     # NOTE: Pretty ugly. Not sure if there is a good alternative at the moment. Moreadfile option would override this anyway
     try:
         if theory.theorytype == "QM":
-            if isinstance(theory, openmmqmmm.interfaces.interface_ORCA.ORCATheory):
+            if isinstance(theory, openmmqmmm.orca.ORCATheory):
                 logger.info("Copying GBW file into Numfreq_dir")
                 shutil.copy("../" + theory.filename + ".gbw", "./" + theory.filename + ".gbw")
 
         elif theory.theorytype == "QM/MM" and isinstance(
-            theory.qm_theory, openmmqmmm.interfaces.interface_ORCA.ORCATheory
+            theory.qm_theory, openmmqmmm.orca.ORCATheory
         ):
             logger.info("Copying GBW file into Numfreq_dir")
             shutil.copy("../" + theory.qm_theory.filename + ".gbw", "./" + theory.qm_theory.filename + ".gbw")
@@ -284,7 +284,7 @@ def NumFreq(
     current_coords_array = np.array(coords)
 
     logger.info("Printing hessatoms geometry...")
-    openmmqmmm.modules.module_coords.print_coords_for_atoms(coords, elems, hessatoms)
+    openmmqmmm.coords.print_coords_for_atoms(coords, elems, hessatoms)
     logger.info("")
 
     # Looping over each atom and each coordinate to create displaced geometries
@@ -543,7 +543,7 @@ def NumFreq(
         logger.info("allatoms: %s", allatoms)
         logger.info("hessatoms: %s", hessatoms)
         logger.info("fragment.list_of_masses: %s", fragment.list_of_masses)
-        hessmasses = openmmqmmm.modules.module_coords.get_partial_list(allatoms, hessatoms, fragment.list_of_masses)
+        hessmasses = openmmqmmm.coords.get_partial_list(allatoms, hessatoms, fragment.list_of_masses)
     else:
         hessmasses = hessatoms_masses
 
@@ -551,7 +551,7 @@ def NumFreq(
     # Mass-weighted Hessian (in case we need it)
     _mwhessian, _massmatrix = massweight(hessian, hessmasses)
     # Get partial matrix by deleting atoms not present in list.
-    hesselems = openmmqmmm.modules.module_coords.get_partial_list(allatoms, hessatoms, elems)
+    hesselems = openmmqmmm.coords.get_partial_list(allatoms, hessatoms, elems)
 
     hesscoords = np.take(fragment.coords, hessatoms, axis=0)
     logger.info("Elements: %s", hesselems)
@@ -630,7 +630,7 @@ def NumFreq(
 
     # Write ORCA-style Hessian file. Hardcoded filename here. Change?
     # Note: Passing hesscords here instead of coords. Change?
-    openmmqmmm.interfaces.interface_ORCA.write_ORCA_Hessfile(
+    openmmqmmm.orca.write_ORCA_Hessfile(
         hessian, hesscoords, hesselems, hessmasses, hessatoms, "orcahessfile.hess"
     )
 
@@ -1292,8 +1292,8 @@ def get_center(coords, masses=None, elems=None):
             raise InputError("Need to provide either masses or elems")
         logger.info("No masses provided. Using atom masses from ASH.")
         masses = [
-            openmmqmmm.modules.module_coords.atommasses[
-                openmmqmmm.modules.module_coords.elematomnumbers[el.lower()] - 1
+            openmmqmmm.coords.atommasses[
+                openmmqmmm.coords.elematomnumbers[el.lower()] - 1
             ]
             for el in elems
         ]
@@ -1315,8 +1315,8 @@ def inertia(elems, coords, center):
     Iyz = 0.0
 
     for _index, (el, coord) in enumerate(zip(elems, coords, strict=False)):
-        mass = openmmqmmm.modules.module_coords.atommasses[
-            openmmqmmm.modules.module_coords.elematomnumbers[el.lower()] - 1
+        mass = openmmqmmm.coords.atommasses[
+            openmmqmmm.coords.elematomnumbers[el.lower()] - 1
         ]
         x = coord[0] - xcom
         y = coord[1] - ycom
@@ -1367,7 +1367,7 @@ def calc_model_Hessian_ORCA(fragment, model="Almloef"):
     inhess {model}
     end
 """
-    orcadummycalc = openmmqmmm.interfaces.interface_ORCA.ORCATheory(
+    orcadummycalc = openmmqmmm.orca.ORCATheory(
         orcasimpleinput=orcasimple, orcablocks=orcablocks, extraline=extraline
     )
     openmmqmmm.Singlepoint(theory=orcadummycalc, fragment=fragment, charge=fragment.charge, mult=fragment.mult)
