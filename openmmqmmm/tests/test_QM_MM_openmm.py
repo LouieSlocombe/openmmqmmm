@@ -1,7 +1,12 @@
-import pytest
 import shutil
+from pathlib import Path
+
+import numpy as np
+import pytest
 
 from openmmqmmm import *
+
+TEST_DIR = Path(__file__).parent
 
 # QM/MM tests with OpenMMTheory as MM engine, using ORCATheory for QM-part
 # Skipped when no orca binary is available in PATH
@@ -10,7 +15,7 @@ pytestmark = pytest.mark.skipif(shutil.which("orca") is None, reason="ORCA binar
 
 def test_qm_mm_orca_openmm_MeOH_H2O():
     # H2O...MeOH fragment defined. Reading XYZ file
-    H2O_MeOH = Fragment(xyzfile=f"{ashpath}/tests/xyzfiles/h2o_MeOH.xyz")
+    H2O_MeOH = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
 
     # Write PDB-file for OpenMM (used for topology)
     H2O_MeOH.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
@@ -24,7 +29,7 @@ def test_qm_mm_orca_openmm_MeOH_H2O():
     qm = ORCATheory(orcasimpleinput="! PBE def2-SVP NORI tightscf")
 
     # MM: OpenMMTheory using XML-file
-    MMpart = OpenMMTheory(xmlfiles=[f"{ashpath}/tests/extra_files/MeOH_H2O-sigma.xml"], pdbfile=pdbfile,
+    MMpart = OpenMMTheory(xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"], pdbfile=pdbfile,
                           autoconstraints=None, rigidwater=False)
 
     # Creating QM/MM object
@@ -54,7 +59,7 @@ def test_qm_mm_orca_openmm_MeOH_H2O():
 def test_qm_mm_orca_openmm_lysozyme():
     numcores = 2
     # Defining fragment containing coordinates (can be read from XYZ-file, ASH fragment or PDB-file)
-    pdbfile = f"{ashpath}/tests/pdbfiles/1aki_solvated.pdb"
+    pdbfile = f"{TEST_DIR}/pdbfiles/1aki_solvated.pdb"
     fragment = Fragment(pdbfile=pdbfile)
 
     # Creating new OpenMM object from OpenMM full system file

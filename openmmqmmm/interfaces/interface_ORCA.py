@@ -1151,8 +1151,8 @@ def grab_polarizability_tensor(outfile):
     pz_tensor = np.zeros((3, 3))
     diag_pz_tensor = []
     count = 0
-    grab = False;
-    grab2 = False;
+    grab = False
+    grab2 = False
     grab3 = False
     with open(outfile) as f:
         for line in f:
@@ -1163,8 +1163,8 @@ def grab_polarizability_tensor(outfile):
                     diag_pz_tensor.append(float(line.split()[0]))
                     diag_pz_tensor.append(float(line.split()[1]))
                     diag_pz_tensor.append(float(line.split()[2]))
-                    grab = False;
-                    grab2 = False;
+                    grab = False
+                    grab2 = False
                     grab3 = False
             if grab is True:
                 if 'The raw cartesian tensor' in line:
@@ -1271,7 +1271,7 @@ def write_ORCA_Hessfile(hessian, coords, elems, masses, hessatoms, outputname):
                 for k in range(index, index + orcahesscoldim):
                     tempvar = tempvar + "         " + str(hessian[i, k])
             orcahessfile.write("    " + str(i) + "   " + str(tempvar) + "\n")
-            tempvar = "";
+            tempvar = ""
             temp2var = ""
         index += 5
     orcahessfile.write("\n")
@@ -1633,8 +1633,8 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
                             coordgrab = False
                         else:
                             elems.append(line.split()[0])
-                            coords_x = float(line.split()[1]);
-                            coords_y = float(line.split()[2]);
+                            coords_x = float(line.split()[1])
+                            coords_y = float(line.split()[2])
                             coords_z = float(line.split()[3])
                             coords.append([coords_x, coords_y, coords_z])
                 if 'CARTESIAN COORDINATES (ANGSTROEM)' in line:
@@ -1815,7 +1815,7 @@ def ORCA_External_Optimizer(fragment=None, theory=None, orcadir=None, charge=Non
                   "Fragment contains charge/mult information: Charge: {} Mult: {} Using this instead".format(
                       fragment.charge, fragment.mult), BC.END)
             print(BC.WARNING, "Make sure this is what you want!", BC.END)
-            charge = fragment.charge;
+            charge = fragment.charge
             mult = fragment.mult
         else:
             print(BC.FAIL, "No charge/mult information present in fragment either. Exiting.", BC.END)

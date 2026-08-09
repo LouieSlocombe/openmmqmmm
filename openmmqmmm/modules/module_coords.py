@@ -1555,8 +1555,8 @@ def dihedral_between_atoms(fragment=None, atoms=None):
 
 # TODO: clean up
 def get_centroid(coords):
-    sum_x = 0;
-    sum_y = 0;
+    sum_x = 0
+    sum_y = 0
     sum_z = 0
     for c in coords:
         sum_x += c[0]
@@ -1822,7 +1822,7 @@ def read_xyzfiles(xyzdir, readchargemult=False, label_from_filename=True):
     print("read_xyzfiles function")
     print("Note: will read XYZ-files in directory using natural sorting")
     import glob
-    filenames = [];
+    filenames = []
     fragments = []
     for file in natural_sort(glob.glob(xyzdir + '/*.xyz')):
         filename = os.path.basename(file)
@@ -2933,7 +2933,7 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None, 
                           "Fragment contains charge/mult information: Charge: {} Mult: {}  Using this.".format(
                               fragment.charge, fragment.mult), BC.END)
                     # print(BC.WARNING,"Make sure this is what you want!", BC.END)
-                charge = fragment.charge;
+                charge = fragment.charge
                 mult = fragment.mult
             else:
                 print(BC.FAIL, "No charge/mult information present in fragment either. Exiting.", BC.END)
@@ -2956,7 +2956,7 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None, 
                       "Fragment contains charge/mult information: Charge: {} Mult: {} Using this instead".format(
                           fragment.charge, fragment.mult), BC.END)
                 print(BC.WARNING, "Make sure this is what you want!", BC.END)
-                charge = fragment.charge;
+                charge = fragment.charge
                 mult = fragment.mult
             else:
                 print(BC.FAIL, "No charge/mult information present in fragment either. Exiting.", BC.END)
@@ -2968,7 +2968,7 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None, 
             print("All good, continuing\n")
     elif theorytype == "MM":
         # Setting charge/mult to None if MM
-        charge = None;
+        charge = None
         mult = None
     return charge, mult
 

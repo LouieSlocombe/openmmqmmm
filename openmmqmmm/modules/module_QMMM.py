@@ -842,7 +842,7 @@ class QMMMTheory:
         CheckpointTime = time.time()
         if self.qm_theory_name == "None" or self.qm_theory_name == "ZeroTheory":
             print("No QMtheory. Skipping QM calc")
-            QMenergy = 0.0;
+            QMenergy = 0.0
             self.linkatoms = False
             # QMgradient=np.array([0.0, 0.0, 0.0])
             QMgradient = np.zeros((len(used_qmcoords), 3))
@@ -1223,8 +1223,8 @@ class QMMMTheory:
         CheckpointTime = time.time()
         if self.qm_theory_name == "None" or self.qm_theory_name == "ZeroTheory":
             print("No QMtheory. Skipping QM calc")
-            QMenergy = 0.0;
-            self.linkatoms = False;
+            QMenergy = 0.0
+            self.linkatoms = False
             PCgradient = np.array([0.0, 0.0, 0.0])
             QMgradient = np.array([0.0, 0.0, 0.0])
         else:

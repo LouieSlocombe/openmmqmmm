@@ -140,13 +140,13 @@ class ASH_plot():
                 print(f"y_list: {y_list}")
                 ashexit()
             else:
-                x = list(x_list);
+                x = list(x_list)
                 y = list(y_list)
 
         # Alernative dictionary option
         if surfacedictionary != None:
             print("Using provided surfacedictionary")
-            x = [];
+            x = []
             y = []
             # Sorting keys dictionary before grabbing so that line-plot is correct
             for key in sorted(surfacedictionary.keys()):

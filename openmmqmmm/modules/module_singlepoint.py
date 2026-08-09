@@ -170,7 +170,7 @@ def Singlepoint_fragments(theory=None, fragments=None, stoichiometry=None, relat
     print("Will run single-point calculation on each fragment")
     print("Theory:", theory.__class__.__name__)
 
-    energies = [];
+    energies = []
     filenames = []
 
     # Looping through fragments
@@ -182,7 +182,7 @@ def Singlepoint_fragments(theory=None, fragments=None, stoichiometry=None, relat
                   BC.END)
             ashexit()
         # Setting charge/mult  from fragment
-        charge = frag.charge;
+        charge = frag.charge
         mult = frag.mult
 
         # Setting orbital file for ORCATheory or any other theory using moreadfile

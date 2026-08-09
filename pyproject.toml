@@ -43,3 +43,31 @@ exclude = ["openmmqmmm.tests*"]
 # suite from a source checkout.
 [tool.setuptools.package-data]
 openmmqmmm = ["log.ini"]
+
+[tool.pytest.ini_options]
+testpaths = ["openmmqmmm/tests"]
+addopts = "-ra"
+
+# Lint rules are being adopted in stages during the modernization effort; the
+# temporary ignores below shrink as each phase lands.
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["F", "E4", "E7", "E9"]
+ignore = [
+    # Temporary until the format/mechanical-lint phase:
+    "E402", "E701", "E711", "E712", "E721", "E731", "F541", "F841", "E741",
+    # Temporary until the crash-fix phase (these two flag real bugs fixed there):
+    "F521", "F523",
+    # Temporary until the exceptions phase:
+    "E722",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use star imports until the API-rename phase makes imports explicit
+"openmmqmmm/tests/*" = ["F403", "F405"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["openmmqmmm"]

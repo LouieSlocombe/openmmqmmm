@@ -1562,7 +1562,7 @@ class OpenMMTheory:
                 #    for l in atomlist:
                 for idx_k, k in enumerate(atomlist):
                     for l in atomlist[idx_k + 1:]:
-                        if not frozenset((k, l)) in existing_exclusions:
+                        if frozenset((k, l)) not in existing_exclusions:
                             existing_exclusions.add(frozenset([k, l]))
                             force.addExclusion(k, l)
                             numexclusions += 1
@@ -5148,7 +5148,7 @@ def Gentle_warm_up_MD(theory=None, fragment=None, time_steps=[0.0005, 0.001, 0.0
     for num, (ts, step, temp) in enumerate(zip(time_steps, steps, temperatures)):
         print(f"MD-step {num} Number of simulation steps: {step} with timestep: {ts} and temperature: {temp} K")
 
-    print();
+    print()
     print()
     # Gentle heating up protocol
     for num, (ts, step, temp, traj_frequency) in enumerate(zip(time_steps, steps, temperatures, traj_frequencies)):
@@ -5397,10 +5397,10 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat='png', plot_xlim=N
     # Read mtd settings dict from file
     metadyn_settings = json.load(open(f"{biasdir}/ASH_MTD_parameters.txt"))
 
-    CV1_type = metadyn_settings["CV1_type"];
-    CV2_type = metadyn_settings["CV2_type"];
-    temperature = metadyn_settings["temperature"];
-    biasfactor = metadyn_settings["biasfactor"];
+    CV1_type = metadyn_settings["CV1_type"]
+    CV2_type = metadyn_settings["CV2_type"]
+    temperature = metadyn_settings["temperature"]
+    biasfactor = metadyn_settings["biasfactor"]
     CV1_gridwidth = metadyn_settings["CV1_gridwidth"]
     print("metadyn_settings:", metadyn_settings)
     CV2_gridwidth = metadyn_settings["CV2_gridwidth"]

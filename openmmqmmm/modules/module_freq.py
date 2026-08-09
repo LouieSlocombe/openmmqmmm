@@ -559,7 +559,7 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
         print("Raman calculation active")
         if len(polarizability_derivs) == 0:
             print("No polarizability information found. Skipping Raman.")
-            Raman_activities = None;
+            Raman_activities = None
             depolarization_ratios = None
         else:
             print("Polarizability derivatives are available.")
@@ -567,7 +567,7 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
             polarizability_derivs = [polarizability_derivs[i] for i in mode_order]
             Raman_activities, depolarization_ratios = calc_Raman_activities(hessmasses, evectors, polarizability_derivs)
     else:
-        Raman_activities = None;
+        Raman_activities = None
         depolarization_ratios = None
     print()
 
@@ -1082,8 +1082,8 @@ CARTESIAN COORDINATES (ANGSTROEM)
     outfile = open(hessfile + '_dummy.out', 'w')
     outfile.write(orca_header + '\n')
     for el, coord in zip(elems, coords):
-        x = coord[0];
-        y = coord[1];
+        x = coord[0]
+        y = coord[1]
         z = coord[2]
         line = "  {0:2s} {1:11.6f} {2:12.6f} {3:13.6f}".format(el, x, y, z)
         # print(line)
@@ -1169,29 +1169,29 @@ Thus, these vectors are normalized but *not* orthogonal"""
             if hessdim - j == 1:
                 val1 = nmodes[j][i]
             elif hessdim - j == 2:
-                val1 = nmodes[j][j];
+                val1 = nmodes[j][j]
                 val2 = nmodes[j + 1][i]
             elif hessdim - j == 3:
-                val1 = nmodes[j][i];
-                val2 = nmodes[j + 1][i];
+                val1 = nmodes[j][i]
+                val2 = nmodes[j + 1][i]
                 val3 = nmodes[j + 2][i]
             elif hessdim - j == 4:
-                val1 = nmodes[j][i];
-                val2 = nmodes[j + 1][i];
-                val3 = nmodes[j + 2][i];
+                val1 = nmodes[j][i]
+                val2 = nmodes[j + 1][i]
+                val3 = nmodes[j + 2][i]
                 val4 = nmodes[j + 3][i]
             elif hessdim - j == 5:
-                val1 = nmodes[j][i];
-                val2 = nmodes[j + 1][i];
-                val3 = nmodes[j + 2][i];
-                val4 = nmodes[j + 3][i];
+                val1 = nmodes[j][i]
+                val2 = nmodes[j + 1][i]
+                val3 = nmodes[j + 2][i]
+                val4 = nmodes[j + 3][i]
                 val5 = nmodes[j + 4][i]
             elif hessdim - j >= 6:
-                val1 = nmodes[j][i];
-                val2 = nmodes[j + 1][i];
-                val3 = nmodes[j + 2][i];
-                val4 = nmodes[j + 3][i];
-                val5 = nmodes[j + 4][i];
+                val1 = nmodes[j][i]
+                val2 = nmodes[j + 1][i]
+                val3 = nmodes[j + 2][i]
+                val4 = nmodes[j + 3][i]
+                val5 = nmodes[j + 4][i]
                 val6 = nmodes[j + 5][i]
             else:
                 print("problem")
@@ -1222,7 +1222,7 @@ Thus, these vectors are normalized but *not* orthogonal"""
                                                                                                        val3, val4, val5,
                                                                                                        val6)
             outfile.write(" " + str(line) + "\n")
-            line = "";
+            line = ""
             chunkheader = ""
         index += 6
 
@@ -1447,7 +1447,7 @@ def approximate_full_Hessian_from_smaller(fragment, hessian_small, small_atomind
         if charge is None or mult is None:
             print("Error: For this restHessian option we require charge and multiplicity information to be provided")
             ashexit()
-        usedfragment.charge = charge;
+        usedfragment.charge = charge
         usedfragment.mult = mult
         fullhessian = calc_model_Hessian_ORCA(usedfragment, model=restHessian)
     elif restHessian == 'xtb':
@@ -1509,8 +1509,8 @@ def normalmodecomp(evectors, j, a):
     esq_j = [i ** 2 for i in evectors[j]]
     # Squared elements of atom a in mode j
     esq_ja = []
-    esq_ja.append(esq_j[a * 3 + 0]);
-    esq_ja.append(esq_j[a * 3 + 1]);
+    esq_ja.append(esq_j[a * 3 + 0])
+    esq_ja.append(esq_j[a * 3 + 1])
     esq_ja.append(esq_j[a * 3 + 2])
     return sum(esq_ja)
 
@@ -1830,11 +1830,11 @@ def calc_Raman_activities(hessmasses, evectors, polarizability_derivs):
     depol_ratio = np.zeros(hesslength)
     raman_act = np.zeros(hesslength)
     for i in range(hesslength):
-        axx = A_der_q[i][0, 0];
-        ayy = A_der_q[i][1, 1];
+        axx = A_der_q[i][0, 0]
+        ayy = A_der_q[i][1, 1]
         azz = A_der_q[i][2, 2]
-        axy = A_der_q[i][0, 1];
-        axz = A_der_q[i][0, 2];
+        axy = A_der_q[i][0, 1]
+        axz = A_der_q[i][0, 2]
         ayz = A_der_q[i][1, 2]
         alpha[i] = 1 / 3 * (axx + ayy + azz)
         beta2[i] = 0.5 * ((axx - ayy) ** 2 + (axx - azz) ** 2 + (ayy - azz) ** 2 + 6 * (axy ** 2 + axz ** 2 + ayz ** 2))

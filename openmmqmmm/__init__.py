@@ -6,17 +6,10 @@ Trimmed distribution: ORCA + OpenMM QM/MM functionality for biomolecular calcula
 """
 import atexit
 import glob
-# Python libraries
-import numpy as np
 import os
-import pathlib
 import sys
 
-# Getting ASH-path
-ashpath = str(pathlib.Path(__file__).parent.resolve())
-
-from .functions.functions_general import blankline, BC, listdiff, print_time_rel, pygrep, \
-    printdebug, read_intlist_from_file, writelisttofile, ashexit, natural_sort
+from .functions.functions_general import ashexit
 
 # Guard against a .py file in the working directory shadowing a required package
 inputfile_base = os.path.splitext(sys.argv[0])[0]
@@ -32,7 +25,7 @@ from .modules.module_results import ASH_Results, read_results_from_file
 
 # Fragment class and coordinate functions
 import openmmqmmm.modules.module_coords
-from .modules.module_coords import get_molecules_from_trajectory, eldict_covrad, write_pdbfile, Fragment, read_xyzfile, \
+from .modules.module_coords import get_molecules_from_trajectory, write_pdbfile, Fragment, read_xyzfile, \
     write_xyzfile, read_ambercoordinates, read_gromacsfile, split_multimolxyzfile, \
     distance_between_atoms, \
     angle_between_atoms, dihedral_between_atoms
@@ -94,6 +87,54 @@ Opt = geomeTRICOptimizer
 
 # Plotting
 from .modules.module_plotting import ASH_plot
+
+# Public API — the only names star-imports provide
+__all__ = [
+    # Results
+    "ASH_Results", "read_results_from_file",
+    # Fragment and coordinate functions
+    "Fragment", "Reaction",
+    "read_xyzfile", "read_xyzfiles", "write_xyzfile", "write_pdbfile",
+    "read_ambercoordinates", "read_gromacsfile", "split_multimolxyzfile",
+    "get_molecules_from_trajectory", "distance_between_atoms", "angle_between_atoms",
+    "dihedral_between_atoms", "getwaterconstraintslist", "QMregionfragexpand",
+    "QMPC_fragexpand", "define_XH_constraints", "simple_get_water_constraints",
+    "print_internal_coordinate_table", "flexible_align", "flexible_align_pdb",
+    "flexible_align_xyz", "insert_solute_into_solvent", "nuc_nuc_repulsion",
+    "calculate_RMSD",
+    # Single-point
+    "Singlepoint", "ZeroTheory", "Singlepoint_fragments", "Singlepoint_theories",
+    "Singlepoint_fragments_and_theories", "Singlepoint_reaction", "ReactionEnergy",
+    # Parallel
+    "Job_parallel", "Simple_parallel",
+    # Frequencies
+    "AnFreq", "NumFreq", "approximate_full_Hessian_from_smaller",
+    "calc_rotational_constants", "write_hessian", "read_hessian",
+    # ORCA
+    "ORCATheory", "ORCA_External_Optimizer",
+    # openbabel helpers
+    "pdb_to_smiles", "mol_to_pdb", "sdf_to_pdb", "writepdb_with_connectivity",
+    "xyz_to_pdb_with_connectivity",
+    # OpenMM
+    "OpenMMTheory", "OpenMM_MD", "OpenMM_MDclass", "OpenMM_Opt", "OpenMM_Modeller",
+    "OpenMM_box_equilibration", "OpenMM_metadynamics", "OpenMM_MD_plumed",
+    "Gentle_warm_up_MD", "solvate_small_molecule", "small_molecule_parameterizer",
+    "check_gradient_for_bad_atoms", "get_free_energy_from_biasfiles",
+    "free_energy_from_bias_array", "metadynamics_plot_data", "merge_pdb_files",
+    "MolecularDynamics", "MetaDynamics",
+    # MDtraj
+    "MDtraj_imagetraj", "MDtraj_slice", "MDtraj_RMSF", "MDtraj_RMSD",
+    "MDtraj_coord_analyze",
+    # Theory base classes and numerical gradient
+    "Theory", "QMTheory", "NumGradclass",
+    # QM/MM
+    "QMMMTheory", "actregiondefine", "read_charges_from_psf",
+    "compute_decomposed_QM_MM_energy",
+    # geomeTRIC optimizer
+    "geomeTRICOptimizer", "GeomeTRICOptimizerClass", "Optimizer", "Opt",
+    # Plotting
+    "ASH_plot",
+]
 
 # Initialize settings
 import openmmqmmm.settings_ash

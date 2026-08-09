@@ -12,7 +12,7 @@ channels:
   - conda-forge
 dependencies:
   # Runtime — the OpenMM stack comes from conda-forge (pdbfixer is not on PyPI)
-  - python=3.13
+  - python>=3.10
   - pip
   - openmm >=8
   - pdbfixer

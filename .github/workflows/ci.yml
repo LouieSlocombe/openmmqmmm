@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main, modernize]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.16.1"  # keep in sync with the version used locally
+          args: "check ."
+
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          create-args: python=${{ matrix.python }}
+          cache-environment: true
+      - run: pip install -e . --no-deps
+      - run: python -c "import openmmqmmm"
+      # The two ORCA QM/MM tests skip automatically: no orca binary exists in CI
+      - run: pytest
