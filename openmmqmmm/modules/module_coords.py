@@ -13,10 +13,13 @@ from openmmqmmm.functions.functions_general import ashexit, isint, listdiff, pri
     print_line_with_subheader1, print_line_with_subheader1_end, print_line_with_subheader2, search_list_of_lists_for_index, natural_sort
 
 import openmmqmmm.dictionaries_lists
-import openmmqmmm.settings_ash
 import openmmqmmm.constants
 
 ashpath = os.path.dirname(openmmqmmm.__file__)
+
+# Default connectivity parameters: covalent-radius scaling factor and tolerance
+CONNECTIVITY_SCALE = 1.0
+CONNECTIVITY_TOL = 0.1
 
 
 # ASH Reaction class: connects list of ASH fragments and stoichiometry
@@ -420,8 +423,8 @@ class Fragment:
 
     # Get list of lists of bonds. Used for X-H constraints for example
     def get_XH_indices(self):
-        scale = openmmqmmm.settings_ash.settings_dict["scale"]
-        tol = openmmqmmm.settings_ash.settings_dict["tol"]
+        scale = CONNECTIVITY_SCALE
+        tol = CONNECTIVITY_TOL
         Hatoms = self.get_atomindices_for_element('H')
         final_list = []
         for Hatom in Hatoms:
@@ -648,21 +651,10 @@ class Fragment:
                 print("Atom number > 10K. Connectivity calculation could take a while")
 
         if scale is None:
-            try:
-                scale = openmmqmmm.settings_ash.settings_dict["scale"]
-                tol = openmmqmmm.settings_ash.settings_dict["tol"]
-                if self.printlevel >= 2:
-                    print("Using global scale and tol parameters from settings_ash. Scale: {}, Tol: {} ".format(scale,
-                                                                                                                tol))
-
-            except:
-                scale = 1.0
-                tol = 0.1
-                if self.printlevel >= 2:
-                    print("Exception: Using hard-coded scale and tol parameters. Scale: {} Tol: {} ".format(scale, tol))
-        else:
-            if self.printlevel >= 2:
-                print("Using scale: {} and tol: {} ".format(scale, tol))
+            scale = CONNECTIVITY_SCALE
+            tol = CONNECTIVITY_TOL
+        if self.printlevel >= 2:
+            print("Using scale: {} and tol: {} ".format(scale, tol))
 
         # Setting scale and tol as part of object for future usage (e.g. QM/MM link atoms)
         self.scale = scale
@@ -921,8 +913,8 @@ class Fragment:
     # Function to get subset-coordinates with linkatoms
     # TODO: add more options for linkatoms
     def get_subset_coords_with_linkatoms(self, qmatoms):
-        conn_scale = openmmqmmm.settings_ash.settings_dict["scale"]
-        conn_tolerance = openmmqmmm.settings_ash.settings_dict["tol"] + 0.2
+        conn_scale = CONNECTIVITY_SCALE
+        conn_tolerance = CONNECTIVITY_TOL + 0.2
         boundaryatoms = openmmqmmm.modules.module_coords.get_boundary_atoms(qmatoms, self.coords, self.elems, conn_scale,
                                                                      conn_tolerance)
         # Get linkatom coordinates
@@ -1331,8 +1323,8 @@ def print_internal_coordinate_table(fragment, actatoms=None):
         chosen_elems = fragment.elems
 
     conndepth = 99
-    scale = openmmqmmm.settings_ash.settings_dict["scale"]
-    tol = openmmqmmm.settings_ash.settings_dict["tol"]
+    scale = CONNECTIVITY_SCALE
+    tol = CONNECTIVITY_TOL
 
     connectivity = calc_conn_py(chosen_coords, chosen_elems, conndepth, scale, tol)
     print("Connectivity calculation complete.")
@@ -1348,8 +1340,8 @@ def print_internal_coordinate_table(fragment, actatoms=None):
     for conn_fragment in connectivity:
         # Looping over atom indices in fragment
         for atom in conn_fragment:
-            connatoms = get_connected_atoms(chosen_coords, chosen_elems, openmmqmmm.settings_ash.settings_dict["scale"],
-                                            openmmqmmm.settings_ash.settings_dict["tol"], atom)
+            connatoms = get_connected_atoms(chosen_coords, chosen_elems, CONNECTIVITY_SCALE,
+                                            CONNECTIVITY_TOL, atom)
             for conn_i in connatoms:
                 # dist = distance_between_atoms(fragment=fragment, atom1=atom, atom2=conn_i)
                 dist = distance(chosen_coords[atom], chosen_coords[conn_i])
@@ -2619,8 +2611,8 @@ def reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
 # QM-region expand function. Finds whole fragments.
 def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
     # If needed (connectivity ==0):
-    scale = openmmqmmm.settings_ash.settings_dict["scale"]
-    tol = openmmqmmm.settings_ash.settings_dict["tol"]
+    scale = CONNECTIVITY_SCALE
+    tol = CONNECTIVITY_TOL
     if fragment is None or initial_atoms is None or radius is None:
         print("Provide fragment, initial_atoms and radius keyword arguments to QMregionfragexpand!")
         ashexit()
@@ -3025,8 +3017,8 @@ def define_XH_constraints(fragment, actatoms=None, excludeatoms=None):
 
     # Now finding X-H pairs for active region
     # py version (slow) but good enough for a few thousand atoms
-    scale = openmmqmmm.settings_ash.settings_dict["scale"]
-    tol = openmmqmmm.settings_ash.settings_dict["tol"]
+    scale = CONNECTIVITY_SCALE
+    tol = CONNECTIVITY_TOL
     act_con_list = []
     for Hatom in Hatoms:
         connatoms = get_connected_atoms_np(subset_coords, subset_elems, scale, tol, Hatom)

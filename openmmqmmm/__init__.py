@@ -4,22 +4,6 @@ R. Bjornsson
 
 Trimmed distribution: ORCA + OpenMM QM/MM functionality for biomolecular calculations.
 """
-import atexit
-import glob
-import os
-import sys
-
-from .functions.functions_general import ashexit
-
-# Guard against a .py file in the working directory shadowing a required package
-inputfile_base = os.path.splitext(sys.argv[0])[0]
-forbidden_inputfilenames = ['openmmqmmm', 'openmm', 'geometric', 'mdtraj', 'openbabel']
-for pyfile in glob.glob('*.py'):
-    if os.path.splitext(pyfile)[0] in forbidden_inputfilenames:
-        print(f"Error: Current directory contains file : {inputfile_base}.py with a forbidden name. Please rename it")
-        print("Forbidden names:", forbidden_inputfilenames)
-        ashexit()
-
 # Results dataclass
 from .modules.module_results import ASH_Results, read_results_from_file
 
@@ -136,16 +120,3 @@ __all__ = [
     "ASH_plot",
 ]
 
-# Initialize settings
-import openmmqmmm.settings_ash
-
-# Print header
-import openmmqmmm.ash_header
-
-openmmqmmm.ash_header.print_header()
-
-# Exit command (footer)
-if openmmqmmm.settings_ash.settings_dict["print_exit_footer"] is True:
-    atexit.register(openmmqmmm.ash_header.print_footer)
-    if openmmqmmm.settings_ash.settings_dict["print_full_timings"] is True:
-        atexit.register(openmmqmmm.ash_header.print_timings)

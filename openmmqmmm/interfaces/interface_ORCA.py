@@ -9,7 +9,6 @@ import openmmqmmm.constants
 import openmmqmmm.functions.functions_elstructure
 import openmmqmmm.functions.functions_parallel
 import openmmqmmm.modules.module_coords
-import openmmqmmm.settings_ash
 from openmmqmmm.functions.functions_general import ashexit, insert_line_into_file, BC, print_time_rel, \
     print_line_with_mainheader, pygrep2, \
     pygrep, search_list_of_lists_for_index, print_if_level, listdiff
@@ -34,11 +33,8 @@ class ORCATheory:
         self.theorytype = "QM"
         self.analytic_hessian = True
 
-        # Making sure we have a working ORCA location
-        print("Checking for ORCA location")
-        self.orcadir = check_ORCA_location(orcadir, modulename="ORCATheory")
-        # Making sure ORCA binary works (and is not orca the screenreader)
-        check_ORCAbinary(self.orcadir)
+        # Making sure we have a working ORCA installation
+        self.orcadir = find_orca(orcadir)
         # Checking OpenMPI
         if numcores != 1:
             print(
@@ -852,51 +848,78 @@ end"""
 
 
 ###############################################
-# CHECKS FOR ORCA program
+# ORCA program discovery
 ###############################################
 
-def check_ORCA_location(orcadir, modulename="ORCATheory"):
-    if orcadir != None:
-        finalorcadir = orcadir
-        print(BC.OKGREEN, f"Using orcadir path provided: {finalorcadir}", BC.END)
-    else:
-        print(BC.WARNING,
-              f"No orcadir argument passed to {modulename}. Attempting to find orcadir variable in ASH settings file (~/ash_user_settings.ini)",
-              BC.END)
-        try:
-            finalorcadir = openmmqmmm.settings_ash.settings_dict["orcadir"]
-            print(BC.OKGREEN, "Using orcadir path provided from ASH settings file (~/ash_user_settings.ini): ",
-                  finalorcadir, BC.END)
-        except KeyError:
-            print(BC.WARNING, "Found no orcadir variable in ASH settings file either.", BC.END)
-            print(BC.WARNING, "Checking for ORCA in PATH environment variable.", BC.END)
-            try:
-                finalorcadir = os.path.dirname(shutil.which('orca'))
-                print(BC.OKGREEN, "Found orca binary in PATH. Using the following directory:", finalorcadir, BC.END)
-            except TypeError:
-                print(BC.FAIL, "Found no orca binary in PATH environment variable either. Giving up.", BC.END)
-                ashexit()
-    return finalorcadir
+def _looks_like_orca_dir(directory):
+    # A real ORCA installation ships the orca binary alongside orca_* helper
+    # binaries (orca_scf, orca_gtoint, ...). Their absence identifies unrelated
+    # programs that happen to be called orca (e.g. the GNOME screen reader).
+    return (os.path.isfile(os.path.join(directory, "orca"))
+            and len(glob.glob(os.path.join(directory, "orca_*"))) > 0)
 
 
-def check_ORCAbinary(orcadir):
-    """Checks if this is a proper working ORCA quantum chemistry binary
-    Args:
-        orcadir ([type]): [description]
-    """
-    print("Checking if ORCA binary works...", end="")
+def _orca_binary_runs(directory):
+    # Argument-less orca exits immediately asking for a parameterfile; the
+    # timeout guards against non-ORCA programs that block (a daemon would
+    # otherwise hang this probe forever).
+    orca_binary = os.path.join(directory, "orca")
     try:
-        p = sp.Popen([orcadir + "/orca"], stdout=sp.PIPE)
-        out, err = p.communicate()
-        if 'This program requires the name of a parameterfile' in str(out):
-            print(BC.OKGREEN, "yes", BC.END)
-            return True
-        else:
-            print(BC.FAIL, "Problem: ORCA binary: {} does not work. Exiting!".format(orcadir + '/orca'), BC.END)
+        completed = sp.run([orca_binary], stdout=sp.PIPE, stderr=sp.STDOUT, timeout=15)
+    except (OSError, sp.TimeoutExpired) as err:
+        print(f"ORCA binary {orca_binary} could not be executed ({err})")
+        return False
+    output = completed.stdout.decode(errors="replace")
+    if "parameterfile" not in output:
+        print(f"ORCA binary {orca_binary} does not behave like the ORCA quantum chemistry program")
+        return False
+    return True
+
+
+def find_orca(orcadir=None, required=True):
+    """Locate a working ORCA installation directory.
+
+    Search order: the explicit orcadir argument, the OPENMMQMMM_ORCADIR
+    environment variable, then the directory containing an orca binary found
+    in PATH. Every candidate is validated (orca_* helper binaries present and
+    the orca binary executes) before being accepted.
+
+    An invalid explicit location (argument or environment variable) is an
+    error: failing loudly beats silently falling back to a different
+    installation. An invalid PATH hit is merely skipped, since it is the
+    incidental-collision case.
+
+    Returns the installation directory, or None if nothing was found and
+    required=False.
+    """
+    for source, directory in (("orcadir argument", orcadir),
+                              ("OPENMMQMMM_ORCADIR environment variable", os.environ.get("OPENMMQMMM_ORCADIR"))):
+        if not directory:
+            continue
+        directory = os.path.expanduser(directory)
+        if _looks_like_orca_dir(directory) and _orca_binary_runs(directory):
+            print(f"Using ORCA installation: {directory} (from {source})")
+            return directory
+        if required:
+            print(f"The {source} points at {directory}, which is not a working ORCA installation "
+                  "(orca binary plus orca_* helper binaries expected)")
             ashexit()
-    except FileNotFoundError:
-        print("ORCA binary was not found")
+        return None
+
+    orca_in_path = shutil.which("orca")
+    if orca_in_path is not None:
+        directory = os.path.dirname(os.path.realpath(orca_in_path))
+        if _looks_like_orca_dir(directory) and _orca_binary_runs(directory):
+            print(f"Using ORCA installation: {directory} (found via PATH)")
+            return directory
+        print(f"Note: ignoring {orca_in_path} from PATH - not the ORCA quantum chemistry program")
+
+    if required:
+        print("Found no working ORCA installation.")
+        print("Pass orcadir= , set the OPENMMQMMM_ORCADIR environment variable, "
+              "or put the orca binary in PATH")
         ashexit()
+    return None
 
 
 # Run ORCA single-point job using ORCA parallelization. Will add pal-block if numcores >1.
@@ -1821,14 +1844,10 @@ def ORCA_External_Optimizer(fragment=None, theory=None, orcadir=None, charge=Non
             print(BC.FAIL, "No charge/mult information present in fragment either. Exiting.", BC.END)
             ashexit()
 
-    # Making sure we have a working ORCA location
-    print("Checking for ORCA location")
-    orcadir = check_ORCA_location(orcadir, modulename="ORCA_External_Optimizer")
-    # Making sure ORCA binary works (and is not orca the screenreader)
-    check_ORCAbinary(orcadir)
+    # Making sure we have a working ORCA installation
+    orcadir = find_orca(orcadir)
     # Adding orcadir to PATH. Only required if ORCA not in PATH already
-    if orcadir != None:
-        os.environ["PATH"] += os.pathsep + orcadir
+    os.environ["PATH"] += os.pathsep + orcadir
 
     # Pickle for serializing theory object
     import pickle

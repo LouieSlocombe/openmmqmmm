@@ -1,16 +1,17 @@
-import shutil
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from openmmqmmm import *
+from openmmqmmm.interfaces.interface_ORCA import find_orca
 
 TEST_DIR = Path(__file__).parent
 
 # QM/MM tests with OpenMMTheory as MM engine, using ORCATheory for QM-part
-# Skipped when no orca binary is available in PATH
-pytestmark = pytest.mark.skipif(shutil.which("orca") is None, reason="ORCA binary not found in PATH")
+pytestmark = pytest.mark.skipif(
+    find_orca(required=False) is None,
+    reason="No ORCA installation found (orcadir / OPENMMQMMM_ORCADIR / PATH)")
 
 
 def test_qm_mm_orca_openmm_MeOH_H2O():

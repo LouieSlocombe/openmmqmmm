@@ -4,10 +4,9 @@ import numpy as np
 import time
 
 import openmmqmmm.modules.module_coords
-import openmmqmmm.settings_ash
 from openmmqmmm.functions.functions_general import ashexit, BC, blankline, print_time_rel, printdebug, \
     print_line_with_mainheader, writelisttofile, print_if_level
-from openmmqmmm.modules.module_coords import Fragment
+from openmmqmmm.modules.module_coords import Fragment, CONNECTIVITY_SCALE, CONNECTIVITY_TOL
 
 
 # QM/MM theory object.
@@ -246,8 +245,8 @@ class QMMMTheory:
             # Scale=1.0 and tol=0.1 fails for S-C bond in rubredoxin from a classical MD run
             # Bumping up a bit here.
             # 21 Sep 2023. bumping from +0.1 to +0.2. C-C bond in lysine failed
-            conn_scale = openmmqmmm.settings_ash.settings_dict["scale"]
-            conn_tolerance = openmmqmmm.settings_ash.settings_dict["tol"] + 0.2
+            conn_scale = CONNECTIVITY_SCALE
+            conn_tolerance = CONNECTIVITY_TOL + 0.2
 
             # If QM-MM boundary issue and ASH exits then printing QM-coordinates is useful
             print("QM-region coordinates (before linkatoms):")
