@@ -1,3 +1,8 @@
+import os
+
+# Absolute path to the installed package directory (data files, log.ini)
+PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 """
 Conversion factors
 """

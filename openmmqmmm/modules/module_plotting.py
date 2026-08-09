@@ -1,6 +1,6 @@
 import numpy as np
 
-from openmmqmmm.functions.functions_general import BC, print_line_with_mainheader, ashexit
+from openmmqmmm.functions.functions_general import BC, ashexit, print_line_with_mainheader
 
 
 class ASH_plot:
@@ -65,9 +65,9 @@ class ASH_plot:
             self.y_axislabels = y_axislabels
 
             # X-limit and y-limit
-            if xlimit != None:
+            if xlimit is not None:
                 self.axs[0].set_xlim(xlimit[0], xlimit[1])
-            if ylimit != None:
+            if ylimit is not None:
                 self.axs[0].set_ylim(ylimit[0], ylimit[1])
 
         elif self.num_subplots == 2:
@@ -94,10 +94,10 @@ class ASH_plot:
 
             # X-limit and y-limit
             # TODO: Allow different limits for each subplot
-            if xlimit != None:
+            if xlimit is not None:
                 self.axs[0].set_xlim(xlimit[0], xlimit[1])
                 self.axs[1].set_xlim(xlimit[0], xlimit[1])
-            if ylimit != None:
+            if ylimit is not None:
                 self.axs[0].set_ylim(ylimit[0], ylimit[1])
                 self.axs[1].set_ylim(ylimit[0], ylimit[1])
 
@@ -110,7 +110,7 @@ class ASH_plot:
                 self.fig, axs_dict = plt.subplot_mosaic([["upleft", "upright"], ["low", "low"]])
                 self.axs = [axs_dict["upleft"], axs_dict["upright"], axs_dict["low"]]
                 self.axiscount = 0
-            if ylimit != None:
+            if ylimit is not None:
                 self.axs[0].set_ylim(ylimit[0], ylimit[1])
                 self.axs[1].set_ylim(ylimit[0], ylimit[1])
                 self.axs[2].set_ylim(ylimit[0], ylimit[1])
@@ -158,10 +158,9 @@ class ASH_plot:
 
         print("Adding new series to ASH_plot object")
 
-        if bar is True:
-            if scatter is True or line is True:
-                print("Error: you can not add a bar together with scatter and line at the same time")
-                ashexit()
+        if bar is True and (scatter is True or line is True):
+            print("Error: you can not add a bar together with scatter and line at the same time")
+            ashexit()
 
         self.addplotcount += 1
         curraxes = self.axs[subplot]
@@ -171,9 +170,7 @@ class ASH_plot:
         # Using x_list and y_list unless not provided
         if surfacedictionary is None:
             # If Python lists
-            if (type(x_list) != list and type(x_list) != np.ndarray) or (
-                type(y_list) != list and type(y_list) != np.ndarray
-            ):
+            if not isinstance(x_list, (list, np.ndarray)) or not isinstance(y_list, (list, np.ndarray)):
                 print(
                     BC.FAIL,
                     "Please provide either a valid x_list and y_list (can be Python lists or Numpy arrays) or a surfacedictionary (Python dict)",
@@ -187,7 +184,7 @@ class ASH_plot:
                 y = list(y_list)
 
         # Alernative dictionary option
-        if surfacedictionary != None:
+        if surfacedictionary is not None:
             print("Using provided surfacedictionary")
             x = []
             y = []
@@ -208,7 +205,7 @@ class ASH_plot:
             if scatter is True:
                 label = "_nolegend_"
             else:
-                legendlabel = label
+                pass
             curraxes.plot(x, y, linestyle=linestyle, color=color, linewidth=line_linewidth, label=label)
         if bar is True:
             if barcolors is None:
@@ -242,12 +239,12 @@ class ASH_plot:
             curraxes.set_ylabel(self.y_axislabel)  # Add a y-label to the axes.
             curraxes.set_title(self.figuretitle)  # Add a title to the axes if provided
         else:
-            if self.x_axislabels == None:
+            if self.x_axislabels is None:
                 print(BC.FAIL, "For multiple subplots, x_axislabels and y_axislabels must be set.", BC.END)
                 ashexit()
             curraxes.set_xlabel(self.x_axislabels[subplot])  # Add an x-label to the axes.
             curraxes.set_ylabel(self.y_axislabels[subplot])  # Add a y-label to the axes.
-            if self.subplot_titles != None:
+            if self.subplot_titles is not None:
                 curraxes.set_title(self.subplot_titles[subplot])  # Add a title to the axes if provided
         if legend is True:
             curraxes.legend(shadow=True, fontsize="small")  # Add a legend.
@@ -263,14 +260,13 @@ class ASH_plot:
 
         # Change legend position
         # https://stackoverflow.com/questions/4700614/how-to-put-the-legend-outside-the-plot-in-matplotlib
-        if self.num_subplots == 1:
-            if self.legend_pos != None:
-                self.axs[0].legend(loc="center left", bbox_to_anchor=(self.legend_pos[0], self.legend_pos[1]))
+        if self.num_subplots == 1 and self.legend_pos is not None:
+            self.axs[0].legend(loc="center left", bbox_to_anchor=(self.legend_pos[0], self.legend_pos[1]))
 
-        if imageformat == None:
+        if imageformat is None:
             imageformat = self.imageformat
-        if dpi == None:
+        if dpi is None:
             dpi = self.dpi
         file = filename + "." + imageformat
-        print("\nSaving plot to file: {} with resolution: {} ".format(file, dpi))
+        print(f"\nSaving plot to file: {file} with resolution: {dpi} ")
         plt.savefig(file, format=imageformat, dpi=self.dpi, bbox_inches="tight")

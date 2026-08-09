@@ -89,9 +89,9 @@ def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, file
         f.write(f"{cellvectors[2, 0]:.4f} {cellvectors[2, 1]:.4f} {cellvectors[2, 2]:.4f}" + "\n")
         f.write(f"{'  '.join(unique_elements)}\n")
         f.write(f"{'  '.join(map(str, counts))}\n")
-        f.write(f"Cartesian" + "\n")  # coord system
+        f.write("Cartesian" + "\n")  # coord system
         for target_el in unique_elements:
-            for el, c in zip(elems, coords):
+            for el, c in zip(elems, coords, strict=False):
                 if el == target_el:
                     f.write(f"{c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
     print("Wrote POSCAR file")
@@ -113,8 +113,9 @@ def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
 
         # Section 1: Lattice Vectors
         f.write("PRIMVEC\n")
-        for i in range(3):
-            f.write(f"  {cellvectors[i, 0]:.10f}  {cellvectors[i, 1]:.10f}  {cellvectors[i, 2]:.10f}\n")
+        f.writelines(
+            f"  {cellvectors[i, 0]:.10f}  {cellvectors[i, 1]:.10f}  {cellvectors[i, 2]:.10f}\n" for i in range(3)
+        )
 
         # Section 2: Atomic Coordinates
         f.write("PRIMCOORD\n")
@@ -123,8 +124,7 @@ def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
 
         # XSF supports either Atomic Number or Element Symbol.
         # Using Element Symbol is more human-readable and works perfectly in VMD.
-        for el, c in zip(elems, coords):
-            f.write(f"{el}  {c[0]:.10f}  {c[1]:.10f}  {c[2]:.10f}\n")
+        f.writelines(f"{el}  {c[0]:.10f}  {c[1]:.10f}  {c[2]:.10f}\n" for el, c in zip(elems, coords, strict=False))
 
     print(f"Wrote XSF file: {filename}")
     return filename
@@ -167,7 +167,7 @@ def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
         f.write("_atom_site_fract_y\n")
         f.write("_atom_site_fract_z\n")
 
-        for i, (el, c) in enumerate(zip(elems, frac_coords)):
+        for i, (el, c) in enumerate(zip(elems, frac_coords, strict=False)):
             # We add an index to the label (e.g., Na1, Na2) to keep them unique
             f.write(f"{el}{i + 1}  {el}  {c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
 

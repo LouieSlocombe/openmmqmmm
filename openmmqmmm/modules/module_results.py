@@ -1,9 +1,9 @@
-import numpy as np
 from dataclasses import dataclass
+
+import numpy as np
 
 from openmmqmmm.functions.functions_general import print_if_level
 from openmmqmmm.modules.module_coords import Fragment
-
 
 # Dataclasses https://realpython.com/python-data-classes/
 
@@ -71,7 +71,6 @@ class ASH_Results:
         import json
 
         print_if_level("\nWriting to disk defined attributes of ASH_Results dataclass", printlevel, 2)
-        f = open(filename, "w")
 
         newdict = {}
         # Looping over attributes, converting ndarrays to lists and skipping ASH objects
@@ -81,7 +80,7 @@ class ASH_Results:
                 # Check for nans in array
                 if np.any(np.isnan(v)):
                     print_if_level(f"Warning: nan in array {k}", printlevel, 2)
-                    print_if_level(f"Skipping writing to disk", printlevel, 2)
+                    print_if_level("Skipping writing to disk", printlevel, 2)
                 else:
                     newv = v.tolist()
                     newdict[k] = newv
@@ -96,7 +95,7 @@ class ASH_Results:
                 else:
                     newdict[k] = v
             elif isinstance(v, Fragment):
-                print_if_level(f"Warning: Fragment object is not included in ASH.result on disk", printlevel, 2)
+                print_if_level("Warning: Fragment object is not included in ASH.result on disk", printlevel, 2)
             else:
                 newdict[k] = v
 
@@ -112,12 +111,12 @@ class ASH_Results:
                     print_if_level(f"{k} : {v}", printlevel, 2)
         # Dump new dict
         try:
-            f.write(json.dumps(newdict, allow_nan=True))
+            with open(filename, "w") as f:
+                f.write(json.dumps(newdict, allow_nan=True))
         except TypeError as e:
             print_if_level(f"Error writing ASH_Results to disk: {e}", printlevel, 2)
             print_if_level("Skipping writing to disk", printlevel, 2)
             return
-        f.close()
 
 
 # Read ASH-Results data from disk
@@ -126,7 +125,8 @@ def read_results_from_file(filename="ASH.result", printlevel=2):
     from dataclasses import fields
 
     print_if_level("Reading ASH_Results data from file:", filename)
-    data = json.load(open(filename))
+    with open(filename) as f:
+        data = json.load(f)
     print_if_level("Data read from file:", printlevel, 2)
     for k, v in data.items():
         print_if_level(f"{k} : {v}", printlevel, 2)

@@ -28,7 +28,7 @@ def test_openmm_modeller():
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki.pdb"
 
     # Setting up new system, adding hydrogens, solvent, ions and defining forcefield, topology
-    openmmobject, ashfragment = OpenMM_Modeller(
+    _openmmobject, _ashfragment = OpenMM_Modeller(
         pdbfile=pdbfile,
         forcefield="CHARMM36",
         watermodel="tip3p",

@@ -1,8 +1,9 @@
-import numpy as np
 import os
 
+import numpy as np
+
 from openmmqmmm.functions.functions_general import ashexit
-from openmmqmmm.modules.module_coords import write_xyzfile, Fragment
+from openmmqmmm.modules.module_coords import Fragment, write_xyzfile
 
 
 def MDtraj_import():
@@ -61,7 +62,7 @@ def MDtraj_RMSD(trajectory, pdbtopology, atom_indices=None, parallel=True):
 
 # anchor_molecules. Use if automatic guess fails
 def MDtraj_imagetraj(
-    trajectory, pdbtopology, format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
+    trajectory, pdbtopology, traj_format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
 ):
     # Trajectory basename
     traj_basename = os.path.splitext(trajectory)[0]
@@ -76,7 +77,7 @@ def MDtraj_imagetraj(
     traj = mdtraj.load(trajectory, top=pdbtopology)
 
     numframes = len(traj._time)
-    print("Found {} frames in trajectory.".format(numframes))
+    print(f"Found {numframes} frames in trajectory.")
     print("PBC information in trajectory:")
     # If PBC information is missing from traj file (OpenMM: Charmmfiles, Amberfiles option etc) then provide this info
     if unitcell_lengths is not None:
@@ -100,10 +101,10 @@ def MDtraj_imagetraj(
         imaged = traj.image_molecules()
         pdbsnap_imaged = pdbsnap.image_molecules()
     # Save trajectory in format
-    if format == "DCD":
+    if traj_format == "DCD":
         imaged.save(traj_basename + "_imaged.dcd")
         print("Saved reimaged trajectory:", traj_basename + "_imaged.dcd")
-    elif format == "PDB":
+    elif traj_format == "PDB":
         imaged.save(traj_basename + "_imaged.pdb")
         print("Saved reimaged trajectory:", traj_basename + "_imaged.pdb")
     else:
@@ -120,7 +121,7 @@ def MDtraj_imagetraj(
 
 # Slicing trajectory. Mostly to grab specific snapshot
 # TODO: allow option to grab by ps? Requires information about timestep and traj-frequency
-def MDtraj_slice(trajectory, pdbtopology, format="PDB", frames=None):
+def MDtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
     # Trajectory basename
     traj_basename = os.path.basename(os.path.splitext(trajectory)[0])
     print("traj_basename:", traj_basename)
@@ -165,15 +166,15 @@ def MDtraj_slice(trajectory, pdbtopology, format="PDB", frames=None):
     print(
         f"Writing sliced trajectory to file in format {format} (you can change this by format keyword to be 'DCD', 'XYZ' or 'PDB') "
     )
-    if format == "DCD":
+    if traj_format == "DCD":
         tslice.save(traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd")
         print("Saved sliced trajectory:", traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd")
         return traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd"
-    elif format == "PDB":
+    elif traj_format == "PDB":
         tslice.save(traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb")
         print("Saved sliced trajectory:", traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb")
         return traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb"
-    elif format == "XYZ":
+    elif traj_format == "XYZ":
         # Looping over selection and writing XYZ since mdtraj does not give proper elements
         print(
             "Warning: the MDtraj_slice XYZ-writing requires guessing element names based on atomnames in the topology PDB-file."
@@ -181,7 +182,7 @@ def MDtraj_slice(trajectory, pdbtopology, format="PDB", frames=None):
         print("This is not always successful (might require manual change of the atomnames in PDB-file)")
         dummyfrag = Fragment(pdbfile=pdbtopology, printlevel=0)
         elems = dummyfrag.elems
-        for i, t in enumerate(tslice):
+        for _i, t in enumerate(tslice):
             coords = t._xyz[0] * 10
             write_xyzfile(
                 elems,
@@ -210,7 +211,7 @@ def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=No
     # Import mdtraj library
     mdtraj = MDtraj_import()
 
-    if pdbtopology == None:
+    if pdbtopology is None:
         print("A topology is required but was not provided")
         print("Checking if trajectory.pdb file (created by ASH_OpenMM_MD) is available:")
         try:

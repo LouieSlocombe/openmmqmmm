@@ -18,6 +18,10 @@ jobs:
         with:
           version: "0.16.1"  # keep in sync with the version used locally
           args: "check ."
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.16.1"
+          args: "format --check ."
 
   tests:
     runs-on: ubuntu-latest

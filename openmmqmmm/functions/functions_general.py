@@ -1,7 +1,8 @@
-import numpy as np
 import os
 import sys
 import time
+
+import numpy as np
 
 import openmmqmmm.settings_ash
 
@@ -37,12 +38,8 @@ else:
 def is_interactive() -> bool:
     try:
         shell = get_ipython().__class__.__name__
-        if shell == "ZMQInteractiveShell":
-            return True  # Jupyter notebook or qtconsole
-        elif shell == "TerminalInteractiveShell":
-            return True  # Terminal running IPython
-        else:
-            return False  # Other type (?)
+        # ZMQInteractiveShell: Jupyter notebook/qtconsole; TerminalInteractiveShell: IPython terminal
+        return shell in ("ZMQInteractiveShell", "TerminalInteractiveShell")
     except NameError:
         return False  # Probably standard Python interpreter
 
@@ -52,7 +49,7 @@ def is_interactive() -> bool:
 def ashexit(errormessage=None, code=1):
     print(BC.FAIL, "ASH exiting with code:", code, BC.END)
 
-    if errormessage != None:
+    if errormessage is not None:
         print(BC.FAIL, "Error message:", errormessage, BC.END)
 
     # If in Jupyter notebook, then we do a softer return
@@ -78,19 +75,19 @@ def pygrep(string, file, errors=None):
 
 # Multiple match version. Replace pygrep ?
 def pygrep2(string, file, print_output=False, errors=None):
-    l = []
+    matches = []
     with open(file, errors=errors) as f:
         for line in f:
             if string in line:
-                l.append(line)
+                matches.append(line)
     if print_output is True:
-        print(*l)
-    return l
+        print(*matches)
+    return matches
 
 
 # Simple function to do find and replace string in file
 def find_replace_string_in_file(file, findstring, replstring):
-    with open(file, "r") as f:
+    with open(file) as f:
         filedata = f.read()
     # Replace the target string
     filedata = filedata.replace(findstring, replstring)
@@ -135,22 +132,22 @@ def print_line_with_mainheader(line):
 
 # Submodule header
 def print_line_with_subheader1(line):
-    print("")
+    print()
     print(f"{BC.OKBLUE}{'-' * 80}{BC.END}")
     print(f"{BC.OKBLUE}{BC.BOLD}{line.center(80)}{BC.END}")
     print(f"{BC.OKBLUE}{'-' * 80}{BC.END}")
-    print("")
+    print()
 
 
 # Submodule header
 def print_line_with_subheader1_end():
-    print("")
+    print()
     print(f"{BC.OKBLUE}{'-' * 80}{BC.END}")
 
 
 # Smaller header
 def print_line_with_subheader2(line):
-    print("")
+    print()
     length = len(line)
     print(f"{BC.OKBLUE}{'-' * length}{BC.END}")
     print(f"{BC.OKBLUE}{BC.BOLD}{line}{BC.END}")
@@ -161,20 +158,19 @@ def print_line_with_subheader2(line):
 # option: Once=True means only added for first match
 def insert_line_into_file(file, string, addedstring, Once=True):
     Added = False
-    with open(file, "r") as ffr:
+    with open(file) as ffr:
         contents = ffr.readlines()
     with open(file, "w") as ffw:
-        for l in contents:
-            ffw.write(l)
-            if string in l:
-                if Added is False:
-                    ffw.write(addedstring + "\n")
-                    if Once is True:
-                        Added = True
+        for content_line in contents:
+            ffw.write(content_line)
+            if string in content_line and Added is False:
+                ffw.write(addedstring + "\n")
+                if Once is True:
+                    Added = True
 
 
 def blankline():
-    print("")
+    print()
 
 
 # Can variable be converted into integer
@@ -191,14 +187,14 @@ def isint(s):
 # Search list of lists. Returns list-index if match
 
 
-def search_list_of_lists_for_index(i, l):
-    return next((c for c, f in enumerate(l) if i in f), None)
+def search_list_of_lists_for_index(i, list_of_lists):
+    return next((c for c, f in enumerate(list_of_lists) if i in f), None)
 
 
 # convert list of lists to dict
-def create_conn_dict(l):
+def create_conn_dict(list_of_lists):
     index = {}
-    for c, sublist in enumerate(l):
+    for c, sublist in enumerate(list_of_lists):
         for value in sublist:
             if value not in index:
                 index[value] = c
@@ -210,13 +206,13 @@ def create_conn_dict(l):
 def read_intlist_from_file(filename, offset=0):
     intlist = []
     try:
-        with open(filename, "r") as f:
+        with open(filename) as f:
             for line in f:
-                for l in line.split():
+                for word in line.split():
                     # Removing non-numeric part
-                    l = "".join(i for i in l if i.isdigit())
-                    if isint(l):
-                        intlist.append(int(l) + offset)
+                    digits = "".join(i for i in word if i.isdigit())
+                    if isint(digits):
+                        intlist.append(int(digits) + offset)
     except FileNotFoundError:
         print(f"File '{filename}' does not exists!")
         ashexit()
@@ -233,18 +229,21 @@ def writestringtofile(string, file, writemode="w"):
 # Write a Python list to file simply
 def writelisttofile(pylist, file, separator=" "):
     with open(file, "w") as f:
-        for l in pylist:
-            f.write(str(l) + separator)
+        f.writelines(str(item) + separator for item in pylist)
     print("Wrote list to file:", file)
 
 
 # Natural (human) sorting of list
-def natural_sort(l):
+def natural_sort(items):
     import re
 
-    convert = lambda text: int(text) if text.isdigit() else text.lower()
-    alphanum_key = lambda key: [convert(c) for c in re.split("([0-9]+)", key)]
-    return sorted(l, key=alphanum_key)
+    def convert(text):
+        return int(text) if text.isdigit() else text.lower()
+
+    def alphanum_key(key):
+        return [convert(c) for c in re.split("([0-9]+)", key)]
+
+    return sorted(items, key=alphanum_key)
 
 
 # Reverse read function.
@@ -265,9 +264,7 @@ def print_time_rel(timestamp, modulename="Unknown", moduleindex=4, currprintleve
     secs = time.time() - timestamp
     mins = secs / 60
     if currprintlevel >= currthreshold:
-        print_line_with_subheader2(
-            "Time to calculate step ({}): {:4.3f} seconds, {:3.1f} minutes.".format(modulename, secs, mins)
-        )
+        print_line_with_subheader2(f"Time to calculate step ({modulename}): {secs:4.3f} seconds, {mins:3.1f} minutes.")
     # Adding time to Timings object
     timingsobject.add(modulename, secs, moduleindex=moduleindex)
 
@@ -276,7 +273,7 @@ def print_time_tot_color(time_initial, modulename="Unknown", moduleindex=4):
     secs = time.time() - time_initial
     mins = secs / 60
     print(BC.WARNING, "-------------------------------------------------------------------", BC.END)
-    print(BC.WARNING, "ASH Total Walltime: {:3.1f} seconds, {:3.1f} minutes.".format(secs, mins), BC.END)
+    print(BC.WARNING, f"ASH Total Walltime: {secs:3.1f} seconds, {mins:3.1f} minutes.", BC.END)
     print(BC.WARNING, "-------------------------------------------------------------------", BC.END)
     # Adding time to Timings object
     timingsobject.add(modulename, secs, moduleindex=moduleindex)
@@ -320,7 +317,7 @@ class Timings:
         totalwalltime = time.time() - inittime
         print("To turn off timing output add to settings file: ~/ash_user_settings.ini")
         print("print_full_timings = False   ")
-        print("")
+        print()
         print("{:35}{:>20}{:>20}{:>17}".format("Modulename", "Time (sec)", "Percentage of total", "Times called"))
         print("-" * 100)
 
@@ -342,41 +339,41 @@ class Timings:
             for dictitem in dictitems_index0:
                 mmtime = self.simple_dict[dictitem]
                 time_per = 100 * (mmtime / totalwalltime)
-                print("{:35}{:>20.2f}{:>10.1f}{:>20}".format(dictitem, mmtime, time_per, self.module_count[dictitem]))
-            print("")
+                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
+            print()
         if len(dictitems_index1) != 0:
             print("Jobtype modules")
             print("-" * 30)
             for dictitem in dictitems_index1:
                 mmtime = self.simple_dict[dictitem]
                 time_per = 100 * (mmtime / totalwalltime)
-                print("{:35}{:>20.2f}{:>10.1f}{:>20}".format(dictitem, mmtime, time_per, self.module_count[dictitem]))
-            print("")
+                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
+            print()
         if len(dictitems_index2) != 0:
             print("Theory-run modules")
             print("-" * 30)
             for dictitem in dictitems_index2:
                 mmtime = self.simple_dict[dictitem]
                 time_per = 100 * (mmtime / totalwalltime)
-                print("{:35}{:>20.2f}{:>10.1f}{:>20}".format(dictitem, mmtime, time_per, self.module_count[dictitem]))
-            print("")
+                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
+            print()
         if len(dictitems_index3) != 0:
             print("Object creation")
             print("-" * 30)
             for dictitem in dictitems_index3:
                 mmtime = self.simple_dict[dictitem]
                 time_per = 100 * (mmtime / totalwalltime)
-                print("{:35}{:>20.2f}{:>10.1f}{:>20}".format(dictitem, mmtime, time_per, self.module_count[dictitem]))
-            print("")
+                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
+            print()
         if len(dictitems_index4) != 0:
             print("Other modules")
             print("-" * 30)
             for dictitem in dictitems_index4:
                 mmtime = self.simple_dict[dictitem]
                 time_per = 100 * (mmtime / totalwalltime)
-                print("{:35}{:>20.2f}{:>10.1f}{:>20}".format(dictitem, mmtime, time_per, self.module_count[dictitem]))
-            print("")
-        print("")
+                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
+            print()
+        print()
         print("{:35}{:>20.2f}".format("Sum of all moduletimes (flawed)", self.totalsumtime))
         print("{:35}{:>20.2f}{:>10}".format("Total walltime", totalwalltime, 100.0))
 

@@ -1,13 +1,14 @@
+import contextlib
 import copy
 import os
 import shutil
 import subprocess as sp
 import time
 
-from openmmqmmm.functions.functions_general import ashexit, BC, print_line_with_subheader1
+from openmmqmmm.functions.functions_general import BC, ashexit, print_line_with_subheader1
 from openmmqmmm.interfaces.interface_geometric_new import GeomeTRICOptimizerClass
+from openmmqmmm.modules.module_coords import Fragment, check_charge_mult
 from openmmqmmm.modules.module_QMMM import QMMMTheory
-from openmmqmmm.modules.module_coords import check_charge_mult, Fragment
 from openmmqmmm.modules.module_results import ASH_Results
 
 
@@ -32,7 +33,7 @@ def check_OpenMPI():
 def test_OpenMPI():
     print("Testing that mpirun is executable...", end="")
     p = sp.Popen(["mpirun", "-V"], stdout=sp.PIPE)
-    out, err = p.communicate()
+    out, _err = p.communicate()
     mpiversion = out.decode()  # Now taking whole string
     print(BC.OKGREEN, "yes", BC.END)
     print("OpenMPI version (mpirun -V):", mpiversion)
@@ -114,7 +115,7 @@ def Job_parallel(
     # OPT
     if Opt is True:
         print("Job_parallel: Opt is True. This is an Opt_parallel job")
-        if optimizer == None:
+        if optimizer is None:
             print("Job_parallel needs optimizer object which was not provided.")
             print("Creating one")
             # No options easily provided. Unclear if this is a good idea
@@ -156,7 +157,7 @@ def Job_parallel(
             print("Number of fragments:", len(fragments))
     else:
         fragments = []
-    if fragmentfiles != None:
+    if fragmentfiles is not None:
         if printlevel >= 2:
             print("Number of fragmentfiles:", len(fragmentfiles))
     else:
@@ -191,7 +192,7 @@ def Job_parallel(
         theory = theories[0]
         if printlevel >= 2:
             print("Case: Multiple fragments but one theory")
-            print("")
+            print()
             print("Launching pool.apply_async:")
 
             print(BC.WARNING, "Job_parallel numcores set to:", numcores, BC.END)
@@ -234,18 +235,18 @@ def Job_parallel(
                 results.append(
                     pool.apply_async(
                         Worker_par,
-                        kwds=dict(
-                            theory=theory,
-                            fragment=fragment,
-                            label=fragment.label,
-                            mofilesdir=mofilesdir,
-                            version=version,
-                            event=event,
-                            Grad=Grad,
-                            printlevel=printlevel,
-                            copytheory=copytheory,
-                            optimizer=optimizer,
-                        ),
+                        kwds={
+                            "theory": theory,
+                            "fragment": fragment,
+                            "label": fragment.label,
+                            "mofilesdir": mofilesdir,
+                            "version": version,
+                            "event": event,
+                            "Grad": Grad,
+                            "printlevel": printlevel,
+                            "copytheory": copytheory,
+                            "optimizer": optimizer,
+                        },
                         error_callback=Terminate_Pool_processes,
                     )
                 )
@@ -259,18 +260,18 @@ def Job_parallel(
                 results.append(
                     pool.apply_async(
                         Worker_par,
-                        kwds=dict(
-                            theory=theory,
-                            fragmentfile=fragmentfile,
-                            label=fragmentfile,
-                            mofilesdir=mofilesdir,
-                            version=version,
-                            event=event,
-                            Grad=Grad,
-                            printlevel=printlevel,
-                            copytheory=copytheory,
-                            optimizer=optimizer,
-                        ),
+                        kwds={
+                            "theory": theory,
+                            "fragmentfile": fragmentfile,
+                            "label": fragmentfile,
+                            "mofilesdir": mofilesdir,
+                            "version": version,
+                            "event": event,
+                            "Grad": Grad,
+                            "printlevel": printlevel,
+                            "copytheory": copytheory,
+                            "optimizer": optimizer,
+                        },
                         error_callback=Terminate_Pool_processes,
                     )
                 )
@@ -285,18 +286,18 @@ def Job_parallel(
             results.append(
                 pool.apply_async(
                     Worker_par,
-                    kwds=dict(
-                        theory=theory,
-                        fragment=fragment,
-                        label=fragment.label,
-                        mofilesdir=mofilesdir,
-                        version=version,
-                        event=event,
-                        Grad=Grad,
-                        printlevel=printlevel,
-                        copytheory=copytheory,
-                        optimizer=optimizer,
-                    ),
+                    kwds={
+                        "theory": theory,
+                        "fragment": fragment,
+                        "label": fragment.label,
+                        "mofilesdir": mofilesdir,
+                        "version": version,
+                        "event": event,
+                        "Grad": Grad,
+                        "printlevel": printlevel,
+                        "copytheory": copytheory,
+                        "optimizer": optimizer,
+                    },
                     error_callback=Terminate_Pool_processes,
                 )
             )
@@ -311,18 +312,18 @@ def Job_parallel(
             results.append(
                 pool.apply_async(
                     Worker_par,
-                    kwds=dict(
-                        theory=theory,
-                        fragmentfile=fragmentfile,
-                        label=fragmentfile,
-                        mofilesdir=mofilesdir,
-                        version=version,
-                        event=event,
-                        Grad=Grad,
-                        printlevel=printlevel,
-                        copytheory=copytheory,
-                        optimizer=optimizer,
-                    ),
+                    kwds={
+                        "theory": theory,
+                        "fragmentfile": fragmentfile,
+                        "label": fragmentfile,
+                        "mofilesdir": mofilesdir,
+                        "version": version,
+                        "event": event,
+                        "Grad": Grad,
+                        "printlevel": printlevel,
+                        "copytheory": copytheory,
+                        "optimizer": optimizer,
+                    },
                     error_callback=Terminate_Pool_processes,
                 )
             )
@@ -365,8 +366,8 @@ def Job_parallel(
     final_result = ASH_Results(label="Job_parallel", energies=[], gradients=[])
     if Grad is True:
         gradient_dict = {}
-        for i, r in enumerate(results):
-            if r.ready() == True:
+        for _i, r in enumerate(results):
+            if r.ready():
                 energy_dict[r.get()[0]] = r.get()[1]
                 gradient_dict[r.get()[0]] = r.get()[2]
                 worker_dirnames_dict[r.get()[0]] = r.get()[3]
@@ -387,7 +388,7 @@ def Job_parallel(
         final_result.displacement_polarizability_dictionary = polarizability_dict
 
     else:
-        for i, r in enumerate(results):
+        for _i, r in enumerate(results):
             if r.ready() is True:
                 energy_dict[r.get()[0]] = r.get()[1]
                 worker_dirnames_dict[r.get()[0]] = r.get()[2]
@@ -438,13 +439,13 @@ def Worker_par(
 
     # Creating new copy of theory to avoid deactivation of certain first-run features (e.g. brokensym)
     # NOTE: Alternatively add if-statement inside orca.run
-    if copytheory == True:
+    if copytheory:
         theory = copy.deepcopy(theory)
     else:
         pass
 
     # Optional fragment-creation from disk
-    if fragmentfile != None:
+    if fragmentfile is not None:
         if printlevel >= 2:
             print("Reading fragmentfile from disk")
         fragment = Fragment(fragfile=fragmentfile)
@@ -454,8 +455,8 @@ def Worker_par(
     ###############################
     # Making label flexible. Can be tuple but inputfilename is converted to string below
     if printlevel >= 2:
-        print("label: {} (type {})".format(label, type(label)))
-    if label == None:
+        print(f"label: {label} (type {type(label)})")
+    if label is None:
         print("No label provided to fragment or theory objects. This is required to distinguish between calculations ")
         print("Exiting.")
         raise Exception("Labelproblem")
@@ -463,7 +464,7 @@ def Worker_par(
     # Tuple-label (1 or 2 elements).
     # Otherwise normally string
     # TODO: Needs to be generalized.  Remove RC1, RC2 strings
-    if type(label) == tuple:
+    if isinstance(label, tuple):
         if len(label) == 2:
             labelstring = str(str(label[0]) + "_" + str(label[1])).replace(".", "_")
         else:
@@ -474,7 +475,7 @@ def Worker_par(
         # orca_RC1_0.9RC2_170.0.gbw
         # TODO: what if tuple is only a single number???
 
-        if mofilesdir != None:
+        if mofilesdir is not None:
             if printlevel >= 2:
                 print("Mofilesdir option.")
             if len(label) == 2:
@@ -485,13 +486,13 @@ def Worker_par(
                 moreadfile_path = mofilesdir + "/" + theory.filename + "_" + "RC1_" + str(label[0])
 
     # Label is not a tuple
-    elif type(label) == float or type(label) == int:
+    elif isinstance(label, (float, int)):
         if printlevel >= 2:
             print("Label is float or int")
         #
         labelstring = str(label).replace(".", "_")
         # Label is float or int.
-        if mofilesdir != None:
+        if mofilesdir is not None:
             if printlevel >= 2:
                 print("Mofilesdir option.")
             moreadfile_path = mofilesdir + "/" + theory.filename + "_" + "RC1_" + str(label)
@@ -502,12 +503,12 @@ def Worker_par(
     ###############################
     # TODO: Need to revisit all of this, ideally remove
     if theory.__class__.__name__ == "ORCATheory":
-        if mofilesdir != None:
+        if mofilesdir is not None:
             theory.moreadfile = moreadfile_path + ".gbw"
             if printlevel >= 2:
                 print("Setting moreadfile to:", theory.moreadfile)
     else:
-        if mofilesdir != None:
+        if mofilesdir is not None:
             print("moreadfile option not ready for this Theory. exiting")
             raise Exception()
 
@@ -521,14 +522,11 @@ def Worker_par(
     except:
         if printlevel >= 2:
             print("Dir exists. continuing")
-        pass
     os.chdir(worker_dirname)
     if printlevel >= 2:
         print(
             BC.WARNING,
-            "Doing single-point Energy job on fragment. Formula: {} Label: {} ".format(
-                fragment.prettyformula, fragment.label
-            ),
+            f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} ",
             BC.END,
         )
 
@@ -538,13 +536,13 @@ def Worker_par(
     # Create property dict containing some results except energy and gradient
     properties = {}
     # Optimizer
-    if optimizer != None:
+    if optimizer is not None:
         # Make copy of optimizer
         optimizer_new = copy.copy(optimizer)
         result = optimizer_new.run(theory=theory, fragment=fragment, charge=charge, mult=mult)
         energy = result.energy
     # Singlepoint Grad
-    elif Grad == True:
+    elif Grad:
         energy, gradient = theory.run(
             current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult, Grad=Grad
         )
@@ -577,7 +575,7 @@ def Worker_par(
     os.chdir("..")
 
     # Return label and energy or label, energy and gradient. Also worker_dirname
-    if Grad == True:
+    if Grad:
         return (label, energy, gradient, worker_dirname, properties)
     else:
         return (label, energy, worker_dirname, properties)
@@ -600,7 +598,7 @@ def Simple_parallel(
     if printlevel >= 2:
         print("Number of CPU cores available: ", numcores)
 
-    if parameter_dict == None:
+    if parameter_dict is None:
         parameter_dict = {}
 
     ############
@@ -626,22 +624,20 @@ def Simple_parallel(
     # START
     # ----------
     if separate_dirs is True:
-        for i in range(0, numcores):
+        for i in range(numcores):
             workerdir = f"Pooljob_{i}"
             print(f"separate_dirs option True. Creating dir {workerdir}")
             print("Creating workerdir:", workerdir)
-            try:
+            with contextlib.suppress(BaseException):
                 os.mkdir(workerdir)
 
-            except:
-                pass
         # Default 0
     # Collecting results in a list of tuples from each process
     results = []
     print("Now looping")
 
     # Starting process loop
-    for process in range(0, numcores):
+    for process in range(numcores):
         print("Starting process:", process)
         # Taking copy of parameter_dict
         parameter_dict_new = copy.copy(parameter_dict)

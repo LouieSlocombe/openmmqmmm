@@ -1,32 +1,27 @@
-import math
-
-sqrt = math.sqrt
-pow = math.pow
 import copy
-import time
-import numpy as np
+import math
 import os
-
+import time
 from collections import defaultdict
+from math import sqrt
 
+import numpy as np
+
+import openmmqmmm.constants
+import openmmqmmm.dictionaries_lists
 from openmmqmmm.functions.functions_general import (
+    BC,
     ashexit,
     isint,
     listdiff,
-    print_time_rel,
-    BC,
-    printdebug,
+    natural_sort,
     print_line_with_subheader1,
     print_line_with_subheader1_end,
     print_line_with_subheader2,
+    print_time_rel,
+    printdebug,
     search_list_of_lists_for_index,
-    natural_sort,
 )
-
-import openmmqmmm.dictionaries_lists
-import openmmqmmm.constants
-
-ashpath = os.path.dirname(openmmqmmm.__file__)
 
 # Default connectivity parameters: covalent-radius scaling factor and tolerance
 CONNECTIVITY_SCALE = 1.0
@@ -64,9 +59,9 @@ class Reaction:
         self.reaction_energy = None
 
         # Keeping track of orbital-files: key: 'SCF':["frag1.gbw","frag2.gbw","frag3.gbw"], 'MP2nat':["frag1.gbw","frag2.gbw","frag3.gbw"]
-        self.orbital_dictionary = defaultdict(lambda: [])
+        self.orbital_dictionary = defaultdict(list)
         # Keep track of various properties calculated
-        self.properties = defaultdict(lambda: [])
+        self.properties = defaultdict(list)
 
     def reset_energies(self):
         # Reset energies etc
@@ -75,7 +70,7 @@ class Reaction:
 
     def check_fragments(self):
         for frag in self.fragments:
-            if frag.charge == None or frag.mult == None:
+            if frag.charge is None or frag.mult is None:
                 print("Error: Missing charge/mult information in fragment:", frag.formula)
                 ashexit()
 
@@ -188,7 +183,7 @@ class Fragment:
                 ashexit()
             self.elems = elems
             # If connectivity passed
-            if connectivity != None:
+            if connectivity is not None:
                 conncalc = False
                 self.connectivity = connectivity
 
@@ -283,16 +278,15 @@ class Fragment:
             self.label = label
 
         # Now set charge and mult attributes of fragment from keyword arg unless None. Will override readchargemult option above if used
-        if charge != None:
+        if charge is not None:
             self.charge = charge
-        if mult != None:
+        if mult is not None:
             self.mult = mult
 
         # Now update attributes after defining coordinates, getting charge, mult
         self.update_attributes()
-        if conncalc is True:
-            if len(self.connectivity) == 0:
-                self.calc_connectivity(scale=scale, tol=tol)
+        if conncalc is True and len(self.connectivity) == 0:
+            self.calc_connectivity(scale=scale, tol=tol)
 
         # Constraints attributes. Used by parallel surface-scan to pass constraints along.
         # Populated by calc_surface relaxed para
@@ -326,13 +320,13 @@ class Fragment:
         if len(self.coords) == 0:
             print("No coordinates in fragment. Something went wrong. Exiting.")
             ashexit()
-        if type(self.coords) != np.ndarray:
+        if not isinstance(self.coords, np.ndarray):
             print("self.coords is not a numpy array. Something is wrong. Exiting.")
             ashexit()
         self.nuccharge = nucchargelist(self.elems)
         self.nuc_charges = elemstonuccharges(self.elems)
         self.numatoms = len(self.coords)
-        self.atomlist = list(range(0, self.numatoms))
+        self.atomlist = list(range(self.numatoms))
         # Unnecessary alias ? Todo: Delete
         self.allatoms = self.atomlist
         self.mass = totmasslist(self.elems)
@@ -344,45 +338,40 @@ class Fragment:
         self.prettyformula = self.formula
         # Update atomtypes, atomcharges and fragmenttype_labels also if needed
         if len(self.atomcharges) == 0:
-            self.atomcharges = [0.0 for i in range(0, self.numatoms)]
+            self.atomcharges = [0.0 for i in range(self.numatoms)]
         elif len(self.atomcharges) < self.numatoms:
             print("\nWARNING! atomcharges list shorter than number of atoms.")
             print("Adding 0.0 entries for missing atoms.")
-            self.atomcharges = self.atomcharges + [0.0 for i in range(0, self.numatoms - len(self.atomcharges))]
+            self.atomcharges = self.atomcharges + [0.0 for i in range(self.numatoms - len(self.atomcharges))]
 
         if len(self.fragmenttype_labels) == 0:
-            self.fragmenttype_labels = ["None" for i in range(0, self.numatoms)]
+            self.fragmenttype_labels = ["None" for i in range(self.numatoms)]
         elif len(self.fragmenttype_labels) < self.numatoms:
             print("\nWARNING! fragmenttype_labels list shorter than number of atoms.")
             print("Adding 0 entries for missing atoms.")
             self.fragmenttype_labels = self.fragmenttype_labels + [
-                0 for i in range(0, self.numatoms - len(self.fragmenttype_labels))
+                0 for i in range(self.numatoms - len(self.fragmenttype_labels))
             ]
 
         if len(self.atomtypes) == 0:
-            self.atomtypes = ["None" for i in range(0, self.numatoms)]
+            self.atomtypes = ["None" for i in range(self.numatoms)]
         elif len(self.atomtypes) < self.numatoms:
             print("\nWARNING! atomtypes list shorter than number of atoms.")
             print("Adding None entries for missing atoms.")
-            self.atomtypes = self.atomtypes + ["None" for i in range(0, self.numatoms - len(self.atomtypes))]
+            self.atomtypes = self.atomtypes + ["None" for i in range(self.numatoms - len(self.atomtypes))]
 
         if self.printlevel >= 2:
-            print(
-                "Number of Atoms in fragment: {}\nFormula: {}\nLabel: {}".format(
-                    self.numatoms, self.prettyformula, self.label
-                )
-            )
-            print("Charge: {} Mult: {}".format(self.charge, self.mult))
+            print(f"Number of Atoms in fragment: {self.numatoms}\nFormula: {self.prettyformula}\nLabel: {self.label}")
+            print(f"Charge: {self.charge} Mult: {self.mult}")
             print_line_with_subheader1_end()
 
     # Add coordinates from geometry string. Will replace.
     def add_coords_from_string(self, coordsstring, scale=None, tol=None, conncalc=False):
         if self.printlevel >= 2:
             print("Getting coordinates from string:", coordsstring)
-        if len(self.coords) > 0:
-            if self.printlevel >= 2:
-                print("Fragment already contains coordinates")
-                print("Adding extra coordinates")
+        if len(self.coords) > 0 and self.printlevel >= 2:
+            print("Fragment already contains coordinates")
+            print("Adding extra coordinates")
         coordslist = coordsstring.split("\n")
         tempcoords = []
         for line in coordslist:
@@ -437,8 +426,8 @@ class Fragment:
     def print_coords(self):
         if self.printlevel >= 2:
             print("Cartesian coordinates (Å):")
-        for i, (el, c) in enumerate(zip(self.elems, self.coords)):
-            line = " {:<4} {:4} {:>12.6f} {:>12.6f} {:>12.6f}".format(i, el, c[0], c[1], c[2])
+        for i, (el, c) in enumerate(zip(self.elems, self.coords, strict=False)):
+            line = f" {i:<4} {el:4} {c[0]:>12.6f} {c[1]:>12.6f} {c[2]:>12.6f}"
             print(line)
 
     def print_coords_for_atoms(self, members, labels=None):
@@ -448,15 +437,13 @@ class Fragment:
     def read_amberfile(self, inpcrdfile=None, prmtopfile=None, conncalc=False):
         if self.printlevel >= 2:
             print(
-                "Reading coordinates from Amber INPCRD file: '{}' and PRMTOP file: '{}' into fragment.".format(
-                    inpcrdfile, prmtopfile
-                )
+                f"Reading coordinates from Amber INPCRD file: '{inpcrdfile}' and PRMTOP file: '{prmtopfile}' into fragment."
             )
         try:
-            elems, coords, box_dims = read_ambercoordinates(prmtopfile=prmtopfile, inpcrdfile=inpcrdfile)
+            elems, coords, _box_dims = read_ambercoordinates(prmtopfile=prmtopfile, inpcrdfile=inpcrdfile)
             # NOTE: boxdims not used. Could be set as fragment variable ?
         except FileNotFoundError:
-            print("File {} or {} not found".format(prmtopfile, inpcrdfile))
+            print(f"File {prmtopfile} or {inpcrdfile} not found")
             ashexit()
         self.coords = reformat_list_to_array(coords)
         self.elems = elems
@@ -465,12 +452,12 @@ class Fragment:
     # Read GROMACS coordinates file
     def read_grofile(self, filename, conncalc=False, scale=None, tol=None):
         if self.printlevel >= 2:
-            print("Reading coordinates from Gromacs GRO file '{}' into fragment".format(filename))
+            print(f"Reading coordinates from Gromacs GRO file '{filename}' into fragment")
         try:
-            elems, coords, boxdims = read_gromacsfile(filename)
+            elems, coords, _boxdims = read_gromacsfile(filename)
             # NOTE: boxdims not used. Could be set as fragment variable ?
         except FileNotFoundError:
-            print("File '{}' not found".format(filename))
+            print(f"File '{filename}' not found")
             ashexit()
         self.coords = coords
         self.elems = elems
@@ -479,11 +466,11 @@ class Fragment:
     # Read Chemshell fragment file (.c ending)
     def read_chemshellfile(self, filename, conncalc=False, scale=None, tol=None):
         if self.printlevel >= 2:
-            print("Reading coordinates from Chemshell file '{}' into fragment.".format(filename))
+            print(f"Reading coordinates from Chemshell file '{filename}' into fragment.")
         try:
             elems, coords = read_chemshellfragfile_xyz(filename)
         except FileNotFoundError:
-            print("File '{}' not found.".format(filename))
+            print(f"File '{filename}' not found.")
             ashexit()
         self.coords = coords
         self.elems = elems
@@ -492,7 +479,7 @@ class Fragment:
 
     def read_pdbfile_openmm(self, filename):
         if self.printlevel >= 2:
-            print("read_pdbfile_openmm: Reading coordinates from PDB file '{}' into fragment.".format(filename))
+            print(f"read_pdbfile_openmm: Reading coordinates from PDB file '{filename}' into fragment.")
         try:
             import openmm.app
         except ImportError:
@@ -516,7 +503,7 @@ class Fragment:
     # Reading PDBx/mmCIF file using OpenMM
     def read_pdbxfile(self, filename):
         if self.printlevel >= 2:
-            print("read_pdbxfile: Reading coordinates from PDBX file '{}' into fragment.".format(filename))
+            print(f"read_pdbxfile: Reading coordinates from PDBX file '{filename}' into fragment.")
         try:
             import openmm.app
         except ImportError:
@@ -531,7 +518,7 @@ class Fragment:
 
     def read_xyzfile(self, filename, scale=None, tol=None, readchargemult=False, conncalc=True):
         if self.printlevel >= 2:
-            print("Reading coordinates from XYZ file '{}' into fragment.".format(filename))
+            print(f"Reading coordinates from XYZ file '{filename}' into fragment.")
         coords = []
         with open(filename) as f:
             for count, line in enumerate(f):
@@ -550,17 +537,16 @@ class Fragment:
                             )
                             print("Line:", line)
                             ashexit()
-                elif count > 1:
-                    if len(line) > 3:
-                        # Grabbing element and reformatting
-                        if isint(line.split()[0]) is True:
-                            # Grabbing element as atomnumber and reformatting
-                            el = reformat_element(int(line.split()[0]), isatomnum=True)
-                            self.elems.append(el)
-                        else:
-                            el = line.split()[0]
-                            self.elems.append(reformat_element(el))
-                        coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
+                elif count > 1 and len(line) > 3:
+                    # Grabbing element and reformatting
+                    if isint(line.split()[0]) is True:
+                        # Grabbing element as atomnumber and reformatting
+                        el = reformat_element(int(line.split()[0]), isatomnum=True)
+                        self.elems.append(el)
+                    else:
+                        el = line.split()[0]
+                        self.elems.append(reformat_element(el))
+                    coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
         # Convert to numpy
         self.coords = reformat_list_to_array(coords)
         if self.numatoms != len(self.coords):
@@ -586,15 +572,14 @@ class Fragment:
     # Calculate connectivity (list of lists) of coords
     def calc_connectivity(self, conndepth=99, scale=None, tol=None):
         print("Calculating connectivity.")
-        if len(self.coords) > 10000:
-            if self.printlevel >= 2:
-                print("Atom number > 10K. Connectivity calculation could take a while")
+        if len(self.coords) > 10000 and self.printlevel >= 2:
+            print("Atom number > 10K. Connectivity calculation could take a while")
 
         if scale is None:
             scale = CONNECTIVITY_SCALE
             tol = CONNECTIVITY_TOL
         if self.printlevel >= 2:
-            print("Using scale: {} and tol: {} ".format(scale, tol))
+            print(f"Using scale: {scale} and tol: {tol} ")
 
         # Setting scale and tol as part of object for future usage (e.g. QM/MM link atoms)
         self.scale = scale
@@ -607,8 +592,8 @@ class Fragment:
         self.connectivity = fraglist
         # Calculate number of atoms in connectivity list of lists
         conn_number_sum = 0
-        for l in self.connectivity:
-            conn_number_sum += len(l)
+        for sublist in self.connectivity:
+            conn_number_sum += len(sublist)
         if self.numatoms != conn_number_sum:
             print(BC.FAIL, "Connectivity problem", BC.END)
             print("self.connectivity:", self.connectivity)
@@ -657,11 +642,8 @@ class Fragment:
         chain = self.pdb_topology.addChain()
 
         # Create connectivity by default for new topology
-        if self.connectivity is None:
+        if self.connectivity is None or (isinstance(self.connectivity, list) and len(self.connectivity) == 0):
             self.calc_connectivity(scale=scale, tol=tol)
-        elif isinstance(self.connectivity, list):
-            if len(self.connectivity) == 0:
-                self.calc_connectivity(scale=scale, tol=tol)
 
         connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, scale, tol)
         # Looping over molecules defined by connectivity
@@ -733,7 +715,8 @@ class Fragment:
             print("Deleting molecule bond information")
             # Setting list of bonds to empty list
             self.pdb_topology._bonds = []
-        openmm.app.PDBFile.writeFile(self.pdb_topology, self.coords, file=open(f"{filename}", "w"))
+        with open(filename, "w") as pdbhandle:
+            openmm.app.PDBFile.writeFile(self.pdb_topology, self.coords, file=pdbhandle)
         print(f"Wrote PDB-file: {filename}")
         return filename
 
@@ -746,13 +729,13 @@ class Fragment:
             # Title line
             # Write charge,mult and energy by default. Will be None if not available
             if write_chargemult is True and write_energy is True:
-                ofile.write("{} {} {}\n".format(self.charge, self.mult, self.energy))
+                ofile.write(f"{self.charge} {self.mult} {self.energy}\n")
             else:
                 ofile.write("title\n")
 
             # Coordinates
-            for el, c in zip(self.elems, self.coords):
-                line = "{:4} {:14.8f} {:14.8f} {:14.8f}".format(el, c[0], c[1], c[2])
+            for el, c in zip(self.elems, self.coords, strict=False):
+                line = f"{el:4} {c[0]:14.8f} {c[1]:14.8f} {c[2]:14.8f}"
                 ofile.write(line + "\n")
         if self.printlevel >= 2:
             print("Wrote XYZ file: ", xyzfilename)
@@ -764,8 +747,8 @@ class Fragment:
         with open(xyzfilename, "w") as ofile:
             ofile.write(str(len(subset_elems)) + "\n")
             ofile.write("title" + "\n")
-            for el, c in zip(subset_elems, subset_coords):
-                line = "{:4} {:>12.6f} {:>12.6f} {:>12.6f}".format(el, c[0], c[1], c[2])
+            for el, c in zip(subset_elems, subset_coords, strict=False):
+                line = f"{el:4} {c[0]:>12.6f} {c[1]:>12.6f} {c[2]:>12.6f}"
                 ofile.write(line + "\n")
 
     # Print system-fragment information to file. Default name of file: "fragment.ygg
@@ -799,13 +782,13 @@ class Fragment:
             ashexit()
         with open(filename, "w") as outfile:
             outfile.write("Fragment: \n")
-            outfile.write("Num atoms: {}\n".format(self.numatoms))
-            outfile.write("Formula: {}\n".format(self.formula))
-            outfile.write("Energy: {}\n".format(self.energy))
-            if self.charge != None:
-                outfile.write("charge : {}\n".format(self.charge))
-            if self.mult != None:
-                outfile.write("mult : {}\n".format(self.mult))
+            outfile.write(f"Num atoms: {self.numatoms}\n")
+            outfile.write(f"Formula: {self.formula}\n")
+            outfile.write(f"Energy: {self.energy}\n")
+            if self.charge is not None:
+                outfile.write(f"charge : {self.charge}\n")
+            if self.mult is not None:
+                outfile.write(f"mult : {self.mult}\n")
             outfile.write("\n")
             outfile.write(
                 " Index    Atom         x                  y                  z               charge        fragment-type        atom-type\n"
@@ -814,21 +797,25 @@ class Fragment:
                 "---------------------------------------------------------------------------------------------------------------------------------\n"
             )
             for at, el, coord, charge, label, atomtype in zip(
-                self.atomlist, self.elems, self.coords, self.atomcharges, self.fragmenttype_labels, self.atomtypes
+                self.atomlist,
+                self.elems,
+                self.coords,
+                self.atomcharges,
+                self.fragmenttype_labels,
+                self.atomtypes,
+                strict=False,
             ):
                 label = str(label)
-                line = "{:>6} {:>6}  {:17.11f}  {:17.11f}  {:17.11f}  {:14.8f} {:12s} {:>21}\n".format(
-                    at, el, coord[0], coord[1], coord[2], charge, label, atomtype
-                )
+                line = f"{at:>6} {el:>6}  {coord[0]:17.11f}  {coord[1]:17.11f}  {coord[2]:17.11f}  {charge:14.8f} {label:12s} {atomtype:>21}\n"
                 outfile.write(line)
             outfile.write(
                 "===========================================================================================================================================\n"
             )
-            outfile.write("atomcharges: {}\n".format(self.atomcharges))
-            outfile.write("Sum of atomcharges: {}\n".format(sum(self.atomcharges)))
-            outfile.write("atomtypes: {}\n".format(self.atomtypes))
-            outfile.write("connectivity: {}\n".format(self.connectivity))
-            outfile.write("Centralmainfrag: {}\n".format(self.Centralmainfrag))
+            outfile.write(f"atomcharges: {self.atomcharges}\n")
+            outfile.write(f"Sum of atomcharges: {sum(self.atomcharges)}\n")
+            outfile.write(f"atomtypes: {self.atomtypes}\n")
+            outfile.write(f"connectivity: {self.connectivity}\n")
+            outfile.write(f"Centralmainfrag: {self.Centralmainfrag}\n")
 
     # Reading fragment from file. File created from Fragment.print_system
     def read_fragment_from_file(self, fragfile):
@@ -845,12 +832,11 @@ class Fragment:
         Centralmainfrag = []
         with open(fragfile) as file:
             for n, line in enumerate(file):
-                if n == 0:
-                    if "Fragment:" not in line:
-                        print("This is not a valid ASH fragment file. Exiting.")
-                        ashexit()
+                if n == 0 and "Fragment:" not in line:
+                    print("This is not a valid ASH fragment file. Exiting.")
+                    ashexit()
                 if "Num atoms:" in line:
-                    numatoms = int(line.split()[-1])
+                    int(line.split()[-1])
                 if "charge :" in line:
                     self.charge = int(line.split()[-1])
                 if "mult :" in line:
@@ -864,28 +850,22 @@ class Fragment:
                     coords.append([float(line.split()[2]), float(line.split()[3]), float(line.split()[4])])
                     atomcharges.append(float(line.split()[5]))
                     # Reading and converting to integer.
-                    if line.split()[6] == "None":
-                        ftypelabel = "None"
-                    else:
-                        ftypelabel = int(line.split()[6])
+                    ftypelabel = "None" if line.split()[6] == "None" else int(line.split()[6])
                     fragment_type_labels.append(ftypelabel)
                     atomtypes.append(line.split()[7])
 
                 if "--------------------------" in line:
                     coordgrab = True
-                if "Centralmainfrag" in line:
-                    if "[]" not in line:
-                        l = line.lstrip("Centralmainfrag:")
-                        l = l.replace("\n", "")
-                        l = l.replace(" ", "")
-                        l = l.replace("[", "")
-                        l = l.replace("]", "")
-                        Centralmainfrag = [int(i) for i in l.split(",")]
+                if "Centralmainfrag" in line and "[]" not in line:
+                    payload = line.removeprefix("Centralmainfrag:")
+                    for junk in ("\n", " ", "[", "]"):
+                        payload = payload.replace(junk, "")
+                    Centralmainfrag = [int(i) for i in payload.split(",")]
                 # Incredibly ugly but oh well
                 if "connectivity:" in line:
-                    l = line.lstrip("connectivity:")
-                    l = l.replace(" ", "")
-                    for x in l.split("]"):
+                    payload = line.removeprefix("connectivity:")
+                    payload = payload.replace(" ", "")
+                    for x in payload.split("]"):
                         if len(x) < 1:
                             break
                         y = x.strip(",[")
@@ -907,18 +887,17 @@ class Fragment:
         self.Centralmainfrag = Centralmainfrag
 
 
-def reformat_list_to_array(l):
+def reformat_list_to_array(data):
     # If np array already
-    if type(l) == np.ndarray:
-        return l
+    if isinstance(data, np.ndarray):
+        return data
     # Reformat to np array
-    elif type(l) == list:
-        # Checking if input l is list of lists or not
-        if any(isinstance(el, list) for el in l) is False:
+    elif isinstance(data, list):
+        # Checking if input is a list of lists or not
+        if any(isinstance(el, list) for el in data) is False:
             print(BC.FAIL, "Error (reformat_list_to_array): input should be a list of lists, not just a list", BC.END)
             ashexit()
-        newl = np.array(l)
-        return newl
+        return np.array(data)
 
 
 # TODO: Reorganize and move to dictionaries_lists ?
@@ -1258,7 +1237,7 @@ def reformat_element(elem, isatomnum=False):
         try:
             el_correct = openmmqmmm.dictionaries_lists.element_dict_atnum[elem].symbol
         except KeyError:
-            print("Element-string: {} not found in element-dictionary!".format(elem))
+            print(f"Element-string: {elem} not found in element-dictionary!")
             print("This is not a valid element as defined in ASH source-file: dictionaries_lists.py")
             print("Fix element-information in coordinate-file.")
             ashexit()
@@ -1266,7 +1245,7 @@ def reformat_element(elem, isatomnum=False):
         try:
             el_correct = openmmqmmm.dictionaries_lists.element_dict_atname[elem.lower()].symbol
         except KeyError:
-            print("Element-string: {} not found in element-dictionary!".format(elem))
+            print(f"Element-string: {elem} not found in element-dictionary!")
             print("This is not a valid element as defined in ASH source-file: dictionaries_lists.py")
             print("Fix element-information in coordinate-file.")
             ashexit()
@@ -1364,10 +1343,7 @@ def _build_connectivity(coords, elems, atom_indices=None):
     conn = [set() for _ in range(n)]
 
     # Default behaviour: full-system connectivity
-    if atom_indices is None:
-        atom_indices = range(n)
-    else:
-        atom_indices = list(atom_indices)
+    atom_indices = range(n) if atom_indices is None else list(atom_indices)
 
     nsel = len(atom_indices)
 
@@ -1408,7 +1384,7 @@ def print_internal_coordinate_table_new(fragment, actatoms=None):
         cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
         return float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
 
-    def _measure_dihedral(coords, i, j, k, l):
+    def _measure_dihedral(coords, i, j, k, l):  # noqa: E741 - dihedral atoms i-j-k-l
         """Dihedral angle i-j-k-l in degrees (range -180 to 180)."""
         b1 = coords[j] - coords[i]
         b2 = coords[k] - coords[j]
@@ -1446,7 +1422,7 @@ def print_internal_coordinate_table_new(fragment, actatoms=None):
             if bond_key not in seen_bonds:
                 val = _measure_bond(coords, i, j)
                 label = f"{elems[i]}-{elems[j]}"
-                print(f"{'Bond':<10} {str(bond_key):<20} {label:<15} {val:>10.4f} Å")
+                print(f"{'Bond':<10} {bond_key!s:<20} {label:<15} {val:>10.4f} Å")
                 seen_bonds.add(bond_key)
 
             # --- Angles (i-j-k) ---
@@ -1455,7 +1431,7 @@ def print_internal_coordinate_table_new(fragment, actatoms=None):
             for idx_a in range(len(neighbors)):
                 for idx_b in range(idx_a + 1, len(neighbors)):
                     j, k = neighbors[idx_a], neighbors[idx_b]
-                    angle_key = tuple(sorted((j, k)) + [i])  # vertex last for keying
+                    angle_key = (*sorted((j, k)), i)  # vertex last for keying
                     if angle_key not in seen_angles:
                         val = _measure_angle(coords, j, i, k)
                         label = f"{elems[j]}-{elems[i]}-{elems[k]}"
@@ -1469,7 +1445,7 @@ def print_internal_coordinate_table_new(fragment, actatoms=None):
                 if h == j:
                     continue
                 for k in conn[j]:
-                    if k == i or k == h:
+                    if k in (i, h):
                         continue
                     # Path is h-i-j-k
                     di_key = (h, i, j, k)
@@ -1477,7 +1453,7 @@ def print_internal_coordinate_table_new(fragment, actatoms=None):
                     if di_key not in seen_dihedrals and rev_key not in seen_dihedrals:
                         val = _measure_dihedral(coords, h, i, j, k)
                         label = f"{elems[h]}-{elems[i]}-{elems[j]}-{elems[k]}"
-                        print(f"{'Dihedral':<10} {str(di_key):<20} {label:<15} {val:>10.2f}°")
+                        print(f"{'Dihedral':<10} {di_key!s:<20} {label:<15} {val:>10.2f}°")
                         seen_dihedrals.add(di_key)
 
     print("-" * 60)
@@ -1487,7 +1463,7 @@ def print_internal_coordinate_table_new(fragment, actatoms=None):
 def print_internal_coordinate_table(fragment, actatoms=None):
     timeA = time.time()
     print("\nPrinting internal coordinate table")
-    if actatoms != None:
+    if actatoms is not None:
         print("Actatoms:", actatoms)
 
     # If no actatoms
@@ -1536,32 +1512,27 @@ def print_internal_coordinate_table(fragment, actatoms=None):
         elB = chosen_elems[listkey[1]]
         # Only print bond lengths if both atoms in actatoms list
         if not actatoms:
-            print("Bond: {:8}{:4} - {:4}{:4} {:>6.3f}".format(listkey[0], elA, listkey[1], elB, val))
+            print(f"Bond: {listkey[0]:8}{elA:4} - {listkey[1]:4}{elB:4} {val:>6.3f}")
         else:
             # converting to full-system indices
             fullsystem_keyA = actatoms[listkey[0]]
             fullsystem_keyB = actatoms[listkey[1]]
             if fullsystem_keyA in actatoms and fullsystem_keyB in actatoms:
-                print("Bond: {:8}{:4} - {:4}{:4} {:>6.3f}".format(fullsystem_keyA, elA, fullsystem_keyB, elB, val))
+                print(f"Bond: {fullsystem_keyA:8}{elA:4} - {fullsystem_keyB:4}{elB:4} {val:>6.3f}")
     print("=" * 50)
     print_time_rel(timeA, modulename="print internal coordinate table")
 
 
 # From lists of coords,elems and atom indices, print coords with elem
 def print_coords_for_atoms(coords, elems, members, labels=None):
-    if labels is not None:
-        if len(labels) != len(members):
-            print("Problem. Length of Labels note equal to length of members list")
-            ashexit()
+    if labels is not None and len(labels) != len(members):
+        print("Problem. Length of Labels note equal to length of members list")
+        ashexit()
     label = ""
     for i, m in enumerate(members):
         if labels is not None:
             label = labels[i]
-        print(
-            "{:>4} {:>4} {:>12.8f}  {:>12.8f}  {:>12.8f}".format(
-                label, elems[m], coords[m][0], coords[m][1], coords[m][2]
-            )
-        )
+        print(f"{label:>4} {elems[m]:>4} {coords[m][0]:>12.8f}  {coords[m][1]:>12.8f}  {coords[m][2]:>12.8f}")
 
 
 # From lists of coords,elems and atom indices, write XYZ file coords with elem
@@ -1573,8 +1544,8 @@ def write_XYZ_for_atoms(coords, elems, members, name):
     with open(name + ".xyz", "w") as ofile:
         ofile.write(str(len(subset_elems)) + "\n")
         ofile.write("title" + "\n")
-        for el, c in zip(subset_elems, subset_coords):
-            line = "{:4} {:>12.6f} {:>12.6f} {:>12.6f}".format(el, c[0], c[1], c[2])
+        for el, c in zip(subset_elems, subset_coords, strict=False):
+            line = f"{el:4} {c[0]:>12.6f} {c[1]:>12.6f} {c[2]:>12.6f}"
             ofile.write(line + "\n")
 
 
@@ -1586,46 +1557,34 @@ def print_coords_all(coords, elems, indices=None, labels=None, labels2=None):
     if indices is None:
         if labels is None:
             for i in range(len(elems)):
-                print(
-                    "{:>4} {:>12.8f}  {:>12.8f}  {:>12.8f}".format(elems[i], coords[i][0], coords[i][1], coords[i][2])
-                )
+                print(f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}")
         else:
             if labels2 is None:
                 for i in range(len(elems)):
                     print(
-                        "{:>4} {:>12.8f}  {:>12.8f}  {:>12.8f} {:>6}".format(
-                            elems[i], coords[i][0], coords[i][1], coords[i][2], labels[i]
-                        )
+                        f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}"
                     )
             else:
                 for i in range(len(elems)):
                     print(
-                        "{:>4} {:>12.8f}  {:>12.8f}  {:>12.8f} {:>6} {:>6}".format(
-                            elems[i], coords[i][0], coords[i][1], coords[i][2], labels[i], labels2[i]
-                        )
+                        f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}"
                     )
     else:
         if labels is None:
             for i in range(len(elems)):
                 print(
-                    "{:>1} {:>4} {:>12.8f}  {:>12.8f}  {:>12.8f}".format(
-                        indices[i], elems[i], coords[i][0], coords[i][1], coords[i][2]
-                    )
+                    f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}"
                 )
         else:
             if labels2 is None:
                 for i in range(len(elems)):
                     print(
-                        "{:>1} {:>4} {:>12.8f}  {:>12.8f}  {:>12.8f} {:>6}".format(
-                            indices[i], elems[i], coords[i][0], coords[i][1], coords[i][2], labels[i]
-                        )
+                        f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}"
                     )
             else:
                 for i in range(len(elems)):
                     print(
-                        "{:>1} {:>4} {:>12.8f}  {:>12.8f}  {:>12.8f} {:>6} {:>6}".format(
-                            indices[i], elems[i], coords[i][0], coords[i][1], coords[i][2], labels[i], labels2[i]
-                        )
+                        f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}"
                     )
 
 
@@ -1634,55 +1593,47 @@ def print_coords_all(coords, elems, indices=None, labels=None, labels2=None):
 # If list of labels provided, print as rightmost column
 # If list of labels2 provided, print as rightmost column
 def write_coords_all(coords, elems, indices=None, labels=None, labels2=None, file="file", description="description"):
-    f = open(file, "w")
-    f.write("#{}\n".format(description))
+    with open(file, "w") as f:
+        _write_coords_lines(f, coords, elems, indices, labels, labels2, description)
+
+
+def _write_coords_lines(f, coords, elems, indices, labels, labels2, description):
+    f.write(f"#{description}\n")
     if indices is None:
         if labels is None:
-            for i in range(len(elems)):
-                f.write(
-                    "{:>4} {:>12.8f}  {:>12.8f}  {:>12.8f}\n".format(elems[i], coords[i][0], coords[i][1], coords[i][2])
-                )
+            f.writelines(
+                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
+                for i in range(len(elems))
+            )
 
         else:
             if labels2 is None:
-                for i in range(len(elems)):
-                    f.write(
-                        "{:>4} {:>12.8f}  {:>12.8f}  {:>12.8f} {:>6}\n".format(
-                            elems[i], coords[i][0], coords[i][1], coords[i][2], labels[i]
-                        )
-                    )
+                f.writelines(
+                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}\n"
+                    for i in range(len(elems))
+                )
             else:
-                for i in range(len(elems)):
-                    f.write(
-                        "{:>4} {:>12.8f}  {:>12.8f}  {:>12.8f} {:>6} {:>6}\n".format(
-                            elems[i], coords[i][0], coords[i][1], coords[i][2], labels[i], labels2[i]
-                        )
-                    )
+                f.writelines(
+                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}\n"
+                    for i in range(len(elems))
+                )
     else:
         if labels is None:
-            for i in range(len(elems)):
-                f.write(
-                    "{:>1} {:>4} {:>12.8f}  {:>12.8f}  {:>12.8f}\n".format(
-                        indices[i], elems[i], coords[i][0], coords[i][1], coords[i][2]
-                    )
-                )
+            f.writelines(
+                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
+                for i in range(len(elems))
+            )
         else:
             if labels2 is None:
-                for i in range(len(elems)):
-                    f.write(
-                        "{:>1} {:>4} {:>12.8f}  {:>12.8f}  {:>12.8f} {:>6}\n".format(
-                            indices[i], elems[i], coords[i][0], coords[i][1], coords[i][2], labels[i]
-                        )
-                    )
+                f.writelines(
+                    f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}\n"
+                    for i in range(len(elems))
+                )
             else:
-                for i in range(len(elems)):
-                    f.write(
-                        "{:>1} {:>4} {:>12.8f}  {:>12.8f}  {:>12.8f} {:>6} {:>6}\n".format(
-                            indices[i], elems[i], coords[i][0], coords[i][1], coords[i][2], labels[i], labels2[i]
-                        )
-                    )
-
-    f.close()
+                f.writelines(
+                    f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}\n"
+                    for i in range(len(elems))
+                )
 
 
 ##############################################################
@@ -1691,7 +1642,7 @@ def write_coords_all(coords, elems, indices=None, labels=None, labels2=None, fil
 
 
 def distance(A, B):
-    return sqrt(pow(A[0] - B[0], 2) + pow(A[1] - B[1], 2) + pow(A[2] - B[2], 2))  # fastest
+    return sqrt((A[0] - B[0]) ** 2 + (A[1] - B[1]) ** 2 + (A[2] - B[2]) ** 2)  # fastest
 
 
 def angle(A, B, C):
@@ -1764,10 +1715,10 @@ def get_centroid(coords):
 
 # Change origin to centroid. Either use centroid of full system (default) or alternatively subset or (something else even)
 def change_origin_to_centroid(fullcoords, subsetcoords=None, subsetatoms=None):
-    if subsetcoords != None:
+    if subsetcoords is not None:
         print("Calculating centroid for the specified subset coordinates")
         centroid = get_centroid(subsetcoords)
-    elif subsetatoms != None:
+    elif subsetatoms is not None:
         print("Calculating centroid for the coordintes of specified subatoms:", subsetatoms)
         # Will grab subsetcoords
         subcoords = np.take(fullcoords, subsetatoms, axis=0)
@@ -1791,7 +1742,7 @@ def threshold_conn(elA, elB, scale, tol):
 def calc_conn_py(coords, elems, conndepth, scale, tol):
     found_atoms = []
     fraglist = []
-    for atom in range(0, len(elems)):
+    for atom in range(len(elems)):
         if atom not in found_atoms:
             members = get_molecule_members_loop_np2(coords, elems, conndepth, scale, tol, atomindex=atom)
             if members not in fraglist:
@@ -1808,9 +1759,8 @@ def get_connected_atoms(coords, elems, scale, tol, atomindex):
     coords_ref = coords[atomindex]
     elem_ref = elems[atomindex]
     for i, c in enumerate(coords):
-        if distance(coords_ref, c) < threshold_conn(elems[i], elem_ref, scale, tol):
-            if i != atomindex:
-                connatoms.append(i)
+        if distance(coords_ref, c) < threshold_conn(elems[i], elem_ref, scale, tol) and i != atomindex:
+            connatoms.append(i)
     return connatoms
 
 
@@ -1852,7 +1802,7 @@ def get_connected_atoms_np(coords, elems, scale, tol, atomindex):
 # Get a dictionary of atoms (values) connected to each atom (key)
 def get_connected_atoms_dict(coords, elems, scale, tol):
     conndict = {}
-    for c in range(0, len(coords)):
+    for c in range(len(coords)):
         conn = get_connected_atoms_np(coords, elems, scale, tol, c)
         conn.remove(c)
         conndict[c] = conn
@@ -1867,15 +1817,15 @@ def get_molecule_members_loop_np2(coords, elems, loopnumber, scale, tol, atomind
     if membs is None:
         membs = []
         membs.append(atomindex)
-        timestampA = time.time()
+        time.time()
         membs = get_connected_atoms_np(coords, elems, scale, tol, atomindex)
 
     # If membs is just an integer turn into list
-    if type(membs) == int:
+    if isinstance(membs, int):
         membs = [membs]
     finalmembs = membs
 
-    for i in range(loopnumber):
+    for _i in range(loopnumber):
         # Get list of lists of connatoms for each member
         newmembers = [get_connected_atoms_np(coords, elems, scale, tol, k) for k in membs]
         # Get a unique flat list
@@ -1892,9 +1842,9 @@ def get_molecule_members_loop_np2(coords, elems, loopnumber, scale, tol, atomind
 
 
 # Takes list of elements and gives formula
-def elemlisttoformula(list):
+def elemlisttoformula(elems):
     # This dict comprehension was slow for large systems. Using set to reduce iterations
-    elemdict = {i: list.count(i) for i in set(list)}
+    elemdict = {i: elems.count(i) for i in set(elems)}
     formula = ""
     for item in elemdict.items():
         el = item[0]
@@ -1911,7 +1861,7 @@ def molformulatolist(formulastring):
     atomunits = []
     numels = []
     # Read string by character backwards
-    for count, char in enumerate(formulastring[::-1]):
+    for _count, char in enumerate(formulastring[::-1]):
         if isint(char):
             el = char + el
         if char.islower():
@@ -1924,7 +1874,7 @@ def molformulatolist(formulastring):
             els.append(diff)
             el = ""
             diff = ""
-    for atm, element in zip(atomunits, els):
+    for atm, element in zip(atomunits, els, strict=False):
         if atm > element:
             number = atm[len(element) :]
             numels.append(int(number))
@@ -1932,8 +1882,8 @@ def molformulatolist(formulastring):
             number = 1
             numels.append(int(number))
     atoms = []
-    for i, j in zip(els, numels):
-        for k in range(j):
+    for i, j in zip(els, numels, strict=False):
+        for _k in range(j):
             atoms.append(i)
     # Final reverse
     els.reverse()
@@ -1945,134 +1895,28 @@ def molformulatolist(formulastring):
 # Read XYZ file
 def read_xyzfile(filename, printlevel=2):
     # Will accept atom-numbers as well as symbols
-    elements = [
-        "H",
-        "He",
-        "Li",
-        "Be",
-        "B",
-        "C",
-        "N",
-        "O",
-        "F",
-        "Ne",
-        "Na",
-        "Mg",
-        "Al",
-        "Si",
-        "P",
-        "S",
-        "Cl",
-        "Ar",
-        "K",
-        "Ca",
-        "Sc",
-        "Ti",
-        "V",
-        "Cr",
-        "Mn",
-        "Fe",
-        "Co",
-        "Ni",
-        "Cu",
-        "Zn",
-        "Ga",
-        "Ge",
-        "As",
-        "Se",
-        "Br",
-        "Kr",
-        "Rb",
-        "Sr",
-        "Y",
-        "Zr",
-        "Nb",
-        "Mo",
-        "Tc",
-        "Ru",
-        "Rh",
-        "Pd",
-        "Ag",
-        "Cd",
-        "In",
-        "Sn",
-        "Sb",
-        "Te",
-        "I",
-        "Xe",
-        "Cs",
-        "Ba",
-        "La",
-        "Ce",
-        "Pr",
-        "Nd",
-        "Pm",
-        "Sm",
-        "Eu",
-        "Gd",
-        "Tb",
-        "Dy",
-        "Ho",
-        "Er",
-        "Tm",
-        "Yb",
-        "Lu",
-        "Hf",
-        "Ta",
-        "W",
-        "Re",
-        "Os",
-        "Ir",
-        "Pt",
-        "Au",
-        "Hg",
-        "Tl",
-        "Pb",
-        "Bi",
-        "Po",
-        "At",
-        "Rn",
-        "Fr",
-        "Ra",
-        "Ac",
-        "Th",
-        "Pa",
-        "U",
-        "Np",
-        "Pu",
-        "Am",
-        "Cm",
-        "Bk",
-        "Cf",
-        "Es",
-        "Fm",
-        "Md",
-        "No",
-        "Lr",
-    ]
     if printlevel >= 2:
-        print("Reading coordinates from XYZ file '{}'.".format(filename))
+        print(f"Reading coordinates from XYZ file '{filename}'.")
     coords = []
     elems = []
     with open(filename) as f:
         for count, line in enumerate(f):
             if count == 0:
                 numatoms = int(line.split()[0])
-            if count > 1:
-                if len(line.strip()) > 0:
-                    if isint(line.split()[0]) is True:
-                        # Grabbing element as atomnumber and reformatting
-                        el = reformat_element(int(line.split()[0]), isatomnum=True)
-                        elems.append(el)
-                    else:
-                        # Grabbing element as symbol and reformatting just in case
-                        el = reformat_element(line.split()[0])
-                        elems.append(el)
-                    coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
+            if count > 1 and len(line.strip()) > 0:
+                if isint(line.split()[0]) is True:
+                    # Grabbing element as atomnumber and reformatting
+                    el = reformat_element(int(line.split()[0]), isatomnum=True)
+                    elems.append(el)
+                else:
+                    # Grabbing element as symbol and reformatting just in case
+                    el = reformat_element(line.split()[0])
+                    elems.append(el)
+                coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
     if len(coords) != numatoms:
         print(
             BC.FAIL,
-            "Error: Number of coordinates in XYZ-file: {} does not match header line. Exiting.".format(filename),
+            f"Error: Number of coordinates in XYZ-file: {filename} does not match header line. Exiting.",
         )
         ashexit()
     if len(coords) != len(elems):
@@ -2105,7 +1949,7 @@ def read_xyzfiles(xyzdir, readchargemult=False, label_from_filename=True):
 def write_xyzfile(elems, coords, name, printlevel=2, writemode="w", title="title"):
     # Adding headerlines to list
     header = [f"{len(elems)}\n", f"{title}\n"]
-    atomlines = [f"{el:4} {c[0]:16.12f} {c[1]:16.12f} {c[2]:16.12f}\n" for el, c in zip(elems, coords)]
+    atomlines = [f"{el:4} {c[0]:16.12f} {c[1]:16.12f} {c[2]:16.12f}\n" for el, c in zip(elems, coords, strict=False)]
     with open(name + ".xyz", writemode) as ofile:
         ofile.writelines(header)
         ofile.writelines(atomlines)
@@ -2157,16 +2001,15 @@ def split_multimolxyzfile(file, writexyz=False, skipindex=1, return_fragments=Fa
                 titlegrab = False
                 coordgrab = True
             # Grabbing number of atoms from string
-            if len(line.split()) > 0:
-                if line.split()[0] == str(numatoms):
-                    if molcounter % skipindex:
-                        molcounter += 1
-                        titlegrab = False
-                        coordgrab = False
-                    else:
-                        molcounter += 1
-                        titlegrab = True
-                        coordgrab = False
+            if len(line.split()) > 0 and line.split()[0] == str(numatoms):
+                if molcounter % skipindex:
+                    molcounter += 1
+                    titlegrab = False
+                    coordgrab = False
+                else:
+                    molcounter += 1
+                    titlegrab = True
+                    coordgrab = False
     print(f"Found {molcounter} geometries in file: {file}")
 
     if return_fragments is True:
@@ -2215,7 +2058,7 @@ def conv_atomtypes_elems(atomtype):
             element = reformat_element(atomtype)
             return element
         except:
-            print("Atomtype: '{}' not recognized either as valid atomtype or element. Exiting.".format(atomtype))
+            print(f"Atomtype: '{atomtype}' not recognized either as valid atomtype or element. Exiting.")
             print("You might have to modify the atomtype/element information in coordinate file you're reading in.")
             ashexit()
 
@@ -2233,7 +2076,7 @@ def read_pdbfile(filename, use_atomnames_as_elements=False):
         with open(filename) as f:
             for line in f:
                 # if 'ATOM ' in line or 'HETATM' in line:
-                if line.startswith("ATOM") or line.startswith("HETATM"):
+                if line.startswith(("ATOM", "HETATM")):
                     atom_name = line[12:16].replace(" ", "")
                     residname.append(line[17:20].replace(" ", ""))
                     residuelist.append(line[22:26].replace(" ", ""))
@@ -2264,7 +2107,7 @@ def read_pdbfile(filename, use_atomnames_as_elements=False):
                             ashexit()
                 # if 'HETATM' in line:
     except FileNotFoundError:
-        print("File '{}' does not exist!".format(filename))
+        print(f"File '{filename}' does not exist!")
         ashexit()
     # Create numpy array
     coords_np = reformat_list_to_array(coords)
@@ -2289,7 +2132,7 @@ def read_pdbfile_info(filename, use_atomnames_as_elements=False):
     try:
         with open(filename) as f:
             for line in f:
-                if line.startswith("ATOM") or line.startswith("HETATM"):
+                if line.startswith(("ATOM", "HETATM")):
                     atomnames.append(line[12:16].replace(" ", ""))
                     residnames.append(line[17:20].replace(" ", ""))
                     chainlabels.append(line[21:22].replace(" ", ""))
@@ -2307,7 +2150,7 @@ def read_pdbfile_info(filename, use_atomnames_as_elements=False):
                 if line.startswith("CONECT"):
                     conect_lines.append(line)
     except FileNotFoundError:
-        print("File '{}' does not exist!".format(filename))
+        print(f"File '{filename}' does not exist!")
         ashexit()
 
     return atomnames, residnames, residlabels, chainlabels, conect_lines
@@ -2320,7 +2163,6 @@ def read_gromacsfile(grofile):
     elems = []
     coords = []
     # TODO: Change coords to numpy array instead
-    grabcoords = False
     numatoms = "unset"
     box_dims = None
     with open(grofile) as cfile:
@@ -2342,7 +2184,7 @@ def read_gromacsfile(grofile):
                 linelist = line.split()
                 # Grabbing atomtype
                 atomtype = linelist[1]
-                atomtype = "".join((item for item in atomtype if not item.isdigit()))
+                atomtype = "".join(item for item in atomtype if not item.isdigit())
                 atomtype = atomtype.replace("'", "")
                 # Converting atomtype to element based on function above
                 elem = conv_atomtypes_elems(atomtype)
@@ -2362,7 +2204,7 @@ def read_gromacsfile(grofile):
                 coords.append([10 * coords_x, 10 * coords_y, 10 * coords_z])
     npcoords = reformat_list_to_array(coords)
     if len(npcoords) != len(elems):
-        print(BC.FAIL, "Num coords not equal to num elems. Parsing of Gromacsfile: {} failed. BUG!".format(grofile))
+        print(BC.FAIL, f"Num coords not equal to num elems. Parsing of Gromacsfile: {grofile} failed. BUG!")
         ashexit()
     return elems, npcoords, box_dims
 
@@ -2373,7 +2215,6 @@ def read_ambercoordinates(prmtopfile=None, inpcrdfile=None):
     elems = []
     coords = []
     # TODO: Change coords to numpy array instead
-    grabcoords = False
     numatoms = "unset"
     box_dims = []
     with open(inpcrdfile) as cfile:
@@ -2408,12 +2249,11 @@ def read_ambercoordinates(prmtopfile=None, inpcrdfile=None):
     grab_atomnumber = False
     with open(prmtopfile) as pfile:
         for i, line in enumerate(pfile):
-            if grab_atomnumber is True:
-                if "FORMAT" not in line:
-                    if "%" in line:
-                        grab_atomnumber = False
-                    else:
-                        elems += [reformat_element(int(i), isatomnum=True) for i in line.split()]
+            if grab_atomnumber is True and "FORMAT" not in line:
+                if "%" in line:
+                    grab_atomnumber = False
+                else:
+                    elems += [reformat_element(int(i), isatomnum=True) for i in line.split()]
             if "%FLAG ATOMIC_NUMBER" in line:
                 grab_atomnumber = True
     if len(coords) != len(elems):
@@ -2488,16 +2328,13 @@ def write_pdbfile(
         ashexit()
 
     with open(outputname + ".pdb", "w") as pfile:
-        for count, (atomname, c, resname, chainlabel, resid, seg, el) in enumerate(
-            zip(atomnames, coords, resnames, chainlabels, residlabels, segmentlabels, elems)
+        for count, (atomname, c, resname, chainlabel, resid, _seg, el) in enumerate(
+            zip(atomnames, coords, resnames, chainlabels, residlabels, segmentlabels, elems, strict=False)
         ):
             atomindex = count + 1
             # Convert to hexadecimal if >= 100K.
             # Note: unsupported standard but VMD will read it
-            if atomindex >= 100000:
-                atomindexstring = hex(count + 1)[2:]
-            else:
-                atomindexstring = str(atomindex)
+            atomindexstring = f"{count + 1:x}" if atomindex >= 100000 else str(atomindex)
 
             # Using only first 3 letters of RESname
             resname = resname[0:3]
@@ -2514,7 +2351,7 @@ def write_pdbfile(
             resid = str(resid)
 
             # Optional charges column (used by CP2K)
-            if charges_column != None:
+            if charges_column is not None:
                 charge = charges_column[count]
                 #    seg[0:3], el, charge)
                 line = "{:6s}{:5s} {:^4s}{:1s}{:3s} {:1s}{:4s}{:1s}   {:8.3f}{:8.3f}{:8.3f}{:6.2f}{:6.2f}          {:>2s}{:2s}".format(
@@ -2557,8 +2394,7 @@ def write_pdbfile(
             pfile.write(line + "\n")
         # Write CONECT lines if provided
         if conect_lines is not None:
-            for conectline in conect_lines:
-                pfile.write(conectline)
+            pfile.writelines(conect_lines)
     print("Wrote PDB file: ", outputname + ".pdb")
     return outputname + ".pdb"
 
@@ -2566,7 +2402,6 @@ def write_pdbfile(
 # Calculate total nuclear charge from list of elements
 def nucchargelist(ellist):
     totnuccharge = 0
-    els = []
     warning_issued = False
     for e in ellist:
         try:
@@ -2574,7 +2409,7 @@ def nucchargelist(ellist):
         except KeyError:
             atcharge = 0.0
             if warning_issued is False:
-                print("Warning: Unknown element: '{}' found in element-list".format(e))
+                print(f"Warning: Unknown element: '{e}' found in element-list")
                 print("Could be dummy atom. Using nuccharge of 0.0")
                 warning_issued = True
         totnuccharge += atcharge
@@ -2600,18 +2435,14 @@ def totmasslist(ellist):
         try:
             atcharge = int(elematomnumbers[e.lower()])
             if atcharge == 0:
-                print(
-                    "Warning: element '{}' has atomic number 0. This is likely a dummy atom. Using mass of 0.0".format(
-                        e
-                    )
-                )
+                print(f"Warning: element '{e}' has atomic number 0. This is likely a dummy atom. Using mass of 0.0")
                 atmass = 0.0
             else:
                 atmass = atommasses[atcharge - 1]
         except KeyError:
             atmass = 0.0
             if warning_issued is False:
-                print("Warning: Unknown element: '{}' found in element-list".format(e))
+                print(f"Warning: Unknown element: '{e}' found in element-list")
                 print("Could be dummy atom. Using mass of 0.0")
                 warning_issued = True
 
@@ -2627,18 +2458,14 @@ def list_of_masses(ellist):
         try:
             atcharge = int(elematomnumbers[e.lower()])
             if atcharge == 0:
-                print(
-                    "Warning: element '{}' has atomic number 0. This is likely a dummy atom. Using mass of 0.0".format(
-                        e
-                    )
-                )
+                print(f"Warning: element '{e}' has atomic number 0. This is likely a dummy atom. Using mass of 0.0")
                 atmass = 0.0
             else:
                 atmass = atommasses[atcharge - 1]
         except KeyError:
             atmass = 0.0
             if warning_issued is False:
-                print("Warning: Unknown element: '{}' found in element-list".format(e))
+                print(f"Warning: Unknown element: '{e}' found in element-list")
                 print("Could be dummy atom. Using mass of 0.0")
                 warning_issued = True
         masses.append(atmass)
@@ -2743,10 +2570,10 @@ def flexible_align(
         print("Warning: this requires the rmsd package to be installed: pip install rmsd")
         from rmsd import (
             reorder_brute,
+            reorder_distance,
             reorder_hungarian,
             reorder_inertia_hungarian,
             reorder_similarity,
-            reorder_distance,
         )
 
         print(f"Reorder method: {reorder_method}")
@@ -2899,14 +2726,14 @@ def rmsd(V, W):
     D = len(V[0])
     N = len(V)
     rmsd = 0.0
-    for v, w in zip(V, W):
+    for v, w in zip(V, W, strict=False):
         rmsd += sum([(v[i] - w[i]) ** 2.0 for i in range(D)])
     return np.sqrt(rmsd / N)
 
 
 # Get partial list by deleting elements not present in provided list of indices.
-def get_partial_list(allatoms, partialatoms, l):
-    newlist = copy.copy(l)  # Otherwise object may be updated
+def get_partial_list(allatoms, partialatoms, full_list):
+    newlist = copy.copy(full_list)  # Otherwise object may be updated
     otheratoms = listdiff(allatoms, partialatoms)
     otheratoms.reverse()
     for at in otheratoms:
@@ -2948,9 +2775,9 @@ def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
     atomlist = []
 
     for i, c in enumerate(subsetcoords):
-        el = subsetelems[i]
+        subsetelems[i]
         for index, allc in enumerate(fragment.coords):
-            all_el = fragment.elems[index]
+            fragment.elems[index]
             if index >= len(subsetcoords):
                 dist = distance(c, allc)
                 if dist < radius:
@@ -2969,7 +2796,7 @@ def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
                                 wholemol = q
                                 break
 
-                    elematoms = [fragment.elems[i] for i in wholemol]
+                    [fragment.elems[i] for i in wholemol]
                     atomlist = atomlist + wholemol
     atomlist = np.unique(atomlist).tolist()
     return atomlist
@@ -3039,7 +2866,7 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
         # Applies to rare case where QM atom is bonded to MM atom but we don't want a linkatom.
         # Example: bridging sulfide in Cys that connects to Fe4S4 and H-cluster.
         if qmatom in excludeboundaryatomlist:
-            print("QMatom : {} in excludeboundaryatomlist: {}".format(qmatom, excludeboundaryatomlist))
+            print(f"QMatom : {qmatom} in excludeboundaryatomlist: {excludeboundaryatomlist}")
             print("Skipping QM-MM boundary...")
             continue
         # Note: get_connected_atoms very slow
@@ -3050,7 +2877,7 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
         if len(boundaryatom) > 1:
             print(
                 BC.FAIL,
-                "Warning. Found more than 1 boundaryatom for QM-atom {} . This is considered unusual".format(qmatom),
+                f"Warning. Found more than 1 boundaryatom for QM-atom {qmatom} . This is considered unusual",
                 BC.END,
             )
             print(
@@ -3069,9 +2896,7 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
                 print(BC.WARNING, "Warning: QM-MM boundary is not the ideal C-C scenario:", BC.END)
                 print(
                     BC.WARNING,
-                    "QM-MM boundary: {}({}) - {}({})".format(
-                        elems[qmatom], qmatom, elems[boundaryatom[0]], boundaryatom[0]
-                    ),
+                    f"QM-MM boundary: {elems[qmatom]}({qmatom}) - {elems[boundaryatom[0]]}({boundaryatom[0]})",
                     BC.END,
                 )
                 if unusualboundary is False:
@@ -3105,7 +2930,7 @@ def get_linkatom_positions(
     bondpairs_eq_dict=None,
     linkatom_ratio=0.723,
 ):
-    timeA = time.time()
+    time.time()
     print("Inside get_linkatom_positions")
     print("linkatom_type:", linkatom_type)
     print("linkatom_method:", linkatom_method)
@@ -3118,16 +2943,15 @@ def get_linkatom_positions(
     linkdistances_dict = {("C", "H"): 1.09, ("O", "H"): 0.98, ("N", "H"): 0.99}
     print("Linkatom distance dictionary:", linkdistances_dict)
     # If dictionary of linkatom-distances provided then use that instead
-    if linkatom_method == "ratio":
-        if linkatom_ratio == "Auto" and bondpairs_eq_dict is None:
-            # TODO: Determine automatically somehow
-            bondpairs_eq_dict = {
-                ("C", "H"): 1.09,
-                ("C", "C"): 1.522269,
-                ("C", "N"): 1.47,
-                ("C", "O"): 1.43,
-                ("C", "S"): 1.81,
-            }
+    if linkatom_method == "ratio" and linkatom_ratio == "Auto" and bondpairs_eq_dict is None:
+        # TODO: Determine automatically somehow
+        bondpairs_eq_dict = {
+            ("C", "H"): 1.09,
+            ("C", "C"): 1.522269,
+            ("C", "N"): 1.47,
+            ("C", "O"): 1.43,
+            ("C", "S"): 1.81,
+        }
 
     # Get boundary atoms
     print("qm_mm_boundary_dict:", qm_mm_boundary_dict)
@@ -3153,7 +2977,7 @@ def get_linkatom_positions(
                     print("Determined ratio:", linkatom_ratio)
                     print("not yet ready")
                     ashexit()
-                r_QM1_MM1 = distance(qmatom_coords, mmatom_coords)
+                distance(qmatom_coords, mmatom_coords)
                 # See https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9314059/
                 linkatom_coords = linkatom_ratio * (mmatom_coords - qmatom_coords) + qmatom_coords
                 linkatom_distance = distance(qmatom_coords, linkatom_coords)
@@ -3184,13 +3008,13 @@ def get_linkatom_positions(
 def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=False):
     print_line_with_subheader2("Get molecules from trajectory")
     print("Finding molecules/snapshots in multi-XYZ trajectory file and creating ASH fragments...")
-    print("Taking every {}th entry".format(skipindex))
+    print(f"Taking every {skipindex}th entry")
     list_of_molecules = []
-    all_elems, all_coords, all_titles = split_multimolxyzfile(
+    all_elems, all_coords, _all_titles = split_multimolxyzfile(
         file, writexyz=writexyz, skipindex=skipindex, return_fragments=False
     )
-    print("Found {} molecules in file.".format(len(all_elems)))
-    for i, (els, cs) in enumerate(zip(all_elems, all_coords)):
+    print(f"Found {len(all_elems)} molecules in file.")
+    for i, (els, cs) in enumerate(zip(all_elems, all_coords, strict=False)):
         conf = openmmqmmm.Fragment(elems=els, coords=cs, conncalc=conncalc, printlevel=0, label=f"{file}_{i}")
         list_of_molecules.append(conf)
 
@@ -3209,7 +3033,6 @@ def getwaterconstraintslist(openmmtheoryobject=None, atomlist=None, watermodel="
         print("unknown watermodel")
         ashexit()
 
-    atomtypes = openmmtheoryobject.atomtypes
     resnames = openmmtheoryobject.resnames
     elements = openmmtheoryobject.mm_elements
 
@@ -3222,16 +3045,15 @@ def getwaterconstraintslist(openmmtheoryobject=None, atomlist=None, watermodel="
 
     waterconstraints = []
     if resnames:
-        for index, (rn, el) in enumerate(zip(resnames, elements)):
+        for index, (rn, el) in enumerate(zip(resnames, elements, strict=False)):
             # Skipping if not in atomlist
             if index not in atomlist:
                 continue
 
-            if rn in water_resname:
-                if el == "O":
-                    waterconstraints.append([index, index + 1])
-                    waterconstraints.append([index, index + 2])
-                    waterconstraints.append([index + 1, index + 2])
+            if rn in water_resname and el == "O":
+                waterconstraints.append([index, index + 1])
+                waterconstraints.append([index, index + 2])
+                waterconstraints.append([index + 1, index + 2])
     # if len(atomtypes) == 0:
     #    #NOTE: Atomtypes only defined if OpenMMTheory created from CHARMM Files
     #    # Assuming OT or OW oxygen atomtypes used if TIP3P. Assuming oxygen comes first
@@ -3254,13 +3076,11 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None, 
         if charge is None or mult is None:
             if printlevel >= 2:
                 print(BC.WARNING, f"Charge/mult was not provided to {jobtype}", BC.END)
-            if fragment.charge != None and fragment.mult != None:
+            if fragment.charge is not None and fragment.mult is not None:
                 if printlevel >= 2:
                     print(
                         BC.WARNING,
-                        "Fragment contains charge/mult information: Charge: {} Mult: {}  Using this.".format(
-                            fragment.charge, fragment.mult
-                        ),
+                        f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult}  Using this.",
                         BC.END,
                     )
                 charge = fragment.charge
@@ -3274,18 +3094,16 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None, 
             if printlevel >= 1:
                 print(BC.WARNING, f"Warning: Charge/mult was not provided to {jobtype}", BC.END)
                 print("Checking if present in QM/MM object")
-            if theory.qm_charge != None and theory.qm_mult != None:
+            if theory.qm_charge is not None and theory.qm_mult is not None:
                 charge = theory.qm_charge
                 mult = theory.qm_mult
                 if printlevel >= 1:
                     print("Found qm_charge and qm_mult attributes.")
                     print(f"Using charge={charge} and mult={mult}")
-            elif fragment.charge != None and fragment.mult != None:
+            elif fragment.charge is not None and fragment.mult is not None:
                 print(
                     BC.WARNING,
-                    "Fragment contains charge/mult information: Charge: {} Mult: {} Using this instead".format(
-                        fragment.charge, fragment.mult
-                    ),
+                    f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult} Using this instead",
                     BC.END,
                 )
                 print(BC.WARNING, "Make sure this is what you want!", BC.END)
@@ -3296,7 +3114,7 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None, 
                 ashexit()
     elif theorytype == "ONIOM":
         print("Checking if charge/mult information present in ONIOM object")
-        if theory.fullregion_charge != None and theory.fullregion_mult != None:
+        if theory.fullregion_charge is not None and theory.fullregion_mult is not None:
             print("Found fullregion_charge and fullregion_mult attributes.")
             print("All good, continuing\n")
     elif theorytype == "MM":
@@ -3336,7 +3154,7 @@ def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000):
 # and an optional exclusion list (e.g. QM-region)
 def define_XH_constraints(fragment, actatoms=None, excludeatoms=None):
     print("Inside define_XH_constraints function")
-    if actatoms == None:
+    if actatoms is None:
         subset_elems = fragment.elems
         subset_coords = fragment.coords
         actatoms = fragment.atomlist
@@ -3350,9 +3168,9 @@ def define_XH_constraints(fragment, actatoms=None, excludeatoms=None):
     tempHatoms = [index for index, el in enumerate(subset_elems) if el == "H"]
     tempHatoms_full = [actindex_to_fullindex(i, actatoms) for i in tempHatoms]
     Hatoms = []
-    if excludeatoms != None:
+    if excludeatoms is not None:
         print("Checking for exclude atoms")
-        for th, th_f in zip(tempHatoms, tempHatoms_full):
+        for th, th_f in zip(tempHatoms, tempHatoms_full, strict=False):
             if th_f not in excludeatoms:
                 Hatoms.append(th)
     else:
@@ -3394,12 +3212,12 @@ def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False):
     print("Inside simple_get_water_constraints function")
     print("Warning: Note that water residues have to have O,H,H order and have to be at the end of the coordinate file")
     print("Starting index for first water oxygen:", starting_index)
-    if starting_index == None:
+    if starting_index is None:
         print("Error: You must provide a starting_index value!")
         ashexit()
     if fragment.elems[starting_index] != "O":
         print("Starting atom for water fragment is not oxygen!")
-        print("Make sure starting index ({}) is correct".format(starting_index))
+        print(f"Make sure starting index ({starting_index}) is correct")
         print("Also note that water fragments must have O H H order!")
         ashexit()
     if onlyHH is False:
@@ -3527,9 +3345,8 @@ def insert_solute_into_solvent(
         )
         print("membs2:", membs2)
         for j in membs2:
-            if j >= solute.numatoms + solute2.numatoms:
-                if j not in delatoms:
-                    delatoms.append(j)
+            if j >= solute.numatoms + solute2.numatoms and j not in delatoms:
+                delatoms.append(j)
     print("Final delatoms:", delatoms)
 
     # Deleting
@@ -3554,7 +3371,7 @@ def insert_solute_into_solvent(
 
         # PDB-files
         pdb1 = openmm.app.PDBFile(solute_pdb)
-        solute_resname = list(pdb1.topology.residues())[0].name
+        solute_resname = next(iter(pdb1.topology.residues())).name
         print("solute_resname:", solute_resname)
         pdb2 = openmm.app.PDBFile(solvent_pdb)
         solvent_box_vectors = pdb2.topology.getPeriodicBoxVectors()
@@ -3567,7 +3384,7 @@ def insert_solute_into_solvent(
         if solute2 is not None:
             print("Adding solute2")
             pdb_solute2 = openmm.app.PDBFile(solute2_pdb)
-            solute2_resname = list(pdb_solute2.topology.residues())[0].name
+            solute2_resname = next(iter(pdb_solute2.topology.residues())).name
             print("solute2_resname:", solute2_resname)
             modeller.add(pdb_solute2.topology, pdb_solute2.positions)  # Add pdbfile2
         print("Adding solvent")

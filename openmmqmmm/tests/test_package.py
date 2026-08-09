@@ -14,6 +14,7 @@ def test_import_silent():
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""

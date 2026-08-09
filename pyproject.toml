@@ -20,12 +20,13 @@ dependencies = [
     "numpy",
     "packaging",
     "geometric >= 1.0.1",
+    # openmm is required at import time (interface_OpenMM); conda-forge remains
+    # the recommended install route for the full stack (pdbfixer is conda-only).
+    "openmm >= 8",
 ]
 
 [project.optional-dependencies]
-# The OpenMM stack is best installed from conda-forge (see environment.yml);
-# pdbfixer in particular is not distributed on PyPI.
-openmm = ["openmm >= 8", "mdtraj"]
+md = ["mdtraj"]
 extras = ["matplotlib", "scipy", "parmed"]
 test = ["pytest"]
 
@@ -55,10 +56,12 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["F", "E4", "E7", "E9"]
+select = ["F", "E", "W", "I", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB", "PLE", "PLW"]
 ignore = [
-    # Temporary until the format/mechanical-lint phase:
-    "E402", "E701", "E711", "E712", "E721", "E731", "F541", "F841", "E741",
+    # The formatter owns line wrapping; long scientific strings exist
+    "E501",
+    # Loop-variable reassignment pervades the file parsers
+    "PLW2901",
     # Temporary until the exceptions phase:
     "E722",
 ]

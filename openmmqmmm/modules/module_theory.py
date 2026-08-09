@@ -4,7 +4,6 @@ import openmmqmmm
 from openmmqmmm.functions.functions_general import BC
 from openmmqmmm.modules.module_coords import print_coords_all
 
-
 # Basic Theory class
 
 
@@ -79,7 +78,7 @@ class NumGradclass:
             origfrag = openmmqmmm.Fragment(
                 coords=current_coords, elems=elems, label="orig", printlevel=0, charge=charge, mult=mult
             )
-            all_disp_fragments = [origfrag] + all_disp_fragments
+            all_disp_fragments = [origfrag, *all_disp_fragments]
             result = openmmqmmm.functions.functions_parallel.Job_parallel(
                 fragments=all_disp_fragments,
                 theories=[self.theory],
@@ -97,7 +96,7 @@ class NumGradclass:
         gradient = np.zeros((numatoms, 3))
         # 2-point
         if self.npoint == 2:
-            for atindex in range(0, numatoms):
+            for atindex in range(numatoms):
                 # Looping over x,yz
                 for u in [0, 1, 2]:
                     # Pos and neg directions
@@ -112,15 +111,11 @@ class NumGradclass:
                     gradient[atindex, u] = grad_component
         # 1-point
         elif self.npoint == 1:
-            for atindex in range(0, numatoms):
+            for atindex in range(numatoms):
                 # Looping over x,yz
                 for u in [0, 1, 2]:
                     # Pos direction only
-                    if self.runmode == "parallel":
-                        # '0_0_+'
-                        posval = dispdict[f"{atindex}_{u}_+"]
-                    else:
-                        posval = dispdict[(atindex, u, "+")]
+                    posval = dispdict[f"{atindex}_{u}_+"] if self.runmode == "parallel" else dispdict[atindex, u, "+"]
                     grad_component = (posval - orig_energy) / displacement_bohr
                     gradient[atindex, u] = grad_component
 
@@ -132,7 +127,7 @@ class NumGradclass:
 
 def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult, printlevel=2):
     displacement_bohr = displacement * 1.88972612546
-    print("Displacement: {:5.4f} Å ({:5.4f} Bohr)".format(displacement, displacement_bohr))
+    print(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
     print("Starting geometry:")
     print()
     print("Printing original geometry...")
@@ -143,8 +138,8 @@ def creating_displaced_geos(current_coords, elems, displacement, npoint, charge,
     # Only displacing atom if in hessatoms list. i.e. possible partial Hessian
     list_of_displaced_geos = []
     list_of_displacements = []
-    for atom_index in range(0, len(current_coords)):
-        for coord_index in range(0, 3):
+    for atom_index in range(len(current_coords)):
+        for coord_index in range(3):
             val = current_coords[atom_index, coord_index]
             # Displacing in + direction
             current_coords[atom_index, coord_index] = val + displacement
@@ -171,24 +166,17 @@ def creating_displaced_geos(current_coords, elems, displacement, npoint, charge,
     # Creating ASH fragments
     # Creating displacement labels as strings and adding to fragment
     # Also calclabels, currently used by runmode serial only
-    list_of_labels = []
     all_disp_fragments = []
-    for dispgeo, disp in zip(list_of_displaced_geos, list_of_displacements):
+    for dispgeo, disp in zip(list_of_displaced_geos, list_of_displacements, strict=False):
         # Original geo
         if disp == "Originalgeo":
-            calclabel = "Originalgeo"
-            stringlabel = f"Originalgeo"
+            stringlabel = "Originalgeo"
         # Displacements
         else:
-            atom_disp = disp[0]
-            if disp[1] == 0:
-                crd = "x"
-            elif disp[1] == 1:
-                crd = "y"
-            elif disp[1] == 2:
-                crd = "z"
-            drection = disp[2]
-            calclabel = "Atom: {} Coord: {} Direction: {}".format(str(atom_disp), str(crd), str(drection))
+            disp[0]
+            if disp[1] == 0 or disp[1] == 1 or disp[1] == 2:
+                pass
+            disp[2]
             stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
         # Create fragment
         frag = openmmqmmm.Fragment(

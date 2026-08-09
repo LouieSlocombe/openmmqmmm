@@ -290,27 +290,27 @@ def calc_cm5(atomicNumbers, coords, hirschfeldcharges):
             numbers = [atomicNumbers[i], atomicNumbers[j]]
             if numbers[0] == numbers[1]:
                 continue
-            if set(numbers) == set([1, 6]):
+            if set(numbers) == {1, 6}:
                 Tkk[i, j] = _DHC
                 if numbers == [6, 1]:
                     Tkk[i, j] *= -1.0
-            elif set(numbers) == set([1, 7]):
+            elif set(numbers) == {1, 7}:
                 Tkk[i, j] = _DHN
                 if numbers == [7, 1]:
                     Tkk[i, j] *= -1.0
-            elif set(numbers) == set([1, 8]):
+            elif set(numbers) == {1, 8}:
                 Tkk[i, j] = _DHO
                 if numbers == [8, 1]:
                     Tkk[i, j] *= -1.0
-            elif set(numbers) == set([6, 7]):
+            elif set(numbers) == {6, 7}:
                 Tkk[i, j] = _DCN
                 if numbers == [7, 6]:
                     Tkk[i, j] *= -1.0
-            elif set(numbers) == set([6, 8]):
+            elif set(numbers) == {6, 8}:
                 Tkk[i, j] = _DCO
                 if numbers == [8, 6]:
                     Tkk[i, j] *= -1.0
-            elif set(numbers) == set([7, 8]):
+            elif set(numbers) == {7, 8}:
                 Tkk[i, j] = _DNO
                 if numbers == [8, 7]:
                     Tkk[i, j] *= -1.0
@@ -326,7 +326,7 @@ def calc_cm5(atomicNumbers, coords, hirschfeldcharges):
 # Interface to XDM postg program
 # https://github.com/aoterodelaroza/postg
 def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
-    if postgdir == None:
+    if postgdir is None:
         # Trying to find postgdir in path
         print("postgdir keyword argument not provided to xdm_run. Trying to find postg in PATH")
         try:
@@ -352,34 +352,33 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
         "b86bpbe": [0.7443, 1.4072],
     }
 
-    if a1 == None or a2 == None:
+    if a1 is None or a2 is None:
         print("a1/a2 parameters not given. Looking up functional in table")
         print("Parameter table:", parameterdict)
         a1, a2 = parameterdict[functional.lower()]
         print(f"XDM a1: {a1}, a2: {a2}")
     with open("xdm-postg.out", "w") as ofile:
-        process = sp.run(
+        sp.run(
             [postgdir + "/postg", str(a1), str(a2), str(wfxfile), str(functional)],
             check=True,
             stdout=ofile,
             stderr=ofile,
-            universal_newlines=True,
+            text=True,
         )
 
     dispgrab = False
     dispgradient = []
-    with open("xdm-postg.out", "r") as xdmfile:
+    with open("xdm-postg.out") as xdmfile:
         for line in xdmfile:
             if "dispersion energy" in line:
                 dispenergy = float(line.split()[-1])
             if "dispersion force constant matrix" in line:
                 dispgrab = False
-            if dispgrab == True:
-                if "#" not in line:
-                    grad_x = -1 * float(line.split()[1])
-                    grad_y = -1 * float(line.split()[2])
-                    grad_z = -1 * float(line.split()[3])
-                    dispgradient.append([grad_x, grad_y, grad_z])
+            if dispgrab and "#" not in line:
+                grad_x = -1 * float(line.split()[1])
+                grad_y = -1 * float(line.split()[2])
+                grad_z = -1 * float(line.split()[3])
+                dispgradient.append([grad_x, grad_y, grad_z])
             if "dispersion forces" in line:
                 dispgrab = True
 

@@ -3,7 +3,6 @@ import os
 from openmmqmmm.functions.functions_general import ashexit
 from openmmqmmm.modules.module_coords import reformat_element
 
-
 ###################################
 ###################################
 
@@ -27,8 +26,7 @@ def mol_to_pdb(file):
 def sdf_to_pdb(file):
     # OpenBabel
     try:
-        from openbabel import openbabel
-        from openbabel import pybel
+        from openbabel import openbabel, pybel
     except ModuleNotFoundError:
         print("Error: sdf_to_pdb requires OpenBabel library but it could not be imported")
         print("You can install like this:    conda install --yes -c conda-forge openbabel")
@@ -78,8 +76,7 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
     print("xyz_to_pdb_with_connectivity function:")
     # OpenBabel
     try:
-        from openbabel import openbabel
-        from openbabel import pybel
+        from openbabel import openbabel, pybel
     except ModuleNotFoundError:
         print("Error: xyz_to_pdb_with_connectivity requires OpenBabel library but it could not be imported")
         print("You can install OpenBabel like this:    conda install --yes -c conda-forge openbabel")
@@ -129,8 +126,7 @@ def pdb_to_smiles(fname: str) -> str:
 def smiles_to_coords(smiles_string):
     # OpenBabel
     try:
-        from openbabel import pybel
-        from openbabel import openbabel
+        from openbabel import openbabel, pybel
     except ModuleNotFoundError:
         print("Error: smiles_to_coords requires OpenBabel library but it could not be imported")
         print("You can install like this:    conda install --yes -c conda-forge openbabel")
