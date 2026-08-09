@@ -1,16 +1,19 @@
 """
-Functions to print header, footer, logo, inputscript etc.
+Functions to print header, footer, inputscript etc.
 """
 import os
 import sys
 import time
 
 import openmmqmmm.settings_ash
-# import openmmqmmm
 from openmmqmmm.functions.functions_general import ashexit, BC, print_time_tot_color, timingsobject, \
     print_line_with_subheader1
 
-programversion = "0.9dev"
+try:
+    from importlib.metadata import version
+    programversion = version("openmmqmmm")
+except Exception:
+    programversion = "unknown"
 
 
 # ASH footer
@@ -31,51 +34,36 @@ def print_timings():
 
 def print_header():
     """
-    ASH initial output. Used to print header (logo, version etc.), set initial time, print inputscript etc.
+    Initial output: header (name, version), initial time, settings, inputscript.
     """
 
     # Initializes time
     global init_time
     init_time = time.time()
-    #########################################
-    # Print main header w/wo logo
-    #########################################
-    # Getting commit version number from file VERSION (updated by ashpull) inside module dir
-    try:
-        with open(os.path.dirname(openmmqmmm.__file__) + "/VERSION") as f:
-            git_commit_number = int(f.readline())
-    except Exception:
-        git_commit_number = "Unknown"
 
     print(f"{BC.OKGREEN}{'-' * 80}{BC.END}")
     print(f"{BC.OKGREEN}{'-' * 80}{BC.END}")
-    if openmmqmmm.settings_ash.settings_dict["print_logo"] is True:
-        print_logo()
-    else:
-        print("ASH".center(90))
-    print(f"{BC.WARNING}A MULTISCALE MODELLING PROGRAM{BC.END}".center(90))
+    print("openmmqmmm".center(90))
+    print(f"{BC.WARNING}ORCA + OpenMM QM/MM (trimmed ASH distribution){BC.END}".center(90))
     print(f"{BC.WARNING}{BC.BOLD}Version: {programversion}{BC.END}".center(95))
-    print(f"{BC.WARNING}Git commit version: {git_commit_number}{BC.END}".center(90))
     print(f"{BC.OKGREEN}{'-' * 80}{BC.END}")
     print(f"{BC.OKGREEN}{'-' * 80}{BC.END}")
 
-    print("ASH path:", openmmqmmm.settings_ash.ashpath)
+    print("Package path:", openmmqmmm.settings_ash.ashpath)
 
     # Check Python version
     pythonversion = (sys.version_info[0], sys.version_info[1], sys.version_info[2])
     print("Python version: {}.{}.{}".format(pythonversion[0], pythonversion[1], pythonversion[2]))
     print("Python interpreter:", sys.executable)
-    if pythonversion < (3, 6, 0):
-        print("ASH requires Python version 3.6.0 or higher")
+    if pythonversion < (3, 10, 0):
+        print("openmmqmmm requires Python version 3.10.0 or higher")
         ashexit()
 
-    print("\nASH Settings after reading defaults and ~/ash_user_settings.ini : ")
-    print("See https://ash.readthedocs.io/en/latest/basics.html#ash-settings on how to change settings.")
-    # print(openmmqmmm.settings_ash.settings_dict)
+    print("\nSettings after reading defaults and ~/ash_user_settings.ini : ")
     for key, val in openmmqmmm.settings_ash.settings_dict.items():
         print("\t", key, ": ", val)
 
-    print("\nNote: ASH can use ANSI escape sequences for displaying color. Use e.g. less -R to display")
+    print("\nNote: ANSI escape sequences can be used for displaying color. Use e.g. less -R to display")
     print("To turn on/off escape sequences, set: 'use_ANSI_color = False' in")
     print("~/ash_user_settings.ini")
     print()
@@ -96,73 +84,3 @@ def print_header():
                     pass
                 print(f"{BC.WARNING}{'=' * 80}", BC.END)
                 print()
-
-
-def print_logo():
-    # http://asciiflow.com
-    # https://textik.com/#91d6380098664f89
-    # https://www.gridsagegames.com/rexpaint/
-
-    #     ascii_banner = """
-    #    ▄████████    ▄████████    ▄█    █▄
-    #   ███    ███   ███    ███   ███    ███
-    #   ███    ███   ███    █▀    ███    ███
-    #   ███    ███   ███         ▄███▄▄▄▄███▄▄
-    # ▀███████████ ▀███████████ ▀▀███▀▀▀▀███▀
-    #   ███    ███          ███   ███    ███
-    #   ███    ███    ▄█    ███   ███    ███
-    #   ███    █▀   ▄████████▀    ███    █▀
-
-    #     """
-
-    ascii_banner_center = """
-                            ▄████████    ▄████████    ▄█    █▄
-                           ███    ███   ███    ███   ███    ███
-                           ███    ███   ███    █▀    ███    ███
-                           ███    ███   ███         ▄███▄▄▄▄███▄▄
-                         ▀███████████ ▀███████████ ▀▀███▀▀▀▀███▀
-                           ███    ███          ███   ███    ███
-                           ███    ███    ▄█    ███   ███    ███
-                           ███    █▀   ▄████████▀    ███    █▀
-
-    """
-    ascii_tree = """
-                  [      ▓          ▒     ╒                  ▓
-                  ╙█     ▓▓         ▓  -µ ╙▄        ¬       ▓▀
-               ▌∩   ▀█▓▌▄▄▓▓▓▄,  ▀▄▓▌    ▓  ▀█      ▌   █ ╓▓Γ ▄▓▀¬
-              ╓Γ╘     % ╙▀▀▀▀▀▓▓▄  ▓▓   █▓,╒  ▀▓   ▓▌ Æ▀▓▓▓ ▄▓▓¬ .     ▌
-              ▓  ^█    ▌  ▄    ▀▓▓ ▓▓m ▐▓ ▓▓  ▐▌▓▌▓▀   Å▓▓▓▓▀     ▐   ▐▓    ▄
-            ╘▓▌ \\  ▀▓▄▐▓ ▐▓     ▀▓▓▓▓m ▓▌▄▓▓█ ▓┘ ▓▓ ▄█▀▀▓▓▄   ▐▓  ▐▄  j▓   ▓
-          █  ╙▓  ╙▀▄▄▀▓▓µ ▓   ▄▄▀▀▓▓▓ ▓▓▓Σ▄▓▓▓Γ  ▓▓▓▀ █▓▀^▓  ▄▓   ▓   ▐▓  █
-        ▌  ▀▀█,▓▓  ▄╙▀▓▓▓▄▓▌▄▓▌   ▓▓  ▓▓▓▀▓▓▓▓▓  ▓▓▓▓▓▀ ╞ ▓▄▓▀ ╓─ ▓▄ ,▓█▀▀ .▀
-        ▐▄    ▀▓▓  ▓   ▓▓▓▓▓Γ╙▓▄  ▓▓▓▓▓▌▓▓▀▓Γ ▓▓▄▓▓▓▀  ▄ ▓▓▀  ▀   ▐▓▄▓▀   ▄▓
-   ╓┴▀███▓▓▓▄   ▓▓▓    █▓▓▓ ║ ¬▓▓▓▓▓▓▓▓▀  ▓▌  ▐▓▓▓▓  ▄▓▓▓▀  ▄▓██▀▀  ▓▓▄▓█▀Γ
-           ╙▀▓▓▓▓▓▓     ▓▓▓  █▄  ▀▓▓▓▓▓  j▓▄  ▓▓▓▓▓▓▓▓▀   █▓▓▀   ▄▓▓▓▀▐
-          ,▄µ  ▀▓▓▓▓▓▄  ▓▓▓   ▓▓▄▓▓▀▓▓▓▓▓▓▓  ▄▓▓▓▓▓▓▓▓▓▓▓▓▀  ▄▓▓▀▀¬
-    ▄▓█▀▀▀▀▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▄  ²▓▓▓    ▀▓▓▓▓ ▄▓▓▓▓▓▓▀▀▀¬   ▄▓▓▀¬ ▄Φ` ▄`       ▓
-  Σ▀Σ  ▄██▀▀Σ     ¬▀▓▓▓▓▓▓▓▓  j▓▓▌     ▐▓▓▓▓▓▓▓▓▀       .▓▓▀  ▄▓  ▄▓Γ   ▄▄▄▀▀
-     ╒▓               ▀▓▓▓▓▓▄,▓▓▓▓▓▓▓▓▄ ▓▓▓▓▓▓▓▓▓▄,     ▓▓▓▄▄▓▓▓█▀▀  ▓▓▀¬
-     ╙⌐       ▄         ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▐▀▓▓▓▓▓▓▓▓▓▓▓▓▀▀▓▓▓▓▓▓▓▀
-          ▄█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▀▀¬  ▐▀▓▓▓▓▓▓▓▓▓                      ▐▀▀▄
-       ▄▀▀▐▓▓▀▐  ¬*▐▀▀▀▀             ▓▓▓▓▓▓▓
-     ╒Γ   ▐▓                         ▓▓▓▓▓▓▓
-     Γ    ╫                          ▓▓▓▓▓▓▓
-                                     ▓▓▓▓▓▓▓
-                                    ▓▓▓▓▓▓▓▓▄
-                                   ▓▓▓▓▓▓▓▓▓▓▄
-                                ,▓▓▓▓▓▓▓▓▓▓▓▓▓▄
-                          ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▄▄▌▌▄▄▄
-                ,▄æ∞▄▄▄█▓▀▀▐¬▐▀▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▄ ▐▀▓▓▓▓▓▀▀▀▀Σ╙
-         ╙Φ¥¥▀▀▀▀   ╒▓   ▄▓█▀▀▓▓▓▓▓▓▓▓▀  ▓▓▓▓▓▓ ▀▓▓▄▄▐▀▀▀▀▀▐▐▀██
-                    ▓▌▄▓▓▀  ▓▓▓▓▓▀▀▓▓     ▓▓ ▓▓▓   ▐▀▀█▓▓▌¥4▀▀▀▀▓▓▄
-               `ΓΦ▀▓▀▐   ▄▄▓▓ ▓▓  ▐▌▓     ▓▓▓ ▓▀▀▓▄     ,▓▓      ▀▀▀▀▀
-                 ▄▀,  ▄█▀▀ ▓¬ ▓τ  ▓ ▐▓   ▓  ▓  ¥ ▓        ▀▌
-               ^    ▓▀    █  ▓▀ ▄█¬ ▐▓  ▌   Γ   ▐▓τ*       ▀█▄
-                   ▓   /Γ ƒ▀ⁿ  █    ▓   Γ      ╓▀▐⌐          ¬▀²
-                   ▓      \\    ▀    ╙µ  ⌡
-                                     └
-    """
-    # print(BC.OKBLUE,ascii_banner3,BC.END)
-    # print(BC.OKBLUE,ascii_banner2,BC.END)
-    print(f"{BC.OKGREEN}{ascii_banner_center}{BC.END}")
-    print(f"{BC.OKGREEN}{ascii_tree}{BC.END}")

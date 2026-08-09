@@ -14,22 +14,14 @@ import sys
 
 # Getting ASH-path
 ashpath = str(pathlib.Path(__file__).parent.resolve())
-print("ashpath:", ashpath)
-###############
-# ASH modules
-###############
-# Adding modules,interfaces directories to sys.path
-sys.path.insert(0, ashpath)
-print("Sys path:", sys.path)
 
 from .functions.functions_general import blankline, BC, listdiff, print_time_rel, pygrep, \
     printdebug, read_intlist_from_file, writelisttofile, ashexit, natural_sort
 
-# Test if inputfile has a bad name
+# Guard against a .py file in the working directory shadowing a required package
 inputfile_base = os.path.splitext(sys.argv[0])[0]
-pyfiles_in_dir = glob.glob('*.py')
 forbidden_inputfilenames = ['openmmqmmm', 'openmm', 'geometric', 'mdtraj', 'openbabel']
-for pyfile in pyfiles_in_dir:
+for pyfile in glob.glob('*.py'):
     if os.path.splitext(pyfile)[0] in forbidden_inputfilenames:
         print(f"Error: Current directory contains file : {inputfile_base}.py with a forbidden name. Please rename it")
         print("Forbidden names:", forbidden_inputfilenames)

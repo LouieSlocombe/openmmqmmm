@@ -3,16 +3,6 @@ import numpy as np
 from openmmqmmm.functions.functions_general import ashexit
 
 
-# This module contains functions for handling periodic boundary conditions (PBC) and related coordinate transformations.
-
-
-# Function that calculates box size of a molecule in a cubic box
-# with optional shift
-
-
-# More general
-
-
 def cell_params_to_vectors(parameters):
     a, b, c, alpha, beta, gamma = parameters
     # Convert angles to radians

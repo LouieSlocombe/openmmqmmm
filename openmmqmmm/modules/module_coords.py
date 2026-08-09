@@ -6,14 +6,11 @@ import copy
 import time
 import numpy as np
 import os
-import subprocess as sp
 
 from collections import defaultdict
 
 from openmmqmmm.functions.functions_general import ashexit, isint, listdiff, print_time_rel, BC, printdebug, \
-    print_line_with_mainheader, \
-    print_line_with_subheader1, print_line_with_subheader1_end, print_line_with_subheader2, writelisttofile, \
-    search_list_of_lists_for_index, natural_sort
+    print_line_with_subheader1, print_line_with_subheader1_end, print_line_with_subheader2, search_list_of_lists_for_index, natural_sort
 
 import openmmqmmm.dictionaries_lists
 import openmmqmmm.settings_ash
@@ -1156,9 +1153,6 @@ def reformat_element(elem, isatomnum=False):
     return el_correct
 
 
-# Remove zero charges
-
-
 # Covalent radii (Angstrom) used for simple connectivity detection.
 # Subset covering most common elements; extend as needed.
 _COVALENT_RADII = {
@@ -1384,13 +1378,6 @@ def print_internal_coordinate_table(fragment, actatoms=None):
     print_time_rel(timeA, modulename='print internal coordinate table')
 
 
-# Function to check if string corresponds to an element symbol or not.
-# Compares in lowercase
-
-
-# Checks if list of string is list of elements or no
-
-
 # From lists of coords,elems and atom indices, print coords with elem
 def print_coords_for_atoms(coords, elems, members, labels=None):
     if labels is not None:
@@ -1417,10 +1404,6 @@ def write_XYZ_for_atoms(coords, elems, members, name):
         for el, c in zip(subset_elems, subset_coords):
             line = "{:4} {:>12.6f} {:>12.6f} {:>12.6f}".format(el, c[0], c[1], c[2])
             ofile.write(line + '\n')
-
-
-# Write a multi-XYZ-file, i.e. XYZ trajectory from a list with each sublist containing list of elements and np array of coords
-# el_and_coords : [[['O','H','H'],np.array([[0.0, 0.0, 0.0],[0.0,0.0,1.0],[0.0,0.0,-1.0]])],etc.]
 
 
 # From lists of coords,elems and atom indices, print coords with elems
@@ -1601,9 +1584,6 @@ def change_origin_to_centroid(fullcoords, subsetcoords=None, subsetatoms=None):
     return newcoords
 
 
-# get_solvshell function based on single point of origin. Using geometric center of molecule
-
-
 # Determine threshold for whether atoms are connected or not based on covalent radii for pair of atoms
 # R_ij < scale*(rad_i + rad_j) + tol
 # Uses global scale and tol parameters that may be changed at input
@@ -1692,14 +1672,6 @@ def get_connected_atoms_dict(coords, elems, scale, tol):
     return conndict
 
 
-# Get connected atoms for a small list of atoms with input fragment, includes input atoms
-# Used e.g. in NEB-TS
-
-
-# Numpy clever loop test.
-# Either atomindex or membs has to be defined
-
-
 # Numpy clever loop test.
 # Version 2 never goes through same atom
 
@@ -1747,18 +1719,6 @@ def get_molecule_members_loop_np2(coords, elems, loopnumber, scale, tol, atomind
         # openmmqmmm.print_time_rel(timestampA, modulename='finalmembs  py')
         # ashexit()
     return finalmembs
-
-
-# Get molecule members by running get_connected_atoms function on expanding member list
-# Uses loopnumber for when to stop searching.
-# Does extra work but not too bad
-# Uses either single atomindex or members lists
-
-
-# Get-molecule-members with fixed recursion-depth of 4
-# Efficient but limited to 4
-# Updated to 5
-# Maybe not so efficient after all
 
 
 # Takes list of elements and gives formula
@@ -2223,9 +2183,6 @@ def read_ambercoordinates(prmtopfile=None, inpcrdfile=None):
     return elems, coords, box_dims
 
 
-# Write Amber crd file from either ASH fragment or PDB-file
-
-
 # Write PDBfile proper
 # Example,manual: write_pdbfile(frag, outputname="name", atomnames=openmmobject.atomnames, resnames=openmmobject.resnames, residlabels=openmmobject.resids,segmentlabels=openmmobject.segmentnames)
 # Example, simple: write_pdbfile(frag, outputname="name", openmmobject=objname)
@@ -2329,9 +2286,6 @@ def write_pdbfile(fragment, outputname="ASHfragment", openmmobject=None, atomnam
                 pfile.write(conectline)
     print("Wrote PDB file: ", outputname + '.pdb')
     return outputname + '.pdb'
-
-
-# Calculate nuclear charge from XYZ-file
 
 
 # Calculate total nuclear charge from list of elements
@@ -2633,12 +2587,6 @@ def rmsd(V, W):
     return np.sqrt(rmsd / N)
 
 
-# Turbomol coord->xyz
-
-
-# Turbomole xyz->coord
-
-
 # Get partial list by deleting elements not present in provided list of indices.
 def get_partial_list(allatoms, partialatoms, l):
     newlist = copy.copy(l)  # Otherwise object may be updated
@@ -2647,11 +2595,6 @@ def get_partial_list(allatoms, partialatoms, l):
     for at in otheratoms:
         del newlist[at]
     return newlist
-
-
-# Old function that used scipy to do distances and Hungarian.
-
-
 
 
 # Hungarian reorder algorithm
@@ -2671,20 +2614,6 @@ def reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
     q_review = reorder_method(p_atoms, q_atoms, p_coord, q_coord)
     reorderlist = [q_review.tolist()][0]
     return reorderlist
-
-
-##########################################
-# MOLECULAR CRYSTAL PBC FUNCTIONS
-##########################################
-
-
-# Extend cell in general with original cell in center
-
-
-# From Pymol. Not sure if useful
-
-
-# Create a molecular cluster from a periodix box based on radius and chosen atom(s)
 
 
 # QM-region expand function. Finds whole fragments.
@@ -2728,12 +2657,6 @@ def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
                     atomlist = atomlist + wholemol
     atomlist = np.unique(atomlist).tolist()
     return atomlist
-
-
-# Similar to QMregionfragexpand but cleaner
-
-
-
 
 
 # Function to do QM-region expansion based on QM/MM pointcharge gradient
@@ -2941,9 +2864,6 @@ def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=Fa
     return list_of_molecules
 
 
-# Function to update list of atomindices after deletion of a list of atom indices (used in remove_atoms functions below)
-
-
 # Get list of lists of water constraints in system (O-H,O-H,H-H) via OpenMM theory
 def getwaterconstraintslist(openmmtheoryobject=None, atomlist=None, watermodel='tip3p'):
     print("Inside getwaterconstraintslist")
@@ -2997,9 +2917,6 @@ def getwaterconstraintslist(openmmtheoryobject=None, atomlist=None, watermodel='
     #            waterconstraints.append([index + 1, index + 2])
 
     return waterconstraints
-
-
-# Check whether spin multiplicity is consistent with the nuclear charge and total charge
 
 
 # Check if charge/mult variables are not None. If None check fragment
@@ -3165,9 +3082,6 @@ def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False):
             # H-H constraints. i.e. effectively freezing angles
             constraints.append([i + 1, i + 2])
     return constraints
-
-
-# Function that adds R-group to an ASH fragment
 
 
 # Combien and place 2 fragments
@@ -3344,9 +3258,6 @@ def nuc_nuc_repulsion(coords, charges):
     distances = np.linalg.norm(diff, axis=2)
     np.fill_diagonal(distances, np.inf)
     return 0.5 * np.sum(charges[:, None] * charges[None, :] / distances)
-
-
-# a: the coordinates b: coordinates for 1 atom
 
 
 # Very simple dummy topology (no connectivity or bonds)

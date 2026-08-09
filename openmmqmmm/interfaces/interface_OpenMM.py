@@ -1,6 +1,4 @@
 import copy
-import glob
-import itertools
 import numpy as np
 import os
 import time
@@ -15,7 +13,7 @@ from openmmqmmm.functions.functions_general import ashexit, BC, print_time_rel, 
     create_conn_dict, \
     pygrep, print_if_level
 
-from openmmqmmm.modules.module_coords import Fragment, write_pdbfile, distance_between_atoms, list_of_masses, write_xyzfile, \
+from openmmqmmm.modules.module_coords import Fragment, write_pdbfile, distance_between_atoms, write_xyzfile, \
     change_origin_to_centroid, get_centroid, check_charge_mult, check_gradient_for_bad_atoms, \
     define_dummy_topology
 
@@ -906,7 +904,7 @@ class OpenMMTheory:
         import openmm
         from packaging import version
         if use_parmed is True:
-            import parmed
+            pass
         print("Inspecting periodicity input before system creation")
         print("periodic_cell_vectors:", periodic_cell_vectors)
         print("periodic_cell_dimensions:", periodic_cell_dimensions)
@@ -2254,12 +2252,6 @@ class ForceReporter(object):
 # For frozen systems we use Customforce in order to specify interaction groups
 # if len(self.frozen_atoms) > 0:
 
-# Two possible ways.
-# https://github.com/openmm/openmm/issues/2698
-# 1. Use CustomNonbondedForce  with interaction groups. Could be slow
-# 2. CustomNonbondedForce but with scaling
-
-
 # https://ahy3nz.github.io/posts/2019/30/openmm2/
 # http://www.maccallumlab.org/news/2015/1/23/testing
 
@@ -2357,15 +2349,6 @@ def create_cnb(original_nbforce, system_numparticles):
 
 
 # TODO: Look into: https://github.com/ParmEd/ParmEd/blob/7e411fd03c7db6977e450c2461e065004adab471/parmed/structure.py#L2554
-
-# myCustomNBForce= simtk.openmm.CustomNonbondedForce("4*epsilon*((sigma/r)^12-(sigma/r)^6); sigma=0.5*(sigma1+sigma2); epsilon=sqrt(epsilon1*epsilon2)")
-# myCustomNBForce.setNonbondedMethod(simtk.openmm.app.NoCutoff)
-# myCustomNBForce.setCutoffDistance(1000*simtk.openmm.unit.angstroms)
-# Frozen-Act interaction
-# myCustomNBForce.addInteractionGroup(self.frozen_atoms,self.active_atoms)
-# Act-Act interaction
-# myCustomNBForce.addInteractionGroup(self.active_atoms,self.active_atoms)
-
 
 # Clean up list of lists of constraint definition. Add distance if missing
 def clean_up_constraints_list(fragment=None, constraints=None, printlevel=2):
@@ -3229,11 +3212,6 @@ def solvate_small_molecule(fragment=None, charge=None, mult=None, watermodel=Non
     return forcefield, modeller.topology, newfragment
 
 
-# Function to get nonbonded model parameters for a metal cluster
-# Too similar to create_nonbonded_model_xmlfile
-# TODO: Add option to symmetrize charges for similar atoms in residue
-
-
 # Simple XML-writing function. Will only write nonbonded parameters
 def write_xmlfile_nonbonded(resnames=None, atomnames_per_res=None, atomtypes_per_res=None, elements_per_res=None,
                             masses_per_res=None, charges_per_res=None, sigmas_per_res=None,
@@ -3342,11 +3320,6 @@ def read_NPT_statefile(npt_output):
 
     resultdict = {"steps": steps, "volume": volume, "density": density}
     return resultdict
-
-
-###########################
-# CLASS-BASED OpenMM_MD
-###########################
 
 
 # Wrapper function for OpenMM_MDclass
@@ -4711,9 +4684,6 @@ def OpenMM_box_equilibration(fragment=None, theory=None, datafilename="nptsim.cs
     return md.state.getPeriodicBoxVectors()
 
 
-# Kinetic energy from velocities
-
-
 # Used in OpenMM_MD when doing simulation step-by-step (e.g. QM-MD and QM/MM MD)
 def print_current_step_info(step, state, openmmobject, qm_energy=None):
     import openmm
@@ -4959,7 +4929,6 @@ def OpenMM_metadynamics(fragment=None, theory=None, timestep=0.001, simulation_s
         md.user_biasvar2 = user_biasvar2
 
     # Load OpenMM.app
-    import openmm
 
     # If RMSD CV
     if CV1_type == 'rmsd' or CV2_type == 'rmsd':
@@ -5103,7 +5072,6 @@ def OpenMM_MD_plumed(fragment=None, theory=None, timestep=0.001, simulation_step
                         barostat_frequency=barostat_frequency, printlevel=printlevel)
 
     # Load OpenMM.app
-    import openmm
 
     print("Setting up Plumed")
     # OPTION to provide the full Plumed input as string instead
@@ -5374,13 +5342,6 @@ def create_CV_bias(CV_type, CV_atoms, biaswidth_cv, CV_range=None, reference_pos
     return CV_bias, cvforce
 
 
-# Standalone function to create Plumed input-string based on basic MTD info and CVs
-# NOTE: SIGMA. Possible unit conversion needed here?
-# NOTE: grid min and max settings
-# NOTE: distance_mingrid and distance_maxgrid controls min and max for distances.
-# dihedrals and angles are -pi to pi and 0 to pi
-
-
 # Calculate free-energy from total bias array
 def free_energy_from_bias_array(temperature, biasFactor, totalBias):
     deltaT = temperature * (biasFactor - 1)
@@ -5557,12 +5518,6 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat='png', plot_xlim=N
         return
 
 
-# Get atom indices outside box according to centroid of box and boxlength
-
-
-# Function to wrap coordinates of whole molecules outside box
-
-
 # Function to wrap coordinates of whole molecules outside box
 
 
@@ -5629,8 +5584,6 @@ def small_molecule_parameterizer(charge=None, xyzfile=None, pdbfile=None, molfil
     # OpenMM
     try:
         import openmm
-        from openmm.app import ForceField
-        from openmm.app import PDBFile
         from openmm.app import ForceField
     except ModuleNotFoundError:
         print("OpenMM is required but could not be imported")
@@ -5946,9 +5899,6 @@ def calc_nonbonding_energy_exceptions(system=None):
 
         # Return Coulomb energy and LJ energy
     return coulomb_energy, lj_energy
-
-
-# Function to calculate the total nonbonded energy  an OpenMM system
 
 
 # Function that uses parmed to write an XML-file topology and OpenMM system

@@ -3,17 +3,15 @@ import math
 import numpy as np
 import os
 import shutil
-import sys
 import time
 
 import openmmqmmm.constants
 import openmmqmmm.interfaces.interface_ORCA
 import openmmqmmm.modules.module_coords
 from openmmqmmm.functions.functions_general import ashexit, listdiff, clean_number, blankline, BC, print_time_rel, \
-    print_line_with_mainheader, isint
+    print_line_with_mainheader
 from openmmqmmm.modules.module_QMMM import QMMMTheory
-from openmmqmmm.modules.module_coords import check_charge_mult, read_xyzfile, \
-    Fragment
+from openmmqmmm.modules.module_coords import check_charge_mult
 from openmmqmmm.modules.module_results import ASH_Results
 
 
@@ -619,11 +617,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
                          freq_polarizability_derivs=polarizability_derivs)
     result.write_to_disk(filename="ASH_NumFreq.result")
     return result
-
-
-# HESSIAN-related functions below
-# Get partial matrix by deleting rows not present in list of indices.
-# Deletes numpy rows, stupid and slow, to be deleted
 
 
 # Get partial matrix properly
@@ -1522,9 +1515,6 @@ def normalmodecomp(evectors, j, a):
     return sum(esq_ja)
 
 
-# Get all normal mode composition factors for atom a
-
-
 # Get normal mode composition factors for all atoms for a specific mode only
 def normalmodecomp_all(mode, fragment, evectors, hessatoms=None):
     if hessatoms == None:
@@ -1569,26 +1559,6 @@ def normalmodecomp_permode_by_elems(mode, fragment, vfreq, evectors, silent=Fals
         elementnormcomplist.append(elcompsum)
         normmodecompelemsdict[u] = elcompsum
     return normmodecompelemsdict
-
-
-# Get atoms that contribute most to specific mode of Hessian
-# Example: get atoms (atom indices) most involved in imaginary mode of transition state
-# TODO: Support partial Hessian
-
-
-# TODO: Rewrite and make more modular
-# Function to print normal mode composition factors for all atoms, element-groups, specific atom groups or specific atoms
-
-
-# Write normal mode as XYZ-trajectory (with only Hessatoms or Allatoms shown)
-# Read in normalmode vectors from diagonalized mass-weighted Hessian after unweighting.
-# Print out XYZ-trajectory of mode
-# NOTE: Now using freqdict (what Numfreq/Anfreq returns) and grabbing all info from there
-# NOTE: Store this in fragment instead??
-
-
-# Compare the similarity of normal modes by cosine similarity (normalized dot product of normal mode vectors).
-# Useful for isotope-substitutions. From Hess-tool.
 
 
 # Vibrational entropy by plain harmonic approximation
@@ -1692,9 +1662,6 @@ def detect_linear(fragment=None, coords=None, elems=None, threshold=1e-4):
         # print("nothing detected")
         print("Molecule is non-linear")
         return False
-
-
-# Simple function to get Wigner distribution from geometry
 
 
 # Simple function to get the relevant part (real or imaginary) part of a complex number

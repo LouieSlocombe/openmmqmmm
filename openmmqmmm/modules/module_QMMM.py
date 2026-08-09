@@ -5,7 +5,7 @@ import time
 
 import openmmqmmm.modules.module_coords
 import openmmqmmm.settings_ash
-from openmmqmmm.functions.functions_general import ashexit, BC, blankline, listdiff, print_time_rel, printdebug, \
+from openmmqmmm.functions.functions_general import ashexit, BC, blankline, print_time_rel, printdebug, \
     print_line_with_mainheader, writelisttofile, print_if_level
 from openmmqmmm.modules.module_coords import Fragment
 
@@ -1683,9 +1683,6 @@ def actregiondefine(pdbfile=None, mmtheory=None, psffile=None, fragment=None, ra
     openmmqmmm.modules.module_coords.write_XYZ_for_atoms(fragment.coords, fragment.elems, act_indices, "ActiveRegion")
     print("Wrote Active region XYZfile: ActiveRegion.xyz  (inspect with visualization program)")
     return act_indices
-
-
-# General QM-PC gradient calculation
 
 
 # This projects the linkatom force onto the respective QM atom and MM atom

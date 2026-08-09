@@ -1,16 +1,7 @@
-import numpy as np
 import os
-import shutil
-import subprocess as sp
-import time
 
-import openmmqmmm.settings_ash
-from openmmqmmm.functions.functions_general import ashexit, BC, print_time_rel
+from openmmqmmm.functions.functions_general import ashexit
 from openmmqmmm.modules.module_coords import reformat_element
-
-
-# Interface to OpenBabel for running implemented theories (e.g. UFF)
-# TODO: Move other OpenBabel functionality to this file
 
 
 ###################################

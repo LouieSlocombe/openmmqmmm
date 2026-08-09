@@ -1,15 +1,9 @@
-import atexit
-import math
 import numpy as np
 import os
-import re
-import shutil
 import sys
 import time
-from functools import wraps
 
 import openmmqmmm.settings_ash
-from openmmqmmm import ashpath
 
 # ANSI colors: http://jafrog.com/2013/11/23/colors-in-terminal.html
 if openmmqmmm.settings_ash.settings_dict["use_ANSI_color"] is True:
@@ -36,10 +30,6 @@ else:
         END = ''
         BOLD = ''
         UNDERLINE = ''
-
-
-# Create ASH environment shell-file in home-dir
-# Simple shell script to active ASH environment for future calcs
 
 
 # TODO: Avoid reloading
@@ -75,15 +65,6 @@ def ashexit(errormessage=None, code=1):
 
 def basename(filename):
     return os.path.splitext(filename)[0]
-
-
-# Attempt to generally find a 3rd-party program based on path, exename etc.
-# Either programdir variable is already set, else we try to find based on programdirname or exename
-
-
-# Get ranges of integers from list. Returns string of ranges. Used to communitcate with crest and xtb
-# example: input: [1,2,3,4,5,6,20,21,22,23,500,700,701,702,1000,1100,1101]
-# output: '1-6,20-23,500,700-702,1000,1100-1101'
 
 
 # Grep-style function to find a line in file and return a list of words
@@ -124,17 +105,6 @@ def listdiff(list1, list2):
     diff = (list(set(list1) - set(list2)))
     diff.sort()
     return diff
-
-
-# Range function for floats
-# Using round to deal with floating-point problem : 0.6+0.3 =0.89999
-
-
-# Function to find n highest max values and indices
-# Quite ugly
-
-
-# FUNCTIONS TO PRINT MODULE AND SUBMODULE HEADERS
 
 
 # Print string if printlevel equals or larger than reference
@@ -222,19 +192,6 @@ def isint(s):
         return False
 
 
-# Is integer odd
-
-
-# Compare sign of two numbers. Return True if same sign, return False if opposite sign
-
-
-# Is it possible to interpret string/number as float.
-# Note: integer variable/string can be interpreted.
-
-
-# Is string a float with single decimal point
-
-
 # Search list of lists. Returns list-index if match
 
 def search_list_of_lists_for_index(i, l):
@@ -249,24 +206,6 @@ def create_conn_dict(l):
             if value not in index:
                 index[value] = c
     return index
-
-
-# Check if list of integers is sorted or not.
-
-
-# Read lines of file by slurping.
-# def readlinesfile(filename):
-#    try:
-#        f = open(filename)
-#        out = f.readlines()
-#        f.close()
-#    except IOError:
-#        print('File %s does not exist!' % (filename))
-#        ashexit()
-#    return out
-
-
-# Find substring of string between left and right parts
 
 
 # Read list of integers from file. Output list of integers. Ignores blanklines, return chars, non-int characters
@@ -286,23 +225,6 @@ def read_intlist_from_file(filename, offset=0):
         ashexit()
     intlist.sort()
     return intlist
-
-
-# Read list of flaots from file. Output list of floats.
-# Works for single-line with numbers and multi-lines
-
-
-# Read simple datafile (e.g. .dat and .stk files from ORCA).
-# Separator is Python default whitespace.
-
-
-# Write simple datafile
-# Separator is Python default whitespace.
-
-
-# Fast numpy-array to file
-# https://stackoverflow.com/questions/53820891/speed-of-writing-a-numpy-array-to-a-text-file
-# Note: float_format needs to match dimension of array
 
 
 # Write a string to file simply
@@ -332,9 +254,6 @@ def natural_sort(l):
 
 def clean_number(number):
     return np.real_if_close(number)
-
-
-# Function to get unique values
 
 
 # Extract column from matrix
@@ -465,9 +384,6 @@ class Timings:
         print("")
         print("{:35}{:>20.2f}".format("Sum of all moduletimes (flawed)", self.totalsumtime))
         print("{:35}{:>20.2f}{:>10}".format("Total walltime", totalwalltime, 100.0))
-
-
-# General pretty table of things
 
 
 # Creating object

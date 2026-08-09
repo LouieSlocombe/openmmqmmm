@@ -1,8 +1,7 @@
 import numpy as np
-import os
 
 import openmmqmmm
-from openmmqmmm.functions.functions_general import ashexit, BC
+from openmmqmmm.functions.functions_general import BC
 from openmmqmmm.modules.module_coords import print_coords_all
 
 

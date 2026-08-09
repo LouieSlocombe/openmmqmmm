@@ -24,9 +24,6 @@ settings_dict["debugflag"] = False
 # Whether to use ANSI color escape sequences in output or not.
 settings_dict["use_ANSI_color"] = False
 
-# Print logo or not
-settings_dict["print_logo"] = False
-
 # Print inputfile or not in beginning of job
 settings_dict["print_input"] = True
 
@@ -76,5 +73,4 @@ try_read_setting("use_ANSI_color", "bool")
 try_read_setting("print_input", "bool")
 try_read_setting("print_exit_footer", "bool")
 try_read_setting("print_full_timings", "bool")
-try_read_setting("print_logo", "bool")
 try_read_setting("debugflag", "bool")

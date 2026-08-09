@@ -1,6 +1,4 @@
-import copy
 import glob
-import multiprocessing as mp
 import numpy as np
 import os
 import shutil
@@ -14,9 +12,8 @@ import openmmqmmm.modules.module_coords
 import openmmqmmm.settings_ash
 from openmmqmmm.functions.functions_general import ashexit, insert_line_into_file, BC, print_time_rel, \
     print_line_with_mainheader, pygrep2, \
-    pygrep, search_list_of_lists_for_index, print_if_level, writestringtofile, listdiff
+    pygrep, search_list_of_lists_for_index, print_if_level, listdiff
 from openmmqmmm.modules.module_coords import check_charge_mult, print_internal_coordinate_table_new
-from openmmqmmm.modules.module_singlepoint import Singlepoint
 
 
 # ORCA Theory object.
@@ -902,18 +899,6 @@ def check_ORCAbinary(orcadir):
         ashexit()
 
 
-# Once inputfiles are ready, organize them. We want open-shell calculation (e.g. oxidized) to reuse closed-shell GBW file
-# https://www.machinelearningplus.com/python/parallel-processing-python/
-# Good subprocess documentation: http://queirozf.com/entries/python-3-subprocess-examples
-# https://shuzhanfan.github.io/2017/12/parallel-processing-python-subprocess/
-# https://data-flair.training/blogs/python-multiprocessing/
-# https://rsmith.home.xs4all.nl/programming/parallel-execution-with-python.html
-
-
-# Run single-point ORCA calculation (Energy or Engrad). Assumes no ORCA parallelization.
-# Function can be called by multiprocessing.
-
-
 # Run ORCA single-point job using ORCA parallelization. Will add pal-block if numcores >1.
 def run_orca_SP_ORCApar(orcadir, inpfile, numcores=1, check_for_warnings=True, check_for_errors=True,
                         bind_to_core_option=True, ignore_ORCA_error=False):
@@ -1198,20 +1183,6 @@ def grab_polarizability_tensor(outfile):
     return pz_tensor, diag_pz_tensor
 
 
-# Grab multiple Final single point energies in output. e.g. new_job calculation
-
-
-# Grab SCF energy (non-dispersion corrected)
-
-
-# Get reference energy and correlation energy from a single post-HF calculation
-# Support regular CC, DLPNO-CC, CC-12, DLPNO-CC-F12
-# Note: CC-12 untested
-
-
-# Grab XES state energies and intensities from ORCA output
-
-
 # Grab TDDFT state energies from ORCA output
 def tddftgrab(file):
     tddftstates = []
@@ -1261,18 +1232,6 @@ def grab_IR_intensities(filename):
             if '$ir_spectrum' in line:
                 grab = True
     return intensities
-
-
-# Grab energies from unrelaxed scan in ORCA (paras block type)
-
-
-# TODO: Limited older version. Better version below
-
-
-# Grab <S**2> expectation values from outputfile
-
-
-# Function to grab masses and elements from ORCA Hessian file
 
 
 # Function to write ORCA-style Hessian file
@@ -1353,9 +1312,6 @@ def write_ORCA_Hessfile(hessian, coords, elems, masses, hessatoms, outputname):
     print("ORCA-style Hessian written to:", outputname)
 
 
-# Grab frequencies from ORCA-Hessian file
-
-
 # Function to grab Hessian from ORCA-Hessian file
 def Hessgrab(hessfile):
     hesstake = False
@@ -1398,24 +1354,6 @@ def Hessgrab(hessfile):
                 hesstake = True
                 grabsize = True
         return hessarray2d
-
-
-# Create PC-embedded ORCA inputfile from elems,coords, input, charge, mult,pointcharges
-# Compound method version. Doing both redox states in same job.
-# Adds specific basis set on atoms not defined as solute-atoms.
-
-
-# Create PC-embedded ORCA inputfile from elems,coords, input, charge, mult,pointcharges
-# new_job feature. Doing both redox states in same job.
-# Works buts discouraged.
-
-
-# Create gas ORCA inputfile from elems,coords, input, charge, mult. No pointcharges.
-# new_job version. Works but discouraged.
-
-
-# Create gas ORCA inputfile from elems,coords, input, charge, mult. No pointcharges.
-# compoundmethod version.
 
 
 # Create PC-embedded ORCA inputfile from elems,coords, input, charge, mult,pointcharges
@@ -1585,10 +1523,6 @@ def create_orca_pcfile(name, coords, listofcharges):
         for p, c in zip(listofcharges, coords):
             line = "{} {} {} {}".format(p, c[0], c[1], c[2])
             pcfile.write(line + '\n')
-
-
-# Chargemodel select. Creates ORCA-inputline with appropriate keywords
-# To be added to ORCA input.
 
 
 # Grabbing spin populations
@@ -1780,9 +1714,6 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
     # print(p.returncode)
 
 
-# Grab IPs from an EOM-IP calculation and also largest singles amplitudes. Approximation to Dyson norm.
-
-
 # Reading stability analysis from output. Returns true if stab-analysis good, otherwise falsee
 # If no stability analysis present in output, then also return true
 
@@ -1806,9 +1737,6 @@ def SCF_FODocc_grab(filename):
     return occupations
 
 
-# Grab ICE-WF info from CASSCF job
-
-
 # Grab ICE-WF CFG info from CI job
 def ICE_WF_CFG_CI_size(filename):
     num_after_SD_CFGs = 0
@@ -1823,9 +1751,6 @@ def ICE_WF_CFG_CI_size(filename):
             if ' # of generator configurations' in line:
                 num_genCFGs = int(line.split()[5])
     return num_genCFGs, num_selected_CFGs, num_after_SD_CFGs
-
-
-# Charge/mult must be in fragments
 
 
 # Writes the ORCA-style .engrad file that the generated otool_external script
@@ -1979,56 +1904,6 @@ end
     print("Final energy from external ORCA job:", energy)
 
     return energy
-
-
-# Simple Wrapper around orca_mapspc
-
-
-# Simple function to get elems and coordinates from ORCA outputfile
-# Should read both single-point and optimization jobs correctly
-
-
-# Make an ORCA fragment guess
-
-
-# Find localized orbitals in ORCA outputfile for a given element
-# Return orbital indices (to be fed into run_orca_plot)
-
-
-# Reverse JSON to GBW
-
-
-# Using orca_2json to create JSON file from ORCA GBW file
-# Format options: json, bson, ubjson, msgpack
-
-
-# Parse ORCA json file
-# Good for getting MO-coefficients, MO-energies, basis set, H,S,T matrices, densities etc.
-
-
-# Read BSON files using independent BSON codec for Python (not MongoDB)
-# Msgpack probably better
-
-
-# Grab ORCA wfn from jsonfile or data-dictionary
-
-
-# Function to prepare ORCA orbitals for another ORCA calculation
-# Mainly for getting natural orbitals
-
-
-# TODO: fix once ORCA6 bugfix is done
-# https://orcaforum.kofo.mpg.de/viewtopic.php?f=11&t=11657&p=47529&hilit=vpot#p47529
-# Either use input-file option (vpot.inp) or other
-
-
-# Function to create FCIDUMP file
-# Change header_format from FCIDUMP to MRCC to get MRCC fort.55 file
-# TODO: SCF-type beyond RHF
-
-
-# calculate_natorbs_from_density
-# Convenient function to get natural orbitals from any density even if ORCA did create the natural orbitals
 
 
 # Get natural orbitals of any calculated density of an ORCA calculation

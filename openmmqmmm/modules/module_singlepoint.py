@@ -7,16 +7,12 @@
     """
 import numpy as np
 import shutil
-import subprocess as sp
 import time
 
 import openmmqmmm
 from openmmqmmm.functions.functions_general import ashexit, BC, print_time_rel, print_line_with_mainheader
 from openmmqmmm.modules.module_coords import check_charge_mult
 from openmmqmmm.modules.module_results import ASH_Results
-
-
-# Single-point energy function
 
 
 # Single-point energy function
@@ -363,10 +359,6 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
     result.write_to_disk(filename="ASH_SP_reaction.result")
     return result
     # return reaction.reaction_energy
-
-
-# Single-point energy function that communicates via fragment
-# NOTE: NOT SURE IF WE WANT TO GO THIS ROUTE
 
 
 # Theory object that always gives zero energy and zero gradient. Useful for setting constraints
