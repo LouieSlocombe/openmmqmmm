@@ -42,4 +42,4 @@ exclude = ["openmmqmmm.tests*"]
 # openmmqmmm/tests) is deliberately not shipped in wheels — run the test
 # suite from a source checkout.
 [tool.setuptools.package-data]
-openmmqmmm = ["log.ini", "external/Multiwfn/settings.ini"]
+openmmqmmm = ["log.ini"]

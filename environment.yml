@@ -27,6 +27,6 @@ dependencies:
       - geometric >=1.0.1
 # Optional extras — uncomment as needed:
 #  - openbabel     # ligand format conversion (small_molecule_parameterizer)
-#  - matplotlib    # plotting functions (module_plotting)
-#  - scipy         # analysis/plotting helpers
+#  - matplotlib    # metadynamics plots / ASH_plot
+#  - scipy         # occupation-entropy analysis in ORCATheory
 #  - parmed        # Amber/GROMACS prmtop handling in OpenMMTheory

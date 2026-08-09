@@ -1,9 +1,9 @@
 # openmmqmmm — ORCA + OpenMM QM/MM
 
 A trimmed distribution of the [ASH](https://github.com/RagnarB83/ash) multiscale modelling program, reduced to the
-**ORCA + OpenMM QM/MM stack for biomolecular calculations**. The Python package is named `openmmqmmm`; the API keeps the
-upstream ASH class and function names, so existing ORCA/OpenMM QM/MM scripts only need their import changed from `ash`
-to `openmmqmmm`.
+**ORCA + OpenMM QM/MM stack for biomolecular calculations**. The Python package is named `openmmqmmm`; the retained
+functionality keeps the upstream ASH class and function names, so existing ORCA/OpenMM QM/MM scripts that stick to the
+feature set below only need their import changed from `ash` to `openmmqmmm`.
 
 ## What is included
 
@@ -12,17 +12,19 @@ to `openmmqmmm`.
   `OpenMM_MD` (also aliased `MolecularDynamics`), `OpenMM_Modeller` (pdbfixer-based protein setup),
   `OpenMM_Opt`, `OpenMM_box_equilibration`, `Gentle_warm_up_MD`, metadynamics,
   `solvate_small_molecule` and `small_molecule_parameterizer`
-- `QMMMTheory` — electrostatically embedded QM/MM with link atoms and charge-shifting
+- `QMMMTheory` — electrostatically embedded QM/MM with link atoms and charge-shifting (OpenMM as the MM engine)
 - `Singlepoint` (+ fragment/theory/reaction variants), `Job_parallel`
 - `Optimizer` / `geomeTRICOptimizer` — geometry optimization via geomeTRIC, including frozen/active-region optimizations
   of large biomolecular systems (`ActiveRegion`)
 - `NumFreq` / `AnFreq` — numerical/analytical frequencies with partial Hessians and thermochemistry
 - `Fragment` — coordinates/topology handling incl. PDB, Amber, GROMACS file reading
-- Helper interfaces genuinely used by the above: mdtraj (trajectory processing), openbabel (ligand conversion), Multiwfn
-  (density/charge analysis), plotting
+- Helper interfaces genuinely used by the above: mdtraj (trajectory processing), openbabel (ligand conversion) and a
+  simple matplotlib plotting object (`ASH_plot`)
 
-Everything else from upstream ASH (other QM-code interfaces, NEB/knarr, molcrys, PES, high-level workflows, ONIOM,
-machine-learning tools, …) has been removed.
+Everything else from upstream ASH has been removed — other QM-code interfaces, NEB/knarr, molcrys, PES, high-level
+workflows, ONIOM and machine-learning tools, and also the peripheral utilities that upstream ships alongside the QM/MM
+stack (cube-file/density analysis, Multiwfn interface, ORCA orbital/json/FCIDUMP tooling, the standalone
+`NonBondedTheory` MM engine, spectrum plotting, …).
 
 ## Citation
 
@@ -66,7 +68,8 @@ pip install .
 **Optional dependencies**
 
 Some functionality uses extra packages, all available on conda-forge: `openbabel` (ligand format
-conversion in `small_molecule_parameterizer`), `matplotlib`/`scipy` (plotting), `parmed`
+conversion in `small_molecule_parameterizer`), `matplotlib` (metadynamics plots / `ASH_plot`),
+`scipy` (occupation-entropy analysis in `ORCATheory`), `parmed`
 (Amber/GROMACS file handling in `OpenMMTheory`). They are listed, commented out, in
 `environment.yml`.
 
@@ -103,8 +106,8 @@ fragment files, …) are deleted automatically at the end of the session.
 python -m build
 ```
 
-This produces an sdist and a wheel under `dist/`. Wheels ship only the runtime data files
-(`log.ini`, the Multiwfn `settings.ini`); the test suite and its ~32 MB of reference data stay in the
+This produces an sdist and a wheel under `dist/`. Wheels ship only the runtime data file
+(`log.ini`); the test suite and its ~32 MB of reference data stay in the
 source repository, so run the tests from a checkout, not from an installed wheel.
 
 ## Basic example
