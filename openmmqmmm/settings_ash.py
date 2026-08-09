@@ -75,7 +75,6 @@ def try_read_setting(stringvalue, datatype):
 # NOTE: Warning. If user added quotation marks around string then things go awry. Look into
 # Keywords to look up in ash_user_settings.ini
 try_read_setting("orcadir", "string")
-try_read_setting("multiwfndir", "string")
 
 try_read_setting("connectivity_code", "string")
 try_read_setting("nonbondedMM_code", "string")

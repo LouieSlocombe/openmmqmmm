@@ -15,7 +15,6 @@ from openmmqmmm.functions.functions_general import ashexit, BC, print_time_rel, 
     create_conn_dict, \
     pygrep, print_if_level
 
-from openmmqmmm.functions.functions_elstructure import DDEC_calc, DDEC_to_LJparameters
 from openmmqmmm.modules.module_coords import Fragment, write_pdbfile, distance_between_atoms, list_of_masses, write_xyzfile, \
     change_origin_to_centroid, get_centroid, check_charge_mult, check_gradient_for_bad_atoms, \
     define_dummy_topology
@@ -3200,11 +3199,7 @@ def solvate_small_molecule(fragment=None, charge=None, mult=None, watermodel=Non
 
     if xmlfile is None and skip_xmlfile is False:
         print("\nNo xmlfile was provided. You must provide one")
-        print("If you just need a simple nonbonded model for the solute e.g. for QM/MM then your options are:")
-        print("""
-              write_nonbonded_FF_for_ligand()
-              """)
-        print("""If you need a full forcefield for the solute then try :
+        print("""If you need a forcefield for the solute then try :
               small_molecule_parameterizer""")
         ashexit()
 
@@ -3302,77 +3297,6 @@ def solvate_small_molecule(fragment=None, charge=None, mult=None, watermodel=Non
 # Function to get nonbonded model parameters for a metal cluster
 # Too similar to create_nonbonded_model_xmlfile
 # TODO: Add option to symmetrize charges for similar atoms in residue
-def write_nonbonded_FF_for_ligand(fragment=None, charge=None, mult=None, coulomb14scale=1.0, lj14scale=1.0,
-                                  ff_type="AMBER", charge_model="CM5", theory=None, LJ_model="UFF", resname="LIG",
-                                  numcores=1):
-    print_line_with_mainheader("write_nonbonded_FF_for_ligand")
-
-    # Check if fragment is provided
-    if fragment is None:
-        print("No fragment object provided. Exiting.")
-        ashexit()
-
-    # Check charge/mult
-    charge, mult = check_charge_mult(charge, mult, "QM", fragment, "write_nonbonded_FF_for_ligand")
-
-    # Coulomb and LJ scaling. Needs to be FF compatible.
-    print("ff_type:", ff_type)
-    if ff_type.upper() == "CHARMM":
-        print("CHARMM option: True")
-        print("Will create XML file so that the Nonbonded Interaction is compatible with CHARMM.\n")
-        charmm = True
-        coulomb14scale = 1.0
-        lj14scale = 1.0
-    elif ff_type.upper() == "AMBER":
-        charmm = False
-        coulomb14scale = 0.83333333
-        lj14scale = 0.5
-    else:
-        charmm = False
-        coulomb14scale = 1.0
-        lj14scale = 1.0
-
-    if charge_model == "CM5_ORCA" or charge_model == "CM5":
-        print("CM5_ORCA option chosen")
-        if theory == None: print("theory keyword required");ashexit()
-        atompropdict = basic_atom_charges_ORCA(fragment=fragment, charge=charge, mult=mult,
-                                               orcatheory=theory, chargemodel="CM5", numcores=numcores)
-        charges = atompropdict['charges']
-    elif charge_model == "DDEC3" or charge_model == "DDEC6":
-        print("Using {} atomcharges and DDEC-derived parameters.".format(charge_model))
-        atompropdict = basic_atom_charges_ORCA(fragment=fragment, charge=charge, mult=mult,
-                                               orcatheory=theory, chargemodel=charge_model, numcores=numcores)
-        charges = atompropdict['charges']
-    else:
-        print("Unknown charge_model option")
-        exit()
-
-    if LJ_model == "UFF":
-        # Basic UFF LJ parameters
-        # Converting r0 parameters from Ang to nm and to sigma
-        sigmas = [UFF_modH_dict[el][0] * 0.1 / (2 ** (1 / 6)) for el in fragment.elems]
-        # Convering epsilon from kcal/mol to kJ/mol
-        epsilons = [UFF_modH_dict[el][1] * 4.184 for el in fragment.elems]
-    elif LJ_model == "DDEC3" or LJ_model == "DDEC6":
-        r0 = atompropdict['r0s']
-        eps = atompropdict['epsilons']
-        sigmas = [s * 0.1 / (2 ** (1 / 6)) for s in r0]
-        epsilons = [e * 4.184 for e in eps]
-    else:
-        print("unknown LJ_model")
-        ashexit()
-
-    # Defining simple atomnames and atomtypes to be used for ligand
-    atomnames = [el + "Y" + str(i) for i, el in enumerate(fragment.elems)]
-    atomtypes = [el + "X" + str(i) for i, el in enumerate(fragment.elems)]
-
-    # Creating XML-file for ligand
-    xmlfile = write_xmlfile_nonbonded(resnames=[resname], atomnames_per_res=[atomnames], atomtypes_per_res=[atomtypes],
-                                      elements_per_res=[fragment.elems], masses_per_res=[fragment.masses],
-                                      charges_per_res=[charges],
-                                      sigmas_per_res=[sigmas], epsilons_per_res=[epsilons], filename=resname + ".xml",
-                                      coulomb14scale=coulomb14scale, lj14scale=lj14scale, charmm=charmm)
-    return xmlfile
 
 
 # Simple XML-writing function. Will only write nonbonded parameters
@@ -4441,7 +4365,6 @@ class OpenMM_MDclass:
                             print("special_wrapping is True. Wrapping handled by mdtraj")
                         checkpoint = time.time()
                         # Wrapping
-                        # current_coords = wrap_box_coords(current_coords,boxlength,connectivity_dict,connectivity,self.centroid_system)
                         current_coords = diff_wrap_box_coords(current_coords / 10.0, boxvectors,
                                                               mdtrajtopology, wrapping_atoms)
                         print_time_rel(checkpoint, modulename="wrapping via diff_wrap_box_coords")
@@ -4547,7 +4470,6 @@ class OpenMM_MDclass:
                             print("special_wrapping is True. Wrapping handled by mdtraj")
                         checkpoint = time.time()
                         # Wrapping
-                        # current_coords = wrap_box_coords(current_coords,boxlength,connectivity_dict,connectivity,self.centroid_system)
                         current_coords = diff_wrap_box_coords(current_coords / 10.0, boxvectors,
                                                               mdtrajtopology, wrapping_atoms)
                         print_time_rel(checkpoint, modulename="wrapping via diff_wrap_box_coords")
@@ -4888,11 +4810,6 @@ def OpenMM_box_equilibration(fragment=None, theory=None, datafilename="nptsim.cs
 
 
 # Kinetic energy from velocities
-def calc_kinetic_energy(velocities, dof):
-    kin = 0.0
-    for v in velocities:
-        kin += 0.5 * np.dot(v, v)
-    return 2 * kin / (dof * openmmqmmm.constants.BOLTZ)
 
 
 # Used in OpenMM_MD when doing simulation step-by-step (e.g. QM-MD and QM/MM MD)
@@ -5560,88 +5477,6 @@ def create_CV_bias(CV_type, CV_atoms, biaswidth_cv, CV_range=None, reference_pos
 # NOTE: grid min and max settings
 # NOTE: distance_mingrid and distance_maxgrid controls min and max for distances.
 # dihedrals and angles are -pi to pi and 0 to pi
-def setup_plumed_input(savefrequency, numCVs, height, temperature, biasfactor,
-                       CV1_type, biaswidth_cv1, CV1_atoms,
-                       CV2_type, biaswidth_cv2, CV2_atoms,
-                       distance_mingrid=0.05, distance_maxgrid=0.3,
-                       multiplewalkers=False, biasdir='.', walkernum=None,
-                       walkerid=None):
-    print("Inside setup_plumed_input")
-    strideval = savefrequency  # allow different ?
-    paceval = savefrequency  # allow different ?
-
-    # FIRST SETTING UP CV1:
-    if CV1_type == "dihedral" or CV1_type == "torsion":
-        grid_min1 = "-pi";
-        grid_max1 = "pi";
-        sigma_cv1 = biaswidth_cv1
-        cv1atom_line = f"CV1: TORSION ATOMS={CV1_atoms[0] + 1},{CV1_atoms[1] + 1},{CV1_atoms[2] + 1},{CV1_atoms[3] + 1}"
-    elif CV1_type == "angle":
-        grid_min1 = "0";
-        grid_max1 = "pi";
-        sigma_cv1 = biaswidth_cv1
-        cv1atom_line = f"CV1: ANGLE ATOMS={CV1_atoms[0] + 1},{CV1_atoms[1] + 1},{CV1_atoms[2] + 1}"
-    elif CV1_type == "bond" or CV1_type == "distance":
-        grid_min1 = distance_mingrid;
-        grid_max1 = distance_maxgrid;
-        sigma_cv1 = biaswidth_cv1
-        cv1atom_line = f"CV1: DISTANCE ATOMS={CV1_atoms[0] + 1},{CV1_atoms[1] + 1}"
-    else:
-        print("Error:Unknown CV1_type option")
-        ashexit()
-    if numCVs == 1:
-        print("numCVs: 1")
-        if multiplewalkers is True:
-            # NOTE: WALKERID set later
-            walker_string = f"""WALKERS_N={walkernum} WALKERS_ID=WALKERID WALKERS_DIR={biasdir} WALKERS_RSTRIDE={strideval}"""
-        else:
-            walker_string = ""
-        plumedinput = f"""
-{cv1atom_line}
-metad: METAD ARG=CV1 SIGMA={sigma_cv1} GRID_MIN={grid_min1} GRID_MAX={grid_max1} HEIGHT={height} PACE={paceval} TEMP={temperature} BIASFACTOR={biasfactor} FMT=%14.6f {walker_string}
-PRINT STRIDE={strideval} ARG=CV1,metad.bias FILE=COLVAR
-        """
-        return plumedinput
-
-    # 2 CVs
-    elif numCVs == 2:
-        print("numCVs: 2")
-    # SETTING UP CV2:
-    if CV2_type == "dihedral" or CV2_type == "torsion":
-        grid_min2 = "-pi";
-        grid_max2 = "pi";
-        sigma_cv2 = biaswidth_cv1
-        cv2atom_line = f"CV2: TORSION ATOMS={CV2_atoms[0] + 1},{CV2_atoms[1] + 1},{CV2_atoms[2] + 1},{CV2_atoms[3] + 1}"
-    elif CV2_type == "angle":
-        grid_min2 = "0";
-        grid_max2 = "pi";
-        sigma_cv2 = biaswidth_cv1
-        cv2atom_line = f"CV2: ANGLE ATOMS={CV2_atoms[0] + 1},{CV2_atoms[1] + 1},{CV2_atoms[2] + 1}"
-    elif CV2_type == "bond" or CV2_type == "distance":
-        grid_min2 = distance_mingrid;
-        grid_max2 = distance_maxgrid;
-        sigma_cv2 = biaswidth_cv2
-        cv2atom_line = f"CV2: DISTANCE ATOMS={CV2_atoms[0] + 1},{CV2_atoms[1] + 1}"
-    else:
-        print("Error:Unknown CV1_type option")
-        ashexit()
-    # MULTIPLE WALKERS
-    if multiplewalkers is True:
-        walker_string = f"""WALKERS_N={walkernum} WALKERS_ID=WALKERID WALKERS_DIR={biasdir} WALKERS_RSTRIDE={strideval}
-        """
-        plumedinput = f"""{cv1atom_line}
-        {cv2atom_line}
-        metad: METAD ARG=CV1,CV2 SIGMA={sigma_cv1},{sigma_cv2} GRID_MIN={grid_min1},{grid_min2} GRID_MAX={grid_max1},{grid_max2} HEIGHT={height} PACE={paceval} TEMP={temperature} BIASFACTOR={biasfactor} FMT=%14.6f {walker_string}
-        PRINT STRIDE={strideval} ARG=CV1,CV2,metad.bias FILE=COLVAR
-        """
-    else:
-        walker_string = ""
-        plumedinput = f"""{cv1atom_line}
-        {cv2atom_line}
-        metad: METAD ARG=CV1,CV2 SIGMA={sigma_cv1},{sigma_cv2} GRID_MIN={grid_min1},{grid_min2} GRID_MAX={grid_max1},{grid_max2} HEIGHT={height} PACE={paceval} TEMP={temperature} BIASFACTOR={biasfactor} FMT=%14.6f {walker_string}
-        PRINT STRIDE={strideval} ARG=CV1,CV2,metad.bias FILE=COLVAR
-        """
-    return plumedinput
 
 
 # Calculate free-energy from total bias array
@@ -5821,149 +5656,12 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat='png', plot_xlim=N
 
 
 # Get atom indices outside box according to centroid of box and boxlength
-def get_atoms_outside_box_old(allcoords, centroid, boxlength):
-    # Box length
-    boxlength_half = boxlength / 2
-    print("centroid:", centroid)
-    # box_boundary = [c+boxlength_half for c in centroid]
-    box_boundary_x = [centroid[0] - boxlength_half, centroid[0] + boxlength_half]
-    box_boundary_y = [centroid[1] - boxlength_half, centroid[1] + boxlength_half]
-    box_boundary_z = [centroid[2] - boxlength_half, centroid[2] + boxlength_half]
-    # print("box_boundary_x:", box_boundary_x)
-    # print("box_boundary_y:", box_boundary_y)
-    # print("box_boundary_z:", box_boundary_z)
-    indices = []
-    for i, c in enumerate(allcoords):
-        if c[0] < box_boundary_x[0] or c[0] > box_boundary_x[1]:
-            indices.append(i)
-        elif c[1] < box_boundary_y[0] or c[1] > box_boundary_y[1]:
-            indices.append(i)
-        elif c[2] < box_boundary_z[0] or c[2] > box_boundary_z[1]:
-            indices.append(i)
-    return indices
-
-
-def get_atoms_outside_box(allcoords, centroid, boxlength):
-    # Convert the input data to NumPy arrays for efficient computation
-    allcoords = np.array(allcoords)
-    centroid = np.array(centroid)
-
-    # Calculate the box boundaries using NumPy vectorized operations
-    boxlength_half = boxlength / 2
-    box_min = centroid - boxlength_half
-    box_max = centroid + boxlength_half
-
-    # Determine which coordinates are outside the box using boolean indexing
-    outside_indices = np.any((allcoords < box_min) | (allcoords > box_max), axis=1)
-
-    # Get the indices of atoms outside the box
-    indices = np.where(outside_indices)[0]
-
-    return indices.tolist()
 
 
 # Function to wrap coordinates of whole molecules outside box
-def wrap_box_coords_new(allcoords, boxlength, connectivity_dict, connectivity, centroid):
-    print("Inside wrap_box_coords_new")
-    # Get all indices of atoms outside box
-    indices = get_atoms_outside_box(allcoords, centroid, boxlength)
-    boxlength_half = boxlength / 2
-
-    print("indices:", indices)
-
-    # Get indices of all whole molecules that have an atom outisde box
-    all_mol_indices = [connectivity[connectivity_dict.get(i)] for i in indices]
-    # print("all_mol_indices:",all_mol_indices)
-    # Removing duplicates
-    trimmed_all_mol_indices = trim_list_of_lists(all_mol_indices)
-    # print("trimmed_all_mol_indices:",trimmed_all_mol_indices)
-    # Get all molecule coordinates (that have an atom outside box)
-    allmol_coords = np.take(allcoords, trimmed_all_mol_indices, axis=0)
-    # print("allmol_coords:",allmol_coords)
-    # Check if all molecule members are outside
-    # Get Boolean array of whole molecules outside (True) or inside (False) of box
-    allmol_outside_bools_single = [len(get_atoms_outside_box(m, centroid, boxlength)) == len(m) for m in allmol_coords]
-    # print("allmol_outside_bools_single:",allmol_outside_bools_single)
-
-    # Looping over indices
-    # print(f"6Time:{time.time()-checkpoint}")
-    # TODO: not general
-    for members, member_coords, mol_outside_bool in zip(trimmed_all_mol_indices, allmol_coords,
-                                                        allmol_outside_bools_single):
-        # Only wrap if all outside
-        # NOTE: if water molecule has gone even further (to next box) then currently this code doesn't wrap it completely
-        if mol_outside_bool:
-            out_cols = np.where(abs(member_coords[0]) > boxlength_half)[0]
-            for c in out_cols:
-                if member_coords[0][c] > 0:
-                    allcoords[members, c] -= boxlength + boxlength * (abs(member_coords[0][c]) // (boxlength * 1.5))
-                elif member_coords[0][c] < 0:
-                    allcoords[members, c] += boxlength + boxlength * (abs(member_coords[0][c]) // (boxlength * 1.5))
-    # print(f"FinalTime:{time.time()-checkpoint}")
-    return allcoords
 
 
 # Function to wrap coordinates of whole molecules outside box
-def wrap_box_coords_old3(allcoords, boxlength, connectivity_dict, connectivity, centroid):
-    print("Inside wrap_box_coords_old3")
-    # checkpoint = time.time()
-    boxlength_half = boxlength / 2
-    # Get atom indices for atoms that have a x,y or z coordinate outside box
-    mask = np.any(np.abs(allcoords) > boxlength_half, axis=1)
-    indices = np.where(mask)[0]
-    # print(f"1Time:{time.time()-checkpoint}")
-    # 20488
-    # Get indices of all whole molecules
-    all_mol_indices = [connectivity[connectivity_dict.get(i)] for i in indices]
-    # print(f"1aTime:{time.time()-checkpoint}")
-    # print(all_mol_indices)
-    # print(all_mol_indices[3399])
-    # Removing duplicates
-    # print(f"1bTime:{time.time()-checkpoint}")
-    trimmed_all_mol_indices = trim_list_of_lists(all_mol_indices)
-    # print("len trimmed_all_mol_indices:", len(trimmed_all_mol_indices))
-    # Get all coordinates
-    # print(f"2Time:{time.time()-checkpoint}")
-    allmol_coords = np.take(allcoords, trimmed_all_mol_indices, axis=0)
-    # print(f"3Time:{time.time()-checkpoint}")
-    # print(allmol_coords)
-    # Check if all members are outside
-    allmol_outside_bools = [np.any(np.abs(m) > boxlength_half, axis=1) for m in allmol_coords]
-    # print(allmol_outside_bools)
-    # print(allmol_outside_bools)
-    # allmol_outside_bools_single = [np.all(j) for j in allmol_outside_bools]
-    # print(f"4Time:{time.time()-checkpoint}")
-    allmol_outside_bools_single = [np.all(j) for j in allmol_outside_bools]
-
-    # print("allmol_outside_bools_single:", allmol_outside_bools_single)
-    # print(len(allmol_outside_bools_single))
-    outside_mol_indices = [i for i, x in enumerate(allmol_outside_bools_single) if x]
-
-    # print("len outside_mol_indices:", len(outside_mol_indices))
-
-    # exit()
-    # print(allmol_outside_bools_single)
-    # exit()
-    # print(f"5Time:{time.time()-checkpoint}")
-    # allmol_outside_cols = [np.any(np.abs(m) > boxlength_half, axis=1) for m in allmol_coords]
-    allmol_outside_cols = [np.where(abs(member_coords[0]) > boxlength_half)[0] for member_coords in allmol_coords]
-    # print("allmol_outside_cols:", allmol_outside_cols)
-    # exit()
-    # Looping over indices
-    # print(f"6Time:{time.time()-checkpoint}")
-    # for members,member_coords,mol_outside_bool,out_cols in zip(trimmed_all_mol_indices,allmol_coords,allmol_outside_bools_single,allmol_outside_cols):
-    # Looping over molindices outside box
-    for outmolindex in outside_mol_indices:
-        members = trimmed_all_mol_indices[outmolindex]
-        member_coords = allmol_coords[outmolindex]
-        for c in allmol_outside_cols[outmolindex]:
-            colval = member_coords[0][c]
-            if colval > 0:
-                allcoords[members, c] -= boxlength + boxlength * (abs(colval) // (boxlength * 1.5))
-            elif colval < 0:
-                allcoords[members, c] += boxlength + boxlength * (abs(colval) // (boxlength * 1.5))
-    # print(f"FinalTime:{time.time()-checkpoint}")
-    return allcoords
 
 
 def diff_wrap_box_coords(coords_nm, boxvectors, mdtrajtopology, anchoratoms):
@@ -5980,15 +5678,8 @@ def diff_wrap_box_coords(coords_nm, boxvectors, mdtrajtopology, anchoratoms):
     return imaged._xyz[0] * 10.0
 
 
-# wrap_box_coords=wrap_box_coords_new
-wrap_box_coords = diff_wrap_box_coords
 
 
-def trim_list_of_lists(k):
-    k = sorted(k)
-    # return list((k for k, _ in itertools.groupby(k)))
-    newk = list((k for k, _ in itertools.groupby(k)))
-    return newk
     # return np.array(newk)
 
 
@@ -6358,31 +6049,6 @@ def calc_nonbonding_energy_exceptions(system=None):
 
 
 # Function to calculate the total nonbonded energy  an OpenMM system
-def calc_total_nonbonding_energy(system):
-    import openmm
-    import openmm.app
-
-    # Find NonbondedForce in system
-    for force in system.getForces():
-        if isinstance(force, openmm.NonbondedForce):
-            break
-    # Coulomb and LJ energies
-    coulomb_energy = 0.0
-    lj_energy = 0.0
-
-    # Looping over exceptions
-    for exception_index in range(force.getNumExceptions()):
-        # Get the pair parameters
-        atom1, atom2, qq, sigma, epsilon = force.getExceptionParameters(exception_index)
-        # if 0.0 then should be 1-2 or 1-3 interaction
-        if epsilon._value == 0.0:
-            continue
-
-        coulomb_energy += qq.value_in_unit(openmm.unit.elementary_charge ** 2)
-        lj_energy += epsilon.value_in_unit(openmm.unit.kilojoule_per_mole)
-
-    # Return Coulomb energy and LJ energy
-    return coulomb_energy, lj_energy
 
 
 # Function that uses parmed to write an XML-file topology and OpenMM system

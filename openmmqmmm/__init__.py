@@ -70,20 +70,6 @@ from .modules.module_freq import AnFreq, NumFreq, approximate_full_Hessian_from_
 # Constants
 import openmmqmmm.constants
 
-# functions related to electronic structure
-import openmmqmmm.functions.functions_elstructure
-from .functions.functions_elstructure import read_cube, write_cube, write_cube_diff, diffdens_tool, \
-    create_cubefile_from_orbfile, diffdens_of_cubefiles, \
-    NOCV_density_ORCA, difference_density_ORCA, NOCV_Multiwfn, write_cube_sum, write_cube_product, \
-    create_density_from_orb, make_molden_file, \
-    diagonalize_DM_AO, diagonalize_DM, DM_AO_to_MO, DM_AO_to_MO, DM_MO_to_AO, select_space_from_occupations, \
-    select_indices_from_occupations, ASH_write_integralfile, \
-    density_sensitivity_metric
-
-# multiwfn interface
-import openmmqmmm.interfaces.interface_multiwfn
-from .interfaces.interface_multiwfn import multiwfn_run
-
 # # QMcode interfaces
 from .interfaces.interface_ORCA import ORCATheory, counterpoise_calculation_ORCA, ORCA_External_Optimizer, \
     run_orca_plot, MolecularOrbitalGrab, \
@@ -100,7 +86,7 @@ from .interfaces.interface_openbabel import OpenBabelTheory, pdb_to_smiles, mol_
 
 # MM: external and internal
 from .interfaces.interface_OpenMM import OpenMMTheory, OpenMM_MD, OpenMM_MDclass, OpenMM_Opt, OpenMM_Modeller, \
-    OpenMM_box_equilibration, write_nonbonded_FF_for_ligand, solvate_small_molecule, small_molecule_parameterizer, \
+    OpenMM_box_equilibration, solvate_small_molecule, small_molecule_parameterizer, \
     OpenMM_metadynamics, OpenMM_MD_plumed, Gentle_warm_up_MD, check_gradient_for_bad_atoms, \
     get_free_energy_from_biasfiles, \
     free_energy_from_bias_array, metadynamics_plot_data, merge_pdb_files
@@ -131,9 +117,7 @@ Optimizer = geomeTRICOptimizer
 Opt = geomeTRICOptimizer
 
 # Plotting
-import openmmqmmm.modules.module_plotting
-from .modules.module_plotting import reactionprofile_plot, contourplot, volumeplot, plot_Spectrum, MOplot_vertical, \
-    ASH_plot
+from .modules.module_plotting import ASH_plot
 
 # Initialize settings
 import openmmqmmm.settings_ash
