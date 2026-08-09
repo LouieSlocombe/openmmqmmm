@@ -1,24 +1,14 @@
-import os
-import shutil
-from pathlib import Path
-
 import pytest
 
 
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_generated_files():
-    """Remove files and directories generated in the working directory during the test session.
+@pytest.fixture(autouse=True)
+def run_in_tmp_dir(tmp_path, monkeypatch):
+    """Run every test in its own temporary directory.
 
-    The ORCA/OpenMM/geomeTRIC runs scatter output files (orca.*, finalsystem.*, trajectories,
-    fragment files, ...) into the current working directory. Snapshot the directory before the
-    session and delete anything new afterwards, so only pre-existing files survive.
+    The ORCA/OpenMM/geomeTRIC runs scatter output files (orca.*, trajectories,
+    fragment files, ...) into the current working directory. An isolated cwd per
+    test keeps the repository clean regardless of where pytest is invoked from,
+    and prevents runs from picking up each other's files (e.g. ORCA autostart
+    reading a stale .gbw from a previous test).
     """
-    cwd = Path.cwd()
-    before = set(os.listdir(cwd))
-    yield
-    for name in set(os.listdir(cwd)) - before:
-        path = cwd / name
-        if path.is_dir() and not path.is_symlink():
-            shutil.rmtree(path, ignore_errors=True)
-        else:
-            path.unlink(missing_ok=True)
+    monkeypatch.chdir(tmp_path)

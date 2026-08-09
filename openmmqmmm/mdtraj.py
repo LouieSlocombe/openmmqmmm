@@ -1,0 +1,259 @@
+"""Trajectory processing via the mdtraj library (imaging, slicing, RMSF/RMSD, coordinate analysis)."""
+
+import logging
+import os
+
+import numpy as np
+
+from openmmqmmm.coords import Fragment, write_xyzfile
+from openmmqmmm.exceptions import (
+    InputError,
+    MissingDependencyError,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def mdtraj_load():
+    logger.info("Importing mdtraj (https://www.mdtraj.org)")
+    try:
+        import mdtraj
+    except ImportError:
+        raise MissingDependencyError(
+            "Problem importing mdtraj. Try: 'pip install mdtraj' or 'conda install -c conda-forge mdtraj'"
+        ) from None
+    return mdtraj
+
+
+def mdtraj_rmsf(trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True):
+    """Compute per-atom root-mean-square fluctuations of a trajectory via mdtraj."""
+    logger.info("Inside MDtraj_RMSF")
+    # Import mdtraj library
+    mdtraj = mdtraj_load()
+
+    # Load trajectory
+    logger.info("Loading trajectory using mdtraj.")
+    traj = mdtraj.load(trajectory, top=pdbtopology)
+    firstframe = traj[0]
+    rmsflist = mdtraj.rmsf(traj, reference=None, frame=0, atom_indices=None, parallel=parallel)
+
+    if print_largest_values is True:
+        logger.info(f"Will print RMSF largest_values={largest_values}")
+        large_rmsf_indices = rmsflist.argsort()[::-1][:largest_values]
+    else:
+        logger.info(f"Will print atom RMSF values larger than threshold={threshold}")
+        large_rmsf_indices = np.where(rmsflist > threshold)[0]
+    if len(large_rmsf_indices) > 0:
+        logger.info("Printing atoms with high root-mean-square fluctuations:")
+        logger.info("Index    Residue-atom           Coordinates                              RMSF")
+        for i in large_rmsf_indices:
+            atom_string = str(firstframe.topology.atom(i))
+            rmsfvalue = rmsflist[i]
+            logger.info(
+                f"{i:>6} {atom_string:<14} {firstframe.xyz[0][i][0]:>12.6f} {firstframe.xyz[0][i][1]:>12.6f} {firstframe.xyz[0][i][2]:>12.6f}      {rmsfvalue:>12.6f}"
+            )
+    return large_rmsf_indices
+
+
+def mdtraj_rmsd(trajectory, pdbtopology, atom_indices=None, parallel=True):
+    """Compute the RMSD along a trajectory via mdtraj."""
+    logger.info("Inside MDtraj_RMSD")
+    # Import mdtraj library
+    mdtraj = mdtraj_load()
+
+    # Load trajectory
+    logger.info("Loading trajectory using mdtraj.")
+    traj = mdtraj.load(trajectory, top=pdbtopology)
+
+    # RMSD
+    rmsds = mdtraj.rmsd(traj, traj, 0, atom_indices=atom_indices, parallel=parallel)
+
+    return rmsds
+
+
+# anchor_molecules. Use if automatic guess fails
+def mdtraj_image_trajectory(
+    trajectory, pdbtopology, traj_format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
+):
+    # Trajectory basename
+    """Re-image (wrap) a periodic trajectory so molecules stay whole, via mdtraj."""
+    traj_basename = os.path.splitext(trajectory)[0]
+    # PDB-file basename
+    pdb_basename = os.path.splitext(pdbtopology)[0]
+
+    # Import mdtraj library
+    mdtraj = mdtraj_load()
+
+    # Load trajectory
+    logger.info("Loading trajectory using mdtraj.")
+    traj = mdtraj.load(trajectory, top=pdbtopology)
+
+    numframes = len(traj._time)
+    logger.info(f"Found {numframes} frames in trajectory.")
+    logger.info("PBC information in trajectory:")
+    # If PBC information is missing from traj file (OpenMM: Charmmfiles, Amberfiles option etc) then provide this info
+    if unitcell_lengths is not None:
+        logger.info("unitcell_lengths info provided by user.")
+        unitcell_lengths_nm = [i / 10 for i in unitcell_lengths]
+        traj.unitcell_lengths = np.array(unitcell_lengths_nm * numframes).reshape(numframes, 3)
+        traj.unitcell_angles = np.array(unitcell_angles * numframes).reshape(numframes, 3)
+
+    # Also load the pdbfile as a trajectory-snapshot (in addition to being topology)
+    pdbsnap = mdtraj.load(pdbtopology, top=pdbtopology)
+    # Manual anchor if needed
+    # NOTE: not sure how well this works but it's something
+    if solute_anchor is True:
+        anchors = [set(traj.topology.residue(0).atoms)]
+        logger.info("anchors: %s", anchors)
+        # Re-imaging trajectory
+        imaged = traj.image_molecules(anchor_molecules=anchors)
+        # Reimaging PDB
+        pdbsnap_imaged = pdbsnap.image_molecules(anchor_molecules=anchors)
+    else:
+        imaged = traj.image_molecules()
+        pdbsnap_imaged = pdbsnap.image_molecules()
+    # Save trajectory in format
+    if traj_format == "DCD":
+        imaged.save(traj_basename + "_imaged.dcd")
+        logger.info("Saved reimaged trajectory: %s", traj_basename + "_imaged.dcd")
+    elif traj_format == "PDB":
+        imaged.save(traj_basename + "_imaged.pdb")
+        logger.info("Saved reimaged trajectory: %s", traj_basename + "_imaged.pdb")
+    else:
+        logger.info("Unknown trajectory format.")
+    # Save PDB-snapshot
+    pdbsnap_imaged.save(pdb_basename + "_imaged.pdb")
+    logger.info("Saved reimaged PDB-file: %s", pdb_basename + "_imaged.pdb")
+    # Return last frame as coords or fragment ?
+    # Last frame coordinates as Angstrom
+    lastframe = imaged[-1]._xyz[-1] * 10
+
+    return lastframe
+
+
+# Slicing trajectory. Mostly to grab specific snapshot
+# TODO: allow option to grab by ps? Requires information about timestep and traj-frequency
+def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
+    # Trajectory basename
+    """Extract selected frames from a trajectory into a new file via mdtraj."""
+    traj_basename = os.path.basename(os.path.splitext(trajectory)[0])
+    logger.info("traj_basename: %s", traj_basename)
+    # os.path.basename(
+
+    # Import mdtraj library
+    mdtraj = mdtraj_load()
+
+    # Load trajectory
+    logger.info("Loading trajectory using mdtraj.")
+    traj = mdtraj.load(trajectory, top=pdbtopology)
+    logger.info(f"This trajectory contains {traj.n_frames} frames")
+
+    logger.info("User frame selection: %s", frames)
+    if frames is None:
+        raise InputError(
+            "Error: frames keyword needs to be set. Should usually be a list of two integers.\nE.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or frames='last' to grab first or last"
+        )
+    elif frames == "first":
+        frames = [0, 1]
+    elif frames == "last":
+        frames = [traj.n_frames - 1, traj.n_frames]
+    elif frames == "all":
+        frames = [0, traj.n_frames]
+    elif len(frames) != 2:
+        raise InputError(
+            "Error: frames keyword needs to be a list of two integers.\nE.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or frames='last' to grab first or last"
+        )
+
+    # Slicing trajectory
+    logger.info("Slicing trajectory using frame selection: %s", frames)
+    tslice = traj[frames[0] : frames[1]]
+    logger.info(f"Trajectory slice contains {tslice.n_frames} frames")
+    if tslice.n_frames == 0:
+        raise InputError(
+            "{}\nExiting".format(
+                f"0 frames found when slicing. You probably should do: frames=[{frames[0]},{frames[1] + 1}] instead"
+            )
+        )
+
+    # Save trajectory in format
+    logger.info(
+        f"Writing sliced trajectory to file in format {format} (you can change this by format keyword to be 'DCD', 'XYZ' or 'PDB') "
+    )
+    if traj_format == "DCD":
+        tslice.save(traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd")
+        logger.info("Saved sliced trajectory: %s", traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd")
+        return traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd"
+    elif traj_format == "PDB":
+        tslice.save(traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb")
+        logger.info("Saved sliced trajectory: %s", traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb")
+        return traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb"
+    elif traj_format == "XYZ":
+        # Looping over selection and writing XYZ since mdtraj does not give proper elements
+        logger.info(
+            "Warning: the MDtraj_slice XYZ-writing requires guessing element names based on atomnames in the topology PDB-file."
+        )
+        logger.info("This is not always successful (might require manual change of the atomnames in PDB-file)")
+        dummyfrag = Fragment(pdbfile=pdbtopology)
+        elems = dummyfrag.elems
+        for _i, t in enumerate(tslice):
+            coords = t._xyz[0] * 10
+            write_xyzfile(
+                elems,
+                coords,
+                traj_basename + f"_frame{frames[0]}_{frames[1]}",
+                writemode="a",
+                title="title",
+            )
+        return traj_basename + f"_frame{frames[0]}_{frames[1]}.xyz"
+    else:
+        logger.info("Unknown trajectory format.")
+    return
+
+
+# Function to get internal coordinates from trajectory fast
+# Give trajectory file
+def mdtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=None):
+    """Analyze internal coordinates (distances/angles/dihedrals) along a trajectory via mdtraj."""
+    logger.info("Inside MDtraj_coord_analyze")
+    if indices is None:
+        raise InputError("indices needs to be set")
+    logger.info("Trajectory: %s", trajectory)
+    logger.info("Topology: %s", pdbtopology)
+    logger.info("Atom indices: %s", indices)
+    # Import mdtraj library
+    mdtraj = mdtraj_load()
+
+    if pdbtopology is None:
+        logger.info("A topology is required but was not provided")
+        logger.info("Checking if trajectory.pdb file (created by the MD run) is available:")
+        if not os.path.isfile("trajectory.pdb"):
+            raise InputError("A topology file is required (no trajectory.pdb found either)")
+        pdbtopology = "trajectory.pdb"
+
+    # Load trajectory
+    logger.info("Loading trajectory using mdtraj.")
+    traj = mdtraj.load(trajectory, top=pdbtopology)
+    logger.info(f"This trajectory contains {traj.n_frames} frames")
+    if len(indices) == 4:
+        logger.info("4 atom indices given. This must be a dihedral angle.  Returning dihedral in radians")
+        output = mdtraj.compute_dihedrals(traj, [indices], periodic=periodic, opt=True)
+        unit_label = "radians"
+    elif len(indices) == 3:
+        logger.info("3 atom indices given. This must be an angle. Returning angle in radians")
+        output = mdtraj.compute_angles(traj, [indices], periodic=periodic, opt=True)
+        unit_label = "radians"
+    elif len(indices) == 2:
+        logger.info("2 atom indices given. This must be a distance.  Returning angle in Angstrom")
+        output = mdtraj.compute_distances(traj, [indices], periodic=periodic, opt=True)
+        output = 10 * output
+        unit_label = "Angstrom"
+    else:
+        raise InputError(f"something wrong with indices supplied: {indices}")
+    logger.info("%s %s", f"List of coordinates ({len(output)}) for each frame:", output)
+
+    ave = np.mean(output)
+    stdev = np.std(output)
+    logger.info(f"Mean: {ave} {unit_label}")
+    logger.info(f"Standard deviation: {stdev} {unit_label}")
+
+    return output

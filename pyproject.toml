@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openmmqmmm"
-version = "0.99"
-description = "ORCA + OpenMM QM/MM for biomolecular calculations (trimmed ASH distribution)"
+version = "1.0.0"
+description = "ORCA + OpenMM QM/MM for biomolecular calculations (derived from ASH)"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -20,17 +20,17 @@ dependencies = [
     "numpy",
     "packaging",
     "geometric >= 1.0.1",
+    # openmm is required at import time (interface_OpenMM); conda-forge remains
+    # the recommended install route for the full stack (pdbfixer is conda-only).
+    "openmm >= 8",
 ]
 
 [project.optional-dependencies]
-# The OpenMM stack is best installed from conda-forge (see environment.yml);
-# pdbfixer in particular is not distributed on PyPI.
-openmm = ["openmm >= 8", "mdtraj"]
+md = ["mdtraj"]
 extras = ["matplotlib", "scipy", "parmed"]
 test = ["pytest"]
 
 [project.urls]
-Documentation = "https://ash.readthedocs.io"
 Upstream = "https://github.com/RagnarB83/ash"
 
 [tool.setuptools.packages.find]
@@ -38,8 +38,44 @@ where = ["."]
 include = ["openmmqmmm*"]
 exclude = ["openmmqmmm.tests*"]
 
-# Non-Python files required at runtime. Test data (~32 MB under
-# openmmqmmm/tests) is deliberately not shipped in wheels — run the test
-# suite from a source checkout.
+# Non-Python files shipped in wheels: the geomeTRIC logging config and the
+# PEP 561 typing marker. Test data (~2 MB under openmmqmmm/tests) stays in
+# the source repository — run the test suite from a checkout.
 [tool.setuptools.package-data]
-openmmqmmm = ["log.ini"]
+openmmqmmm = ["log.ini", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["openmmqmmm/tests"]
+addopts = "-ra"
+
+# Lint rules are being adopted in stages during the modernization effort; the
+# temporary ignores below shrink as each phase lands.
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "N", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB", "PLE", "PLW", "BLE", "T20", "G", "LOG"]
+ignore = [
+    # The formatter owns line wrapping; long scientific strings exist
+    "E501",
+    # Loop-variable reassignment pervades the file parsers
+    "PLW2901",
+    # f-strings in log calls are fine: the messages are the calculation record
+    "G004",
+    # Uppercase locals are idiomatic in the physics-heavy code
+    "N806",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may print
+"openmmqmmm/tests/*" = ["T20"]
+# __all__ is grouped semantically, not alphabetically
+"openmmqmmm/__init__.py" = ["RUF022"]
+# Mathematical/physics argument notation (A, B, C, T, Qcoord, Lgrad, ...)
+"openmmqmmm/coords.py" = ["N803"]
+"openmmqmmm/freq.py" = ["N803"]
+"openmmqmmm/qmmm.py" = ["N803"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["openmmqmmm"]
