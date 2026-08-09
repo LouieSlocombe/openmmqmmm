@@ -5,7 +5,6 @@ from openmmqmmm.modules.module_coords import reformat_element
 
 
 ###################################
-# Other Openbabel functionality
 ###################################
 
 # Function to convert Mol file to PDB-file via OpenBabel
@@ -41,7 +40,6 @@ def sdf_to_pdb(file):
     newmol = next(pybel.readfile("pdb", os.path.splitext(file)[0] + 'temp.pdb'))
     os.remove(os.path.splitext(file)[0] + 'temp.pdb')
 
-    # Atomlabel = {0:'C1',1:'X',2:'C',3:'C',4:'C',5:'C',6:'C',7:'C',8:'C',9:'C',10:'C',11:'C',12:'C'}
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
     print("Creating new atomnames for PDBfile")
     # Note: currently just combining element and atomindex to get a unique atomname (otherwise Modeller will not work)
@@ -49,11 +47,8 @@ def sdf_to_pdb(file):
     for res in pybel.ob.OBResidueIter(newmol.OBMol):
         for i, atom in enumerate(openbabel.OBResidueAtomIter(res)):
             atomname = res.GetAtomID(atom)
-            # print("atomname:", atomname)
             res.SetAtomID(atom, atomname.strip() + str(i + 1))
             atomname = res.GetAtomID(atom)
-            # print("atomname:", atomname)
-            # res.SetAtomID(atom,Atomlabel[i])
 
     # Write final PDB-file
     newmol.write(format='pdb', filename=os.path.splitext(file)[0] + '.pdb', overwrite=True)
@@ -97,7 +92,6 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
 
     os.remove(os.path.splitext(file)[0] + 'temp.pdb')
 
-    # Atomlabel = {0:'C1',1:'X',2:'C',3:'C',4:'C',5:'C',6:'C',7:'C',8:'C',9:'C',10:'C',11:'C',12:'C'}
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
     print("Creating new atomnames for PDBfile")
     # Note: currently just combining element and atomindex to get a unique atomname (otherwise Modeller will not work)
@@ -107,11 +101,8 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
         res.SetName(resname)
         for i, atom in enumerate(openbabel.OBResidueAtomIter(res)):
             atomname = res.GetAtomID(atom)
-            # print("atomname:", atomname)
             res.SetAtomID(atom, atomname.strip() + str(i + 1))
             atomname = res.GetAtomID(atom)
-            # print("atomname:", atomname)
-            # res.SetAtomID(atom,Atomlabel[i])
 
     # Write final PDB-file
     newmol.write(format='pdb', filename=os.path.splitext(file)[0] + '.pdb', overwrite=True)
@@ -154,5 +145,4 @@ def smiles_to_coords(smiles_string):
         atomnums.append(atom.GetAtomicNum())
         coords.append([atom.GetX(), atom.GetY(), atom.GetZ()])
     elems = [reformat_element(atn, isatomnum=True) for atn in atomnums]
-    # frag = Fragment(elems=elems, coords=coords, charge=charge, mult=mult)
     return elems, coords

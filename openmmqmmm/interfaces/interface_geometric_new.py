@@ -247,11 +247,6 @@ class GeomeTRICOptimizerClass:
             print("Unknown convergence setting. Exiting...")
             ashexit()
 
-    # Option to populate constraints dictionary
-    def set_constraints(self, con, constrainvalue):
-        self.constraints = con
-        self.constrainvalue = constrainvalue
-
     # Parse the constraints into bond, angle, dihedral
     def define_constraints(self, constraints):
         if self.printlevel >= 1:
@@ -261,7 +256,6 @@ class GeomeTRICOptimizerClass:
         # CONSTRAINTS
         ########################################
         # For QM/MM we need to convert full-system atoms into active region atoms
-        # constraints={'bond':[[8854,37089]]}
         if self.ActiveRegion:
             if constraints != None:
                 print("Constraints set. Active region true")
@@ -372,7 +366,6 @@ class GeomeTRICOptimizerClass:
                     # Changing from zero-indexing (ASH) to 1-indexing (geomeTRIC)
                     if constrainvalue is True:
                         # First 2 are indices, last is value
-                        # bond_indices=bondpair[0:2]; bond_val=bondpair[2]
                         confile.write(f'distance {bondpair[0] + 1} {bondpair[1] + 1} {bondpair[2]}\n')
                     else:
                         confile.write(f'distance {bondpair[0] + 1} {bondpair[1] + 1}\n')
@@ -385,9 +378,7 @@ class GeomeTRICOptimizerClass:
                 else:
                     confile.write('$freeze\n')
                 for angleentry in angleconstraints:
-                    # angle_indices=angleentry[0]; angle_val=angleentry[1]
                     # Changing from zero-indexing (ASH) to 1-indexing (geomeTRIC)
-                    # print("angleentry", angleentry)
                     if constrainvalue is True:
                         confile.write(
                             f'angle {angleentry[0] + 1} {angleentry[1] + 1} {angleentry[2] + 1} {angleentry[3]}\n')
@@ -402,9 +393,7 @@ class GeomeTRICOptimizerClass:
                     confile.write('$freeze\n')
                 for dihedralentry in dihedralconstraints:
                     # Changing from zero-indexing (ASH) to 1-indexing (geomeTRIC)
-                    # print("dihedralentry", dihedralentry)
                     if constrainvalue is True:
-                        # dihed_indices=dihedralentry[0]; dihed_val=dihedralentry[1]
                         confile.write(
                             f'dihedral {dihedralentry[0] + 1} {dihedralentry[1] + 1} {dihedralentry[2] + 1} {dihedralentry[3] + 1} {dihedralentry[4]}\n')
                     else:
@@ -717,12 +706,8 @@ class GeomeTRICOptimizerClass:
         # Read geometry from XYZ-file into geomeTRIC Molecule object
         if self.PBC is True:
             print("For PBC we activate constraints")
-            # self.constraintsfile="constraints.txt"
             self.bothre = 0.5
-        #    mol_geometric_frag=geometric.molecule.Molecule("initialxyzfiletric.xyz")
         #
-        # else:
-        # print("1self.constraintsfile:",self.constraintsfile)
         mol_geometric_frag = geometric.molecule.Molecule("initialxyzfiletric.xyz")
 
         # Defining ASHengineclass engine object containing geometry and theory. ActiveRegion boolean passed.
@@ -732,11 +717,7 @@ class GeomeTRICOptimizerClass:
                                    charge=charge, mult=mult, conv_criteria=self.conv_criteria, fragment=fragment,
                                    printlevel=self.printlevel,
                                    maxiter=self.maxiter, PBC=self.PBC)
-        # print("2self.constraintsfile:",self.constraintsfile)
         # Defining args object, containing engine object
-        # print("3self.constraintsfile:",self.constraintsfile)
-        # print("self.enforce_constraints:", self.enforce_constraints)
-        # exit()
         print("self.constraintsfile:", self.constraintsfile)
         final_geometric_args = geomeTRICArgsObject(ashengine, self.constraintsfile, coordsys=self.coordsystem,
                                                    maxiter=self.maxiter, conv_criteria=self.conv_criteria,
@@ -775,7 +756,6 @@ class GeomeTRICOptimizerClass:
                 theory.TruncatedPC = False
                 finalenergy, finalgrad = theory.run(current_coords=ashengine.full_current_coords, elems=fragment.elems,
                                                     Grad=True, charge=charge, mult=mult)
-                # label='FinalIter',
             else:
                 finalenergy = ashengine.energy
         else:
@@ -858,8 +838,6 @@ class geomeTRICArgsObject:
             print("enforce_constraints value passed:", enforce_constraints)
             self.enforce = enforce_constraints
 
-        # self.convergence_criteria=conv_criteria
-        # self.converge=conv_criteria
         # Setting these to be part of kwargs that geometric reads
         self.convergence_energy = conv_criteria['convergence_energy']
         self.convergence_grms = conv_criteria['convergence_grms']
@@ -974,11 +952,7 @@ class ASHengineclass:
                 self.BOmatrix[n_orig, n_orig + 2] = self.BOmatrix[n_orig + 2, n_orig] = 1
                 self.BOmatrix[n_orig, n_orig + 3] = self.BOmatrix[n_orig + 3, n_orig] = 1
 
-                # print("BOmatrix:", self.BOmatrix)
 
-                # self.M.qm_bondorder = [self.BOmatrix]
-                # self.M.build_topology(force_bonds=False, bond_order=1.0)
-                # print("2elf.M.xyzs:", self.M.__dict__)
                 return self.BOmatrix
             else:
                 print("No BO option implemented")
@@ -986,7 +960,6 @@ class ASHengineclass:
 
             return None
 
-    #    print("This option is currently unsupported in ASH. Continuing.")
     # TODO: geometric will regularly do ClearCalcs in an optimization
     def clearCalcs(self):
         if self.printlevel >= 1:
@@ -1042,7 +1015,6 @@ class ASHengineclass:
             print("Maxiter reached. ASH is stopping.")
             exit()
 
-        # print("read_data:", read_data)
         # Note: tmp and read_data not used. Needed for geomeTRIC version compatibility
         if self.printlevel >= 1:
             print("Convergence criteria:", self.conv_criteria)
@@ -1069,13 +1041,11 @@ class ASHengineclass:
         # Special act-region (for QM/MM) since GeomeTRIC does not handle huge system and constraints
         if self.ActiveRegion is True:
             # Defining full_coords as original coords temporarily
-            # full_coords = np.array(fragment.coords)
             full_coords = self.fragment.coords
 
             # Replacing act-region coordinates in full_coords with coords from currcoords
             for act_i, curr_i in zip(self.actatoms, currcoords):
                 full_coords[act_i] = curr_i
-            # print_time_rel(timeA, modulename='geometric ASHcalc.calc replacing act-region', moduleindex=2)
             timeA = time.time()
             self.full_current_coords = full_coords
 
@@ -1083,7 +1053,6 @@ class ASHengineclass:
             self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
             self.fragment.print_system(filename='Fragment-currentgeo.ygg')
             self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
-            # print_time_rel(timeA, modulename='geometric ASHcalc.calc replacecoords and printsystem', moduleindex=2)
             timeA = time.time()
 
             # PRINTING TO OUTPUT SPECIFIC GEOMETRY IN EACH GEOMETRIC ITERATION (now: self.print_atoms_list)
@@ -1094,7 +1063,6 @@ class ASHengineclass:
             # print_atoms_list
             # Previously act: print_coords_for_atoms(self.full_current_coords, fragment.elems, self.actatoms)
             print_coords_for_atoms(self.full_current_coords, self.fragment.elems, self.print_atoms_list)
-            # print_time_rel(timeA, modulename='geometric ASHcalc.calc printcoords atoms', moduleindex=2)
             timeA = time.time()
             if self.printlevel >= 1:
                 print("Note: Only print_atoms_list region printed above")
@@ -1102,8 +1070,6 @@ class ASHengineclass:
 
             E, Grad = self.theory.run(current_coords=self.full_current_coords, elems=self.fragment.elems,
                                       charge=self.charge, mult=self.mult, Grad=True)
-            # label='Iter'+str(self.iteration_count)
-            # print_time_rel(timeA, modulename='geometric ASHcalc.calc theory.run', moduleindex=2)
             timeA = time.time()
 
             if self.printlevel > 2:
@@ -1117,7 +1083,6 @@ class ASHengineclass:
                 act_elems = [self.fragment.elems[i] for i in self.actatoms]
                 write_coords_all(Grad_act, act_elems, indices=[i for i in range(0, len(self.actatoms))],
                                  file="Grad_act", description="Grad_act (au/Bohr):")
-            # print_time_rel(timeA, modulename='geometric ASHcalc.calc trim full gradient', moduleindex=2)
             timeA = time.time()
             self.energy = E
 
@@ -1139,7 +1104,6 @@ class ASHengineclass:
                     if self.MM_PDB_traj_write is True:
                         self.write_pdbtrajectory()
 
-            # print_time_rel(timeA, modulename='geometric ASHcalc.calc writetraj full', moduleindex=2)
             timeA = time.time()
 
             # Read last line of geometric_OPTtraj.log to get step
@@ -1227,11 +1191,9 @@ class ASHengineclass:
         grad_Rgeo = np.dot(grad_phys, M.T)
 
         # Convection, implicit lattice gradient
-        # grad_convection = np.dot(s.T, grad_phys)
 
         # Lattice gradient and masking
         # Total lattice gradient: current theory cell-gradient + convection
-        # grad_latt_total = self.theory.cell_gradient
         grad_latt_total = self.theory.get_cell_gradient()
         # Standard orientation mask:
         # This zeros out: a_y, a_z, and b_z

@@ -32,7 +32,6 @@ else:
         UNDERLINE = ''
 
 
-# TODO: Avoid reloading
 
 
 def is_interactive() -> bool:
@@ -111,8 +110,6 @@ def listdiff(list1, list2):
 def print_if_level(var, printlevel, refprintlevel):
     if printlevel >= refprintlevel:
         print(var)
-    # else:
-    #    print("Printlevel too low")
 
 
 # Debug print. Behaves like print but reads global debug var first
@@ -134,7 +131,6 @@ def print_line_with_mainheader(line):
     print(inner_line.center(80))
     print(midline.center(80))
     print(outer_line.center(80))
-    # print("\n")
 
 
 # Submodule header
@@ -265,7 +261,6 @@ def column(matrix, i):
 # Printing if currprintlevel
 def print_time_rel(timestamp, modulename='Unknown', moduleindex=4, currprintlevel=1, currthreshold=1):
     secs = time.time() - timestamp
-    # print("secs:", secs)
     mins = secs / 60
     if currprintlevel >= currthreshold:
         print_line_with_subheader2(
@@ -275,10 +270,8 @@ def print_time_rel(timestamp, modulename='Unknown', moduleindex=4, currprintleve
 
 
 def print_time_tot_color(time_initial, modulename='Unknown', moduleindex=4):
-    # hoursA=minsA/60
     secs = time.time() - time_initial
     mins = secs / 60
-    # hoursB=minsB/60
     print(BC.WARNING, "-------------------------------------------------------------------", BC.END)
     print(BC.WARNING, "ASH Total Walltime: {:3.1f} seconds, {:3.1f} minutes.".format(secs, mins), BC.END)
     print(BC.WARNING, "-------------------------------------------------------------------", BC.END)
@@ -318,7 +311,6 @@ class Timings:
     # workflows (thermochem_protol, PES, calc_surface etc.): 0
     # jobtype (optimizer,Singlepoint,Anfreq,Numfreq): 1
     # theory-run (ORCAtheory run, QM/MM run, MM run etc.): 2
-    # various: 3
     # others (calc connectivity etc.): 4
 
     def print(self, inittime):

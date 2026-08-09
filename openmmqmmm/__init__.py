@@ -8,7 +8,6 @@ Trimmed distribution: ORCA + OpenMM QM/MM functionality for biomolecular calcula
 from .modules.module_results import ASH_Results, read_results_from_file
 
 # Fragment class and coordinate functions
-import openmmqmmm.modules.module_coords
 from .modules.module_coords import get_molecules_from_trajectory, write_pdbfile, Fragment, read_xyzfile, \
     write_xyzfile, read_ambercoordinates, read_gromacsfile, split_multimolxyzfile, \
     distance_between_atoms, \
@@ -20,12 +19,10 @@ from .modules.module_coords import getwaterconstraintslist, \
     calculate_RMSD
 
 # Singlepoint
-import openmmqmmm.modules.module_singlepoint
 from .modules.module_singlepoint import Singlepoint, ZeroTheory, Singlepoint_fragments, \
     Singlepoint_theories, Singlepoint_fragments_and_theories, Singlepoint_reaction, ReactionEnergy
 
 # Parallel
-import openmmqmmm.functions.functions_parallel
 from .functions.functions_parallel import Job_parallel, Simple_parallel
 
 # Freq
@@ -33,17 +30,14 @@ from .modules.module_freq import AnFreq, NumFreq, approximate_full_Hessian_from_
     write_hessian, read_hessian
 
 # Constants
-import openmmqmmm.constants
 
 # # QMcode interfaces
 from .interfaces.interface_ORCA import ORCATheory, ORCA_External_Optimizer
-import openmmqmmm.interfaces.interface_ORCA
 
 from .interfaces.interface_openbabel import pdb_to_smiles, mol_to_pdb, sdf_to_pdb, \
     writepdb_with_connectivity, \
     xyz_to_pdb_with_connectivity
 
-# MM: external and internal
 from .interfaces.interface_OpenMM import OpenMMTheory, OpenMM_MD, OpenMM_MDclass, OpenMM_Opt, OpenMM_Modeller, \
     OpenMM_box_equilibration, solvate_small_molecule, small_molecule_parameterizer, \
     OpenMM_metadynamics, OpenMM_MD_plumed, Gentle_warm_up_MD, check_gradient_for_bad_atoms, \
@@ -57,8 +51,8 @@ MetaDynamics = OpenMM_metadynamics
 # MDtraj
 from .interfaces.interface_mdtraj import MDtraj_imagetraj, MDtraj_slice, MDtraj_RMSF, MDtraj_RMSD, MDtraj_coord_analyze
 
-# Theory, Numgrad
-from .modules.module_theory import Theory, QMTheory, NumGradclass
+# Numerical gradient
+from .modules.module_theory import NumGradclass
 
 # QM/MM
 from .modules.module_QMMM import QMMMTheory, actregiondefine, read_charges_from_psf, compute_decomposed_QM_MM_energy
@@ -109,8 +103,8 @@ __all__ = [
     # MDtraj
     "MDtraj_imagetraj", "MDtraj_slice", "MDtraj_RMSF", "MDtraj_RMSD",
     "MDtraj_coord_analyze",
-    # Theory base classes and numerical gradient
-    "Theory", "QMTheory", "NumGradclass",
+    # Numerical gradient
+    "NumGradclass",
     # QM/MM
     "QMMMTheory", "actregiondefine", "read_charges_from_psf",
     "compute_decomposed_QM_MM_energy",

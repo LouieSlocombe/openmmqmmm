@@ -67,7 +67,7 @@ def import_mp(version='multiprocessing'):
 #########################################
 # Job_parallel: General PARALLEL function.
 #########################################
-# Used for standalone SP calculations, NumFreq, surfacescans and NEB
+# Used for standalone SP calculations and NumFreq
 # Can also be used for optimization and relaxed scans by providing Opt keyword or optimizer object
 
 # will run over fragments or fragmentfiles, over theories or both
@@ -104,7 +104,6 @@ def Job_parallel(fragments=None, fragmentfiles=None, theories=None, numcores=Non
             print("Creating one")
             # No options easily provided. Unclear if this is a good idea
             optimizer = GeomeTRICOptimizerClass()
-            # ashexit()
     # SP
     else:
         print("Job_parallel: No Opt. This is a Singlepoint_parallel job")
@@ -232,7 +231,6 @@ def Job_parallel(fragments=None, fragmentfiles=None, theories=None, numcores=Non
         if printlevel >= 2:
             print("Case: Multiple theories but one fragment")
         fragment = fragments[0]
-        # results = pool.map(Worker_par, [[theory,fragment, theory.label, event] for theory in theories])
         for theory in theories:
             if printlevel >= 2:
                 print("theory:", theory)
@@ -303,7 +301,6 @@ def Job_parallel(fragments=None, fragmentfiles=None, theories=None, numcores=Non
                 final_result.energies.append(r.get()[1])
                 final_result.gradients.append(r.get()[2])
                 if len(r.get()[4]) > 0:
-                    # print("Property dict found from Worker-par", r.get()[4])
                     property_dict[r.get()[0]] = r.get()[4]
                     # Dipole and polarizability
                     if 'dipole_moment' in r.get()[4]:
@@ -319,7 +316,6 @@ def Job_parallel(fragments=None, fragmentfiles=None, theories=None, numcores=Non
 
     else:
         for i, r in enumerate(results):
-            # print("Result {} ready: {}".format(i, r.ready()))
             if r.ready() is True:
                 energy_dict[r.get()[0]] = r.get()[1]
                 worker_dirnames_dict[r.get()[0]] = r.get()[2]
@@ -336,7 +332,6 @@ def Job_parallel(fragments=None, fragmentfiles=None, theories=None, numcores=Non
     final_result.worker_dirnames = worker_dirnames_dict
 
     # TODO: JSON-array problem, reenable later
-    # final_result.write_to_disk(filename="ASH_Job_parallel.result")
     return final_result
 
 
@@ -346,8 +341,6 @@ def Job_parallel(fragments=None, fragmentfiles=None, theories=None, numcores=Non
 def Worker_par(fragment=None, fragmentfile=None, theory=None, label=None, mofilesdir=None, event=None, charge=None,
                mult=None, Grad=False, printlevel=2, copytheory=False, optimizer=None, version='multiprocessing'):
     # Should not be necessary to import
-    # import multiprocess as mp
-    # from multiprocess.pool import Pool
     # Check charge/mult.
     charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Worker_par", theory=theory,
                                      printlevel=printlevel)
@@ -359,12 +352,9 @@ def Worker_par(fragment=None, fragmentfile=None, theory=None, label=None, mofile
 
     # Creating new copy of theory to avoid deactivation of certain first-run features (e.g. brokensym)
     # NOTE: Alternatively add if-statement inside orca.run
-    # NOTE: This is not compatible with Dualtheory
     if copytheory == True:
-        # print("copytheory True")
         theory = copy.deepcopy(theory)
     else:
-        # print("copytheory False")
         pass
 
     # Optional fragment-creation from disk
@@ -384,7 +374,7 @@ def Worker_par(fragment=None, fragmentfile=None, theory=None, label=None, mofile
         print("Exiting.")
         raise Exception("Labelproblem")
     # Using label (could be tuple) to create a labelstring which is used to name worker directories
-    # Tuple-label (1 or 2 element) used by calc_surface functions.
+    # Tuple-label (1 or 2 elements).
     # Otherwise normally string
     # TODO: Needs to be generalized.  Remove RC1, RC2 strings
     if type(label) == tuple:
@@ -407,7 +397,7 @@ def Worker_par(fragment=None, fragmentfile=None, theory=None, label=None, mofile
             else:
                 moreadfile_path = mofilesdir + '/' + theory.filename + '_' + 'RC1_' + str(label[0])
 
-    # Label is not tuple. Not coming from calc_surface functions
+    # Label is not a tuple
     elif type(label) == float or type(label) == int:
         if printlevel >= 2:
             print("Label is float or int")
@@ -417,7 +407,7 @@ def Worker_par(fragment=None, fragmentfile=None, theory=None, label=None, mofile
         if mofilesdir != None:
             if printlevel >= 2:
                 print("Mofilesdir option.")
-            moreadfile_path = mofilesdir + '/' + theory.filename + '_' + 'RC1_' + str(label[0])
+            moreadfile_path = mofilesdir + '/' + theory.filename + '_' + 'RC1_' + str(label)
     else:
         # Label is not tuple. String or single number
         labelstring = str(label).replace('.', '_')
@@ -537,7 +527,6 @@ def Simple_parallel(jobfunction=None, parameter_dict=None, separate_dirs=False, 
     # ----------
     # START
     # ----------
-    # parameter_dict["process_id"] = 0
     if separate_dirs is True:
         for i in range(0, numcores):
             workerdir = f"Pooljob_{i}"
@@ -549,7 +538,6 @@ def Simple_parallel(jobfunction=None, parameter_dict=None, separate_dirs=False, 
             except:
                 pass
         # Default 0
-        # parameter_dict["workerdir"] = f"Pooljob_0"
     # Collecting results in a list of tuples from each process
     results = []
     print("Now looping")

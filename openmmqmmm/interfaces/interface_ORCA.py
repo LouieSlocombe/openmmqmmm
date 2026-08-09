@@ -230,8 +230,6 @@ end
         if cpcm_radii is not None:
             print("CPCM radii provided:", cpcm_radii)
             # if len(cpcm_radii) != len(c:
-            #    print("Error: Number of radii provided does not match number of elements in molecule")
-            #    ashexit()
             cpcm_block = "%cpcm\n"
             for i, radius in enumerate(cpcm_radii):
                 cpcm_block = cpcm_block + f"AtomRadii({i},  {radius})\n"
@@ -265,7 +263,6 @@ end
         print("Cleaning up old ORCA files")
         list_files = []
         # Keeping outputfiles
-        # list_files.append(self.filename + '.out')
         list_files.append(self.filename + '.gbw')
         list_files.append(self.filename + '.densities')
         list_files.append(self.filename + '.ges')
@@ -383,7 +380,6 @@ end
 
     # Run function. Takes coords, elems etc. arguments and computes E or E+G.
     def run(self, current_coords=None, charge=None, mult=None, current_MM_coords=None, MMcharges=None, qm_elems=None,
-            mm_elems=None,
             elems=None, Grad=False, Hessian=False, PC=False, numcores=None, label=None):
         module_init_time = time.time()
         self.runcalls += 1
@@ -423,7 +419,6 @@ end
             else:
                 fragment_indices = self.fragment_indices
             # extrabasisatomindices if QM/MM
-            # print("QM atoms :", self.qmatoms)
             qmatoms_extrabasis = [self.qmatoms.index(i) for i in self.extrabasisatoms]
             # new QM-region indices for atomstoflip if QM/MM
             try:
@@ -622,7 +617,6 @@ end"""
                                         deltaSCFblock=deltascfblock)
 
         # Run inputfile using ORCA parallelization. Take numcores argument.
-        # print(BC.OKGREEN, "------------Running ORCA calculation-------------", BC.END)
         if self.printlevel >= 2:
             print(BC.OKGREEN, "ORCA Calculation starting.", BC.END)
 
@@ -937,7 +931,6 @@ def run_orca_SP_ORCApar(orcadir, inpfile, numcores=1, check_for_warnings=True, c
     with open(basename + '.out', 'w') as ofile:
         try:
             if bind_to_core_option is True:
-                # f"\"-x {orcadir} --bind-to none\""
                 process = sp.run([orcadir + '/orca', inpfile, f"--bind-to none"], check=True, stdout=ofile,
                                  stderr=ofile, universal_newlines=True)
             else:
@@ -1057,7 +1050,6 @@ def ORCAfinalenergygrab(file, errors='ignore'):
                     ashexit()
                 else:
                     # Changing: sometimes ORCA adds info to the right of energy
-                    # Energy=float(line.split()[-1])
                     if "(MM)" in line:
                         Energy = float(line.split()[5])
                     else:
@@ -1303,26 +1295,10 @@ def write_ORCA_Hessfile(hessian, coords, elems, masses, hessatoms, outputname):
     orcahessfile.write(str(len(elems)) + "\n")
 
     # Write coordinates and masses to Orca Hessian file
-    # print("hessatoms", hessatoms)
-    # print("masses ", masses)
-    # print("elems ", elems)
-    # print("coords", coords)
-    # print(len(elems))
-    # print(len(coords))
-    # print(len(hessatoms))
-    # print(len(masses))
     # TODO. Note. Changed things. We now don't go through hessatoms and analyze atom indices for full system
     # Either full system lists were passed or partial-system lists
     # for atom, mass in zip(hessatoms, masses):
     for el, mass, coord in zip(elems, masses, coords):
-        # mass=atommass[elements.index(elems[atom-1].lower())]
-        # print("atom:", atom)
-        # print("mass:", mass)
-        # print(str(elems[atom]))
-        # print(str(mass))
-        # print(str(coords[atom][0]/openmmqmmm.constants.bohr2ang))
-        # print(str(coords[atom][1]/openmmqmmm.constants.bohr2ang))
-        # print(str(coords[atom][2]/openmmqmmm.constants.bohr2ang))
         # orcahessfile.write(" "+str(elems[atom])+'    '+str(mass)+"  "+str(coords[atom][0]/openmmqmmm.constants.bohr2ang)+
         #                   " "+str(coords[atom][1]/openmmqmmm.constants.bohr2ang)+" "+str(coords[atom][2]/openmmqmmm.constants.bohr2ang)+"\n")
         orcahessfile.write(" " + el + '    ' + str(mass) + "  " + str(coord[0] / openmmqmmm.constants.bohr2ang) +
@@ -1587,11 +1563,9 @@ def grabspinpop_ORCA(chargemodel, outputfile):
     # If BS then we have grabbed charges for both high-spin and BS solution
     if BS is True:
         print("Broken-symmetry job detected. Only taking BS-state populations")
-        # spinpops=spinpops[int(len(spinpops)/2):]
         if len(spinpops) != numatoms:
             spinpops = spinpops[-numatoms:]
     # if len(spinpops) == 0:
-    #    print("Warning: No spinpopulations were found in ORCA outputfile")
     return spinpops
 
 
@@ -1734,7 +1708,6 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
 # Wrapper around interactive orca_plot
 # Todo: add TDDFT difference density, natural orbitals, MDCI spin density?
 
-    # print(p.returncode)
 
 
 # Reading stability analysis from output. Returns true if stab-analysis good, otherwise falsee
@@ -1891,7 +1864,6 @@ end
         o.write(f"{constraintsblock}")
         o.write("%method\n")
         o.write(f"ProgExt \"otool_external\"\n")
-        # o.write(f"Ext_Params \"\"\n")
         o.write("end\n")
         o.write("*xyzfile {} {} {}\n".format(charge, mult, xyzfile))
 

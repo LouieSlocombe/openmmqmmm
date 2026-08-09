@@ -18,8 +18,6 @@ class ASH_Results:
     qmmm_energy: float = None
     gradient: np.array = None
     reaction_energy: float = None
-    # Optional per-component energy contributions
-    energy_contributions: dict = None
 
     # Multi-energy job: Lists of energies and gradients
     energies: list = None
@@ -32,9 +30,6 @@ class ASH_Results:
     # parallel Multi-energy job
     # Name of worker directories that could be accessed later
     worker_dirnames: dict = None
-    # Geometry informaiton
-    geometry: np.array = None
-    initial_geometry: np.array = None
     charge: int = None
     mult: int = None
     # Possible unsorted information.
@@ -49,8 +44,6 @@ class ASH_Results:
     freq_TRmodenum: int = None
     freq_projection: bool = None
     freq_scaling_factor: float = None
-    # freq_displacement_dipole: dict = None
-    # freq_displacement_polarizability: dict = None
     freq_dipole_derivs: np.array = None
     freq_polarizability_derivs: np.array = None
     freq_Raman: bool = None
@@ -62,15 +55,6 @@ class ASH_Results:
     thermochemistry: dict = None
     displacement_dipole_dictionary: dict = None
     displacement_polarizability_dictionary: dict = None
-    # Surface-scan job
-    surfacepoints: dict = None
-    # NEB-type job
-    reactant_geometry: np.array = None
-    product_geometry: np.array = None
-    saddlepoint_geometry: np.array = None
-    saddlepoint_fragment: Fragment = None
-    MEP_energies_dict: dict = None
-    barrier_energy: float = None
 
     # Print only defined attributes
     def print_defined(self, printlevel=2, ):
@@ -93,7 +77,6 @@ class ASH_Results:
                 if np.any(np.isnan(v)):
                     print_if_level(f"Warning: nan in array {k}", printlevel, 2)
                     print_if_level(f"Skipping writing to disk", printlevel, 2)
-                    # exit()
                 else:
                     newv = v.tolist()
                     newdict[k] = newv
@@ -122,7 +105,6 @@ class ASH_Results:
             else:
                 if v is not None:
                     print_if_level(f"{k} : {v}", printlevel, 2)
-                # print(f"{k} : {v}")
         # Dump new dict
         try:
             f.write(json.dumps(newdict, allow_nan=True))
@@ -136,6 +118,7 @@ class ASH_Results:
 # Read ASH-Results data from disk
 def read_results_from_file(filename="ASH.result", printlevel=2):
     import json
+    from dataclasses import fields
 
     print_if_level("Reading ASH_Results data from file:", filename)
     data = json.load(open(filename))
@@ -143,5 +126,7 @@ def read_results_from_file(filename="ASH.result", printlevel=2):
     for k, v in data.items():
         print_if_level(f"{k} : {v}", printlevel, 2)
 
-    r = ASH_Results(**data)
+    # Ignore keys from files written by older versions with more fields
+    known_fields = {f.name for f in fields(ASH_Results)}
+    r = ASH_Results(**{k: v for k, v in data.items() if k in known_fields})
     return r

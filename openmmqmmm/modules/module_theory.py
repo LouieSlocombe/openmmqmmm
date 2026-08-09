@@ -7,40 +7,6 @@ from openmmqmmm.modules.module_coords import print_coords_all
 
 # Basic Theory class
 
-class Theory:
-    def __init__(self):
-        self.theorytype = None
-        self.theorynamelabel = None
-        self.label = None
-        self.analytic_hessian = False
-        self.numcores = 1
-        self.filename = None
-        self.printlevel = None
-        self.properties = {}
-
-    def set_numcores(self, numcores):
-        self.numcores = numcores
-
-    def cleanup(self):
-        print("Cleanup method called but not yet implemented for this theory")
-
-    def run(self):
-        print("Run was called but not yet implemented for this theory")
-
-
-class QMTheory(Theory):
-    def __init__(self):
-        super().__init__()
-        self.theorytype = "QM"
-
-    def set_numcores(self, numcores):
-        self.numcores = numcores
-
-    def cleanup(self):
-        print("Cleanup method called but not yet implemented for this theory")
-
-    def run(self):
-        print("Run was called but not yet implemented for this theory")
 
 
 # Numerical gradient class
@@ -62,7 +28,7 @@ class NumGradclass:
     def cleanup(self):
         print("Cleanup method called but not yet implemented for Numgrad")
 
-    def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None,
+    def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None,
             elems=None, Grad=False, Hessian=False, PC=False, numcores=None, restart=False, label=None,
             charge=None, mult=None):
 
@@ -145,7 +111,6 @@ class NumGradclass:
         return self.energy, self.gradient
 
 
-# MEPC-gradient class
 
 
 def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult, printlevel=2):
@@ -211,7 +176,6 @@ def creating_displaced_geos(current_coords, elems, displacement, npoint, charge,
         # Create fragment
         frag = openmmqmmm.Fragment(coords=dispgeo, elems=elems, label=stringlabel, printlevel=0, charge=charge, mult=mult)
         all_disp_fragments.append(frag)
-        # list_of_labels.append(calclabel)
 
     return list_of_displaced_geos, list_of_displacements, all_disp_fragments
 

@@ -74,12 +74,9 @@ def test_fragread_files():
 
 
 def test_read_pdb():
-    # Define global system settings ( scale, tol and conndepth keywords for connectivity)
-
     # PDB read in
     PDB_frag = Fragment(pdbfile=f"{TEST_DIR}/pdbfiles/1aki.pdb", conncalc=False)
     print("PDB_frag:", PDB_frag)
-    # print("PDB frag dict", PDB_frag.__dict__)
     print(PDB_frag.numatoms)
 
     assert PDB_frag.numatoms == 1079, "Number of atoms in fragment is incorrect"

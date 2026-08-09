@@ -282,7 +282,6 @@ def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiome
             result.reaction_energies.append(r[0])
     print()
     result.write_to_disk(filename="ASH_SP_fragments_theories.result")
-    # return all_energies
     print_time_rel(module_init_time, modulename='Singlepoint_fragments_and_theories', moduleindex=1)
     return result
 
@@ -358,7 +357,6 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
     print_time_rel(module_init_time, modulename='Singlepoint_reaction', moduleindex=1)
     result.write_to_disk(filename="ASH_SP_reaction.result")
     return result
-    # return reaction.reaction_energy
 
 
 # Theory object that always gives zero energy and zero gradient. Useful for setting constraints
@@ -394,7 +392,6 @@ class ZeroTheory:
             return self.energy, self.gradient
 
 
-# Theory object that executes a script present in dir and then grabs energy and gradient from files created
 # Simple way to create interfaces to programs
 
 

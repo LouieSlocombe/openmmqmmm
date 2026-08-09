@@ -4,7 +4,6 @@ Conversion factors
 # hartree conversions
 hartokcal = 627.5094740631
 harkcal = 627.5094740631
-# hartokj = 2625.5002
 hartokj = 2625.4996394798254
 hartree2j = 4.3597438e-18
 
@@ -42,4 +41,3 @@ BOLTZMANN = 1.380649e-23  # J/K
 
 pi = 3.14159265359
 
-# Electrochemistry

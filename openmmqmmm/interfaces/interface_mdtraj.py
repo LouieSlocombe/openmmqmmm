@@ -76,16 +76,12 @@ def MDtraj_imagetraj(trajectory, pdbtopology, format='DCD', unitcell_lengths=Non
     numframes = len(traj._time)
     print("Found {} frames in trajectory.".format(numframes))
     print("PBC information in trajectory:")
-    # print("Unitcell lengths:", traj.unitcell_lengths[0])
-    # print("Unitcell angles", traj.unitcell_angles[0])
     # If PBC information is missing from traj file (OpenMM: Charmmfiles, Amberfiles option etc) then provide this info
     if unitcell_lengths is not None:
         print("unitcell_lengths info provided by user.")
         unitcell_lengths_nm = [i / 10 for i in unitcell_lengths]
         traj.unitcell_lengths = np.array(unitcell_lengths_nm * numframes).reshape(numframes, 3)
         traj.unitcell_angles = np.array(unitcell_angles * numframes).reshape(numframes, 3)
-    # else:
-    #    print("Missing PBC info. This can be provided by unitcell_lengths and unitcell_angles keywords")
 
     # Also load the pdbfile as a trajectory-snapshot (in addition to being topology)
     pdbsnap = mdtraj.load(pdbtopology, top=pdbtopology)
@@ -124,11 +120,9 @@ def MDtraj_imagetraj(trajectory, pdbtopology, format='DCD', unitcell_lengths=Non
 # TODO: allow option to grab by ps? Requires information about timestep and traj-frequency
 def MDtraj_slice(trajectory, pdbtopology, format='PDB', frames=None):
     # Trajectory basename
-    # traj_basename = os.path.splitext(trajectory)[0]
     traj_basename = os.path.basename(os.path.splitext(trajectory)[0])
     print("traj_basename:", traj_basename)
     # os.path.basename(
-    # exit()
 
     # Import mdtraj library
     mdtraj = MDtraj_import()
@@ -187,8 +181,6 @@ def MDtraj_slice(trajectory, pdbtopology, format='PDB', frames=None):
             coords = t._xyz[0] * 10
             write_xyzfile(elems, coords, traj_basename + f'_frame{frames[0]}_{frames[1]}',
                           printlevel=1, writemode='a', title="title")
-        # tslice.save(traj_basename + f'_frame{frames[0]}_{frames[1]}.xyz')
-        # print("Saved sliced trajectory:", traj_basename + f'_frame{frames[0]}_{frames[1]}.xyz')
         return traj_basename + f'_frame{frames[0]}_{frames[1]}.xyz'
     else:
         print("Unknown trajectory format.")
@@ -247,4 +239,3 @@ def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=No
     return output
 
 
-# Initial unfinished interface to mdanalysis

@@ -171,7 +171,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
             projection = False
 
     # Making sure hessatoms list is sorted and only contains unique values
-    # hessatoms.sort()
     hessatoms = sorted(list(set(hessatoms)))
 
     # If hessatoms_masses list was provided
@@ -315,7 +314,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
         print("Theory numcores attributes is set to:", theory.numcores)
         # Looping over geometries and running.
         #   key: AtomNCoordPDirectionm   where N=atomnumber, P=x,y,z and direction m: + or -
-        #   value: gradient
         for numdisp, (disp, label, geo) in enumerate(
                 zip(list_of_displacements, list_of_labels, list_of_displaced_geos)):
             if label == 'Originalgeo':
@@ -325,10 +323,8 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
             else:
                 calclabel = label
                 # for index,(el,coord) in enumerate(zip(elems,coords))
-                # displacement_jobname='Numfreq-Disp-'+'Atom'+str(atom_disp)+crd+drection
                 print("Running displacement: {} / {}".format(numdisp + 1, len(list_of_labels)))
                 print(calclabel)
-                # print("Displacing Atom:{} Coord:{} Direction:{}".format(disp[0],disp[1],disp[2]))
                 # Now using string label
                 stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
 
@@ -377,10 +373,7 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
         displacement_grad_dictionary = gradient_dict
 
         displacement_dipole_dictionary = result.displacement_dipole_dictionary
-        # print("displacement_dipole_dictionary:",displacement_dipole_dictionary)
         displacement_polarizability_dictionary = result.displacement_polarizability_dictionary
-        # print("displacement_polarizability_dictionary:",displacement_polarizability_dictionary)
-        # print("displacement_grad_dictionary:", displacement_grad_dictionary)
     else:
         print("Unknown runmode.")
         ashexit()
@@ -389,9 +382,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
     print("NumFreq Displacement calculations are done!")
     print()
 
-    # print("displacement_dipole_dictionary:", displacement_dipole_dictionary)
-    # print("displacement_grad_dictionary:", displacement_grad_dictionary)
-    # exit()
     if len(displacement_grad_dictionary) == 0:
         print("Missing gradients for displacement.")
         print("Something went wrong in Numfreq displacement calculations.")
@@ -412,13 +402,11 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
         # If partial Hessian remove non-hessatoms part of gradient:
         # Get partial matrix by deleting atoms not present in list.
         original_grad = get_partial_matrix(displacement_grad_dictionary['Originalgeo'], hessatoms)
-        # original_grad=get_partial_matrix(allatoms, hessatoms, displacement_grad_dictionary['Originalgeo'])
         original_grad_1d = np.ravel(original_grad)
         # IR intensities if dipoles available
         if IR is True:
             if len(displacement_dipole_dictionary) > 0:
                 original_dipole = np.array(displacement_dipole_dictionary['Originalgeo'])
-                # print("original_dipole:",original_dipole)
         # Raman if requested
         if Raman is True:
             if len(displacement_polarizability_dictionary) > 0:
@@ -436,7 +424,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
                 grad_pos = displacement_grad_dictionary[lookup_string_pos]
                 # Getting grad as numpy matrix and converting to 1d
                 # If partial Hessian remove non-hessatoms part of gradient:
-                # grad_pos = get_partial_matrix(allatoms, hessatoms, grad_pos)
                 grad_pos = get_partial_matrix(grad_pos, hessatoms)
                 grad_pos_1d = np.ravel(grad_pos)
                 Hessrow = (grad_pos_1d - original_grad_1d) / displacement_bohr
@@ -447,7 +434,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
                     if len(displacement_dipole_dictionary) > 0:
                         # Make sure it's not a dict of None's
                         if any(value is None for value in displacement_dipole_dictionary.values()):
-                            # print("None values in displacement_dipole_dictionary. Skipping IR")
                             pass
                         elif len(displacement_dipole_dictionary[lookup_string_pos]) > 0:
                             disp_dipole = np.array(displacement_dipole_dictionary[lookup_string_pos])
@@ -458,7 +444,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
                     if len(displacement_polarizability_dictionary) > 0:
                         disp_polarizability = np.array(displacement_polarizability_dictionary[lookup_string_pos])
                         pz_deriv = (disp_polarizability - original_polarizability) / displacement_bohr
-                        # polarizability_derivs[hessindex,:] = pz_deriv
                         polarizability_derivs.append(pz_deriv)
                 hessindex += 1
 
@@ -474,16 +459,13 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
                 # Looking up each gradient for atomindex, crd-component(x=0,y=1 or z=2) and '+'
                 lookup_string_pos = f"{atomindex}_{crd}_+"
                 lookup_string_neg = f"{atomindex}_{crd}_-"
-                # grad_pos=displacement_grad_dictionary[(atomindex,crd,'+')]
                 grad_pos = displacement_grad_dictionary[lookup_string_pos]
                 # Looking up each gradient for atomindex, crd-component(x=0,y=1 or z=2) and '-'
                 grad_neg = displacement_grad_dictionary[lookup_string_neg]
                 # Getting grad as numpy matrix and converting to 1d
                 # If partial Hessian remove non-hessatoms part of gradient:
-                # grad_pos = get_partial_matrix(allatoms, hessatoms, grad_pos)
                 grad_pos = get_partial_matrix(grad_pos, hessatoms)
                 grad_pos_1d = np.ravel(grad_pos)
-                # grad_neg = get_partial_matrix(allatoms, hessatoms, grad_neg)
                 grad_neg = get_partial_matrix(grad_neg, hessatoms)
                 grad_neg_1d = np.ravel(grad_neg)
                 Hessrow = (grad_pos_1d - grad_neg_1d) / (2 * displacement_bohr)
@@ -495,22 +477,18 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
                 if IR is True and len(displacement_dipole_dictionary) > 0:
                     # Make sure it's not a dict of None's
                     if any(value is None for value in displacement_dipole_dictionary.values()):
-                        # print("None values in displacement_dipole_dictionary. Skipping IR")
                         pass
                     elif len(displacement_dipole_dictionary[lookup_string_pos]) > 0:
                         disp_dipole_pos = np.array(displacement_dipole_dictionary[lookup_string_pos])
                         disp_dipole_neg = np.array(displacement_dipole_dictionary[lookup_string_neg])
                         dd_deriv = (disp_dipole_pos - disp_dipole_neg) / (2 * displacement_bohr)
                         dipole_derivs[hessindex, :] = dd_deriv
-                # else:
-                #    print("No dipole information found. Skipping IR")
                 # Raman if requested
                 if Raman is True:
                     if len(displacement_polarizability_dictionary) > 0:
                         disp_polarizability_pos = np.array(displacement_polarizability_dictionary[lookup_string_pos])
                         disp_polarizability_neg = np.array(displacement_polarizability_dictionary[lookup_string_neg])
                         pz_deriv = (disp_polarizability_pos - disp_polarizability_neg) / (2 * displacement_bohr)
-                        # polarizability_derivs[hessindex,:] = pz_deriv
                         polarizability_derivs.append(pz_deriv)
                 hessindex += 1
     print()
@@ -742,7 +720,6 @@ def printfreqs(vfreq, numatoms, TRmodenum=6, intensities=None, Raman_activities=
         print(
             "No Raman activities were calculated (polarizabilities not available in QM-program interface). Setting values to 0.0.")
     print("Note: imaginary modes shown as negative")
-    # print("Warning: Currently not distinguishing correctly between TR modes and other imaginary modes")
     print("{:>6}{:>16}  {:>16} {:>20}".format("Mode", "Freq(cm**-1)", "IR Int.(km/mol)", "Raman Act.(Å^4/amu)"))
     for mode in range(0, 3 * numatoms):
         vib = vfreq[mode]
@@ -783,8 +760,6 @@ def printfreqs_and_nm_elem_comps(vfreq, fragment, evectors, hessatoms=None, TRmo
 # NOTE: THIS IS NOT CORRECT
 # TODO: Need to identify SP mode
 # FOR SADDLEPOINT, the SP mode will be the largest imaginary mode, hence mode 0.
-        # print("vib:", vib)
-        # print("type of vib", type(vib))
 
 
 #
@@ -849,7 +824,6 @@ def thermochemcalc(vfreq, atoms, fragment, multiplicity, temp=298.15, pressure=1
         print("\nDoing rotatational analysis:")
         # Moments of inertia (amu A^2 ), eigenvalues
         center = get_center(coords, elems=elems)
-        # rinertia = list(inertia(elems,coords,center))
         rinertia = [float(i) for i in inertia(elems, coords, center)]
 
         print("Moments of inertia (amu Å^2):", rinertia)
@@ -935,7 +909,6 @@ def thermochemcalc(vfreq, atoms, fragment, multiplicity, temp=298.15, pressure=1
         # Thermal vibrational energy
         sumb = 0.0
         for v in vibtemps:
-            # print(v*(0.5+(1/(np.exp((v/temp) - 1)))))
             sumb = sumb + v * (0.5 + (1 / (np.exp((v / temp) - 1))))
         E_vib = sumb * openmmqmmm.constants.R_gasconst
         vibenergycorr = E_vib - zpve
@@ -1001,9 +974,7 @@ def thermochemcalc(vfreq, atoms, fragment, multiplicity, temp=298.15, pressure=1
     print("--------------------")
     print("Temperature:", temp, "K")
     print("Pressure:", pressure, "atm")
-    # print("Total atomlist:", fragment.atomlist)
     print("Hessian atomlist:", atoms)
-    # print("Masses:", masses)
     print("Total mass:", totalmass)
     print("")
 
@@ -1086,9 +1057,6 @@ CARTESIAN COORDINATES (ANGSTROEM)
         y = coord[1]
         z = coord[2]
         line = "  {0:2s} {1:11.6f} {2:12.6f} {3:13.6f}".format(el, x, y, z)
-        # print(line)
-        # print('  S     51.226907   65.512868  106.021030')
-        # exit()
         outfile.write(line + '\n')
     outfile.write('\n')
     outfile.write('-----------------------\n')
@@ -1103,8 +1071,6 @@ CARTESIAN COORDINATES (ANGSTROEM)
     for mode in range(3 * numatoms):
         smode = str(mode) + ':'
         # if mode < TRmodenum:
-        #    freq=0.00
-        # else:
         freq = clean_number(vfreq[mode])
         if np.iscomplex(freq):
             imagfreq = -1 * abs(freq)
@@ -1150,11 +1116,9 @@ Thus, these vectors are normalized but *not* orthogonal"""
                 left = 6
             for temp in range(index, index + left):
                 chunkheader = chunkheader + "          " + str(temp)
-            # print(chunkheader)
         else:
             for temp in range(index, index + orcahesscoldim):
                 chunkheader = chunkheader + "          " + str(temp)
-            # print(chunkheader)
         outfile.write("        " + str(chunkheader) + "    \n")
         for i in range(0, hessdim):
             firstcolumnindex = 6 * chunk
@@ -1163,8 +1127,6 @@ Thus, these vectors are normalized but *not* orthogonal"""
             # NOTE: RB note: but TS mode should also be here. Let's not set anything to zero
             # Disabling zero-val setting below
             # if chunk == 0:
-            #    val1 = 0.0; val2 = 0.0;val3 = 0.0; val4 = 0.0; val5 = 0.0;val6 = 0.0
-            # else :
             # TODO: Here defning values to print based on values in nmodes matrix. TO be confiremd that this is correct. TODO.
             if hessdim - j == 1:
                 val1 = nmodes[j][i]
@@ -1208,12 +1170,12 @@ Thus, these vectors are normalized but *not* orthogonal"""
                     elif left == 5:
                         line = "{:>6d} {:>14.6f} {:>10.6f} {:>10.6f} {:>10.6f} {:>10.6f}".format(i, val1, val2, val3,
                                                                                                  val4, val5)
-                    elif left == 5:
+                    elif left == 4:
                         line = "{:>6d} {:>14.6f} {:>10.6f} {:>10.6f} {:>10.6f}".format(i, val1, val2, val3, val4)
                     elif left == 3:
                         line = "{:>6d} {:>14.6f} {:>10.6f} {:>10.6f}".format(i, val1, val2, val3)
                     elif left == 2:
-                        line = "{:>6d}} {:>14.6f} {:>10.6f}".format(i, val1, val2)
+                        line = "{:>6d} {:>14.6f} {:>10.6f}".format(i, val1, val2)
                     elif left == 1:
                         line = "{:>6d} {:>14.6f}".format(i, val1)
             else:
@@ -1294,7 +1256,6 @@ def calc_rotational_constants(frag, printlevel=2):
     coords = frag.coords
     elems = frag.elems
     center = get_center(coords, elems=elems)
-    # rinertia = list(inertia(elems,coords,center))
     rinertia = [float(i) for i in inertia(elems, coords, center)]
 
     # Converting from moments of inertia in amu A^2 to rotational constants in Ghz.
@@ -1368,7 +1329,6 @@ def calc_model_Hessian_ORCA(fragment, model='Almloef'):
             if '$hessian_approx' in line:
                 hesstake = True
                 grabsize = True
-    # fragment.hessian=hessarray2d
 
     return np.array(hessarray2d)
 
@@ -1379,13 +1339,10 @@ def calc_model_Hessian_ORCA(fragment, model='Almloef'):
 # NOTE: Capping atom option is now disabled. Best made into a separate function
 # Capping atom Hessian indices are skipped
 # if capping_atoms != None:
-#    capping_atom_hessian_indices=[3*i+j for i in capping_atoms for j in [0,1,2]]
-# else:
-#    capping_atom_hessian_indices=[]
 # NOTE: Trans+rot projection off right now
 def approximate_full_Hessian_from_smaller(fragment, hessian_small, small_atomindices, large_atomindices=None,
                                           restHessian='zero', projection=False,
-                                          charge=None, mult=None, xtbmethod="GFN1"):
+                                          charge=None, mult=None):
     print("approximate_full_Hessian_from_smaller")
     print()
     write_hessian(hessian_small, hessfile="smallhessian")
@@ -1522,14 +1479,11 @@ def normalmodecomp_all(mode, fragment, evectors, hessatoms=None):
     else:
         numatoms = len(hessatoms)
     normcomplist = []
-    # vib=clean_number(vfreq[mode])
     for n in range(0, numatoms):
         normcomp = normalmodecomp(evectors, mode, n)
         normcomplist.append(normcomp)
     normcompstring = ['{:.6f}'.format(x) for x in normcomplist]
-    # line = "{:>3d}   {:>9.4f}        {}".format(mode, vib, '   '.join(normcompstring))
     # if silent is False:
-    #    print(line)
 
     # Returning normcomplist, a list of atomic contributions for each atom
     return normcomplist
@@ -1651,15 +1605,12 @@ def detect_linear(fragment=None, coords=None, elems=None, threshold=1e-4):
         return True
     # Linear check via moments of inertia
     center = get_center(coords, elems=elems)
-    # rinertia = list(inertia(elems,coords,center))
     rinertia = [float(i) for i in inertia(elems, coords, center)]
     # Checking if rinertia contains an almost zero-value
     if any([abs(i) < threshold for i in rinertia]) is True:
-        # print("Small value detected: ", rinertia)
         print("Molecule is linear")
         return True
     else:
-        # print("nothing detected")
         print("Molecule is non-linear")
         return False
 
@@ -1680,7 +1631,6 @@ def clean_frequencies(freqs):
         bla = get_relevant_part_of_complex(f)
         clean.append(bla)
     return clean
-    # [get_relevant_part_of_complex(f) for f in freqs]
 
 
 def project_rot_and_trans(coords, mass, Hessian, rotmode_threshold=1e-4):
@@ -1718,7 +1668,6 @@ def project_rot_and_trans(coords, mass, Hessian, rotmode_threshold=1e-4):
             RotDOF += 1
     TR_DOF = 3 + RotDOF
     print("TR_DOF:", TR_DOF)
-    # exit()
     if TR_DOF not in (5, 6):
         print("Unexpected number of trans+rot DOF: {TR_DOF} not in (5, 6)")
 
