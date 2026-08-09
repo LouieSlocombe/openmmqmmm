@@ -11,7 +11,6 @@ import openmmqmmm.interfaces.interface_ORCA
 import openmmqmmm.modules.module_coords
 from openmmqmmm.functions.functions_general import ashexit, listdiff, clean_number, blankline, BC, print_time_rel, \
     print_line_with_mainheader, isint
-from openmmqmmm.interfaces.interface_ORCA import read_ORCA_Hessian
 from openmmqmmm.modules.module_QMMM import QMMMTheory
 from openmmqmmm.modules.module_coords import check_charge_mult, read_xyzfile, write_multi_xyz_file, \
     Fragment
@@ -625,12 +624,6 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
 # HESSIAN-related functions below
 # Get partial matrix by deleting rows not present in list of indices.
 # Deletes numpy rows, stupid and slow, to be deleted
-def old_get_partial_matrix(allatoms, hessatoms, matrix):
-    nonhessatoms = listdiff(allatoms, hessatoms)
-    nonhessatoms.reverse()
-    for at in nonhessatoms:
-        matrix = np.delete(matrix, at, 0)
-    return matrix
 
 
 # Get partial matrix properly
@@ -797,27 +790,6 @@ def printfreqs_and_nm_elem_comps(vfreq, fragment, evectors, hessatoms=None, TRmo
 # NOTE: THIS IS NOT CORRECT
 # TODO: Need to identify SP mode
 # FOR SADDLEPOINT, the SP mode will be the largest imaginary mode, hence mode 0.
-def old_printfreqs(vfreq, numatoms, TRmodenum=6):
-    line = "{:>4}{:>14}".format("Mode", "Freq(cm**-1)")
-    print(line)
-    for mode in range(0, 3 * numatoms):
-        realpart = vfreq[mode].real
-        imagpart = vfreq[mode].imag
-        if realpart == 0.0:
-            vib = imagpart
-            line = "{:>3d}   {:>9.4f}i".format(mode, vib)
-        elif imagpart == 0.0:
-            vib = clean_number(vfreq[mode])
-            line = "{:>3d}   {:>9.4f}".format(mode, vib)
-        else:
-            print("vfreq[mode]:", vfreq[mode])
-            print("realpart:", realpart)
-            print("imagpart:", imagpart)
-            print("This should not have happened")
-            ashexit()
-        if mode < TRmodenum:
-            line = line + " (TR mode)"
-        print(line)
         # print("vib:", vib)
         # print("type of vib", type(vib))
 
@@ -1530,63 +1502,6 @@ def approximate_full_Hessian_from_smaller(fragment, hessian_small, small_atomind
 # TODO: generalize. Input isotope-pair: 'H': 1.0, 'D' : '2.0' or something
 # NOTE: Projection is off by default since coordinates are required for projection.
 # NOTE: We could change this after testing
-def isotope_change_Hessian(fragment=None, hessfile=None, hessian=None, elems=None, masses=None,
-                           isotope_change="deuterium", projection=False):
-    if hessfile == None and hessian == None or hessfile != None and hessian != None:
-        print("Please provide either hessfile (ORCA-style) or hessian keyword")
-        return
-    if hessfile != None:
-        hessfile = sys.argv[1]
-        print("Reading hessfile", hessfile)
-        hessian, elems, coords, masses = read_ORCA_Hessian(hessfile)
-    else:
-        print("Hessian provided")
-        if elems == None or masses == None:
-            print("Please also provide elems and masses lists")
-    print("elems:", elems)
-    print("masses:", masses)
-
-    # Modify masses
-    print("isotope_change:", isotope_change)
-    if isotope_change == "deuterium":
-        modmass = 2.01410177811
-        masses_mod = [m if el != "H" else modmass for m, el in zip(masses, elems)]
-    else:
-        print("unknown isotope_change")
-        ashexit()
-    print("masses_mod:", masses_mod)
-
-    # Checking for linearity. Determines how many Trans+Rot modes
-    if detect_linear(coords=fragment.coords, elems=fragment.elems) is True:
-        TRmodenum = 5
-    else:
-        TRmodenum = 5
-
-    # Regular mass-weighted Hessian
-    coords = fragment.coords
-    vfreqs1, nmodes1, evectors1, mode_order1 = diagonalizeHessian(coords, hessian, masses, elems, TRmodenum=TRmodenum,
-                                                                  projection=projection)
-
-    # Mass- substituted
-    vfreqs2, nmodes2, evectors2, mode_order2 = diagonalizeHessian(coords, hessian, masses_mod, elems,
-                                                                  TRmodenum=TRmodenum, projection=projection)
-
-    print("masses:", masses)
-    print("masses_mod:", masses)
-    ###############
-    print("vfreqs1:", vfreqs1)
-    print("vfreqs2:", vfreqs2)
-    vfreqs1_x = [float(i) for i in vfreqs1]
-    zpe_freq_list1 = [0.5 * i for i in vfreqs1_x]
-    ZPE_1 = sum(zpe_freq_list1) / 349.7550112241469  # cm-1 to kcal/mol
-    ############
-    vfreqs2_x = [float(i) for i in vfreqs2]
-    zpe_freq_list2 = [0.5 * i for i in vfreqs2_x]
-    ZPE_2 = sum(zpe_freq_list2) / 349.7550112241469  # cm-1 to kcal/mol
-
-    # Print ZPVE in kcal/mol
-    print("ZPE_1 (kcal/mol):", ZPE_1)
-    print("ZPE_2 (kcal/mol):", ZPE_2)
 
     # What else?
 
@@ -1608,14 +1523,6 @@ def normalmodecomp(evectors, j, a):
 
 
 # Get all normal mode composition factors for atom a
-def normalmodecomp_for_atom(evectors, atom):
-    factors = []
-    for j in range(0, len(evectors)):
-        factor = normalmodecomp(evectors, j, atom)
-        factors.append(factor)
-
-    print(factors)
-    return factors
 
 
 # Get normal mode composition factors for all atoms for a specific mode only
@@ -1667,165 +1574,10 @@ def normalmodecomp_permode_by_elems(mode, fragment, vfreq, evectors, silent=Fals
 # Get atoms that contribute most to specific mode of Hessian
 # Example: get atoms (atom indices) most involved in imaginary mode of transition state
 # TODO: Support partial Hessian
-def get_dominant_atoms_in_mode(mode, fragment=None, threshold=0.3, hessatoms=None, projection=True):
-    print_line_with_mainheader("get_dominant_atoms_in_mode")
-    print("Threshold:", threshold)
-    # Get hessian from fragment
-    hessian = fragment.hessian
-
-    # allatoms=list(range(0,fragment.numatoms))
-    # numatoms=fragment.numatoms
-    # Partial Hessian or no
-    # if hessatoms != None:
-    #    hessmasses = openmmqmmm.modules.module_coords.get_partial_list(allatoms, hessatoms, fragment.list_of_masses)
-
-    # Get partial matrix by deleting atoms not present in list.
-    #    hesselems = openmmqmmm.modules.module_coords.get_partial_list(allatoms, hessatoms, fragment.elems)
-    # else:
-    hessmasses = fragment.list_of_masses
-    hesselems = fragment.elems
-
-    # Checking for linearity. Determines how many Trans+Rot modes
-    if detect_linear(coords=fragment.coords, elems=fragment.elems) is True:
-        TRmodenum = 5
-    else:
-        TRmodenum = 6
-    # Diagonalize Hessian
-    frequencies, nmodes, evectors, mode_order = diagonalizeHessian(fragment.coords, hessian, hessmasses, hesselems,
-                                                                   TRmodenum=TRmodenum, projection=projection)
-
-    # Get full list of atom contributions to mode
-    normcomplist_for_mode = normalmodecomp_all(mode, fragment, evectors, hessatoms=hessatoms)
-
-    dominant_atoms = [normcomplist_for_mode.index(i) for i in normcomplist_for_mode if i > threshold]
-    print(f"Dominant atoms in mode {mode}: {dominant_atoms}\n")
-    return dominant_atoms
 
 
 # TODO: Rewrite and make more modular
 # Function to print normal mode composition factors for all atoms, element-groups, specific atom groups or specific atoms
-def printnormalmodecompositions(option, TRmodenum, vfreq, numatoms, elems, evectors, atomlist):
-    # Normalmodecomposition factors for mode j and atom a
-    freqs = []
-    # If one set of normal atom compositions (1 atom or 1 group)
-    comps = []
-    # If multiple (case: all or elements)
-    allcomps = []
-    # Change TRmodenum to 5 if diatomic molecule since linear case
-    if numatoms == 2:
-        TRmodenum = 5
-
-    if option == "all":
-        # Case: All atoms
-        line = "{:>4}{:>14}      {:}".format("Mode", "Freq(cm**-1)", '       '.join(atomlist))
-        print(line)
-        for mode in range(0, 3 * numatoms):
-            normcomplist = []
-            if mode < TRmodenum:
-                line = "{:>3d}   {:>9.4f}".format(mode, 0.000)
-                print(line)
-            else:
-                vib = clean_number(vfreq[mode])
-                freqs.append(float(vib))
-                for n in range(0, numatoms):
-                    normcomp = normalmodecomp(evectors, mode, n)
-                    normcomplist.append(normcomp)
-                allcomps.append(normcomplist)
-                normcomplist = ['{:.6f}'.format(x) for x in normcomplist]
-                line = "{:>3d}   {:>9.4f}        {}".format(mode, vib, '   '.join(normcomplist))
-                print(line)
-    elif option == "elements":
-        # Case: By elements
-        uniqelems = []
-        for i in elems:
-            if i not in uniqelems:
-                uniqelems.append(i)
-        line = "{:>4}{:>14}      {:45}".format("Mode", "Freq(cm**-1)", '         '.join(uniqelems))
-        print(line)
-        for mode in range(0, 3 * numatoms):
-            normcomplist = []
-            if mode < TRmodenum:
-                line = "{:>3d}   {:>9.4f}".format(mode, 0.000)
-                print(line)
-            else:
-                vib = clean_number(vfreq[mode])
-                freqs.append(float(vib))
-                for n in range(0, numatoms):
-                    normcomp = normalmodecomp(evectors, mode, n)
-                    normcomplist.append(normcomp)
-                elementnormcomplist = []
-                # Sum components together
-                for u in uniqelems:
-                    elcompsum = 0.0
-                    elindices = [i for i, j in enumerate(elems) if j == u]
-                    for h in elindices:
-                        elcompsum = float(elcompsum + float(normcomplist[h]))
-                    elementnormcomplist.append(elcompsum)
-                # print(elementnormcomplist)
-                allcomps.append(elementnormcomplist)
-                elementnormcomplist = ['{:.6f}'.format(x) for x in elementnormcomplist]
-                line = "{:>3d}   {:>9.4f}        {}".format(mode, vib, '   '.join(elementnormcomplist))
-                print(line)
-    elif isint(option) == True:
-        # Case: Specific atom
-        atom = int(option)
-        if atom > numatoms - 1:
-            print(BC.FAIL, "Atom index does not exist. Note: Numbering starts from 0", BC.ENDC)
-            ashexit()
-        line = "{:>4}{:>14}      {:45}".format("Mode", "Freq(cm**-1)", atomlist[atom])
-        print(line)
-        for mode in range(0, 3 * numatoms):
-            normcomplist = []
-            if mode < TRmodenum:
-                line = "{:>3d}   {:>9.4f}".format(mode, 0.000)
-                print(line)
-            else:
-                vib = clean_number(vfreq[mode])
-                freqs.append(float(vib))
-                for n in range(0, numatoms):
-                    normcomp = normalmodecomp(evectors, mode, n)
-                    normcomplist.append(normcomp)
-                comps.append(normcomplist[atom])
-                normcomplist = ['{:.6f}'.format(x) for x in normcomplist]
-                line = "{:>3d}   {:>9.4f}        {}".format(mode, vib, normcomplist[atom])
-                print(line)
-    elif len(option.split(",")) > 1:
-        # Case: Chemical group defined as list of atoms
-        selatoms = option.split(",")
-        selatoms = [int(i) for i in selatoms]
-        grouplist = []
-        for at in selatoms:
-            if at > numatoms - 1:
-                print(BC.FAIL, "Atom index does not exist. Note: Numbering starts from 0", BC.ENDC)
-                ashexit()
-            grouplist.append(atomlist[at])
-        simpgrouplist = '_'.join(grouplist)
-        grouplist = ', '.join(grouplist)
-        line = "{}   {}    {}".format("Mode", "Freq(cm**-1)", "Group(" + grouplist + ")")
-        print(line)
-        for mode in range(0, 3 * numatoms):
-            normcomplist = []
-            if mode < TRmodenum:
-                line = "{:>3d}   {:>9.4f}".format(mode, 0.000)
-                print(line)
-            else:
-                vib = clean_number(vfreq[mode])
-                freqs.append(float(vib))
-                for n in range(0, numatoms):
-                    normcomp = normalmodecomp(evectors, mode, n)
-                    normcomplist.append(normcomp)
-                # normcomplist=['{:.6f}'.format(x) for x in normcomplist]
-                groupnormcomplist = []
-                for q in selatoms:
-                    groupnormcomplist.append(normcomplist[q])
-                comps.append(sum(groupnormcomplist))
-                sumgroupnormcomplist = '{:.6f}'.format(sum(groupnormcomplist))
-                line = "{:>3d}   {:9.4f}        {}".format(mode, vib, sumgroupnormcomplist)
-                print(line)
-    else:
-        print("Something went wrong")
-
-    return allcomps, comps, freqs
 
 
 # Write normal mode as XYZ-trajectory (with only Hessatoms or Allatoms shown)
@@ -1833,106 +1585,10 @@ def printnormalmodecompositions(option, TRmodenum, vfreq, numatoms, elems, evect
 # Print out XYZ-trajectory of mode
 # NOTE: Now using freqdict (what Numfreq/Anfreq returns) and grabbing all info from there
 # NOTE: Store this in fragment instead??
-def write_normalmode(modenumber, fragment=None, freqdict=None):
-    print_line_with_mainheader("write_normalmode")
-    print("Printing mode:", modenumber)
-    if freqdict == None:
-        print("freqdict keyword needs to be set and point to a valid Numfreq/Anfreq frequency dictionary")
-        ashexit()
-    nmodes = freqdict['nmodes']
-    hessatoms = freqdict['hessatoms']
-    if modenumber >= len(nmodes):
-        print("Modenumber is larger than number of normal modes. Exiting. (Note: We count from 0.)")
-        return
-    else:
-        # Modenumber: number mode (starting from 0)
-        modechosen = nmodes[modenumber]
-
-    # hessatoms: list of atoms involved in Hessian. All atoms unless hessatoms list provided.
-    if hessatoms == None:
-        hessatoms = list(range(0, len(fragment.elems)))
-
-    # Creating dictionary of displaced atoms and chosen mode coordinates
-    modedict = {}
-    # Convert ndarray to list for convenience
-    modechosen = modechosen.tolist()
-    for fo in range(0, len(hessatoms)):
-        modedict[hessatoms[fo]] = [modechosen.pop(0), modechosen.pop(0), modechosen.pop(0)]
-
-    # Opening two Modefiles (hessatom-coordinates) and fullatom coordinates
-    f = open('Mode' + str(modenumber) + '.xyz', 'w')
-    f_full = open('Mode' + str(modenumber) + '_full.xyz', 'w')
-    # Displacement array
-    dx = np.array(
-        [0.0, -0.1, -0.2, -0.3, -0.4, -0.5, -0.6, -0.7, -0.8, -0.9, -1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3,
-         -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.9, 0.8, 0.7, 0.6, 0.4, 0.3, 0.2, 0.1,
-         0.0])
-
-    # Looping over displacement
-    for k in range(0, len(dx)):
-        hessatomindex = 0
-        f.write('%i\n\n' % len(hessatoms))
-        f_full.write('%i\n\n' % fragment.numatoms)
-        # Looping over coordinates
-        for j, w in zip(range(0, fragment.numatoms), fragment.coords):
-            # Writing hessatom displacement to both files
-            if j in hessatoms:
-                f.write("{} {:12.8f} {:12.8f} {:12.8f}  \n".format(fragment.elems[j],
-                                                                   dx[k] * modedict[hessatomindex][0] + w[0],
-                                                                   dx[k] * modedict[hessatomindex][1] + w[1],
-                                                                   dx[k] * modedict[hessatomindex][2] + w[2]))
-                f_full.write("{} {:12.8f} {:12.8f} {:12.8f}  \n".format(fragment.elems[j],
-                                                                        dx[k] * modedict[hessatomindex][0] + w[0],
-                                                                        dx[k] * modedict[hessatomindex][1] + w[1],
-                                                                        dx[k] * modedict[hessatomindex][2] + w[2]))
-            # Writing non-hessatom displacement to full file only
-            else:
-                f_full.write("{} {:12.8f} {:12.8f} {:12.8f}  \n".format(fragment.elems[j], w[0], w[1], +w[2]))
-            hessatomindex += 1
-    f.close()
-    print("All done. Files Mode{}.xyz and Mode{}_full.xyz have been created!".format(modenumber, modenumber))
 
 
 # Compare the similarity of normal modes by cosine similarity (normalized dot product of normal mode vectors).
 # Useful for isotope-substitutions. From Hess-tool.
-def comparenormalmodes(hessianA, hessianB, massesA, massesB):
-    numatoms = len(massesA)
-    # Massweight Hessians
-    mwhessianA, massmatrixA = massweight(hessianA, massesA)
-    mwhessianB, massmatrixB = massweight(hessianB, massesB)
-
-    # Diagonalize mass-weighted Hessian
-    evaluesA, evectorsA = np.linalg.eigh(mwhessianA)
-    evaluesB, evectorsB = np.linalg.eigh(mwhessianB)
-    evectorsA = np.transpose(evectorsA)
-    evectorsB = np.transpose(evectorsB)
-
-    # Calculate frequencies from eigenvalues
-    vfreqA = calcfreq(evaluesA)
-    vfreqB = calcfreq(evaluesB)
-
-    print("")
-    # Unweight eigenvectors to get normal modes
-    nmodesA = np.dot(evectorsA, massmatrixA)
-    nmodesB = np.dot(evectorsB, massmatrixB)
-    line = "{:>4}".format("Mode  Freq-A(cm**-1)  Freq-B(cm**-1)    Cosine-similarity")
-    print(line)
-    TRmodenum = 6
-    for mode in range(0, 3 * numatoms):
-        if mode < TRmodenum:
-            line = "{:>3d}   {:>9.4f}       {:>9.4f}".format(mode, 0.000, 0.000)
-            print(line)
-        else:
-            vibA = clean_number(vfreqA[mode])
-            vibB = clean_number(vfreqB[mode])
-            cos_sim = np.dot(nmodesA[mode], nmodesB[mode]) / (
-                    np.linalg.norm(nmodesA[mode]) * np.linalg.norm(nmodesB[mode]))
-            if abs(cos_sim) < 0.9:
-                line = "{:>3d}   {:>9.4f}       {:>9.4f}          {:.3f} {}".format(mode, vibA, vibB, cos_sim,
-                                                                                    "<------")
-            else:
-                line = "{:>3d}   {:>9.4f}       {:>9.4f}          {:.3f}".format(mode, vibA, vibB, cos_sim)
-            print(line)
 
 
 # Vibrational entropy by plain harmonic approximation
@@ -2039,169 +1695,6 @@ def detect_linear(fragment=None, coords=None, elems=None, threshold=1e-4):
 
 
 # Simple function to get Wigner distribution from geometry
-def wigner_distribution(fragment=None, hessian=None, temperature=300, num_samples=100, dirname="wigner",
-                        projection=True, hessatoms=None,
-                        hessatoms_masses=None):
-    print_line_with_mainheader("Wigner distribution")
-
-    if fragment is None:
-        print("You need to provide an ASH fragment")
-        ashexit()
-
-    # Checking for linearity. Determines how many Trans+Rot modes
-    if detect_linear(coords=fragment.coords, elems=fragment.elems) is True:
-        TRmodenum = 5
-    else:
-        TRmodenum = 6
-
-    numatoms = fragment.numatoms
-    allatoms = list(range(0, numatoms))
-    fullelems = copy.deepcopy(fragment.elems)
-    print(f"Fragment contains {numatoms} atoms")
-
-    # Full Hessian
-    if hessatoms == None:
-        print("No Hessatoms provided. Full Hessian assumed. Rot+trans projection is on!")
-        projection = True
-        # Setting variables
-        used_coords = fragment.coords
-        used_elems = copy.deepcopy(fragment.elems)
-        used_atoms = allatoms
-        hessmasses = fragment.list_of_masses
-    # Partial Hessian
-    else:
-        print("Hessatoms list provided. This is assumed to be a partial Hessian. Turning off rot+trans projection")
-        used_atoms = hessatoms
-        projection = False
-        # Making sure the list is sorted
-        used_atoms.sort()
-
-        # Grabbing coords and elems for Hessian atoms
-        used_elems = copy.deepcopy(fragment.elems)
-        used_elems = openmmqmmm.modules.module_coords.get_partial_list(allatoms, used_atoms, used_elems)
-        used_coords = np.array([fragment.coords[i] for i in used_atoms])
-
-        # Use input masses if given, otherwise take from frament
-        if hessatoms_masses == None:
-            hessmasses = openmmqmmm.modules.module_coords.get_partial_list(allatoms, used_atoms, fragment.list_of_masses)
-        else:
-            hessmasses = hessatoms_masses
-
-    # print("Printing hessatoms geometry...")
-    print("Hessatoms list:", used_atoms)
-    # openmmqmmm.modules.module_coords.print_coords_for_atoms(fragment.coords,fragment.elems,used_atoms)
-    openmmqmmm.modules.module_coords.write_xyzfile(used_elems, used_coords, "Init_geo")
-    print("Writing center of mass geometry to file: Init_geo_com.xyz")
-    # Center-of-mass geometry for inspection and for translation of coordinates later
-    com = np.array(get_center(used_coords, masses=hessmasses))
-    print("com:", com)
-    coords_com = convert_coords_to_com(used_coords, hessmasses)
-    openmmqmmm.modules.module_coords.write_xyzfile(used_elems, coords_com, "Init_geo_com")
-    print("Elements:", used_elems)
-    print("Masses used:", hessmasses)
-
-    # Get or calculate normal_modes
-    if hessian is not None:
-        print("\nHessian provided")
-        # Check Hessian
-        print("Hessian size:", hessian.size)
-        print("Hessian shape:", hessian.shape)
-        print("Fragment numatoms:", fragment.numatoms)
-        if hessian.shape[0] != len(used_atoms) * 3:
-            print(
-                f"Error: Hessian shape ({hessian.shape[0]}) does not match number of defined Hessian-atoms *3 ({len(used_atoms) * 3})")
-            print("This likely means one of 2 things:")
-            print("1. You read in the wrong Hessian-file for this Fragment")
-            print("2. This is a partial Hessian (perhaps from a QM/MM job) and you did not specify the hessatoms")
-            ashexit()
-
-        print("Diagonalizing to get normal modes")
-        frequencies, normal_modes, evectors, mode_order = diagonalizeHessian(used_coords, hessian, hessmasses,
-                                                                             used_elems,
-                                                                             TRmodenum=TRmodenum, projection=projection)
-    elif fragment.hessian is not None:
-        print("\nHessian found inside Fragment")
-
-        if fragment.hessian.shape[0] != len(used_atoms) * 3:
-            print(
-                f"Error: Hessian shape ({hessian.shape[0]}) does not match number of defined Hessian-atoms *3 ({len(used_atoms) * 3})")
-            print("This likely means one of 2 things:")
-            print("1. You read in the wrong Hessian-file for this Fragment")
-            print("2. This is a partial Hessian (perhaps from a QM/MM job) and you did not specify the hessatoms")
-            ashexit()
-
-        print("Diagonalizing to get normal modes")
-        frequencies, normal_modes, evectors, mode_order = diagonalizeHessian(used_coords, fragment.hessian, hessmasses,
-                                                                             used_elems,
-                                                                             TRmodenum=TRmodenum, projection=projection)
-    else:
-        print("You need to provide either hessian, a hessian as part of fragment")
-        ashexit()
-
-    print("Frequencies:", frequencies)
-    print(f"Temperature {temperature} K")
-    print("Number of samples:", num_samples)
-    # NOTE: Removing T+R modes before passing freqs and normal modes
-    frequencies_proj = frequencies[TRmodenum:]
-    evectors_proj = evectors[TRmodenum:]
-
-    # Converting coords to Bohr
-
-    coords_in_au = used_coords * openmmqmmm.constants.ang2bohr
-    print("Calling wigner_sample")
-
-    # Importing wigner_sample
-    print("Importing wigner_sample from geometric library")
-    from geometric.normal_modes import frequency_analysis, wigner_sample
-    try:
-        shutil.rmtree(dirname)
-    except:
-        pass
-
-    # Calling geometric
-    # frequency_analysis(coords_in_au, hessian, elem=fragment.elems, mass=fragment.masses, temperature=temperature, wigner=(num_samples,dirname))
-    os.mkdir(dirname)
-    wigner_sample(coords_in_au, hessmasses, used_elems, np.array(frequencies_proj), evectors_proj, temperature,
-                  num_samples, dirname, True)
-
-    print("Wigner sample call done!")
-
-    # Grabbing all coordinates from wigner-dir into one list and create fragments
-    final_coords = []
-    final_coords_full = []
-    final_frags = []
-
-    # Coordinates for full fragment
-    full_coords = fragment.coords
-
-    # Going through results in wigner-dir
-    for dir in sorted(os.listdir(dirname)):
-        # Grabbing coordinates for each displaced hessian-region geometry
-        e, c = read_xyzfile(f"{dirname}/{dir}/coords.xyz", printlevel=0)
-        # Note: wigner_sample returns all coordinates in com-frame so we have to translate back
-        # Translating coordinates from com to original geometry
-        c_trans = c + com
-        final_coords.append((e, c_trans))
-
-        # Replacing hessian-region coordinates in full_coords with coords from currcoords
-        for used_i, curr_i in zip(used_atoms, c_trans):
-            full_coords[used_i] = curr_i
-            full_current_coords = copy.copy(full_coords)
-        final_coords_full.append((fullelems, full_current_coords))
-
-        newfrag = Fragment(coords=full_current_coords, elems=fullelems, charge=fragment.charge, mult=fragment.mult,
-                           printlevel=0)
-        final_frags.append(newfrag)
-
-    # Write multi-XYZ file but for Hessian-region only
-    write_multi_xyz_file(final_coords, len(used_atoms), filename="Wigner_traj.xyz")
-    print("Wrote file: Wigner_traj.xyz")
-    # Write multi-XYZ file for full fragment
-    write_multi_xyz_file(final_coords_full, numatoms, filename="Wigner_traj_full.xyz")
-    print("Wrote file: Wigner_traj_full.xyz")
-
-    # Return list of ASH fragments
-    return final_frags
 
 
 # Simple function to get the relevant part (real or imaginary) part of a complex number
@@ -2391,11 +1884,3 @@ def calc_Raman_activities(hessmasses, evectors, polarizability_derivs):
 
 
 # Convert coordinates to center of mass using inputmasses
-def convert_coords_to_com(coords, hessmasses):
-    # Get center of mass
-    com = get_center(coords, masses=hessmasses)
-
-    # Convert to center of mass
-    coords_com = coords - com
-
-    return coords_com

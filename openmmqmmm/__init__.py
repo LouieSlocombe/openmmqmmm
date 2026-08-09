@@ -65,19 +65,13 @@ Singlepoint_parallel = Job_parallel
 
 # Freq
 from .modules.module_freq import AnFreq, NumFreq, approximate_full_Hessian_from_smaller, calc_rotational_constants, \
-    get_dominant_atoms_in_mode, write_normalmode, wigner_distribution, write_hessian, read_hessian
+    write_hessian, read_hessian
 
 # Constants
 import openmmqmmm.constants
 
 # # QMcode interfaces
-from .interfaces.interface_ORCA import ORCATheory, counterpoise_calculation_ORCA, ORCA_External_Optimizer, \
-    run_orca_plot, MolecularOrbitalGrab, \
-    run_orca_mapspc, make_molden_file_ORCA, grab_coordinates_from_ORCA_output, ICE_WF_CFG_CI_size, orca_frag_guess, \
-    orblocfind, ORCAfinalenergygrab, \
-    read_ORCA_json_file, write_ORCA_json_file, create_GBW_from_json_file, create_ORCA_json_file, \
-    get_densities_from_ORCA_json, grab_ORCA_wfn, \
-    new_ORCA_natorbsfile_from_density, ORCA_orbital_setup, create_ORCA_FCIDUMP, print_gradient_in_ORCAformat
+from .interfaces.interface_ORCA import ORCATheory, ORCA_External_Optimizer
 import openmmqmmm.interfaces.interface_ORCA
 
 from .interfaces.interface_openbabel import OpenBabelTheory, pdb_to_smiles, mol_to_pdb, sdf_to_pdb, \
