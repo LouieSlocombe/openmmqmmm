@@ -3,57 +3,9 @@ import shutil
 
 from openmmqmmm import *
 
-# QM/MM tests with OpenMMTheory and NonBondedTheory, using ORCATheory for QM-part
+# QM/MM tests with OpenMMTheory as MM engine, using ORCATheory for QM-part
 # Skipped when no orca binary is available in PATH
 pytestmark = pytest.mark.skipif(shutil.which("orca") is None, reason="ORCA binary not found in PATH")
-
-
-def test_qm_mm_orca_nonbondedtheory_MeOH_H2O():
-    # H2O...MeOH fragment defined. Reading XYZ file
-    H2O_MeOH = Fragment(xyzfile=f"{ashpath}/tests/xyzfiles/h2o_MeOH.xyz")
-
-    # Specifying the QM atoms (3-8) by atom indices (MeOH). The other atoms (0,1,2) is the H2O and MM.
-    # IMPORTANT: atom indices begin at 0.
-    qmatoms = [3, 4, 5, 6, 7, 8]
-
-    # Charge definitions for whole system.
-    # Charges for the QM atoms are zero (since ASH will always set QM atoms to zero in elstat embedding)
-    atomcharges = [-0.834, 0.417, 0.417, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-    # Defining atomtypes for whole system
-    atomtypes = ['OT', 'HT', 'HT', 'CX', 'HX', 'HX', 'HX', 'OT', 'HT']
-
-    # Read forcefield (here containing LJ-part only) from file
-    MM_forcefield = MMforcefield_read(f"{ashpath}/tests/extra_files/MeOH_H2O-sigma.ff")
-
-    # QM object (RI off for less numerical noise)
-    qm = ORCATheory(orcasimpleinput="! PBE def2-SVP NORI tightscf")
-
-    # Defining NonBondedTheory object from atomcharges, atomtypes and forcefield
-    MMpart = NonBondedTheory(charges=atomcharges, atomtypes=atomtypes, forcefield=MM_forcefield,
-                             LJcombrule='geometric', codeversion="py")
-    # Creating QM/MM object
-    QMMMobject = QMMMTheory(fragment=H2O_MeOH, qm_theory=qm, mm_theory=MMpart, qmatoms=qmatoms,
-                            embedding='elstat')
-
-    # Single-point energy calculation of QM/MM object
-    result = Singlepoint(theory=QMMMobject, fragment=H2O_MeOH, charge=0, mult=1, Grad=True)
-
-    # Determined 8 aug 2026 using ORCA 6 (PBE/def2-SVP NORI tightscf)
-    # Note: ~2e-5 Eh different w.r.t. OpenMM MM-part (below), same behaviour as upstream.
-    ref_energy = -115.816226525044
-    ref_gradient = np.array([[-0.09760019, 0.06207833, 0.02913374],
-                             [0.02114901, -0.07293211, -0.04991808],
-                             [0.07600841, 0.01092898, 0.02069973],
-                             [-0.00145189, -0.00228590, -0.01545083],
-                             [-0.00204777, 0.00636930, 0.00799397],
-                             [0.00983896, -0.00363053, 0.00482082],
-                             [-0.00546035, -0.00834006, 0.00609757],
-                             [-0.00195596, 0.01573010, -0.00057062],
-                             [0.00151977, -0.00791810, -0.00280629]])
-
-    assert np.isclose(result.energy, ref_energy, atol=2e-6), "Energy is not correct"
-    assert np.allclose(result.gradient, ref_gradient, atol=1e-5), "Gradient is not correct"
 
 
 def test_qm_mm_orca_openmm_MeOH_H2O():

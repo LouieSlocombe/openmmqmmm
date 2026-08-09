@@ -20,7 +20,6 @@ from openmmqmmm.modules.module_coords import Fragment, write_pdbfile, distance_b
     define_dummy_topology
 
 from openmmqmmm.modules.module_coords_PBC import cell_params_to_vectors, cell_vectors_to_params
-from openmmqmmm.modules.module_MM import UFF_modH_dict, MMforcefield_read
 from openmmqmmm.interfaces.interface_ORCA import ORCATheory, grabatomcharges_ORCA, chargemodel_select
 from openmmqmmm.modules.module_singlepoint import Singlepoint
 from openmmqmmm.interfaces.interface_mdtraj import MDtraj_import, MDtraj_imagetraj, MDtraj_RMSF
@@ -34,7 +33,6 @@ class OpenMMTheory:
                  CHARMMfiles=False, psffile=None, charmmtopfile=None, charmmprmfile=None, label="OpenMM",
                  GROMACSfiles=False, gromacstopfile=None, grofile=None, gromacstopdir=None,
                  Amberfiles=False, amberprmtopfile=None, properties=None,
-                 cluster_fragment=None, ASH_FF_file=None,
                  nonbondedMethod_noPBC='NoCutoff', nonbonded_cutoff_noPBC=20,
                  xmlfiles=None, pdbfile=None, pdbxfile=None, use_parmed=False, xmlsystemfile=None,
                  do_energy_decomposition=False,
@@ -394,68 +392,6 @@ class OpenMMTheory:
             self.define_mm_elements(self.topology)
             # self.mm_elements = [i.element.symbol for i in self.topology.atoms()]
 
-        elif ASH_FF_file is not None:
-            if self.printlevel > 0:
-                print("Reading ASH cluster fragment file and ASH Forcefield file.")
-
-            # Converting ASH FF file to OpenMM XML file
-            MM_forcefield = MMforcefield_read(ASH_FF_file)
-
-            atomtypes_res = []
-            atomnames_res = []
-            elements_res = []
-            atomcharges_res = []
-            sigmas_res = []
-            epsilons_res = []
-            residue_types = []
-            masses_res = []
-
-            for resid, residuetype in enumerate(MM_forcefield['residues']):
-                residue_types.append("RS" + str(resid))
-                atypelist = MM_forcefield[residuetype + "_atomtypes"]
-                # atypelist needs to be more unique due to different charges
-                atomtypes_res.append(["R" + residuetype[-1] + str(j) for j, i in enumerate(atypelist)])
-                elements_res.append(MM_forcefield[residuetype + "_elements"])
-                atomcharges_res.append(MM_forcefield[residuetype + "_charges"])
-                # Atomnames, have to be unique and 4 letters, adding number
-                atomnames_res.append(["R" + residuetype[-1] + str(j) for j, i in enumerate(atypelist)])
-                sigmas_res.append([MM_forcefield[atomtype].LJparameters[0] / 10 for atomtype in
-                                   MM_forcefield[residuetype + "_atomtypes"]])
-                epsilons_res.append([MM_forcefield[atomtype].LJparameters[1] * 4.184 for atomtype in
-                                     MM_forcefield[residuetype + "_atomtypes"]])
-                masses_res.append(list_of_masses(elements_res[-1]))
-
-            xmlfile = write_xmlfile_nonbonded(resnames=residue_types, atomnames_per_res=atomnames_res,
-                                              atomtypes_per_res=atomtypes_res,
-                                              elements_per_res=elements_res, masses_per_res=masses_res,
-                                              charges_per_res=atomcharges_res, sigmas_per_res=sigmas_res,
-                                              epsilons_per_res=epsilons_res,
-                                              filename="cluster_system.xml", coulomb14scale=1.0, lj14scale=1.0)
-            # Creating lists for PDB-file
-            # requires ffragmenttype_labels to be present in fragment.
-            # NOTE: Hence will only work for molcrys-prepared files for now
-            atomnames_full = []
-            jindex = 0
-            resid_index = 1
-            residlabels = []
-            residue_types_full = []
-            for i, fragtypelabel in enumerate(cluster_fragment.fragmenttype_labels):
-                atomnames_full.append(atomnames_res[fragtypelabel][jindex])
-                residlabels.append(resid_index)
-                jindex += 1
-                residue_types_full.append("RS" + str(fragtypelabel))
-                if jindex == len(atomnames_res[fragtypelabel]):
-                    jindex = 0
-                    resid_index += 1
-
-            # Creating PDB-file, only for topology (not coordinates)
-            write_pdbfile(cluster_fragment, outputname="cluster", resnames=residue_types_full, atomnames=atomnames_full,
-                          residlabels=residlabels)
-            pdb = openmm.app.PDBFile("cluster.pdb")
-            self.topology = pdb.topology
-            self.define_mm_elements(self.topology)
-            # self.mm_elements = [i.element.symbol for i in self.topology.atoms()]
-            self.forcefield = openmm.app.ForceField(xmlfile)
 
         # Load XMLfile for whole system
         elif xmlsystemfile is not None:

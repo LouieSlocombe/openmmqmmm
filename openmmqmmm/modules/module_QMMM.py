@@ -7,7 +7,6 @@ import openmmqmmm.modules.module_coords
 import openmmqmmm.settings_ash
 from openmmqmmm.functions.functions_general import ashexit, BC, blankline, listdiff, print_time_rel, printdebug, \
     print_line_with_mainheader, writelisttofile, print_if_level
-from openmmqmmm.modules.module_MM import coulombcharge
 from openmmqmmm.modules.module_coords import Fragment
 
 
@@ -16,7 +15,7 @@ from openmmqmmm.modules.module_coords import Fragment
 
 class QMMMTheory:
     def __init__(self, qm_theory=None, qmatoms=None, fragment=None, mm_theory=None, charges=None,
-                 embedding="elstat", printlevel=2, numcores=1, actatoms=None, frozenatoms=None,
+                 embedding="elstat", printlevel=2, numcores=1,
                  excludeboundaryatomlist=None,
                  unusualboundary=False, openmm_externalforce=False, TruncatedPC=False, TruncPCRadius=55,
                  TruncatedPC_recalc_iter=50,
@@ -122,29 +121,6 @@ class QMMMTheory:
         # self.mmatoms = listdiff(self.allatoms, self.qmatoms)
         self.mmatoms = np.setdiff1d(self.allatoms, self.qmatoms)
 
-        # FROZEN AND ACTIVE ATOM REGIONS for NonbondedTheory
-        if self.mm_theory_name == "NonBondedTheory":
-            # NOTE: To be looked at. actatoms and frozenatoms have no meaning in OpenMMTHeory. NonbondedTheory, however.
-            if actatoms is None and frozenatoms is None:
-                # print("Actatoms/frozenatoms list not passed to QM/MM object. Will do all frozen interactions in MM (expensive).")
-                # print("All {} atoms active, no atoms frozen in QM/MM definition (may not be frozen in optimizer)".format(len(self.allatoms)))
-                self.actatoms = self.allatoms
-                self.frozenatoms = []
-            elif actatoms is not None and frozenatoms is None:
-                print("Actatoms list passed to QM/MM object. Will skip all frozen interactions in MM.")
-                # Sorting actatoms list
-                self.actatoms = sorted(actatoms)
-                self.frozenatoms = listdiff(self.allatoms, self.actatoms)
-                print("{} active atoms, {} frozen atoms".format(len(self.actatoms), len(self.frozenatoms)))
-            elif frozenatoms is not None and actatoms is None:
-                print("Frozenatoms list passed to QM/MM object. Will skip all frozen interactions in MM.")
-                self.frozenatoms = sorted(frozenatoms)
-                self.actatoms = listdiff(self.allatoms, self.frozenatoms)
-                print("{} active atoms, {} frozen atoms".format(len(self.actatoms), len(self.frozenatoms)))
-            else:
-                print("active_atoms and frozen_atoms can not be both defined")
-                ashexit()
-
         # print("List of all atoms:", self.allatoms)
         print("QM region ({} atoms): {}".format(len(self.qmatoms), self.qmatoms))
         print("MM region ({} atoms)".format(len(self.mmatoms)))
@@ -204,11 +180,6 @@ class QMMMTheory:
             if self.mm_theory_name == "OpenMMTheory":
                 print("Getting system charges from OpenMM object")
                 self.charges = mm_theory.charges
-            elif self.mm_theory_name == "NonBondedTheory":
-                print("Getting system charges from NonBondedTheory object")
-                # Todo: normalize charges vs atom_charges
-                self.charges = mm_theory.atom_charges
-
             else:
                 print("Unrecognized MM theory for QMMMTheory")
                 ashexit()
@@ -231,7 +202,7 @@ class QMMMTheory:
         self.QMChargesZeroed = False
 
         # CHARGES DEFINED FOR OBJECT:
-        # Self.charges are original charges that are defined above (on input, from OpenMM or from NonBondedTheory)
+        # Self.charges are original charges that are defined above (on input or from OpenMM)
         # self.charges_qmregionzeroed is self.charges but with 0-value for QM-atoms
         # self.pointcharges are pointcharges that the QM-code will see (dipole-charges, no zero-valued charges etc)
         # Length of self.charges: system size
@@ -982,26 +953,7 @@ class QMMMTheory:
         ################
         # MM THEORY
         ################
-        if self.mm_theory_name == "NonBondedTheory":
-            if self.printlevel >= 2:
-                print("Running MM theory as part of QM/MM.")
-                print("Using MM on full system.")
-                print("Passing QM atoms to MMtheory run so that QM-QM pairs are skipped in LJ pairlist")
-            self.MMenergy, self.MMgradient = self.mm_theory.run(current_coords=current_coords,
-                                                                charges=self.charges, connectivity=self.connectivity,
-                                                                qmatoms=self.qmatoms, actatoms=self.actatoms)
-            # NOTE: Special: For mechanical embedding the charges have not been set to zero
-            # Means we get QM-QM charge interactions (double-counting) that we need to correct
-            # TODO: Should move this logic into module_MM instead. However, we have to implement for numpy, julia etc.
-            # Calculating QM-QM contribution 
-            qm_charges = [self.charges[i] for i in self.qmatoms]
-            qm_coords = current_coords[self.qmatoms]
-            E_qm_qm_elstat, G_qm_qm_elstat = coulombcharge(qm_charges, qm_coords, mode="numpy")
-            # Correcting E and G
-            self.MMenergy -= E_qm_qm_elstat
-            self.MMgradient[self.qmatoms] -= G_qm_qm_elstat
-
-        elif self.mm_theory_name == "OpenMMTheory":
+        if self.mm_theory_name == "OpenMMTheory":
             if self.printlevel >= 2:
                 print("Using OpenMM theory as part of QM/MM.")
             if Grad:
@@ -1430,25 +1382,7 @@ class QMMMTheory:
             self.QMenergy = QMenergy
 
         # MM THEORY
-        if self.mm_theory_name == "NonBondedTheory":
-            if self.printlevel >= 2:
-                print("Running MM theory as part of QM/MM.")
-                print("Using MM on full system. Charges for QM region  have to be set to zero ")
-                # printdebug("Charges for full system is: ", self.charges)
-                print("Passing QM atoms to MMtheory run so that QM-QM pairs are skipped in pairlist")
-                print("Passing active atoms to MMtheory run so that frozen pairs are skipped in pairlist")
-            assert len(current_coords) == len(self.charges_qmregionzeroed)
-
-            # NOTE: charges_qmregionzeroed for full system but with QM-charges zeroed (no other modifications)
-            # NOTE: Using original system coords here (not with linkatoms, dipole etc.). Also not with deleted zero-charge coordinates.
-            # charges list for full system, can be zeroed but we still want the LJ interaction
-
-            self.MMenergy, self.MMgradient = self.mm_theory.run(current_coords=current_coords,
-                                                                charges=self.charges_qmregionzeroed,
-                                                                connectivity=self.connectivity,
-                                                                qmatoms=self.qmatoms, actatoms=self.actatoms, Grad=Grad)
-
-        elif self.mm_theory_name == "OpenMMTheory":
+        if self.mm_theory_name == "OpenMMTheory":
             if self.printlevel >= 2:
                 print("Using OpenMM theory as part of QM/MM.")
             if self.QMChargesZeroed == True:
@@ -1574,27 +1508,11 @@ class QMMMTheory:
 # Thiel: https://pubs.acs.org/doi/10.1021/ct600346p
 # Look into new: https://pubs.acs.org/doi/pdf/10.1021/acs.jctc.6b00547
 
-def microiter_QM_MM_OPT_v1(theory=None, fragment=None, chargemodel=None, qmregion=None, activeregion=None,
-                           bufferregion=None):
-    ashexit()
-    # 1. Calculate single-point QM/MM job and get charges. Maybe get gradient to judge convergence ?
-    energy = openmmqmmm.Singlepoint(theory=theory, fragment=fragment)
-    # grab charges
-    # update charges
-    # 2. Change active region so that only MM atoms are in active region
-    conv_criteria = "something"
-    sdf = openmmqmmm.Optimizer(theory=theory, fragment=fragment, coordsystem='hdlc', maxiter=50, ActiveRegion=False,
-                        actatoms=[],
-                        convergence_setting=None, conv_criteria=conv_criteria)
     # 3. QM/MM single-point with new charges?
     # 3b. Or do geometric job until a certain threshold and then do MM again??
 
 
 # frozen-density micro-iterative QM/MM
-def microiter_QM_MM_OPT_v2(theory=None, fragment=None, maxiter=500, qmregion=None, activeregion=None, bufferregion=None,
-                           xtbdir=None, xtbmethod='GFN2-xTB'):
-    sdf = "dsds"
-    ashexit()
 
 
 def fullindex_to_qmindex(fullindex, qmatoms):
@@ -1715,9 +1633,6 @@ def actregiondefine(pdbfile=None, mmtheory=None, psffile=None, fragment=None, ra
     print("Will find all atoms within {} Å from atom: {} ({})".format(radius, originatom, fragment.elems[originatom]))
     print("Will select all whole residues within region and export list")
     if mmtheory != None:
-        if mmtheory.__class__.__name__ == "NonBondedTheory":
-            print("MMtheory: NonBondedTheory currently not supported.")
-            ashexit()
         if not mmtheory.resids:
             print(BC.FAIL, "mmtheory.resids list is empty! Something wrong with OpenMMTheory setup. Exiting", BC.END)
             ashexit()
@@ -1771,30 +1686,6 @@ def actregiondefine(pdbfile=None, mmtheory=None, psffile=None, fragment=None, ra
 
 
 # General QM-PC gradient calculation
-def General_QM_PC_gradient(qm_coords, qm_nuc_charges, mol, mm_coords, mm_charges, dm):
-    print("not ready")
-    exit()
-    if dm.shape[0] == 2:
-        dmf = dm[0] + dm[1]  # unrestricted
-    else:
-        dmf = dm
-    # The interaction between QM atoms and MM particles
-    # \sum_K d/dR (1/|r_K-R|) = \sum_K (r_K-R)/|r_K-R|^3
-    # qm_coords = mol.atom_coords()
-    # qm_charges = mol.atom_charges()
-    dr = qm_coords[:, None, :] - mm_coords
-    r = np.linalg.norm(dr, axis=2)
-    g = np.einsum('r,R,rRx,rR->Rx', qm_nuc_charges, mm_charges, dr, r ** -3)
-    # The interaction between electron density and MM particles
-    # d/dR <i| (1/|r-R|) |j> = <i| d/dR (1/|r-R|) |j> = <i| -d/dr (1/|r-R|) |j>
-    #   = <d/dr i| (1/|r-R|) |j> + <i| (1/|r-R|) |d/dr j>
-    for i, q in enumerate(mm_charges):
-        with mol.with_rinv_origin(mm_coords[i]):
-            v = mol.intor('int1e_iprinv')
-        f = (np.einsum('ij,xji->x', dmf, v) +
-             np.einsum('ij,xij->x', dmf, v.conj())) * -q
-        g[i] += f
-    return g
 
 
 # This projects the linkatom force onto the respective QM atom and MM atom

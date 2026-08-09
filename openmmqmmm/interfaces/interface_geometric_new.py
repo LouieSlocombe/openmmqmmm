@@ -16,7 +16,6 @@ from openmmqmmm.modules.module_coords_PBC import cell_volume, cell_vectors_to_pa
     align_to_standard_orientation
 from openmmqmmm.modules.module_freq import write_hessian, approximate_full_Hessian_from_smaller, read_hessian
 from openmmqmmm.modules.module_results import ASH_Results
-from openmmqmmm.modules.module_theory import MicroIterativeclass
 from openmmqmmm.modules.module_theory import NumGradclass
 
 
@@ -1048,10 +1047,6 @@ class ASHengineclass:
         if self.printlevel >= 1:
             print("Convergence criteria:", self.conv_criteria)
 
-        # 
-        if isinstance(self.theory, MicroIterativeclass):
-            print("Micro-iterative option active")
-            self.theory.engine = self
         print()
         # Updating coords in object
         # Need to combine with rest of full-system coords
