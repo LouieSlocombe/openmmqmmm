@@ -1959,8 +1959,9 @@ def orca_external_optimizer(
 
     # Making sure we have a working ORCA installation
     orcadir = find_orca(orcadir)
-    # Adding orcadir to PATH. Only required if ORCA not in PATH already
-    os.environ["PATH"] += os.pathsep + orcadir
+    # Prepend orcadir to PATH so ORCA's helper binaries resolve to this installation
+    # (appending would let an unrelated `orca` earlier in PATH shadow the real one)
+    os.environ["PATH"] = orcadir + os.pathsep + os.environ["PATH"]
 
     # Pickle for serializing theory object
     import pickle
@@ -1972,10 +1973,11 @@ def orca_external_optimizer(
 
     # Write otool_script once in location that ORCA will launch. This is an energy+gradient calculator script
     # ORCA will call : otool_external test_EXT.extinp.tmp
-    # ASH_otool creates basename_Ext.engrad that ORCA reads
+    # The tool writes basename_Ext.engrad which ORCA reads
     basename = "ORCAEXTERNAL"
     scriptlocation = "."
-    os.environ["PATH"] += os.pathsep + "."
+    # ORCA >= 6 locates the external tool via EXTOPTEXE (it does not search PATH)
+    os.environ["EXTOPTEXE"] = os.path.abspath(os.path.join(scriptlocation, "otool_external"))
     write_otool_script(
         basename=basename, theoryfile=theoryfilename, scriptlocation=scriptlocation, charge=charge, mult=mult
     )
@@ -2014,7 +2016,7 @@ end
 
     # Call ORCA to do Opt/GOAT etc. job
     with open(basename + ".out", "w") as ofile:
-        sp.run(["orca", basename + ".inp"], check=True, stdout=ofile, stderr=ofile, text=True)
+        sp.run([os.path.join(orcadir, "orca"), basename + ".inp"], check=True, stdout=ofile, stderr=ofile, text=True)
 
     # Check if ORCA finished
     ORCAfinished, _iter = check_orca_finished(basename + ".out")
