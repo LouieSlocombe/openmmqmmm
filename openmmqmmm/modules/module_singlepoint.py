@@ -7,6 +7,7 @@ class ZeroTheory
 """
 
 import contextlib
+import logging
 import shutil
 import time
 
@@ -16,15 +17,15 @@ import openmmqmmm
 from openmmqmmm.exceptions import (
     InputError,
 )
-from openmmqmmm.functions.functions_general import BC, print_line_with_mainheader, print_time_rel
+from openmmqmmm.functions.functions_general import log_time_since, main_header
 from openmmqmmm.modules.module_coords import check_charge_mult
 from openmmqmmm.modules.module_results import ASH_Results
 
+logger = logging.getLogger(__name__)
+
 
 # Single-point energy function
-def Singlepoint(
-    fragment=None, theory=None, Grad=False, charge=None, mult=None, printlevel=2, result_write_to_disk=True
-):
+def Singlepoint(fragment=None, theory=None, Grad=False, charge=None, mult=None, result_write_to_disk=True):
     """Singlepoint function: runs a single-point energy calculation using ASH theory and ASH fragment.
 
     Args:
@@ -39,8 +40,7 @@ def Singlepoint(
         or
         float,np.array : Energy and gradient array
     """
-    if printlevel >= 1:
-        print_line_with_mainheader("Singlepoint function")
+    logger.info(main_header("Singlepoint function"))
     module_init_time = time.time()
     if fragment is None or theory is None:
         raise InputError("Singlepoint requires a fragment and a theory object")
@@ -48,24 +48,18 @@ def Singlepoint(
     elems = fragment.elems
 
     # Check charge/mult
-    charge, mult = check_charge_mult(
-        charge, mult, theory.theorytype, fragment, "Singlepoint", theory=theory, printlevel=printlevel
-    )
+    charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Singlepoint", theory=theory)
 
     # Run a single-point energy job with gradient
     if Grad:
-        if printlevel >= 1:
-            print()
-            print(
-                BC.WARNING,
-                f"Doing single-point Energy+Gradient job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} ",
-                BC.END,
-            )
+        logger.info("")
+        logger.warning(
+            f"Doing single-point Energy+Gradient job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
+        )
         # An Energy+Gradient calculation where we change the number of cores to 12
         energy, gradient = theory.run(current_coords=coords, elems=elems, Grad=True, charge=charge, mult=mult)
-        if printlevel >= 1:
-            print("Energy: ", energy)
-            print_time_rel(module_init_time, modulename="Singlepoint", moduleindex=1)
+        logger.info("Energy:  %s", energy)
+        log_time_since(module_init_time, "Singlepoint")
         result = ASH_Results(label="Singlepoint", energy=energy, gradient=gradient, charge=charge, mult=mult)
         if theory.theorytype == "QM/MM":
             result.qmmm_energy = theory.QM_MM_energy
@@ -76,21 +70,18 @@ def Singlepoint(
         return result
     # Run a single-point energy job without gradient (default)
     else:
-        if printlevel >= 1:
-            print()
-            print(
-                f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
-            )
-            print(f"Charge: {charge} Mult: {mult}")  # Charge/mult should have been defined so we print
+        logger.info("")
+        logger.info(
+            f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
+        )
+        logger.info(f"Charge: {charge} Mult: {mult}")
         # Run
         energy = theory.run(current_coords=coords, elems=elems, charge=charge, mult=mult)
 
-        if printlevel >= 1:
-            print("Energy: ", energy)
+        logger.info("Energy:  %s", energy)
         # Now adding total energy to fragment
         fragment.set_energy(energy)
-        if printlevel >= 1:
-            print_time_rel(module_init_time, modulename="Singlepoint", moduleindex=1)
+        log_time_since(module_init_time, "Singlepoint")
         result = ASH_Results(label="Singlepoint", energy=energy, charge=charge, mult=mult)
         if theory.theorytype == "QM/MM":
             result.qmmm_energy = theory.QM_MM_energy
@@ -103,10 +94,10 @@ def Singlepoint(
 
 # Single-point energy function that runs calculations on 1 fragment using multiple theories. Returns a list of energies.
 # TODO: allow Grad option?
-def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None, printlevel=2):
-    print_line_with_mainheader("Singlepoint_theories function")
+def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None):
+    logger.info(main_header("Singlepoint_theories function"))
     module_init_time = time.time()
-    print("Will run single-point calculation on the fragment with multiple theories")
+    logger.info("Will run single-point calculation on the fragment with multiple theories")
 
     energies = []
 
@@ -114,7 +105,7 @@ def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None, p
     for theory in theories:
         # Check charge/mult
         charge, mult = check_charge_mult(
-            charge, mult, theory.theorytype, fragment, "Singlepoint_theories", theory=theory, printlevel=printlevel
+            charge, mult, theory.theorytype, fragment, "Singlepoint_theories", theory=theory
         )
 
         # Running single-point.
@@ -125,7 +116,7 @@ def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None, p
         with contextlib.suppress(OSError, AttributeError):
             shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
 
-        print(f"Theory Label: {theory.label} Energy: {result.energy} Eh")
+        logger.info(f"Theory Label: {theory.label} Energy: {result.energy} Eh")
         theory.cleanup()
         energies.append(result.energy)
 
@@ -133,36 +124,38 @@ def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None, p
     print_theories_table(theories, energies, fragment)
     result = ASH_Results(label="Singlepoint_theories", energies=energies, charge=charge, mult=mult)
     result.write_to_disk(filename="ASH_SP_theories.result")
-    print_time_rel(module_init_time, modulename="Singlepoint_theories", moduleindex=1)
+    log_time_since(module_init_time, "Singlepoint_theories")
     return result
 
 
 # Pretty table of fragments and theories
 def print_theories_table(theories, energies, fragment):
-    print()
-    print("=" * 70)
-    print("Singlepoint_theories: Table of energies of each theory:")
-    print("=" * 70)
+    logger.info("")
+    logger.info("%s", "=" * 70)
+    logger.info("Singlepoint_theories: Table of energies of each theory:")
+    logger.info("%s", "=" * 70)
 
-    print("\n{:15} {:15} {:>7} {:>7} {:>20}".format("Theory class", "Theory Label", "Charge", "Mult", "Energy(Eh)"))
-    print("-" * 70)
+    logger.info(
+        "%s", "\n{:15} {:15} {:>7} {:>7} {:>20}".format("Theory class", "Theory Label", "Charge", "Mult", "Energy(Eh)")
+    )
+    logger.info("%s", "-" * 70)
     for t, e in zip(theories, energies, strict=False):
-        print(f"{t.__class__.__name__:15} {t.label!s:15} {fragment.charge:>7} {fragment.mult:>7} {e:>20.10f}")
-    print()
+        logger.info(f"{t.__class__.__name__:15} {t.label!s:15} {fragment.charge:>7} {fragment.mult:>7} {e:>20.10f}")
+    logger.info("")
 
 
 # Pretty table of fragments and energies
 def print_fragments_table(fragments, energies, tabletitle="Singlepoint_fragments: ", unit="Eh"):
-    print()
-    print("=" * 100)
-    print(f"{tabletitle}Table of energies of each fragment:")
-    print("=" * 100)
-    print("{:15} {:<25} {:>7} {:>7} {:>30}".format("Formula", "Label", "Charge", "Mult", f"Energy({unit})"))
-    print("-" * 100)
+    logger.info("")
+    logger.info("%s", "=" * 100)
+    logger.info(f"{tabletitle}Table of energies of each fragment:")
+    logger.info("%s", "=" * 100)
+    logger.info("%s", "{:15} {:<25} {:>7} {:>7} {:>30}".format("Formula", "Label", "Charge", "Mult", f"Energy({unit})"))
+    logger.info("%s", "-" * 100)
     for frag, e in zip(fragments, energies, strict=False):
         label = "None" if frag.label is None else frag.label
-        print(f"{frag.formula:15} {label:<25} {frag.charge:>7} {frag.mult:>7} {e:>30.10f}")
-    print()
+        logger.info(f"{frag.formula:15} {label:<25} {frag.charge:>7} {frag.mult:>7} {e:>30.10f}")
+    logger.info("")
 
 
 # Single-point energy function that runs calculations on multiple fragments. Returns a list of energies.
@@ -171,10 +164,10 @@ def print_fragments_table(fragments, energies, tabletitle="Singlepoint_fragments
 def Singlepoint_fragments(
     theory=None, fragments=None, stoichiometry=None, relative_energies=False, unit="kcal/mol", moreadfiles=None
 ):
-    print_line_with_mainheader("Singlepoint_fragments function")
+    logger.info(main_header("Singlepoint_fragments function"))
     module_init_time = time.time()
-    print("Will run single-point calculation on each fragment")
-    print("Theory:", theory.__class__.__name__)
+    logger.info("Will run single-point calculation on each fragment")
+    logger.info("Theory: %s", theory.__class__.__name__)
 
     energies = []
 
@@ -195,7 +188,7 @@ def Singlepoint_fragments(
         # Running single-point
         result = Singlepoint(theory=theory, fragment=frag, charge=charge, mult=mult)
 
-        print(f"Fragment {frag.formula} . Label: {frag.label} Energy: {result.energy} Eh")
+        logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {result.energy} Eh")
 
         # Preserve outputfile
         calc_label = "Frag_" + str(frag.formula) + "_" + str(frag.charge) + "_" + str(frag.mult) + "_"
@@ -206,7 +199,7 @@ def Singlepoint_fragments(
         energies.append(result.energy)
         # Adding energy as the fragment attribute
         frag.set_energy(result.energy)
-        print()
+        logger.info("")
 
     # Create Results object
     result = ASH_Results(label="Singlepoint_fragments", energies=energies, charge=charge, mult=mult)
@@ -216,8 +209,8 @@ def Singlepoint_fragments(
 
     # Print table
     if relative_energies is True:
-        print()
-        print("relative_energies option is True!")
+        logger.info("")
+        logger.info("relative_energies option is True!")
         conversionfactor = {
             "kcal/mol": 627.50946900,
             "kcalpermol": 627.50946900,
@@ -237,20 +230,20 @@ def Singlepoint_fragments(
 
     # Printing reaction energy if stoichiometry was provided
     if stoichiometry is not None:
-        print("Stoichiometry provided:", stoichiometry)
+        logger.info("Stoichiometry provided: %s", stoichiometry)
         r = ReactionEnergy(
             list_of_energies=energies, stoichiometry=stoichiometry, list_of_fragments=fragments, unit=unit, label="ΔE"
         )
         result.reaction_energy = r[0]
     result.write_to_disk(filename="ASH_SP_fragments.result")
-    print_time_rel(module_init_time, modulename="Singlepoint_fragments", moduleindex=1)
+    log_time_since(module_init_time, "Singlepoint_fragments")
     return result
 
 
 # Single-point energy function that runs calculations on multiple fragments. Returns a list of energies.
 # Assuming fragments have charge,mult info defined.
 def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiometry=None):
-    print_line_with_mainheader("Singlepoint_fragments_and_theories")
+    logger.info(main_header("Singlepoint_fragments_and_theories"))
     module_init_time = time.time()
     # List of lists
     all_energies = []
@@ -260,20 +253,20 @@ def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiome
         result = Singlepoint_fragments(theory=theory, fragments=fragments, stoichiometry=stoichiometry)
         all_energies.append(result.energies)
 
-    print("\n")
-    print("SINGLEPOINT_FRAGMENTS_AND_THEORIES ALL DONE")
-    print("\n")
-    print("=" * 60)
-    print("Singlepoint_fragments_and_theories: FINAL RESULTS")
-    print("=" * 60)
+    logger.info("\n")
+    logger.info("SINGLEPOINT_FRAGMENTS_AND_THEORIES ALL DONE")
+    logger.info("\n")
+    logger.info("%s", "=" * 60)
+    logger.info("Singlepoint_fragments_and_theories: FINAL RESULTS")
+    logger.info("%s", "=" * 60)
     # Table
     for t, elist in zip(theories, all_energies, strict=False):
-        print("\nTheory:", t.__class__.__name__)
-        print("Label:", t.label)
+        logger.info("\nTheory: %s", t.__class__.__name__)
+        logger.info("Label: %s", t.label)
         print_fragments_table(fragments, elist, tabletitle="")
         # Reaction energy if stoichiometry provided
         if stoichiometry is not None:
-            print("Stoichiometry provided:", stoichiometry)
+            logger.info("Stoichiometry provided: %s", stoichiometry)
             ReactionEnergy(
                 list_of_energies=elist,
                 stoichiometry=stoichiometry,
@@ -282,12 +275,12 @@ def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiome
                 label=f"{t.label}",
             )
 
-            print("_" * 60)
-    print("\nFinal list of lists of total energies:", all_energies)
+            logger.info("%s", "_" * 60)
+    logger.info("\nFinal list of lists of total energies: %s", all_energies)
 
     result = ASH_Results(label="Singlepoint_fragments_and_theories", energies=all_energies)
     if stoichiometry is not None:
-        print("Final reaction energies:")
+        logger.info("Final reaction energies:")
         for elist, t in zip(all_energies, theories, strict=False):
             r = ReactionEnergy(
                 list_of_energies=elist,
@@ -297,21 +290,21 @@ def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiome
                 label=f"{t.label}",
             )
             result.reaction_energies.append(r[0])
-    print()
+    logger.info("")
     result.write_to_disk(filename="ASH_SP_fragments_theories.result")
-    print_time_rel(module_init_time, modulename="Singlepoint_fragments_and_theories", moduleindex=1)
+    log_time_since(module_init_time, "Singlepoint_fragments_and_theories")
     return result
 
 
 # Single-point energy function that runs calculations on an ASH reaction object
 # Assuming fragments have charge,mult info defined.
 def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
-    print_line_with_mainheader("Singlepoint_reaction function")
+    logger.info(main_header("Singlepoint_reaction function"))
     module_init_time = time.time()
 
-    print("Will run single-point calculation on each fragment defined in reaction")
-    print("Theory:", theory.__class__.__name__)
-    print("Resetting energies in reaction object")
+    logger.info("Will run single-point calculation on each fragment defined in reaction")
+    logger.info("Theory: %s", theory.__class__.__name__)
+    logger.info("Resetting energies in reaction object")
     reaction.energies = []
     reaction.reset_energies()
 
@@ -320,15 +313,15 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
         # Orbital file for ORCATheory or any other theory using moreadfile
         try:
             theory.moreadfile = reaction.orbital_dictionary[moreadfiles][i]
-            print("Found orbital dictionary in reaction object")
-            print("Using orbital file:", theory.moreadfile)
+            logger.info("Found orbital dictionary in reaction object")
+            logger.info("Using orbital file: %s", theory.moreadfile)
         except (AttributeError, KeyError, IndexError, TypeError):
             with contextlib.suppress(IndexError, TypeError):
                 theory.moreadfile = moreadfiles[i]
         # Running single-point
         result = Singlepoint(theory=theory, fragment=frag, charge=frag.charge, mult=frag.mult)
         energy = result.energy
-        print(f"Fragment {frag.formula} . Label: {frag.label} Energy: {energy} Eh")
+        logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {energy} Eh")
         # Preserve outputfile
         calc_label = "Frag_" + str(frag.formula) + "_" + str(frag.charge) + "_" + str(frag.mult) + "_"
         with contextlib.suppress(OSError, AttributeError):
@@ -340,7 +333,7 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
         # theory.properties feature?
         # Check if ORCATheory object contains ICE-CI info
         if isinstance(theory, openmmqmmm.ORCATheory):
-            print("theory.properties:", theory.properties)
+            logger.info("theory.properties: %s", theory.properties)
             # Add selected properties to Reaction object
             try:
                 reaction.properties["E_var"].append(theory.properties["E_var"])
@@ -352,7 +345,7 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
                 pass
         # Adding energy as the fragment attribute
         frag.set_energy(energy)
-        print()
+        logger.info("")
 
     # Print table
     print_fragments_table(reaction.fragments, reaction.energies, tabletitle="Singlepoint_reaction: ")
@@ -367,25 +360,23 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
         label="Singlepoint_reaction", energies=reaction.energies, reaction_energy=reaction.reaction_energy
     )
 
-    print_time_rel(module_init_time, modulename="Singlepoint_reaction", moduleindex=1)
+    log_time_since(module_init_time, "Singlepoint_reaction")
     result.write_to_disk(filename="ASH_SP_reaction.result")
     return result
 
 
 # Theory object that always gives zero energy and zero gradient. Useful for setting constraints
 class ZeroTheory:
-    def __init__(self, fragment=None, printlevel=None, numcores=1, label=None):
+    def __init__(self, fragment=None, numcores=1, label=None):
         """Class Zerotheory: Simple dummy theory that gives zero energy and a zero-valued gradient array
             Note: includes unnecessary attributes for consistency.
 
         Args:
             fragment (ASH fragment, optional): A valid ASH fragment. Defaults to None.
-            printlevel (int, optional): Printlevel:0,1,2 or 3. Defaults to None.
             numcores (int, optional): Number of cores. Defaults to 1.
             label (str, optional): String label. Defaults to None.
         """
         self.numcores = numcores
-        self.printlevel = printlevel
         self.label = label
         self.fragment = fragment
         self.filename = "zerotheory"
@@ -461,10 +452,10 @@ def ReactionEnergy(
         raise InputError("stoichiometry list is required")
 
     if correction != 0.0:
-        print("User-correction was added. ")
-        print(f"Correction to reaction energy in {correction} Eh ")
+        logger.info("User-correction was added. ")
+        logger.info(f"Correction to reaction energy in {correction} Eh ")
         correction_in_unit = correction * conversionfactor[unit]
-        print(f"correction_in_unit in {correction_in_unit} {unit}")
+        logger.info(f"correction_in_unit in {correction_in_unit} {unit}")
     else:
         correction_in_unit = 0.0
 
@@ -482,18 +473,14 @@ def ReactionEnergy(
         if reference is None:
             error = None
             if silent is False:
-                print(BC.BOLD, f"Reaction_energy({label}): {BC.OKGREEN} {reaction_energy} {unit}", BC.END)
+                logger.info(f"Reaction_energy({label}):  {reaction_energy} {unit}")
         else:
             error = reaction_energy - reference
             if silent is False:
-                print(
-                    BC.BOLD,
-                    f"Reaction_energy({label}): {BC.OKGREEN} {reaction_energy} {unit} (Error: {error})",
-                    BC.END,
-                )
+                logger.info(f"Reaction_energy({label}):  {reaction_energy} {unit} (Error: {error})")
     else:
-        print("\nNo list of total energies provided. Using internal energy of each fragment instead.")
-        print()
+        logger.info("\nNo list of total energies provided. Using internal energy of each fragment instead.")
+        logger.info("")
         for i, stoich in enumerate(stoichiometry):
             if stoich < 0:
                 reactant_energy = reactant_energy + list_of_fragments[i].energy * abs(stoich)
@@ -503,13 +490,9 @@ def ReactionEnergy(
         if reference is None:
             error = None
             if silent is False:
-                print(BC.BOLD, f"Reaction_energy({label}): {BC.OKGREEN} {reaction_energy} {unit}", BC.END)
+                logger.info(f"Reaction_energy({label}):  {reaction_energy} {unit}")
         else:
             error = reaction_energy - reference
             if silent is False:
-                print(
-                    BC.BOLD,
-                    f"Reaction_energy({label}): {BC.OKGREEN} {reaction_energy} {unit} (Error: {error})",
-                    BC.END,
-                )
+                logger.info(f"Reaction_energy({label}):  {reaction_energy} {unit} (Error: {error})")
     return reaction_energy, error

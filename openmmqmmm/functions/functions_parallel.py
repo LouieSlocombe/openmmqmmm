@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import logging
 import os
 import shutil
 import subprocess as sp
@@ -11,11 +12,13 @@ from openmmqmmm.exceptions import (
     MissingDependencyError,
     OpenMMQMMMError,
 )
-from openmmqmmm.functions.functions_general import BC, print_line_with_subheader1
+from openmmqmmm.functions.functions_general import sub_header
 from openmmqmmm.interfaces.interface_geometric_new import GeomeTRICOptimizerClass
 from openmmqmmm.modules.module_coords import Fragment, check_charge_mult
 from openmmqmmm.modules.module_QMMM import QMMMTheory
 from openmmqmmm.modules.module_results import ASH_Results
+
+logger = logging.getLogger(__name__)
 
 
 ###############################################
@@ -29,19 +32,19 @@ def check_OpenMPI():
         raise ExternalProgramError(
             "No mpirun found in PATH. Make sure to add OpenMPI to PATH in your environment/jobscript"
         ) from None
-    print("OpenMPI binary directory found:", openmpibindir)
+    logger.info("OpenMPI binary directory found: %s", openmpibindir)
     # Test that mpirun is executable and grab OpenMPI version number for printout
     test_OpenMPI()
     return
 
 
 def test_OpenMPI():
-    print("Testing that mpirun is executable...", end="")
+    logger.info("Testing that mpirun is executable...")
     p = sp.Popen(["mpirun", "-V"], stdout=sp.PIPE)
     out, _err = p.communicate()
     mpiversion = out.decode()  # Now taking whole string
-    print(BC.OKGREEN, "yes", BC.END)
-    print("OpenMPI version (mpirun -V):", mpiversion)
+    logger.info("yes")
+    logger.info("OpenMPI version (mpirun -V): %s", mpiversion)
 
 
 ###############################################
@@ -53,19 +56,19 @@ def import_mp(version="multiprocessing"):
     ###############################
     # NOTE: Python 3.8 and higher use spawn in MacOS (openmmqmmm import problems). Unix/Linux uses fork
     if version == "multiprocessing":
-        print("Using version: multiprocessing")
+        logger.info("Using version: multiprocessing")
         import multiprocessing as mp
         from multiprocessing.pool import Pool
 
-        print("multiprocessing library successfully loaded")
+        logger.info("multiprocessing library successfully loaded")
     # Active fork of multiprocessing that uses dill instead of pickle etc. https://github.com/uqfoundation/multiprocess
     elif version == "multiprocess":
-        print("Job_parallel: Using version: multiprocess")
+        logger.info("Job_parallel: Using version: multiprocess")
         try:
             import multiprocess as mp
             from multiprocess.pool import Pool
 
-            print("multiprocess library successfully loaded")
+            logger.info("multiprocess library successfully loaded")
         except ImportError:
             raise MissingDependencyError(
                 "This requires the multiprocess library to be installed\nPlease install using pip: pip install multiprocess"
@@ -95,7 +98,6 @@ def Job_parallel(
     mofilesdir=None,
     allow_theory_parallelization=False,
     Grad=False,
-    printlevel=2,
     copytheory=False,
     version="multiprocessing",
     Opt=False,
@@ -111,41 +113,34 @@ def Job_parallel(
     :param Grad: whether to do Gradient or not.
     :type Grad: Boolean.
     """
-    print()
-    print_line_with_subheader1("Job_parallel function")
+    logger.info("")
+    logger.info(sub_header("Job_parallel function"))
 
-    print("copytheory:", copytheory)
-    print("printlevel:", printlevel)
+    logger.info("copytheory: %s", copytheory)
 
     # OPT
     if Opt is True:
-        print("Job_parallel: Opt is True. This is an Opt_parallel job")
+        logger.info("Job_parallel: Opt is True. This is an Opt_parallel job")
         if optimizer is None:
-            print("Job_parallel needs optimizer object which was not provided.")
-            print("Creating one")
+            logger.info("Job_parallel needs optimizer object which was not provided.")
+            logger.info("Creating one")
             # No options easily provided. Unclear if this is a good idea
             optimizer = GeomeTRICOptimizerClass()
     # SP
     else:
-        print("Job_parallel: No Opt. This is a Singlepoint_parallel job")
+        logger.info("Job_parallel: No Opt. This is a Singlepoint_parallel job")
         optimizer = None
 
-    if printlevel >= 2:
-        print("Number of CPU cores available: ", numcores)
+    logger.info("Number of CPU cores available:  %s", numcores)
 
-        if isinstance(theories[0], QMMMTheory):
-            print("Warning: Job_parallel using QMMMTheory with OpenMMTheory MM is experimental")
-            print("Specifically there are issues with platform='CPU'.")
-            print("Try platform='Reference' instead or GPU options OpenCL or CUDA if possible")
-    if printlevel >= 2:
-        print("Number of theories:", len(theories))
-        print("Running single-point calculations in parallel")
-        print("Mofilesdir:", mofilesdir)
-        print(
-            BC.WARNING,
-            "Warning: Output from Job_parallel will be erratic due to simultaneous output from multiple workers",
-            BC.END,
-        )
+    if isinstance(theories[0], QMMMTheory):
+        logger.info("Warning: Job_parallel using QMMMTheory with OpenMMTheory MM is experimental")
+        logger.info("Specifically there are issues with platform='CPU'.")
+        logger.info("Try platform='Reference' instead or GPU options OpenCL or CUDA if possible")
+    logger.info("Number of theories: %s", len(theories))
+    logger.info("Running single-point calculations in parallel")
+    logger.info("Mofilesdir: %s", mofilesdir)
+    logger.warning("Warning: Output from Job_parallel will be erratic due to simultaneous output from multiple workers")
 
     # Early exits
     if fragments is None and fragmentfiles is None:
@@ -156,13 +151,11 @@ def Job_parallel(
         )
     # Fragment objects passed or name of fragmentfiles
     if fragments is not None:
-        if printlevel >= 2:
-            print("Number of fragments:", len(fragments))
+        logger.info("Number of fragments: %s", len(fragments))
     else:
         fragments = []
     if fragmentfiles is not None:
-        if printlevel >= 2:
-            print("Number of fragmentfiles:", len(fragmentfiles))
+        logger.info("Number of fragmentfiles: %s", len(fragmentfiles))
     else:
         fragmentfiles = []
 
@@ -175,8 +168,8 @@ def Job_parallel(
 
     # Function to handle exception of child processes
     def Terminate_Pool_processes(message):
-        print(BC.FAIL, "Terminating Pool processes due to exception", BC.END)
-        print(BC.FAIL, "Exception message:", message, BC.END)
+        logger.error("Terminating Pool processes due to exception")
+        logger.error("Exception message: %s", message)
         pool.terminate()
         event.set()
         raise OpenMMQMMMError(f"Terminating pool processes due to worker exception: {message}")
@@ -193,48 +186,33 @@ def Job_parallel(
     results = []
     if len(theories) == 1:
         theory = theories[0]
-        if printlevel >= 2:
-            print("Case: Multiple fragments but one theory")
-            print()
-            print("Launching pool.apply_async:")
-
-            print(BC.WARNING, "Job_parallel numcores set to:", numcores, BC.END)
-            print(BC.WARNING, f"ASH will run {numcores} jobs simultaneously", BC.END)
+        logger.info("Case: Multiple fragments but one theory")
+        logger.info("")
+        logger.info("Launching pool.apply_async:")
+        logger.warning("Job_parallel numcores set to: %s", numcores)
+        logger.warning(f"ASH will run {numcores} jobs simultaneously")
 
         # Whether to allow theory parallelization or not
         if theory.numcores != 1:
-            if printlevel >= 2:
-                print(BC.WARNING, "WARNING: Theory numcores set to:", theory.numcores, BC.END)
+            logger.warning("WARNING: Theory numcores set to: %s", theory.numcores)
             if allow_theory_parallelization is True:
                 totnumcores = numcores * theory.numcores
-                if printlevel >= 2:
-                    print(BC.WARNING, "allow_theory_parallelization is True.", BC.END)
-                    print(
-                        BC.WARNING,
-                        f"Each job can use {theory.numcores} CPU cores, thus up to {totnumcores} CPU cores can be running simultaneously. Make sure that that's how many slots are available.",
-                        BC.END,
-                    )
+                logger.warning("allow_theory_parallelization is True.")
+                logger.warning(
+                    f"Each job can use {theory.numcores} CPU cores, thus up to {totnumcores} CPU cores can be running simultaneously. Make sure that that's how many slots are available."
+                )
             else:
-                if printlevel >= 2:
-                    print(
-                        BC.WARNING,
-                        "allow_theory_parallelization is False. Now turning off theory.parallelization (setting theory numcores to 1)",
-                        BC.END,
-                    )
-                    print(
-                        BC.WARNING,
-                        "This can be overriden by: Job_parallel(allow_theory_parallelization=True)\n",
-                        BC.END,
-                    )
+                logger.warning(
+                    "allow_theory_parallelization is False. Now turning off theory.parallelization (setting theory numcores to 1)"
+                )
+                logger.warning("This can be overriden by: Job_parallel(allow_theory_parallelization=True)\n")
                 theory.numcores = 1
 
         # Passing list of fragments
         if len(fragments) > 0:
-            if printlevel >= 2:
-                print("fragments:", fragments)
+            logger.info("fragments: %s", fragments)
             for fragment in fragments:
-                if printlevel >= 2:
-                    print("fragment:", fragment)
+                logger.info("fragment: %s", fragment)
                 results.append(
                     pool.apply_async(
                         Worker_par,
@@ -246,7 +224,6 @@ def Job_parallel(
                             "version": version,
                             "event": event,
                             "Grad": Grad,
-                            "printlevel": printlevel,
                             "copytheory": copytheory,
                             "optimizer": optimizer,
                         },
@@ -255,11 +232,9 @@ def Job_parallel(
                 )
         # Passing list of fragment files
         elif len(fragmentfiles) > 0:
-            if printlevel >= 2:
-                print("Launching multiprocessing and passing list of ASH fragmentfiles")
+            logger.info("Launching multiprocessing and passing list of ASH fragmentfiles")
             for fragmentfile in fragmentfiles:
-                if printlevel >= 2:
-                    print("fragmentfile:", fragmentfile)
+                logger.info("fragmentfile: %s", fragmentfile)
                 results.append(
                     pool.apply_async(
                         Worker_par,
@@ -271,7 +246,6 @@ def Job_parallel(
                             "version": version,
                             "event": event,
                             "Grad": Grad,
-                            "printlevel": printlevel,
                             "copytheory": copytheory,
                             "optimizer": optimizer,
                         },
@@ -280,12 +254,10 @@ def Job_parallel(
                 )
     # Case: Multiple theories, 1 fragment
     elif len(fragments) == 1:
-        if printlevel >= 2:
-            print("Case: Multiple theories but one fragment")
+        logger.info("Case: Multiple theories but one fragment")
         fragment = fragments[0]
         for theory in theories:
-            if printlevel >= 2:
-                print("theory:", theory)
+            logger.info("theory: %s", theory)
             results.append(
                 pool.apply_async(
                     Worker_par,
@@ -297,7 +269,6 @@ def Job_parallel(
                         "version": version,
                         "event": event,
                         "Grad": Grad,
-                        "printlevel": printlevel,
                         "copytheory": copytheory,
                         "optimizer": optimizer,
                     },
@@ -306,12 +277,10 @@ def Job_parallel(
             )
     # Case: Multiple theories, 1 fragmentfile
     elif len(fragmentfiles) == 1:
-        if printlevel >= 2:
-            print("Case: Multiple theories but one fragmentfile")
+        logger.info("Case: Multiple theories but one fragmentfile")
         fragmentfile = fragmentfiles[0]
         for theory in theories:
-            if printlevel >= 2:
-                print("theory:", theory)
+            logger.info("theory: %s", theory)
             results.append(
                 pool.apply_async(
                     Worker_par,
@@ -323,7 +292,6 @@ def Job_parallel(
                         "version": version,
                         "event": event,
                         "Grad": Grad,
-                        "printlevel": printlevel,
                         "copytheory": copytheory,
                         "optimizer": optimizer,
                     },
@@ -339,12 +307,10 @@ def Job_parallel(
 
     # While loop that is only terminated if processes finished or exception occurred
     while True:
-        if printlevel >= 2:
-            print("Pool multiprocessing underway....")
+        logger.info("Pool multiprocessing underway....")
         time.sleep(3)
         if event.is_set():
-            if printlevel >= 2:
-                print("Event has been set! Now terminating Pool processes")
+            logger.info("Event has been set! Now terminating Pool processes")
             pool.terminate()
             break
 
@@ -396,7 +362,7 @@ def Job_parallel(
                 final_result.energies.append(r.get()[1])
                 # Optional property dict
                 if len(r.get()[3]) > 0:
-                    print("r.get()[3]:", r.get()[3])
+                    logger.info("r.get()[3]: %s", r.get()[3])
                     property_dict[r.get()[0]] = r.get()[3]
         final_result.properties = property_dict
 
@@ -422,21 +388,17 @@ def Worker_par(
     charge=None,
     mult=None,
     Grad=False,
-    printlevel=2,
     copytheory=False,
     optimizer=None,
     version="multiprocessing",
 ):
     # Should not be necessary to import
     # Check charge/mult.
-    charge, mult = check_charge_mult(
-        charge, mult, theory.theorytype, fragment, "Worker_par", theory=theory, printlevel=printlevel
-    )
+    charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Worker_par", theory=theory)
     # BASIC PRINTING
-    if printlevel >= 2:
-        print("Fragment:", fragment)
-        print("fragmentfile:", fragmentfile)
-        print("Theory:", theory)
+    logger.info("Fragment: %s", fragment)
+    logger.info("fragmentfile: %s", fragmentfile)
+    logger.info("Theory: %s", theory)
 
     # Creating new copy of theory to avoid deactivation of certain first-run features (e.g. brokensym)
     # NOTE: Alternatively add if-statement inside orca.run
@@ -447,19 +409,19 @@ def Worker_par(
 
     # Optional fragment-creation from disk
     if fragmentfile is not None:
-        if printlevel >= 2:
-            print("Reading fragmentfile from disk")
+        logger.info("Reading fragmentfile from disk")
         fragment = Fragment(fragfile=fragmentfile)
 
     ###############################
     # Labels distinguishing jobs
     ###############################
     # Making label flexible. Can be tuple but inputfilename is converted to string below
-    if printlevel >= 2:
-        print(f"label: {label} (type {type(label)})")
+    logger.info(f"label: {label} (type {type(label)})")
     if label is None:
-        print("No label provided to fragment or theory objects. This is required to distinguish between calculations ")
-        print("Exiting.")
+        logger.info(
+            "No label provided to fragment or theory objects. This is required to distinguish between calculations "
+        )
+        logger.info("Exiting.")
         raise Exception("Labelproblem")
     # Using label (could be tuple) to create a labelstring which is used to name worker directories
     # Tuple-label (1 or 2 elements).
@@ -470,15 +432,13 @@ def Worker_par(
             labelstring = str(str(label[0]) + "_" + str(label[1])).replace(".", "_")
         else:
             labelstring = str(str(label[0])).replace(".", "_")
-        if printlevel >= 2:
-            print("Labelstring:", labelstring)
+        logger.info("Labelstring: %s", labelstring)
         # RC1_0.9-RC2_170.0.xyz
         # orca_RC1_0.9RC2_170.0.gbw
         # TODO: what if tuple is only a single number???
 
         if mofilesdir is not None:
-            if printlevel >= 2:
-                print("Mofilesdir option.")
+            logger.info("Mofilesdir option.")
             if len(label) == 2:
                 moreadfile_path = (
                     mofilesdir + "/" + theory.filename + "_" + "RC1_" + str(label[0]) + "-" + "RC2_" + str(label[1])
@@ -488,14 +448,12 @@ def Worker_par(
 
     # Label is not a tuple
     elif isinstance(label, (float, int)):
-        if printlevel >= 2:
-            print("Label is float or int")
+        logger.info("Label is float or int")
         #
         labelstring = str(label).replace(".", "_")
         # Label is float or int.
         if mofilesdir is not None:
-            if printlevel >= 2:
-                print("Mofilesdir option.")
+            logger.info("Mofilesdir option.")
             moreadfile_path = mofilesdir + "/" + theory.filename + "_" + "RC1_" + str(label)
     else:
         # Label is not tuple. String or single number
@@ -506,11 +464,10 @@ def Worker_par(
     if theory.__class__.__name__ == "ORCATheory":
         if mofilesdir is not None:
             theory.moreadfile = moreadfile_path + ".gbw"
-            if printlevel >= 2:
-                print("Setting moreadfile to:", theory.moreadfile)
+            logger.info("Setting moreadfile to: %s", theory.moreadfile)
     else:
         if mofilesdir is not None:
-            print("moreadfile option not ready for this Theory. exiting")
+            logger.info("moreadfile option not ready for this Theory. exiting")
             raise Exception()
 
     ####################################
@@ -521,15 +478,11 @@ def Worker_par(
     try:
         os.mkdir(worker_dirname)
     except FileExistsError:
-        if printlevel >= 2:
-            print("Dir exists. continuing")
+        logger.info("Dir exists. continuing")
     os.chdir(worker_dirname)
-    if printlevel >= 2:
-        print(
-            BC.WARNING,
-            f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} ",
-            BC.END,
-        )
+    logger.warning(
+        f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
+    )
 
     #####################
     # RUN WORKER JOB
@@ -565,8 +518,7 @@ def Worker_par(
         energy = theory.run(current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult)
     #####################
 
-    if printlevel >= 2:
-        print("Energy: ", energy)
+    logger.info("Energy:  %s", energy)
 
     # Now adding total energy to fragment.
     # NOTE: Add to theory also?
@@ -590,14 +542,12 @@ def Simple_parallel(
     parameter_dict=None,
     separate_dirs=False,
     numcores=None,
-    printlevel=2,
     copytheory=False,
     version="multiprocessing",
 ):
-    print()
-    print_line_with_subheader1("Simple_parallel function")
-    if printlevel >= 2:
-        print("Number of CPU cores available: ", numcores)
+    logger.info("")
+    logger.info(sub_header("Simple_parallel function"))
+    logger.info("Number of CPU cores available:  %s", numcores)
 
     if parameter_dict is None:
         parameter_dict = {}
@@ -608,15 +558,15 @@ def Simple_parallel(
     # Import multiprocess/multiprocessing
     mp, Pool = import_mp(version=version)
     # Creating Pool
-    print(f"Pool of {numcores} created")
+    logger.info(f"Pool of {numcores} created")
     pool = Pool(numcores)
     manager = mp.Manager()
     event = manager.Event()
 
     # Function to handle exception of child processes
     def Terminate_Pool_processes(message):
-        print(BC.FAIL, "Terminating Pool processes due to exception", BC.END)
-        print(BC.FAIL, "Exception message:", message, BC.END)
+        logger.error("Terminating Pool processes due to exception")
+        logger.error("Exception message: %s", message)
         pool.terminate()
         event.set()
         raise OpenMMQMMMError(f"Terminating pool processes due to worker exception: {message}")
@@ -627,19 +577,19 @@ def Simple_parallel(
     if separate_dirs is True:
         for i in range(numcores):
             workerdir = f"Pooljob_{i}"
-            print(f"separate_dirs option True. Creating dir {workerdir}")
-            print("Creating workerdir:", workerdir)
+            logger.info(f"separate_dirs option True. Creating dir {workerdir}")
+            logger.info("Creating workerdir: %s", workerdir)
             with contextlib.suppress(FileExistsError):
                 os.mkdir(workerdir)
 
         # Default 0
     # Collecting results in a list of tuples from each process
     results = []
-    print("Now looping")
+    logger.info("Now looping")
 
     # Starting process loop
     for process in range(numcores):
-        print("Starting process:", process)
+        logger.info("Starting process: %s", process)
         # Taking copy of parameter_dict
         parameter_dict_new = copy.copy(parameter_dict)
         # Adding process_id to parameter_dict
@@ -647,7 +597,7 @@ def Simple_parallel(
         parameter_dict_new["process_id"] = process
         if separate_dirs is True:
             parameter_dict_new["workerdir"] = f"Pooljob_{process}"
-        print("parameter_dict_new:", parameter_dict_new)
+        logger.info("parameter_dict_new: %s", parameter_dict_new)
         # Calling apply_async.
         results.append(
             (process, pool.apply_async(jobfunction, kwds=parameter_dict_new, error_callback=Terminate_Pool_processes))
@@ -659,12 +609,10 @@ def Simple_parallel(
     event.set()
     # While loop that is only terminated if processes finished or exception occurred
     while True:
-        if printlevel >= 2:
-            print("Pool multiprocessing underway....")
+        logger.info("Pool multiprocessing underway....")
         time.sleep(3)
         if event.is_set():
-            if printlevel >= 2:
-                print("Event has been set! Now terminating Pool processes")
+            logger.info("Event has been set! Now terminating Pool processes")
             pool.terminate()
             break
 
@@ -679,5 +627,5 @@ def Simple_parallel(
     # where keys are process-IDs
     for pr, res in results:
         results_dict[pr] = res.get()
-    print("Returning result of Simple_parallel as dict:", results_dict)
+    logger.info("Returning result of Simple_parallel as dict: %s", results_dict)
     return results_dict

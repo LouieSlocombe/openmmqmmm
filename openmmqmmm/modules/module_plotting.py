@@ -1,9 +1,13 @@
+import logging
+
 import numpy as np
 
 from openmmqmmm.exceptions import (
     InputError,
 )
-from openmmqmmm.functions.functions_general import BC, print_line_with_mainheader
+from openmmqmmm.functions.functions_general import main_header
+
+logger = logging.getLogger(__name__)
 
 
 class ASH_plot:
@@ -28,7 +32,7 @@ class ASH_plot:
         tight_layout=True,
         padding=None,
     ):
-        print_line_with_mainheader("ASH_energy_plot")
+        logger.info(main_header("ASH_energy_plot"))
         import matplotlib.pyplot as plt
 
         self.working = True
@@ -47,19 +51,17 @@ class ASH_plot:
         # Labels for each series
         self.labels = []
 
-        print("Subplots:", self.num_subplots)
-        print("Figure size:", figsize)
+        logger.info("Subplots: %s", self.num_subplots)
+        logger.info("Figure size: %s", figsize)
 
         if self.num_subplots > 1:
-            print(
-                BC.WARNING,
-                "Note: For multiple subplots use:\n ASH_plot(x_axislabels=['X1','X2','X3], y_axislabels=['Y1','Y2','Y3'], subplot_titles='Title1,'Title2','Title3']",
-                BC.END,
+            logger.warning(
+                "Note: For multiple subplots use:\n ASH_plot(x_axislabels=['X1','X2','X3], y_axislabels=['Y1','Y2','Y3'], subplot_titles='Title1,'Title2','Title3']"
             )
         else:
-            print("X-axis label:", x_axislabel)
-            print("Y-axis label:", y_axislabel)
-            print("Title:", title)
+            logger.info("X-axis label: %s", x_axislabel)
+            logger.info("Y-axis label: %s", y_axislabel)
+            logger.info("Title: %s", title)
 
         if self.num_subplots == 1:
             self.fig, ax = plt.subplots(figsize=figsize)
@@ -75,10 +77,10 @@ class ASH_plot:
 
         elif self.num_subplots == 2:
             if horizontal is True:
-                print("Horizontal plot is true")
+                logger.info("Horizontal plot is true")
                 self.fig, self.axs = plt.subplots(1, 2, figsize=figsize)
                 if tight_layout is True:
-                    print("Tight layout True")
+                    logger.info("Tight layout True")
                     self.fig.tight_layout()
                 # Subplot padding
                 if padding is not None:
@@ -87,7 +89,7 @@ class ASH_plot:
             else:
                 self.fig, self.axs = plt.subplots(2, 1, figsize=figsize)
                 if tight_layout is True:
-                    print("Tight layout True")
+                    logger.info("Tight layout True")
                     self.fig.tight_layout()
                 # Subplot padding
                 if padding is not None:
@@ -159,7 +161,7 @@ class ASH_plot:
     ):
         import matplotlib.pyplot as plt
 
-        print("Adding new series to ASH_plot object")
+        logger.info("Adding new series to ASH_plot object")
 
         if bar is True and (scatter is True or line is True):
             raise InputError("Error: you can not add a bar together with scatter and line at the same time")
@@ -184,7 +186,7 @@ class ASH_plot:
 
         # Alernative dictionary option
         if surfacedictionary is not None:
-            print("Using provided surfacedictionary")
+            logger.info("Using provided surfacedictionary")
             x = []
             y = []
             # Sorting keys dictionary before grabbing so that line-plot is correct
@@ -208,7 +210,7 @@ class ASH_plot:
             curraxes.plot(x, y, linestyle=linestyle, color=color, linewidth=line_linewidth, label=label)
         if bar is True:
             if barcolors is None:
-                print("No barcolors keyword supplied. Will color the bars according to colormap:", colormap)
+                logger.info("No barcolors keyword supplied. Will color the bars according to colormap: %s", colormap)
                 # Scale data
                 denominator = max(y) - min(y)
                 scaled_data = [(datum - min(y)) / denominator for datum in y]
@@ -223,7 +225,7 @@ class ASH_plot:
 
         # Add labels to x-axis if
         if x_labels is not None:
-            print("Adding xticks labels using rotation parameter:", xticklabelrotation)
+            logger.info("Adding xticks labels using rotation parameter: %s", xticklabelrotation)
             curraxes.set_xticks(x, minor=False)
             curraxes.set_xticklabels(x_labels, fontdict=None, minor=False, rotation=xticklabelrotation)
         # Log scale
@@ -266,5 +268,5 @@ class ASH_plot:
         if dpi is None:
             dpi = self.dpi
         file = filename + "." + imageformat
-        print(f"\nSaving plot to file: {file} with resolution: {dpi} ")
+        logger.info(f"\nSaving plot to file: {file} with resolution: {dpi} ")
         plt.savefig(file, format=imageformat, dpi=self.dpi, bbox_inches="tight")

@@ -1,9 +1,12 @@
+import logging
 import os
 
 from openmmqmmm.exceptions import (
     MissingDependencyError,
 )
 from openmmqmmm.modules.module_coords import reformat_element
+
+logger = logging.getLogger(__name__)
 
 ###################################
 ###################################
@@ -20,7 +23,7 @@ def mol_to_pdb(file):
         ) from None
     mol = next(pybel.readfile("mol", file))
     mol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
-    print("Wrote PDB-file:", os.path.splitext(file)[0] + ".pdb")
+    logger.info("Wrote PDB-file: %s", os.path.splitext(file)[0] + ".pdb")
     return os.path.splitext(file)[0] + ".pdb"
 
 
@@ -42,7 +45,7 @@ def sdf_to_pdb(file):
     os.remove(os.path.splitext(file)[0] + "temp.pdb")
 
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
-    print("Creating new atomnames for PDBfile")
+    logger.info("Creating new atomnames for PDBfile")
     # Note: currently just combining element and atomindex to get a unique atomname (otherwise Modeller will not work)
     # TODO: make something better (element-specific numbering?)
     for res in pybel.ob.OBResidueIter(newmol.OBMol):
@@ -53,7 +56,7 @@ def sdf_to_pdb(file):
 
     # Write final PDB-file
     newmol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
-    print("Wrote PDB-file:", os.path.splitext(file)[0] + ".pdb")
+    logger.info("Wrote PDB-file: %s", os.path.splitext(file)[0] + ".pdb")
     return os.path.splitext(file)[0] + ".pdb"
 
 
@@ -69,13 +72,13 @@ def writepdb_with_connectivity(file):
         ) from None
     mol = next(pybel.readfile("pdb", file))
     mol.write(format="pdb", filename=os.path.splitext(file)[0] + "_withcon.pdb", overwrite=True)
-    print("Wrote PDB-file:", os.path.splitext(file)[0] + "_withcon.pdb")
+    logger.info("Wrote PDB-file: %s", os.path.splitext(file)[0] + "_withcon.pdb")
     return os.path.splitext(file)[0] + "_withcon.pdb"
 
 
 # Function to read in XYZ-file (small molecule) and create PDB-file with CONECT lines (geometry needs to be sensible)
 def xyz_to_pdb_with_connectivity(file, resname="UNL"):
-    print("xyz_to_pdb_with_connectivity function:")
+    logger.info("xyz_to_pdb_with_connectivity function:")
     # OpenBabel
     try:
         from openbabel import openbabel, pybel
@@ -93,7 +96,7 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
     os.remove(os.path.splitext(file)[0] + "temp.pdb")
 
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
-    print("Creating new atomnames for PDBfile")
+    logger.info("Creating new atomnames for PDBfile")
     # Note: currently just combining element and atomindex to get a unique atomname (otherwise Modeller will not work)
     # TODO: make something better (element-specific numbering?)
     for res in pybel.ob.OBResidueIter(newmol.OBMol):
@@ -106,7 +109,7 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
 
     # Write final PDB-file
     newmol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
-    print("Wrote PDB-file:", os.path.splitext(file)[0] + ".pdb")
+    logger.info("Wrote PDB-file: %s", os.path.splitext(file)[0] + ".pdb")
     return os.path.splitext(file)[0] + ".pdb"
 
 
@@ -133,9 +136,9 @@ def smiles_to_coords(smiles_string):
         raise MissingDependencyError(
             "Error: smiles_to_coords requires OpenBabel library but it could not be imported\nYou can install like this:    conda install --yes -c conda-forge openbabel"
         ) from None
-    print("Reading SMILES by OpenBabel")
+    logger.info("Reading SMILES by OpenBabel")
     mol = pybel.readstring("smi", smiles_string)
-    print("Guessing 3D coordinates (uses MMFF94 forcefield)")
+    logger.info("Guessing 3D coordinates (uses MMFF94 forcefield)")
     mol.make3D()
     b_mol = mol.OBMol
     atomnums = []

@@ -1,9 +1,11 @@
+import logging
 from dataclasses import dataclass
 
 import numpy as np
 
-from openmmqmmm.functions.functions_general import print_if_level
 from openmmqmmm.modules.module_coords import Fragment
+
+logger = logging.getLogger(__name__)
 
 # Dataclasses https://realpython.com/python-data-classes/
 
@@ -60,17 +62,16 @@ class ASH_Results:
     # Print only defined attributes
     def print_defined(
         self,
-        printlevel=2,
     ):
-        print_if_level("\nPrinting defined attributes of ASH_Results dataclass", printlevel, 2)
+        logger.info("\nPrinting defined attributes of ASH_Results dataclass")
         for k, v in self.__dict__.items():
             if v is not None:
-                print(f"{k}: {v}")
+                logger.info(f"{k}: {v}")
 
-    def write_to_disk(self, filename="ASH.result", printlevel=2):
+    def write_to_disk(self, filename="ASH.result"):
         import json
 
-        print_if_level("\nWriting to disk defined attributes of ASH_Results dataclass", printlevel, 2)
+        logger.info("\nWriting to disk defined attributes of ASH_Results dataclass")
 
         newdict = {}
         # Looping over attributes, converting ndarrays to lists and skipping ASH objects
@@ -79,8 +80,8 @@ class ASH_Results:
             if isinstance(v, np.ndarray):
                 # Check for nans in array
                 if np.any(np.isnan(v)):
-                    print_if_level(f"Warning: nan in array {k}", printlevel, 2)
-                    print_if_level("Skipping writing to disk", printlevel, 2)
+                    logger.info(f"Warning: nan in array {k}")
+                    logger.info("Skipping writing to disk")
                 else:
                     newv = v.tolist()
                     newdict[k] = newv
@@ -95,41 +96,41 @@ class ASH_Results:
                 else:
                     newdict[k] = v
             elif isinstance(v, Fragment):
-                print_if_level("Warning: Fragment object is not included in ASH.result on disk", printlevel, 2)
+                logger.info("Warning: Fragment object is not included in ASH.result on disk")
             else:
                 newdict[k] = v
 
-        print_if_level("Results object data:", printlevel, 2)
+        logger.info("Results object data:")
         for k, v in newdict.items():
             if type(v) is list or type(v) is np.ndarray:
                 if len(v) < 20:
-                    print_if_level(f"{k} : {len(v)}", printlevel, 2)
+                    logger.info(f"{k} : {len(v)}")
                 else:
-                    print_if_level(f"{k} : too long to print", printlevel, 2)
+                    logger.info(f"{k} : too long to print")
             else:
                 if v is not None:
-                    print_if_level(f"{k} : {v}", printlevel, 2)
+                    logger.info(f"{k} : {v}")
         # Dump new dict
         try:
             with open(filename, "w") as f:
                 f.write(json.dumps(newdict, allow_nan=True))
         except TypeError as e:
-            print_if_level(f"Error writing ASH_Results to disk: {e}", printlevel, 2)
-            print_if_level("Skipping writing to disk", printlevel, 2)
+            logger.info(f"Error writing ASH_Results to disk: {e}")
+            logger.info("Skipping writing to disk")
             return
 
 
 # Read ASH-Results data from disk
-def read_results_from_file(filename="ASH.result", printlevel=2):
+def read_results_from_file(filename="ASH.result"):
     import json
     from dataclasses import fields
 
-    print_if_level("Reading ASH_Results data from file:", filename)
+    logger.info("Reading ASH_Results data from file:")
     with open(filename) as f:
         data = json.load(f)
-    print_if_level("Data read from file:", printlevel, 2)
+    logger.info("Data read from file:")
     for k, v in data.items():
-        print_if_level(f"{k} : {v}", printlevel, 2)
+        logger.info(f"{k} : {v}")
 
     # Ignore keys from files written by older versions with more fields
     known_fields = {f.name for f in fields(ASH_Results)}

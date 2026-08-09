@@ -1,5 +1,6 @@
 import contextlib
 import glob
+import logging
 import os
 import shutil
 import subprocess as sp
@@ -17,17 +18,17 @@ from openmmqmmm.exceptions import (
     InputError,
 )
 from openmmqmmm.functions.functions_general import (
-    BC,
     insert_line_into_file,
     listdiff,
-    print_if_level,
-    print_line_with_mainheader,
-    print_time_rel,
+    log_time_since,
+    main_header,
     pygrep,
     pygrep2,
     search_list_of_lists_for_index,
 )
 from openmmqmmm.modules.module_coords import check_charge_mult, print_internal_coordinate_table_new
+
+logger = logging.getLogger(__name__)
 
 
 # ORCA Theory object.
@@ -36,7 +37,6 @@ class ORCATheory:
         self,
         orcadir=None,
         orcasimpleinput="",
-        printlevel=2,
         basis_per_element=None,
         extrabasisatoms=None,
         extrabasis=None,
@@ -80,7 +80,7 @@ class ORCATheory:
         deltaSCF_confline=None,
         deltaSCF_turn_off_automatically=True,
     ):
-        print_line_with_mainheader("ORCATheory initialization")
+        logger.info(main_header("ORCATheory initialization"))
 
         self.theorynamelabel = "ORCA"
         self.theorytype = "QM"
@@ -90,7 +90,7 @@ class ORCATheory:
         self.orcadir = find_orca(orcadir)
         # Checking OpenMPI
         if numcores != 1:
-            print(
+            logger.info(
                 f"ORCA parallel job requested with numcores: {numcores} . Make sure that the correct OpenMPI version (for the ORCA version) is available in your environment"
             )
             openmmqmmm.functions.functions_parallel.check_OpenMPI()
@@ -98,7 +98,7 @@ class ORCATheory:
         # Bind to core option when calling ORCA: i.e. execute: /path/to/orca file.inp "--bind-to none"
         # TODO: Default False; make True?
         self.bind_to_core_option = bind_to_core_option
-        print("bind_to_core_option:", self.bind_to_core_option)
+        logger.info("bind_to_core_option: %s", self.bind_to_core_option)
 
         # Checking if user added Opt, Freq keywords
         if " OPT" in orcasimpleinput.upper() or " FREQ" in orcasimpleinput.upper():
@@ -148,7 +148,6 @@ class ORCATheory:
         self.path_to_last_gbwfile_used = None  # default None
 
         # Printlevel
-        self.printlevel = printlevel
 
         # TDDFT
         self.TDDFT = TDDFT
@@ -193,7 +192,7 @@ class ORCATheory:
             )
         # Add UKS if not present for broken-symmetry jobs
         if self.brokensym is True and "UKS" not in self.orcasimpleinput and "UHF" not in self.orcasimpleinput:
-            print("Warning: UKS/UHF keyword not present in orcasimpleinput for BS job. Adding.")
+            logger.info("Warning: UKS/UHF keyword not present in orcasimpleinput for BS job. Adding.")
             self.orcasimpleinput = self.orcasimpleinput + " UKS"
         if atomstoflip is not None:
             self.atomstoflip = atomstoflip
@@ -207,13 +206,13 @@ class ORCATheory:
         if self.deltaSCF is True and self.deltaSCF_confline is None:
             raise InputError("Error: DELTASCF is True but no deltaSCF_confline provided. Exiting")
         if self.deltaSCF is True:
-            print("DeltaSCF True, turning on population analysis printing")
+            logger.info("DeltaSCF True, turning on population analysis printing")
             self.print_population_analysis = True
 
         # Basis sets per element
         self.basis_per_element = basis_per_element
         if self.basis_per_element is not None:
-            print("Basis set dictionary for each element provided:", basis_per_element)
+            logger.info("Basis set dictionary for each element provided: %s", basis_per_element)
 
         # Extrabasis: add specific basis set keyword to certain atoms
         if extrabasisatoms is not None:
@@ -248,9 +247,9 @@ class ORCATheory:
                 raise InputError("NMF option requires setting NMF_sigma")
             self.NMF_sigma = NMF_sigma
 
-            print("NMF option is active. Will activate Fermi-smearing in ORCA input!")
+            logger.info("NMF option is active. Will activate Fermi-smearing in ORCA input!")
             NMF_smeartemp = self.NMF_sigma / openmmqmmm.constants.R_gasconst
-            print(f"NMF_smeartemp = {NMF_smeartemp} calculated from NMF_sigma: {self.NMF_sigma}:")
+            logger.info(f"NMF_smeartemp = {NMF_smeartemp} calculated from NMF_sigma: {self.NMF_sigma}:")
             self.orcablocks = (
                 self.orcablocks
                 + f"""
@@ -278,13 +277,13 @@ end
 
         # Specific CPCM radii. e.g. to use DRACO radii
         if cpcm_radii is not None:
-            print("CPCM radii provided:", cpcm_radii)
+            logger.info("CPCM radii provided: %s", cpcm_radii)
             # if len(cpcm_radii) != len(c:
             cpcm_block = "%cpcm\n"
             for i, radius in enumerate(cpcm_radii):
                 cpcm_block = cpcm_block + f"AtomRadii({i},  {radius})\n"
             cpcm_block = cpcm_block + "end\n"
-            print("cpcm_block:", cpcm_block)
+            logger.info("cpcm_block: %s", cpcm_block)
             self.orcablocks = self.orcablocks + cpcm_block
 
         # XDM: if True then we add !AIM to input
@@ -296,13 +295,12 @@ end
             self.xdm_func = xdm_func
             self.orcasimpleinput = self.orcasimpleinput + " AIM"
 
-        if self.printlevel >= 2:
-            print()
-            print("Creating ORCA object")
-            print("ORCA dir:", self.orcadir)
-            print(self.orcasimpleinput)
-            print(self.orcablocks)
-        print("\nORCATheory object created!")
+        logger.info("")
+        logger.info("Creating ORCA object")
+        logger.info("ORCA dir: %s", self.orcadir)
+        logger.info("%s", self.orcasimpleinput)
+        logger.info("%s", self.orcablocks)
+        logger.info("\nORCATheory object created!")
 
     # Set numcores method
     def set_numcores(self, numcores):
@@ -310,7 +308,7 @@ end
 
     # Cleanup after run.
     def cleanup(self):
-        print("Cleaning up old ORCA files")
+        logger.info("Cleaning up old ORCA files")
         list_files = []
         # Keeping outputfiles
         list_files.append(self.filename + ".gbw")
@@ -337,14 +335,14 @@ end
     def Opt(self, fragment=None, Grad=None, Hessian=None, numcores=None, charge=None, mult=None):
 
         module_init_time = time.time()
-        print(BC.OKBLUE, BC.BOLD, "------------RUNNING INTERNAL ORCA OPTIMIZATION-------------", BC.END)
+        logger.info("------------RUNNING INTERNAL ORCA OPTIMIZATION-------------")
         # Coords provided to run or else taken from initialization.
         # if len(current_coords) != 0:
 
         if fragment is None:
             raise InputError("No fragment provided to Opt.")
         else:
-            print("Fragment provided to Opt")
+            logger.info("Fragment provided to Opt")
 
         current_coords = fragment.coords
         elems = fragment.elems
@@ -359,17 +357,17 @@ end
 
         self.extraline = self.extraline + "\n! OPT "
 
-        print(f"Running ORCA with {numcores} cores available")
-        print("Object label:", self.label)
+        logger.info(f"Running ORCA with {numcores} cores available")
+        logger.info("Object label: %s", self.label)
 
-        print("Creating inputfile:", self.filename + ".inp")
-        print("ORCA input:")
-        print(self.orcasimpleinput)
-        print(self.extraline)
-        print(self.orcablocks)
+        logger.info("Creating inputfile: %s", self.filename + ".inp")
+        logger.info("ORCA input:")
+        logger.info("%s", self.orcasimpleinput)
+        logger.info("%s", self.extraline)
+        logger.info("%s", self.orcablocks)
         if self.propertyblock is not None:
-            print(self.propertyblock)
-        print(f"Charge: {charge}  Mult: {mult}")
+            logger.info("%s", self.propertyblock)
+        logger.info(f"Charge: {charge}  Mult: {mult}")
 
         # TODO: Make more general
         create_orca_input_plain(
@@ -384,7 +382,7 @@ end
             HSmult=self.HSmult,
             moreadfile=self.moreadfile,
         )
-        print(BC.OKGREEN, f"ORCA Calculation started using {numcores} CPU cores", BC.END)
+        logger.info(f"ORCA Calculation started using {numcores} CPU cores")
         run_orca_SP_ORCApar(
             self.orcadir,
             self.filename + ".inp",
@@ -392,18 +390,18 @@ end
             bind_to_core_option=self.bind_to_core_option,
             ignore_ORCA_error=self.ignore_ORCA_error,
         )
-        print(BC.OKGREEN, "ORCA Calculation done.", BC.END)
+        logger.info("ORCA Calculation done.")
 
         outfile = self.filename + ".out"
         ORCAfinished, _iter = checkORCAfinished(outfile)
         if ORCAfinished:
-            print("ORCA job finished")
+            logger.info("ORCA job finished")
             if checkORCAOptfinished(outfile):
-                print("ORCA geometry optimization finished")
+                logger.info("ORCA geometry optimization finished")
                 self.energy = ORCAfinalenergygrab(outfile)
                 # Grab optimized coordinates from filename.xyz
                 _opt_elems, opt_coords = openmmqmmm.modules.module_coords.read_xyzfile(self.filename + ".xyz")
-                print(opt_coords)
+                logger.info("%s", opt_coords)
 
                 fragment.replace_coords(fragment.elems, opt_coords)
             else:
@@ -411,8 +409,8 @@ end
         else:
             raise ExternalProgramError("Something happened with ORCA job. Check ORCA output")
 
-        print("ORCA optimized energy:", self.energy)
-        print("ASH fragment updated:", fragment)
+        logger.info("ORCA optimized energy: %s", self.energy)
+        logger.info("ASH fragment updated: %s", fragment)
         fragment.print_coords()
         # Writing out fragment file and XYZ file
         fragment.print_system(filename="Fragment-optimized.ygg")
@@ -420,20 +418,20 @@ end
 
         # Printing internal coordinate table
         print_internal_coordinate_table_new(fragment)
-        print_time_rel(module_init_time, modulename="ORCA Opt-run", moduleindex=2)
+        log_time_since(module_init_time, "ORCA Opt-run")
         return
 
     # Method to grab dipole moment from an ORCA outputfile (assumes run has been executed)
     def get_dipole_moment(self):
         dm = grab_dipole_moment(self.filename + ".out")
-        print("Dipole moment:", dm)
+        logger.info("Dipole moment: %s", dm)
         return dm
 
     def get_polarizability_tensor(self):
-        print("here")
-        print("self.filename+'.out':", self.filename + ".out")
+        logger.info("here")
+        logger.info("self.filename+'.out': %s", self.filename + ".out")
         polarizability, _diag_pz = grab_polarizability_tensor(self.filename + ".out")
-        print("polarizability:", polarizability)
+        logger.info("polarizability: %s", polarizability)
         return polarizability
 
     # Run function. Takes coords, elems etc. arguments and computes E or E+G.
@@ -454,10 +452,9 @@ end
     ):
         module_init_time = time.time()
         self.runcalls += 1
-        if self.printlevel >= 2:
-            print(BC.OKBLUE, BC.BOLD, "------------RUNNING ORCA INTERFACE-------------", BC.END)
-            print("Object-label:", self.label)  # To distinguish multiple objects
-            print("Run-label:", label)  # Primarily used in multiprocessing
+        logger.info("------------RUNNING ORCA INTERFACE-------------")
+        logger.info("Object-label: %s", self.label)
+        logger.info("Run-label: %s", label)
         # Coords provided to run
         if current_coords is not None:
             pass
@@ -528,71 +525,64 @@ end"""
             if ecpbasisblock not in self.orcablocks:
                 self.orcablocks = self.orcablocks + ecpbasisblock
 
-        if self.printlevel >= 2:
-            print(f"Running ORCA with {numcores} cores available")
+        logger.info(f"Running ORCA with {numcores} cores available")
 
         # MOREAD. Checking file provided exists and determining what to do if not
         if self.moreadfile is not None:
-            print_if_level(f"Moreadfile option active. File path: {self.moreadfile}", self.printlevel, 2)
+            logger.info(f"Moreadfile option active. File path: {self.moreadfile}")
             if os.path.isfile(self.moreadfile) is True:
-                print_if_level(f"File exists in current directory: {os.getcwd()}", self.printlevel, 2)
+                logger.info(f"File exists in current directory: {os.getcwd()}")
             else:
-                print_if_level(f"File does not exist in current directory: {os.getcwd()}", self.printlevel, 2)
+                logger.info(f"File does not exist in current directory: {os.getcwd()}")
                 if os.path.isabs(self.moreadfile) is True:
                     raise FileFormatError("Error: Absolute path provided but file does not exists. Exiting")
                 else:
-                    print_if_level("Checking if file exists in parentdir instead:", self.printlevel, 2)
+                    logger.info("Checking if file exists in parentdir instead:")
                     if os.path.isfile(f"../{self.moreadfile}") is True:
-                        print_if_level("Yes. Copying file to current dir", self.printlevel, 2)
+                        logger.info("Yes. Copying file to current dir")
                         shutil.copy(f"../{self.moreadfile}", f"./{self.moreadfile}")
         else:
-            print_if_level("Moreadfile option not active", self.printlevel, 2)
+            logger.info("Moreadfile option not active")
             if os.path.isfile(f"{self.filename}.gbw") is False:
-                print_if_level(f"No {self.filename}.gbw file is present in dir.", self.printlevel, 2)
+                logger.info(f"No {self.filename}.gbw file is present in dir.")
                 if self.path_to_last_gbwfile_used is not None:
-                    print_if_level(
-                        f"Found a path ({self.path_to_last_gbwfile_used}) to last GBW-file used by this Theory object. Will try to copy this file do current dir",
-                        self.printlevel,
-                        2,
+                    logger.info(
+                        f"Found a path ({self.path_to_last_gbwfile_used}) to last GBW-file used by this Theory object. Will try to copy this file do current dir"
                     )
                     try:
                         shutil.copy(self.path_to_last_gbwfile_used, f"./{self.filename}.gbw")
                     except FileNotFoundError:
-                        print_if_level("File was not found. May have been deleted", self.printlevel, 2)
+                        logger.info("File was not found. May have been deleted")
                     if self.autostart is False:
-                        print_if_level("Autostart option is False. ORCA will ignore this file", self.printlevel, 2)
+                        logger.info("Autostart option is False. ORCA will ignore this file")
                     else:
-                        print_if_level(
-                            "Autostart feature is active. ORCA will read GBW-file present.", self.printlevel, 2
-                        )
+                        logger.info("Autostart feature is active. ORCA will read GBW-file present.")
                 else:
-                    print_if_level(f"Checking if a file {self.filename}.gbw exists in parentdir:", self.printlevel, 2)
+                    logger.info(f"Checking if a file {self.filename}.gbw exists in parentdir:")
                     if os.path.isfile(f"../{self.filename}.gbw") is True:
-                        print_if_level("Yes. Copying file from parentdir to current dir", self.printlevel, 2)
+                        logger.info("Yes. Copying file from parentdir to current dir")
                         shutil.copy(f"../{self.filename}.gbw", f"./{self.filename}.gbw")
                     else:
-                        print_if_level("Found no file. ORCA will guess new orbitals", self.printlevel, 2)
+                        logger.info("Found no file. ORCA will guess new orbitals")
             else:
-                print_if_level(f"A GBW-file with same basename : {self.filename}.gbw is present", self.printlevel, 2)
+                logger.info(f"A GBW-file with same basename : {self.filename}.gbw is present")
                 if self.autostart is False:
-                    print_if_level("Autostart is False. ORCA will ignore any file present", self.printlevel, 2)
+                    logger.info("Autostart is False. ORCA will ignore any file present")
                 else:
-                    print_if_level("Autostart feature is active. ORCA will read GBW-file present.", self.printlevel, 2)
+                    logger.info("Autostart feature is active. ORCA will read GBW-file present.")
 
         # If 1st runcall, add first_iteration_input to inputfile
         extraline = self.extraline + "\n" + self.first_iteration_input if self.runcalls == 1 else self.extraline
 
-        if self.printlevel >= 2:
-            print("Creating inputfile:", self.filename + ".inp")
-            print("ORCA input:")
-            print(self.orcasimpleinput)
-            print(extraline)
-            print(self.orcablocks)
-            print(f"Charge: {charge}  Mult: {mult}")
+        logger.info("Creating inputfile: %s", self.filename + ".inp")
+        logger.info("ORCA input:")
+        logger.info("%s", self.orcasimpleinput)
+        logger.info("%s", extraline)
+        logger.info("%s", self.orcablocks)
+        logger.info(f"Charge: {charge}  Mult: {mult}")
         # Printing extra options chosen:
         if self.brokensym is True:
-            if self.printlevel >= 2:
-                print(f"Brokensymmetry SpinFlipping on! HSmult: {self.HSmult}.")
+            logger.info(f"Brokensymmetry SpinFlipping on! HSmult: {self.HSmult}.")
 
             if self.HSmult is None:
                 raise InputError("Error:HSmult keyword in ORCATheory has not been set. This is required. Exiting.")
@@ -600,33 +590,30 @@ end"""
                 raise InputError("Error: atomstoflip keyword needs to be set. This is required. Exiting.")
 
             for flipatom, qmflipatom in zip(self.atomstoflip, qmatomstoflip, strict=False):
-                if self.printlevel >= 2:
-                    print(f"Flipping atom: {flipatom} QMregionindex: {qmflipatom} Element: {qm_elems[qmflipatom]}")
+                logger.info(f"Flipping atom: {flipatom} QMregionindex: {qmflipatom} Element: {qm_elems[qmflipatom]}")
         # DeltaSCF
         deltascfblock = None
         if self.deltaSCF is True:
-            if self.printlevel >= 2:
-                print("DeltaSCF option chosen. Will attempt MOM excited state SCF solution in first run")
-                print("DeltaSCF PMOM:", self.deltaSCF_PMOM)
-                print("Configuration line:", self.deltaSCF_confline)
+            logger.info("DeltaSCF option chosen. Will attempt MOM excited state SCF solution in first run")
+            logger.info("DeltaSCF PMOM: %s", self.deltaSCF_PMOM)
+            logger.info("Configuration line: %s", self.deltaSCF_confline)
             if mult == 1 and "UKS" not in self.orcasimpleinput and "UHF" not in self.orcasimpleinput:
-                print("Warning: Singlet DeltaSCF calculation requested but no UKS/UHF keyword present.")
-                print("Only doubly excited SCF states can be found ")
+                logger.info("Warning: Singlet DeltaSCF calculation requested but no UKS/UHF keyword present.")
+                logger.info("Only doubly excited SCF states can be found ")
 
             deltascfblock = f"! DELTASCF \n%scf\n PMOM {self.deltaSCF_PMOM} \n {self.deltaSCF_confline}\nend"
 
-        if self.extrabasis != "" and self.printlevel >= 2:
-            print(f"Using extra basis ({self.extrabasis}) on QM-region indices : {qmatoms_extrabasis}")
-        if self.dummyatoms and self.printlevel >= 2:
-            print("Dummy atoms defined:", self.dummyatoms)
-        if self.ghostatoms and self.printlevel >= 2:
-            print("Ghost atoms defined:", self.ghostatoms)
-        if self.fragment_indices and self.printlevel >= 2:
-            print("List of fragment indices defined:", fragment_indices)
+        if self.extrabasis != "":
+            logger.info(f"Using extra basis ({self.extrabasis}) on QM-region indices : {qmatoms_extrabasis}")
+        if self.dummyatoms:
+            logger.info("Dummy atoms defined: %s", self.dummyatoms)
+        if self.ghostatoms:
+            logger.info("Ghost atoms defined: %s", self.ghostatoms)
+        if self.fragment_indices:
+            logger.info("List of fragment indices defined: %s", fragment_indices)
 
         if PC is True:
-            if self.printlevel >= 2:
-                print("Pointcharge embedding is on!")
+            logger.info("Pointcharge embedding is on!")
             create_orca_pcfile(self.filename, current_MM_coords, MMcharges)
             if self.brokensym is True:
                 create_orca_input_pc(
@@ -723,8 +710,7 @@ end"""
                 )
 
         # Run inputfile using ORCA parallelization. Take numcores argument.
-        if self.printlevel >= 2:
-            print(BC.OKGREEN, "ORCA Calculation starting.", BC.END)
+        logger.info("ORCA Calculation starting.")
 
         run_orca_SP_ORCApar(
             self.orcadir,
@@ -735,8 +721,7 @@ end"""
             check_for_warnings=self.check_for_warnings,
             ignore_ORCA_error=self.ignore_ORCA_error,
         )
-        if self.printlevel >= 1:
-            print(BC.OKGREEN, "ORCA Calculation done.", BC.END)
+        logger.info("ORCA Calculation done.")
 
         outfile = self.filename + ".out"
         engradfile = self.filename + ".engrad"
@@ -747,23 +732,22 @@ end"""
             ORCAfinished, numiterations = checkORCAfinished(outfile)
             # Check if ORCA finished or not. Exiting if so
             if ORCAfinished is False:
-                print(BC.FAIL, "Problem with ORCA run", BC.END)
-                print(BC.OKBLUE, BC.BOLD, "------------ENDING ORCA-INTERFACE-------------", BC.END)
-                print_time_rel(module_init_time, modulename="ORCA run", moduleindex=2)
+                logger.error("Problem with ORCA run")
+                logger.info("------------ENDING ORCA-INTERFACE-------------")
+                log_time_since(module_init_time, "ORCA run")
                 raise ExternalProgramError(
                     f"ORCA calculation did not terminate normally - check the output file: {outfile}"
                 )
 
-            if self.printlevel >= 1:
-                print(f"ORCA converged in {numiterations} iterations")
+            logger.info(f"ORCA converged in {numiterations} iterations")
         else:
-            print("There was an ORCA error that was ignored by user-input")
+            logger.info("There was an ORCA error that was ignored by user-input")
 
         if self.ROHF_UHF_swap:
-            print("\nROHF UHF swap feature active.")
-            print("This means that a $new_job ORCA job was run with a ROHF-UHF noiter switch")
-            print(f"Note that the relevant GBW file is then: {self.filename}_job2.gbw\n")
-            print("Stored as self.gbwfile of this ORCATheory object")
+            logger.info("\nROHF UHF swap feature active.")
+            logger.info("This means that a $new_job ORCA job was run with a ROHF-UHF noiter switch")
+            logger.info(f"Note that the relevant GBW file is then: {self.filename}_job2.gbw\n")
+            logger.info("Stored as self.gbwfile of this ORCATheory object")
             self.gbwfile = self.filename + "_job2.gbw"
         else:
             self.gbwfile = self.filename + ".gbw"
@@ -771,43 +755,44 @@ end"""
         # Now that we have possibly run a BS-DFT calculation, turning Brokensym off for future calcs (opt, restart, etc.)
         # using this theory object
         if self.brokensym is True:
-            if self.printlevel >= 2:
-                print(
-                    "ORCA Flipspin calculation done. Now turning off brokensym in ORCA object for possible future calculations"
-                )
+            logger.info(
+                "ORCA Flipspin calculation done. Now turning off brokensym in ORCA object for possible future calculations"
+            )
             self.brokensym = False
         # Turning off deltaSCF for future calcs
         if self.deltaSCF is True:
-            print("DeltaSCF calculation done.")
+            logger.info("DeltaSCF calculation done.")
             if self.deltaSCF_turn_off_automatically is True:
-                print("deltaSCF_turn_off_automatically option is True. Turning off DELTASCF for future calculations.")
+                logger.info(
+                    "deltaSCF_turn_off_automatically option is True. Turning off DELTASCF for future calculations."
+                )
                 self.deltaSCF = False
                 deltascfblock = None
                 if "nososcf" not in self.orcasimpleinput:
-                    print(
+                    logger.info(
                         "Adding NOSOSCF to orcasimpleinput to avoid future calculations from falling back to ground-state"
                     )
                     self.orcasimpleinput = self.orcasimpleinput + " nososcf"
                 if "nodamp" not in self.orcasimpleinput:
-                    print(
+                    logger.info(
                         "Adding NODAMP to orcasimpleinput to avoid future calculations from falling back to ground-state"
                     )
                     self.orcasimpleinput = self.orcasimpleinput + " nodamp"
                 if "nolshift" not in self.orcasimpleinput:
-                    print(
+                    logger.info(
                         "Adding NOLSHIFT to orcasimpleinput to avoid future calculations from falling back to ground-state"
                     )
                     self.orcasimpleinput = self.orcasimpleinput + " nolshift"
             else:
-                print("deltaSCF_turn_off_automatically option if False. Will keep DeltaSCF settings")
+                logger.info("deltaSCF_turn_off_automatically option if False. Will keep DeltaSCF settings")
 
         # Now that we have possibly run a ORCA job with moreadfile we now turn the moreadfile option off
         #  as we probably want to use the orbitals we created
         if self.moreadfile is not None:
-            print("First ORCATheory calculation finished.")
+            logger.info("First ORCATheory calculation finished.")
             # Now either keeping moreadfile or removing it. Default: removing
             if not self.moreadfile_always:
-                print("Now turning moreadfile option off.")
+                logger.info("Now turning moreadfile option off.")
                 self.moreadfile = None
 
         # Optional save ORCA output with filename according to label
@@ -816,8 +801,10 @@ end"""
 
         # Keep outputfile from each run if requested
         if self.keep_each_run_output is True:
-            print("\nkeep_each_run_output is True")
-            print("Copying {} to {}".format(self.filename + ".out", self.filename + f"_run{self.runcalls}" + ".out"))
+            logger.info("\nkeep_each_run_output is True")
+            logger.info(
+                "%s", "Copying {} to {}".format(self.filename + ".out", self.filename + f"_run{self.runcalls}" + ".out")
+            )
             shutil.copy(self.filename + ".out", self.filename + f"_run{self.runcalls}" + ".out")
 
         # Always make copy of last output file
@@ -828,47 +815,46 @@ end"""
         self.path_to_last_gbwfile_used = f"{os.getcwd()}/{self.filename}.gbw"
 
         # Print population analysis in each run if requested
-        if self.print_population_analysis is True and self.printlevel >= 2:
-            print("\nPrinting Mulliken Population analysis:")
-            print("-" * 30)
+        if self.print_population_analysis is True:
+            logger.info("\nPrinting Mulliken Population analysis:")
+            logger.info("%s", "-" * 30)
             charges = grabatomcharges_ORCA("Mulliken", self.filename + ".out")
             spinpops = grabspinpop_ORCA("Mulliken", self.filename + ".out")
             self.properties["Mulliken_charges"] = charges
             self.properties["Mulliken_spinpops"] = spinpops
             if len(spinpops) == 0 and len(charges) != 0:
-                print("{:<2} {:<2}  {:>10}".format(" ", " ", "Charge"))
+                logger.info("%s", "{:<2} {:<2}  {:>10}".format(" ", " ", "Charge"))
                 for i, (el, ch) in enumerate(zip(qm_elems, charges, strict=False)):
-                    print(f"{i:<2} {el:<2}: {ch:>10.4f}")
-                print()
+                    logger.info(f"{i:<2} {el:<2}: {ch:>10.4f}")
+                logger.info("")
             elif len(spinpops) != 0 and len(charges) != 0:
-                print("{:<2} {:<2}  {:>10} {:>10}".format(" ", " ", "Charge", "Spinpop"))
+                logger.info("%s", "{:<2} {:<2}  {:>10} {:>10}".format(" ", " ", "Charge", "Spinpop"))
                 for i, (el, ch, sp) in enumerate(zip(qm_elems, charges, spinpops, strict=False)):
-                    print(f"{i:<2} {el:<2}: {ch:>10.4f} {sp:>10.4f}")
-                print()
+                    logger.info(f"{i:<2} {el:<2}: {ch:>10.4f} {sp:>10.4f}")
+                logger.info("")
             else:
-                print("Warning: No charges or spinpops were found in ORCA output. Continuing")
+                logger.info("Warning: No charges or spinpops were found in ORCA output. Continuing")
         # Grab energy
         if self.ignore_ORCA_error is False:
             self.energy = ORCAfinalenergygrab(outfile)
-            if self.printlevel >= 1:
-                print("ORCA energy:", self.energy)
+            logger.info("ORCA energy: %s", self.energy)
         else:
             self.energy = ORCAfinalenergygrab(outfile)
 
             if self.energy is None:
-                print("No energy could be found in ORCA outputfile.")
-                print("Setting energy to 0.0 and returning")
+                logger.info("No energy could be found in ORCA outputfile.")
+                logger.info("Setting energy to 0.0 and returning")
                 return 0.0
         # NMF
         if self.NMF is True:
-            print("NMF option is active.")
+            logger.info("NMF option is active.")
             E_NMF = self.energy
             occupations = np.array(SCF_FODocc_grab(outfile))
-            print("Fractional ccupations (Fermi distribution):", occupations)
-            print("Now also calculating correlation energy from the fractional occupation numbers")
-            print("Assuming Fermi distribution")
+            logger.info("Fractional ccupations (Fermi distribution): %s", occupations)
+            logger.info("Now also calculating correlation energy from the fractional occupation numbers")
+            logger.info("Assuming Fermi distribution")
             Ec = openmmqmmm.functions.functions_elstructure.get_ec_entropy(occupations, self.NMF_sigma, method="fermi")
-            print("Ec:", Ec)
+            logger.info("Ec: %s", Ec)
             self.properties["NMF_occupations"] = occupations
             self.properties["E_NMF"] = E_NMF
             self.properties["NMF_Ec"] = Ec
@@ -907,61 +893,43 @@ end"""
             dispE, dispgrad = openmmqmmm.functions.functions_elstructure.xdm_run(
                 wfxfile=self.filename + ".wfx", a1=self.xdm_a1, a2=self.xdm_a2, functional=self.xdm_func
             )
-            if self.printlevel >= 2:
-                print("XDM dispersion energy:", dispE)
+            logger.info("XDM dispersion energy: %s", dispE)
             self.energy = self.energy + dispE
-            if self.printlevel >= 2:
-                print("DFT+XDM energy:", self.energy)
+            logger.info("DFT+XDM energy: %s", self.energy)
             # TODO: dispgrad not yet done
             self.grad = self.grad + dispgrad
 
         # Grab Hessian if calculated
         if Hessian is True:
-            print("Reading Hessian from file:", self.filename + ".hess")
+            logger.info("Reading Hessian from file: %s", self.filename + ".hess")
             self.hessian = Hessgrab(self.filename + ".hess")
             self.ir_intensities = grab_IR_intensities(self.filename + ".hess")
 
         if Grad is True:
             grad = ORCAgradientgrab(engradfile)
             self.grad = self.grad + grad
-            if self.printlevel >= 3:
-                print("ORCA gradient:", self.grad)
+            logger.debug("ORCA gradient: %s", self.grad)
 
             if PC:
                 # Print time to calculate ORCA QM-PC gradient
-                if "pc_gradient" in orca_timings and self.printlevel >= 2:
-                    print("Time calculating QM-Pointcharge gradient: {} seconds".format(orca_timings["pc_gradient"]))
+                if "pc_gradient" in orca_timings:
+                    logger.info(
+                        "%s", "Time calculating QM-Pointcharge gradient: {} seconds".format(orca_timings["pc_gradient"])
+                    )
                 # Grab pointcharge gradient. i.e. gradient on MM atoms from QM-MM elstat interaction.
                 self.pcgrad = ORCApcgradientgrab(pcgradfile)
-                if self.printlevel >= 2:
-                    print(BC.OKBLUE, BC.BOLD, "------------ENDING ORCA-INTERFACE-------------", BC.END)
-                print_time_rel(
-                    module_init_time,
-                    modulename="ORCA run",
-                    moduleindex=2,
-                    currprintlevel=self.printlevel,
-                    currthreshold=1,
-                )
+                logger.info("------------ENDING ORCA-INTERFACE-------------")
+                log_time_since(module_init_time, "ORCA run")
                 return self.energy, self.grad, self.pcgrad
             else:
-                if self.printlevel >= 2:
-                    print(BC.OKBLUE, BC.BOLD, "------------ENDING ORCA-INTERFACE-------------", BC.END)
-                print_time_rel(
-                    module_init_time,
-                    modulename="ORCA run",
-                    moduleindex=2,
-                    currprintlevel=self.printlevel,
-                    currthreshold=1,
-                )
+                logger.info("------------ENDING ORCA-INTERFACE-------------")
+                log_time_since(module_init_time, "ORCA run")
                 return self.energy, self.grad
 
         else:
-            if self.printlevel >= 2:
-                print("Single-point ORCA energy:", self.energy)
-                print(BC.OKBLUE, BC.BOLD, "------------ENDING ORCA-INTERFACE-------------", BC.END)
-            print_time_rel(
-                module_init_time, modulename="ORCA run", moduleindex=2, currprintlevel=self.printlevel, currthreshold=1
-            )
+            logger.info("Single-point ORCA energy: %s", self.energy)
+            logger.info("------------ENDING ORCA-INTERFACE-------------")
+            log_time_since(module_init_time, "ORCA run")
             return self.energy
 
 
@@ -985,11 +953,11 @@ def _orca_binary_runs(directory):
     try:
         completed = sp.run([orca_binary], stdout=sp.PIPE, stderr=sp.STDOUT, timeout=15, check=False)
     except (OSError, sp.TimeoutExpired) as err:
-        print(f"ORCA binary {orca_binary} could not be executed ({err})")
+        logger.info(f"ORCA binary {orca_binary} could not be executed ({err})")
         return False
     output = completed.stdout.decode(errors="replace")
     if "parameterfile" not in output:
-        print(f"ORCA binary {orca_binary} does not behave like the ORCA quantum chemistry program")
+        logger.info(f"ORCA binary {orca_binary} does not behave like the ORCA quantum chemistry program")
         return False
     return True
 
@@ -1018,7 +986,7 @@ def find_orca(orcadir=None, required=True):
             continue
         directory = os.path.expanduser(directory)
         if _looks_like_orca_dir(directory) and _orca_binary_runs(directory):
-            print(f"Using ORCA installation: {directory} (from {source})")
+            logger.info(f"Using ORCA installation: {directory} (from {source})")
             return directory
         if required:
             raise ExternalProgramError(
@@ -1031,9 +999,9 @@ def find_orca(orcadir=None, required=True):
     if orca_in_path is not None:
         directory = os.path.dirname(os.path.realpath(orca_in_path))
         if _looks_like_orca_dir(directory) and _orca_binary_runs(directory):
-            print(f"Using ORCA installation: {directory} (found via PATH)")
+            logger.info(f"Using ORCA installation: {directory} (found via PATH)")
             return directory
-        print(f"Note: ignoring {orca_in_path} from PATH - not the ORCA quantum chemistry program")
+        logger.info(f"Note: ignoring {orca_in_path} from PATH - not the ORCA quantum chemistry program")
 
     if required:
         raise ExternalProgramError(
@@ -1078,23 +1046,21 @@ def run_orca_SP_ORCApar(
             if check_for_warnings:
                 grab_ORCA_warnings(basename + ".out")
         except Exception as e:
-            print("Subprocess error! Exception message:", e)
+            logger.info("Subprocess error! Exception message: %s", e)
 
             # We get an exception if
-            print(
-                BC.FAIL,
-                "ASH encountered a problem when running ORCA. Something went wrong, most likely ORCA ran into an error.",
-                BC.END,
+            logger.error(
+                "ASH encountered a problem when running ORCA. Something went wrong, most likely ORCA ran into an error."
             )
-            print(BC.FAIL, f"Please check the ORCA outputfile: {basename + '.out'} for error messages", BC.END)
-            print()
+            logger.error(f"Please check the ORCA outputfile: {basename + '.out'} for error messages")
+            logger.info("")
             if check_for_errors:
                 grab_ORCA_errors(basename + ".out")
             if check_for_warnings:
                 grab_ORCA_warnings(basename + ".out")
-            print("ignore_ORCA_error:", ignore_ORCA_error)
+            logger.info("ignore_ORCA_error: %s", ignore_ORCA_error)
             if ignore_ORCA_error is True:
-                print("ignore_ORCA_error here")
+                logger.info("ignore_ORCA_error here")
                 return
             else:
                 raise ExternalProgramError(f"ORCA run failed - check the output file: {basename}.out") from e
@@ -1124,8 +1090,8 @@ def grab_ORCA_warnings(filename):
         if false_positive is False:
             warnings.append(warn)
     if len(warnings):
-        print("Found warning messages in ORCA outputfile:")
-        print(*warnings)
+        logger.info("Found warning messages in ORCA outputfile:")
+        logger.info("%s", "".join(warnings))
 
 
 def grab_ORCA_errors(filename):
@@ -1160,8 +1126,8 @@ def grab_ORCA_errors(filename):
         if false_positive is False:
             errors.append(err)
     if len(errors):
-        print("Found possible error messages in ORCA outputfile:")
-        print(*errors)
+        logger.info("Found possible error messages in ORCA outputfile:")
+        logger.info("%s", "".join(errors))
 
 
 # Check if ORCA finished.
@@ -1185,7 +1151,7 @@ def checkORCAOptfinished(file):
                 converged = True
             if converged and "***               (AFTER" in line:
                 cycles = line.split()[2]
-                print(f"ORCA Optimization converged in {cycles} cycles")
+                logger.info(f"ORCA Optimization converged in {cycles} cycles")
         return converged
 
 
@@ -1201,9 +1167,9 @@ def ORCAfinalenergygrab(file, errors="ignore"):
                     # Changing: sometimes ORCA adds info to the right of energy
                     Energy = float(line.split()[5]) if "(MM)" in line else float(line.split()[4])
     if Energy is None:
-        print(BC.FAIL, "ASH found no energy in file:", file, BC.END)
-        print(BC.FAIL, "Something went wrong with ORCA run. Check ORCA outputfile:", file, BC.END)
-        print(BC.OKBLUE, BC.BOLD, "------------ENDING ORCA-INTERFACE-------------", BC.END)
+        logger.error("ASH found no energy in file: %s", file)
+        logger.error("Something went wrong with ORCA run. Check ORCA outputfile: %s", file)
+        logger.info("------------ENDING ORCA-INTERFACE-------------")
         return None
     return Energy
 
@@ -1337,7 +1303,7 @@ def grab_polarizability_tensor(outfile):
                     pz_tensor[count, 2] = float(line.split()[2])
                     count += 1
             if "STATIC POLARIZABILITY TENSOR" in line:
-                print("grab True")
+                logger.info("grab True")
                 grab = True
     return pz_tensor, diag_pz_tensor
 
@@ -1456,8 +1422,8 @@ def write_ORCA_Hessfile(hessian, coords, elems, masses, hessatoms, outputname):
         )
         orcahessfile.write("\n")
         orcahessfile.write("\n")
-    print()
-    print("ORCA-style Hessian written to:", outputname)
+    logger.info("")
+    logger.info("ORCA-style Hessian written to: %s", outputname)
 
 
 # Function to grab Hessian from ORCA-Hessian file
@@ -1541,7 +1507,7 @@ def create_orca_input_pc(
         if Hessian:
             orcafile.write("! Freq" + "\n")
         if moreadfile is not None:
-            print("MOREAD option active. Will read orbitals from file:", moreadfile)
+            logger.info("MOREAD option active. Will read orbitals from file: %s", moreadfile)
             orcafile.write("\n! MOREAD" + "\n")
             orcafile.write(f'%moinp "{moreadfile}"' + "\n")
         orcafile.write(f'%pointcharges "{pcfile}"\n')
@@ -1567,7 +1533,7 @@ def create_orca_input_pc(
                 orcafile.write(f'{el} {c[0]} {c[1]} {c[2]} newgto "{extrabasis}" end\n')
             # Atom-specific basis-dict option (new basis set definition for each atom)
             elif atom_specific_basis_dict is not None:
-                print("Writing atom-specific basis for atom:", i)
+                logger.info("Writing atom-specific basis for atom: %s", i)
                 # Regular line
                 orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
                 orcafile.writelines(str(bline) for bline in atom_specific_basis_dict[(el, i)])
@@ -1636,7 +1602,7 @@ def create_orca_input_plain(
         if Hessian is True:
             orcafile.write("! Freq" + "\n")
         if moreadfile is not None:
-            print("MOREAD option active. Will read orbitals from file:", moreadfile)
+            logger.info("MOREAD option active. Will read orbitals from file: %s", moreadfile)
             orcafile.write("\n! MOREAD" + "\n")
             orcafile.write(f'%moinp "{moreadfile}"' + "\n")
         orcafile.write(orcablockinput)
@@ -1662,7 +1628,7 @@ def create_orca_input_plain(
                 orcafile.write(f'{el} {c[0]} {c[1]} {c[2]} newgto "{extrabasis}" end\n')
             # Atom-specific basis-dict option (new basis set definition for each atom)
             elif atom_specific_basis_dict is not None:
-                print("Writing atom-specific basis for atom:", i)
+                logger.info("Writing atom-specific basis for atom: %s", i)
                 # Regular line
                 orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
                 orcafile.writelines(str(bline) for bline in atom_specific_basis_dict[(el, i)])
@@ -1737,7 +1703,7 @@ def grabspinpop_ORCA(chargemodel, outputfile):
         raise FileFormatError("Unknown chargemodel. Exiting...")
     # If BS then we have grabbed charges for both high-spin and BS solution
     if BS is True:
-        print("Broken-symmetry job detected. Only taking BS-state populations")
+        logger.info("Broken-symmetry job detected. Only taking BS-state populations")
         if len(spinpops) != numatoms:
             spinpops = spinpops[-numatoms:]
     # if len(spinpops) == 0:
@@ -1758,8 +1724,8 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
         BS = True
 
     if chargemodel == "NPA" or chargemodel == "NBO":
-        print("Warning: NPA/NBO charge-option in ORCA requires setting environment variable NBOEXE:")
-        print("e.g. export NBOEXE=/path/to/nbo7.exe")
+        logger.info("Warning: NPA/NBO charge-option in ORCA requires setting environment variable NBOEXE:")
+        logger.info("e.g. export NBOEXE=/path/to/nbo7.exe")
         with open(outputfile) as ofile:
             for line in ofile:
                 if grab:
@@ -1819,10 +1785,10 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
                     # Setting charges list to zero in case of multiple charge-tables. Means we grab second table
                     charges = []
                     grab = True
-        print("Hirshfeld charges :", charges)
+        logger.info("Hirshfeld charges : %s", charges)
         atomicnumbers = openmmqmmm.modules.module_coords.elemstonuccharges(elems)
         charges = openmmqmmm.functions.functions_elstructure.calc_cm5(atomicnumbers, coords, charges)
-        print("CM5 charges :", list(charges))
+        logger.info("CM5 charges : %s", list(charges))
     elif chargemodel.upper() == "MULLIKEN":
         with open(outputfile) as ofile:
             for line in ofile:
@@ -1853,7 +1819,7 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
                     if "Sum of atomic" in line:
                         grab = False
                     elif "------" not in line and "Warning" not in line:
-                        print("line:", line)
+                        logger.info("line: %s", line)
                         charges.append(float(line.split()[-1]))
                 if "IAO PARTIAL CHARGES" in line:
                     grab = True
@@ -1862,10 +1828,10 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
 
     # If BS then we have grabbed charges for both high-spin and BS solution
     if BS is True:
-        print("Broken-symmetry job detected. Only taking BS-state populations")
+        logger.info("Broken-symmetry job detected. Only taking BS-state populations")
         if len(charges) != numatoms:
             charges = charges[numatoms:]
-        print("charges:", charges)
+        logger.info("charges: %s", charges)
     return charges
 
 
@@ -1969,19 +1935,17 @@ def ORCA_External_Optimizer(
     ORCA_blockinput="",
     actatoms=None,
 ):
-    print_line_with_mainheader("ORCA_External_Optimizer")
+    logger.info(main_header("ORCA_External_Optimizer"))
     if fragment is None or theory is None:
         raise InputError("ORCA_External_Optimizer requires fragment and theory keywords")
 
     if charge is None or mult is None:
-        print(BC.WARNING, "Warning: Charge/mult was not provided to ORCA_External_Optimizer", BC.END)
+        logger.warning("Warning: Charge/mult was not provided to ORCA_External_Optimizer")
         if fragment.charge is not None and fragment.mult is not None:
-            print(
-                BC.WARNING,
-                f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult} Using this instead",
-                BC.END,
+            logger.warning(
+                f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult} Using this instead"
             )
-            print(BC.WARNING, "Make sure this is what you want!", BC.END)
+            logger.warning("Make sure this is what you want!")
             charge = fragment.charge
             mult = fragment.mult
         else:
@@ -2017,9 +1981,9 @@ def ORCA_External_Optimizer(
     # Active atoms become inverted constraints
     constraintsblock = ""
     if actatoms is not None:
-        print("Activeatoms list was provided. This means that we need to provide constraints to ORCA")
+        logger.info("Activeatoms list was provided. This means that we need to provide constraints to ORCA")
         frozenatoms = listdiff(fragment.allatoms, actatoms)
-        print("Freezing the non-active atoms:", frozenatoms)
+        logger.info("Freezing the non-active atoms: %s", frozenatoms)
         cons = []
         for f in frozenatoms:
             cons.append(f"{{C {f} C}}\n")
@@ -2040,7 +2004,7 @@ end
         o.write(f"*xyzfile {charge} {mult} {xyzfile}\n")
 
     if "GOAT" in ORCA_jobkeyword.upper():
-        print("GOAT keyword found. ")
+        logger.info("GOAT keyword found. ")
 
     # Call ORCA to do Opt/GOAT etc. job
     with open(basename + ".out", "w") as ofile:
@@ -2053,7 +2017,7 @@ end
     # Check if optimization completed
     if checkORCAOptfinished(basename + ".out") is not True:
         raise ExternalProgramError("ORCA external job failed. Check outputfile: {}".format(basename + ".out"))
-    print("ORCA external job finished")
+    logger.info("ORCA external job finished")
 
     # Grabbing final geometry to update fragment object
     _elems, coords = openmmqmmm.modules.module_coords.read_xyzfile(basename + ".xyz")
@@ -2062,7 +2026,7 @@ end
     # Grabbing final energy
     energylines = pygrep2("FINAL SINGLE POINT ENERGY (From external program)", f"{basename}.out", errors="ignore")
     energy = float(energylines[-1].split()[-1])
-    print("Final energy from external ORCA job:", energy)
+    logger.info("Final energy from external ORCA job: %s", energy)
 
     return energy
 

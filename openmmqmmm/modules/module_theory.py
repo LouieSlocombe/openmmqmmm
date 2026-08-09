@@ -1,30 +1,32 @@
+import logging
+
 import numpy as np
 
 import openmmqmmm
-from openmmqmmm.functions.functions_general import BC
 from openmmqmmm.modules.module_coords import print_coords_all
+
+logger = logging.getLogger(__name__)
 
 # Basic Theory class
 
 
 # Numerical gradient class
 class NumGradclass:
-    def __init__(self, theory, npoint=2, displacement=0.00264589, runmode="serial", numcores=1, printlevel=2):
-        print("Creating NumGrad wrapper object")
+    def __init__(self, theory, npoint=2, displacement=0.00264589, runmode="serial", numcores=1):
+        logger.info("Creating NumGrad wrapper object")
         self.theory = theory
         self.theorytype = "QM"
         self.theorynamelabel = "NumGrad"
         self.displacement = displacement
         self.npoint = npoint
         self.runmode = runmode
-        self.printlevel = printlevel
         self.numcores = numcores
 
     def set_numcores(self, numcores):
         self.numcores = numcores
 
     def cleanup(self):
-        print("Cleanup method called but not yet implemented for Numgrad")
+        logger.info("Cleanup method called but not yet implemented for Numgrad")
 
     def run(
         self,
@@ -43,29 +45,29 @@ class NumGradclass:
         mult=None,
     ):
 
-        print(BC.OKBLUE, BC.BOLD, f"------------RUNNING {self.theorynamelabel} WRAPPER -------------", BC.END)
+        logger.info(f"------------RUNNING {self.theorynamelabel} WRAPPER -------------")
 
         numatoms = len(current_coords)
         displacement_bohr = self.displacement * 1.88972612546
 
         list_of_displaced_geos, list_of_displacements, all_disp_fragments = creating_displaced_geos(
-            current_coords, elems, self.displacement, self.npoint, charge, mult, printlevel=2
+            current_coords, elems, self.displacement, self.npoint, charge, mult
         )
         if self.runmode == "serial":
-            print("Numgrad: runmode is serial")
-            print("Running original geometry first")
+            logger.info("Numgrad: runmode is serial")
+            logger.info("Running original geometry first")
             # Energy for original geometry.
             orig_energy = self.theory.run(
                 current_coords=current_coords, elems=elems, Grad=False, label=label, charge=charge, mult=mult
             )
             #
             dispdict = {}
-            print(f"Will now loop over {len(list_of_displacements)} displacements")
+            logger.info(f"Will now loop over {len(list_of_displacements)} displacements")
 
             # Looping over displacements
             for i, dispgeo in enumerate(list_of_displaced_geos):
                 disp = list_of_displacements[i]
-                print(
+                logger.info(
                     f"Running displacement {i + 1} / {len(list_of_displaced_geos)}. Displacing Atom:{disp[0]} Coord:{disp[1]} Direction:{disp[2]}"
                 )
                 energy = self.theory.run(
@@ -74,10 +76,8 @@ class NumGradclass:
                 dispdict[(disp)] = energy
 
         elif self.runmode == "parallel":
-            print("Numgrad: runmode is parallel")
-            origfrag = openmmqmmm.Fragment(
-                coords=current_coords, elems=elems, label="orig", printlevel=0, charge=charge, mult=mult
-            )
+            logger.info("Numgrad: runmode is parallel")
+            origfrag = openmmqmmm.Fragment(coords=current_coords, elems=elems, label="orig", charge=charge, mult=mult)
             all_disp_fragments = [origfrag, *all_disp_fragments]
             result = openmmqmmm.functions.functions_parallel.Job_parallel(
                 fragments=all_disp_fragments,
@@ -85,10 +85,9 @@ class NumGradclass:
                 numcores=self.numcores,
                 allow_theory_parallelization=True,
                 Grad=False,
-                printlevel=self.printlevel,
                 copytheory=True,
             )
-            print("result:", result)
+            logger.info("result: %s", result)
             dispdict = result.energies_dict
             orig_energy = dispdict["orig"]
 
@@ -125,14 +124,14 @@ class NumGradclass:
         return self.energy, self.gradient
 
 
-def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult, printlevel=2):
+def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult):
     displacement_bohr = displacement * 1.88972612546
-    print(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
-    print("Starting geometry:")
-    print()
-    print("Printing original geometry...")
+    logger.info(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
+    logger.info("Starting geometry:")
+    logger.info("")
+    logger.info("Printing original geometry...")
     print_coords_all(current_coords, elems)
-    print()
+    logger.info("")
 
     # Looping over each atom and each coordinate to create displaced geometries
     # Only displacing atom if in hessatoms list. i.e. possible partial Hessian
@@ -160,8 +159,7 @@ def creating_displaced_geos(current_coords, elems, displacement, npoint, charge,
         list_of_displaced_geos.append(current_coords)
         list_of_displacements.append("Originalgeo")
 
-    if printlevel > 2:
-        print("List of displacements:", list_of_displacements)
+    logger.debug("List of displacements: %s", list_of_displacements)
 
     # Creating ASH fragments
     # Creating displacement labels as strings and adding to fragment
@@ -179,9 +177,7 @@ def creating_displaced_geos(current_coords, elems, displacement, npoint, charge,
             disp[2]
             stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
         # Create fragment
-        frag = openmmqmmm.Fragment(
-            coords=dispgeo, elems=elems, label=stringlabel, printlevel=0, charge=charge, mult=mult
-        )
+        frag = openmmqmmm.Fragment(coords=dispgeo, elems=elems, label=stringlabel, charge=charge, mult=mult)
         all_disp_fragments.append(frag)
 
     return list_of_displaced_geos, list_of_displacements, all_disp_fragments

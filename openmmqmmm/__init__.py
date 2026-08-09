@@ -5,6 +5,8 @@ R. Bjornsson
 Trimmed distribution: ORCA + OpenMM QM/MM functionality for biomolecular calculations.
 """
 
+import logging as _logging
+
 # Exceptions
 from .exceptions import (
     ExternalProgramError,
@@ -15,6 +17,9 @@ from .exceptions import (
     OpenMMQMMMError,
     require,
 )
+
+# Logging setup helper
+from .functions.functions_general import configure_logging
 
 # Results dataclass
 # Parallel
@@ -114,6 +119,10 @@ from .modules.module_singlepoint import (
 # Numerical gradient
 from .modules.module_theory import NumGradclass
 
+# Library convention: silent unless the application configures logging.
+# configure_logging() sets up ASH-style console output in one call.
+_logging.getLogger(__name__).addHandler(_logging.NullHandler())
+
 # General aliases
 MolecularDynamics = OpenMM_MD
 MetaDynamics = OpenMM_metadynamics
@@ -187,6 +196,7 @@ __all__ = [
     "calculate_RMSD",
     "check_gradient_for_bad_atoms",
     "compute_decomposed_QM_MM_energy",
+    "configure_logging",
     "define_XH_constraints",
     "dihedral_between_atoms",
     "distance_between_atoms",

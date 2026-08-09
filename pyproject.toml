@@ -56,17 +56,19 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "I", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB", "PLE", "PLW", "BLE"]
+select = ["F", "E", "W", "I", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB", "PLE", "PLW", "BLE", "T20", "G", "LOG"]
 ignore = [
     # The formatter owns line wrapping; long scientific strings exist
     "E501",
     # Loop-variable reassignment pervades the file parsers
     "PLW2901",
+    # f-strings in log calls are fine: the messages are the calculation record
+    "G004",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests use star imports until the API-rename phase makes imports explicit
-"openmmqmmm/tests/*" = ["F403", "F405"]
+"openmmqmmm/tests/*" = ["F403", "F405", "T20"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["openmmqmmm"]

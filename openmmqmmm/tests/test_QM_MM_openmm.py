@@ -89,7 +89,6 @@ def test_qm_mm_orca_openmm_lysozyme():
         fragment=fragment,
         embedding="Elstat",
         qmatoms=qmatomlist,
-        printlevel=2,
     )
 
     result = Singlepoint(theory=qmmmobject, fragment=fragment, Grad=True)

@@ -1,8 +1,12 @@
+import logging
+
 import numpy as np
 
 from openmmqmmm.exceptions import (
     InputError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def cell_params_to_vectors(parameters):
@@ -95,7 +99,7 @@ def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, file
             for el, c in zip(elems, coords, strict=False):
                 if el == target_el:
                     f.write(f"{c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
-    print("Wrote POSCAR file")
+    logger.info("Wrote POSCAR file")
     return filename
 
 
@@ -126,7 +130,7 @@ def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
         # Using Element Symbol is more human-readable and works perfectly in VMD.
         f.writelines(f"{el}  {c[0]:.10f}  {c[1]:.10f}  {c[2]:.10f}\n" for el, c in zip(elems, coords, strict=False))
 
-    print(f"Wrote XSF file: {filename}")
+    logger.info(f"Wrote XSF file: {filename}")
     return filename
 
 
@@ -170,7 +174,7 @@ def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
             # We add an index to the label (e.g., Na1, Na2) to keep them unique
             f.write(f"{el}{i + 1}  {el}  {c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
 
-    print(f"Wrote CIF file: {filename}")
+    logger.info(f"Wrote CIF file: {filename}")
     return filename
 
 

@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import subprocess as sp
@@ -6,6 +7,8 @@ import numpy as np
 
 import openmmqmmm.modules.module_coords
 from openmmqmmm.exceptions import ExternalProgramError, InternalError
+
+logger = logging.getLogger(__name__)
 
 # CM5 parameters (data from paper for elements 1-118)
 _radii = np.array(
@@ -331,10 +334,10 @@ def calc_cm5(atomicNumbers, coords, hirschfeldcharges):
 def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
     if postgdir is None:
         # Trying to find postgdir in path
-        print("postgdir keyword argument not provided to xdm_run. Trying to find postg in PATH")
+        logger.info("postgdir keyword argument not provided to xdm_run. Trying to find postg in PATH")
         try:
             postgdir = os.path.dirname(shutil.which("postg"))
-            print("Found postg in path. Setting postgdir.")
+            logger.info("Found postg in path. Setting postgdir.")
         except TypeError:
             raise ExternalProgramError("Found no postg executable in PATH") from None
 
@@ -355,10 +358,10 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
     }
 
     if a1 is None or a2 is None:
-        print("a1/a2 parameters not given. Looking up functional in table")
-        print("Parameter table:", parameterdict)
+        logger.info("a1/a2 parameters not given. Looking up functional in table")
+        logger.info("Parameter table: %s", parameterdict)
         a1, a2 = parameterdict[functional.lower()]
-        print(f"XDM a1: {a1}, a2: {a2}")
+        logger.info(f"XDM a1: {a1}, a2: {a2}")
     with open("xdm-postg.out", "w") as ofile:
         sp.run(
             [postgdir + "/postg", str(a1), str(a2), str(wfxfile), str(functional)],
@@ -385,8 +388,8 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
                 dispgrab = True
 
     dispgradient = np.array(dispgradient)
-    print("dispenergy:", dispenergy)
-    print("dispgradient:", dispgradient)
+    logger.info("dispenergy: %s", dispenergy)
+    logger.info("dispgradient: %s", dispgradient)
     return dispenergy, dispgradient
 
 

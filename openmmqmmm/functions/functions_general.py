@@ -1,40 +1,89 @@
+import logging
 import os
 import time
 
 import numpy as np
 
-import openmmqmmm.settings_ash
 from openmmqmmm.exceptions import (
     FileFormatError,
 )
 
-# ANSI colors: http://jafrog.com/2013/11/23/colors-in-terminal.html
-if openmmqmmm.settings_ash.settings_dict["use_ANSI_color"] is True:
+logger = logging.getLogger(__name__)
+timings_logger = logging.getLogger("openmmqmmm.timings")
 
-    class BC:
-        HEADER = "\033[95m"
-        OKBLUE = "\033[94m"
-        OKGREEN = "\033[92m"
-        OKMAGENTA = "\033[95m"
-        OKRED = "\033[31m"
-        WARNING = "\033[93m"
-        FAIL = "\033[91m"
-        END = "\033[0m"
-        BOLD = "\033[1m"
-        UNDERLINE = "\033[4m"
-else:
 
-    class BC:
-        HEADER = ""
-        OKBLUE = ""
-        OKGREEN = ""
-        OKMAGENTA = ""
-        OKRED = ""
-        WARNING = ""
-        FAIL = ""
-        END = ""
-        BOLD = ""
-        UNDERLINE = ""
+def configure_logging(level="INFO", file=None, fmt="%(message)s"):
+    """Configure output for openmmqmmm calculations.
+
+    The package logs the calculation record through the standard logging
+    module and stays silent by default (library convention). Calling this
+    once in a run script restores ASH-style console output:
+
+        import openmmqmmm
+        openmmqmmm.configure_logging()
+
+    Args:
+        level: logging level name or number for the package logger.
+            Overridden by the OPENMMQMMM_LOGLEVEL environment variable if set.
+        file: optional path; if given, output also goes to this file.
+        fmt: logging format string; the message-only default reproduces the
+            look of the old print-based output.
+
+    Returns:
+        The configured "openmmqmmm" logger.
+    """
+    package_logger = logging.getLogger("openmmqmmm")
+    env_level = os.environ.get("OPENMMQMMM_LOGLEVEL")
+    if env_level:
+        level = env_level
+    package_logger.setLevel(level.upper() if isinstance(level, str) else level)
+    formatter = logging.Formatter(fmt)
+    # Replace handlers configured by a previous call rather than stacking them
+    for handler in list(package_logger.handlers):
+        if getattr(handler, "_openmmqmmm_handler", False):
+            package_logger.removeHandler(handler)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    stream_handler._openmmqmmm_handler = True
+    package_logger.addHandler(stream_handler)
+    if file is not None:
+        file_handler = logging.FileHandler(file)
+        file_handler.setFormatter(formatter)
+        file_handler._openmmqmmm_handler = True
+        package_logger.addHandler(file_handler)
+    return package_logger
+
+
+def log_time_since(timestamp, label="step"):
+    """Log wall time elapsed since timestamp (DEBUG level, openmmqmmm.timings logger)."""
+    secs = time.time() - timestamp
+    timings_logger.debug("Time to calculate step (%s): %.3f seconds, %.1f minutes", label, secs, secs / 60)
+
+
+def main_header(text):
+    """Return text in the boxed banner used for major module headers."""
+    width = len(text) + 12
+    edge = "#" * width
+    mid = "#" + " " * (width - 2) + "#"
+    inner = "#" + text.center(width - 2) + "#"
+    return "\n".join(["\n", edge.center(80), mid.center(80), inner.center(80), mid.center(80), edge.center(80)])
+
+
+def sub_header(text):
+    """Return text with the full-width rule used for submodule headers."""
+    rule = "-" * 80
+    return f"\n{rule}\n{text.center(80)}\n{rule}\n"
+
+
+def sub_header_end():
+    """Return the closing rule matching sub_header."""
+    return "\n" + "-" * 80
+
+
+def small_header(text):
+    """Return text with an underline rule of matching width."""
+    rule = "-" * len(text)
+    return f"\n{rule}\n{text}\n{rule}"
 
 
 def basename(filename):
@@ -59,7 +108,7 @@ def pygrep2(string, file, print_output=False, errors=None):
             if string in line:
                 matches.append(line)
     if print_output is True:
-        print(*matches)
+        logger.info("%s", "".join(matches))
     return matches
 
 
@@ -81,57 +130,6 @@ def listdiff(list1, list2):
     return diff
 
 
-# Print string if printlevel equals or larger than reference
-def print_if_level(var, printlevel, refprintlevel):
-    if printlevel >= refprintlevel:
-        print(var)
-
-
-# Debug print. Behaves like print but reads global debug var first
-def printdebug(string, var=""):
-    if openmmqmmm.settings_ash.settings_dict["debugflag"] is True:
-        print(BC.OKRED, string, var, BC.END)
-
-
-# mainmodule header
-def print_line_with_mainheader(line):
-    length = len(line)
-    offset = 12
-    outer_line = f"{BC.OKGREEN}{'#' * (length + offset)}{BC.END}"
-    midline = f"{BC.OKGREEN}#{' ' * (length + offset - 2)}#{BC.END}"
-    inner_line = f"{BC.OKGREEN}#{' ' * (offset // 2 - 1)}{BC.BOLD}{line}{' ' * (offset // 2 - 1)}#{BC.END}"
-    print("\n")
-    print(outer_line.center(80))
-    print(midline.center(80))
-    print(inner_line.center(80))
-    print(midline.center(80))
-    print(outer_line.center(80))
-
-
-# Submodule header
-def print_line_with_subheader1(line):
-    print()
-    print(f"{BC.OKBLUE}{'-' * 80}{BC.END}")
-    print(f"{BC.OKBLUE}{BC.BOLD}{line.center(80)}{BC.END}")
-    print(f"{BC.OKBLUE}{'-' * 80}{BC.END}")
-    print()
-
-
-# Submodule header
-def print_line_with_subheader1_end():
-    print()
-    print(f"{BC.OKBLUE}{'-' * 80}{BC.END}")
-
-
-# Smaller header
-def print_line_with_subheader2(line):
-    print()
-    length = len(line)
-    print(f"{BC.OKBLUE}{'-' * length}{BC.END}")
-    print(f"{BC.OKBLUE}{BC.BOLD}{line}{BC.END}")
-    print(f"{BC.OKBLUE}{'-' * length}{BC.END}")
-
-
 # Inserts line into file for matched string.
 # option: Once=True means only added for first match
 def insert_line_into_file(file, string, addedstring, Once=True):
@@ -145,10 +143,6 @@ def insert_line_into_file(file, string, addedstring, Once=True):
                 ffw.write(addedstring + "\n")
                 if Once is True:
                     Added = True
-
-
-def blankline():
-    print()
 
 
 # Can variable be converted into integer
@@ -207,7 +201,7 @@ def writestringtofile(string, file, writemode="w"):
 def writelisttofile(pylist, file, separator=" "):
     with open(file, "w") as f:
         f.writelines(str(item) + separator for item in pylist)
-    print("Wrote list to file:", file)
+    logger.info("Wrote list to file: %s", file)
 
 
 # Natural (human) sorting of list
@@ -233,127 +227,3 @@ def clean_number(number):
 # Extract column from matrix
 def column(matrix, i):
     return [row[i] for row in matrix]
-
-
-# Various function to print time of module/step. Will add time also to Timings object
-# Printing if currprintlevel
-def print_time_rel(timestamp, modulename="Unknown", moduleindex=4, currprintlevel=1, currthreshold=1):
-    secs = time.time() - timestamp
-    mins = secs / 60
-    if currprintlevel >= currthreshold:
-        print_line_with_subheader2(f"Time to calculate step ({modulename}): {secs:4.3f} seconds, {mins:3.1f} minutes.")
-    # Adding time to Timings object
-    timingsobject.add(modulename, secs, moduleindex=moduleindex)
-
-
-def print_time_tot_color(time_initial, modulename="Unknown", moduleindex=4):
-    secs = time.time() - time_initial
-    mins = secs / 60
-    print(BC.WARNING, "-------------------------------------------------------------------", BC.END)
-    print(BC.WARNING, f"ASH Total Walltime: {secs:3.1f} seconds, {mins:3.1f} minutes.", BC.END)
-    print(BC.WARNING, "-------------------------------------------------------------------", BC.END)
-    # Adding time to Timings object
-    timingsobject.add(modulename, secs, moduleindex=moduleindex)
-
-
-# Keep track of module runtimes
-class Timings:
-    def __init__(self):
-        self.simple_dict = {}
-        self.module_count = {}
-        self.module_indices = {}
-        self.totalsumtime = 0
-
-    def add(self, modulename, mtime, moduleindex=4):
-
-        # Adding time to dictionary
-        if modulename in self.simple_dict:
-            self.simple_dict[modulename] += mtime
-        else:
-            self.simple_dict[modulename] = mtime
-
-        # Adding moduleindex to dictionary
-        if modulename not in self.module_indices:
-            self.module_indices[modulename] = moduleindex
-
-        # Adding times called
-        if modulename in self.module_count:
-            self.module_count[modulename] += 1
-        else:
-            self.module_count[modulename] = 1
-
-        self.totalsumtime += mtime
-
-    # Distinguish and sort between:
-    # workflows (thermochem_protol, PES, calc_surface etc.): 0
-    # jobtype (optimizer,Singlepoint,Anfreq,Numfreq): 1
-    # theory-run (ORCAtheory run, QM/MM run, MM run etc.): 2
-    # others (calc connectivity etc.): 4
-
-    def print(self, inittime):
-        totalwalltime = time.time() - inittime
-        print("To turn off timing output add to settings file: ~/ash_user_settings.ini")
-        print("print_full_timings = False   ")
-        print()
-        print("{:35}{:>20}{:>20}{:>17}".format("Modulename", "Time (sec)", "Percentage of total", "Times called"))
-        print("-" * 100)
-
-        # Lists of dictitems by module_labels
-        # Workflows: thermochemprotocol, calc_surface, benchmarking etc.
-        dictitems_index0 = [i for i in self.simple_dict if self.module_indices[i] == 0]
-        # Jobtype: Singlepoint, Opt, freq
-        dictitems_index1 = [i for i in self.simple_dict if self.module_indices[i] == 1]
-        # Theory run: ORCATHeory, QM/MM Theory etc
-        dictitems_index2 = [i for i in self.simple_dict if self.module_indices[i] == 2]
-        # NOTE: Was not using index 3. Now using for object creation
-        dictitems_index3 = [i for i in self.simple_dict if self.module_indices[i] == 3]
-        # Other small modules. 4 is default
-        dictitems_index4 = [i for i in self.simple_dict if self.module_indices[i] == 4]
-
-        if len(dictitems_index0) != 0:
-            print("Workflow modules")
-            print("-" * 30)
-            for dictitem in dictitems_index0:
-                mmtime = self.simple_dict[dictitem]
-                time_per = 100 * (mmtime / totalwalltime)
-                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
-            print()
-        if len(dictitems_index1) != 0:
-            print("Jobtype modules")
-            print("-" * 30)
-            for dictitem in dictitems_index1:
-                mmtime = self.simple_dict[dictitem]
-                time_per = 100 * (mmtime / totalwalltime)
-                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
-            print()
-        if len(dictitems_index2) != 0:
-            print("Theory-run modules")
-            print("-" * 30)
-            for dictitem in dictitems_index2:
-                mmtime = self.simple_dict[dictitem]
-                time_per = 100 * (mmtime / totalwalltime)
-                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
-            print()
-        if len(dictitems_index3) != 0:
-            print("Object creation")
-            print("-" * 30)
-            for dictitem in dictitems_index3:
-                mmtime = self.simple_dict[dictitem]
-                time_per = 100 * (mmtime / totalwalltime)
-                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
-            print()
-        if len(dictitems_index4) != 0:
-            print("Other modules")
-            print("-" * 30)
-            for dictitem in dictitems_index4:
-                mmtime = self.simple_dict[dictitem]
-                time_per = 100 * (mmtime / totalwalltime)
-                print(f"{dictitem:35}{mmtime:>20.2f}{time_per:>10.1f}{self.module_count[dictitem]:>20}")
-            print()
-        print()
-        print("{:35}{:>20.2f}".format("Sum of all moduletimes (flawed)", self.totalsumtime))
-        print("{:35}{:>20.2f}{:>10}".format("Total walltime", totalwalltime, 100.0))
-
-
-# Creating object
-timingsobject = Timings()
