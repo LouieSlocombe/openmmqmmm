@@ -13,7 +13,6 @@ from collections import defaultdict
 from openmmqmmm.functions.functions_general import ashexit, isint, listdiff, print_time_rel, BC, printdebug, \
     print_line_with_mainheader, \
     print_line_with_subheader1, print_line_with_subheader1_end, print_line_with_subheader2, writelisttofile, \
-    load_julia_interface, \
     search_list_of_lists_for_index, natural_sort
 
 import openmmqmmm.dictionaries_lists
@@ -424,36 +423,15 @@ class Fragment:
         return [index for index, el in enumerate(self.elems) if el != element]
 
     # Get list of lists of bonds. Used for X-H constraints for example
-    def get_XH_indices(self, conncode='julia'):
-        timestamp = time.time()
+    def get_XH_indices(self):
         scale = openmmqmmm.settings_ash.settings_dict["scale"]
         tol = openmmqmmm.settings_ash.settings_dict["tol"]
         Hatoms = self.get_atomindices_for_element('H')
-        # Hatoms=[1,2,3,5]
-        # print("H Atoms: ", str(Hatoms).strip("[]"))
-
-        # way too slow
-        if conncode == 'py':
-            final_list = []
-            for Hatom in Hatoms:
-                connatoms = get_connected_atoms_np(self.coords, self.elems, scale, tol, Hatom)
-                final_list.append(connatoms)
-            return final_list
-        else:
-            print("Loading Julia")
-            try:
-                Juliafunctions = load_julia_interface()
-            except:
-                print("Problem loading Julia")
-                ashexit()
-            final_list = Juliafunctions.get_connected_atoms_forlist_julia(self.coords, self.elems, scale, tol,
-                                                                          eldict_covrad, Hatoms)
-        # print("final_list: ", str(final_list).strip("[]"))
-        print_time_rel(timestamp, modulename='get_XH_indices', moduleindex=4)
+        final_list = []
+        for Hatom in Hatoms:
+            connatoms = get_connected_atoms_np(self.coords, self.elems, scale, tol, Hatom)
+            final_list.append(connatoms)
         return final_list
-        # Call connectivity routines
-        # for el in self.elems:
-        #    if -
 
     def delete_atom(self, atomindex):
         self.coords = np.delete(self.coords, atomindex, axis=0)
@@ -667,18 +645,9 @@ class Fragment:
         return subcoords, subelems
 
     # Calculate connectivity (list of lists) of coords
-    def calc_connectivity(self, conndepth=99, scale=None, tol=None, codeversion=None):
+    def calc_connectivity(self, conndepth=99, scale=None, tol=None):
         print("Calculating connectivity.")
-        # If codeversion not requested we go to default
-        if codeversion is None:
-            codeversion = openmmqmmm.settings_ash.settings_dict["connectivity_code"]
-            print("Codeversion not set. Using default setting: ", codeversion)
-
-        # Overriding with py version if molecule is small. Faster than calling julia.
-        if len(self.coords) < 1000:
-            print(f"Small system ({len(self.coords)} atoms). Using py version.")
-            codeversion = 'py'
-        elif len(self.coords) > 10000:
+        if len(self.coords) > 10000:
             if self.printlevel >= 2:
                 print("Atom number > 10K. Connectivity calculation could take a while")
 
@@ -705,30 +674,8 @@ class Fragment:
 
         # Calculate connectivity by looping over all atoms
         timestampA = time.time()
-        print("codeversion:", codeversion)
-        if codeversion == 'py':
-            print("Calculating connectivity of fragment using py.")
-            fraglist = calc_conn_py(self.coords, self.elems, conndepth, scale, tol)
-            print_time_rel(timestampA, modulename='calc connectivity py', moduleindex=4)
-        elif codeversion == 'julia':
-            print("Calculating connectivity of fragment using Julia.")
-            try:
-                Juliafunctions = load_julia_interface()
-                fraglist_temp = Juliafunctions.calc_connectivity(self.coords, self.elems, conndepth, scale, tol,
-                                                                 eldict_covrad)
-                fraglist = []
-                # Converting from numpy to list of lists
-                for sublist in fraglist_temp:
-                    fraglist.append(list(sublist))
-                print_time_rel(timestampA, modulename='calc connectivity julia', moduleindex=4)
-            except:
-                print(BC.FAIL, "Problem importing Python-Julia interface.", BC.END)
-                print("Make sure Julia is installed and Python-Julia interface has been set up.")
-                print(BC.FAIL, "Using Python version instead (slow for large systems)", BC.END)
-                # Switching default to py since Julia did not load
-                openmmqmmm.settings_ash.settings_dict["connectivity_code"] = "py"
-                fraglist = calc_conn_py(self.coords, self.elems, conndepth, scale, tol)
-                print_time_rel(timestampA, modulename='calc connectivity py', moduleindex=4)
+        fraglist = calc_conn_py(self.coords, self.elems, conndepth, scale, tol)
+        print_time_rel(timestampA, modulename='calc connectivity py', moduleindex=4)
         self.connectivity = fraglist
         # Calculate number of atoms in connectivity list of lists
         conn_number_sum = 0
@@ -1211,17 +1158,6 @@ def reformat_element(elem, isatomnum=False):
 
 
 # Remove zero charges
-def remove_zero_charges(charges, coords):
-    newcharges = []
-    newcoords = []
-    if len(charges) != len(coords):
-        print(BC.FAIL, "Something went wrong in remove_zero_charges. File a bug report", BC.END)
-        ashexit()
-    for charge, coord in zip(charges, coords):
-        if charge != 0.0:
-            newcharges.append(charge)
-            newcoords.append(coord)
-    return newcharges, newcoords
 
 
 # Covalent radii (Angstrom) used for simple connectivity detection.
@@ -1405,17 +1341,7 @@ def print_internal_coordinate_table(fragment, actatoms=None):
     scale = openmmqmmm.settings_ash.settings_dict["scale"]
     tol = openmmqmmm.settings_ash.settings_dict["tol"]
 
-    if len(chosen_coords) > 1000:
-        try:
-            Juliafunctions = load_julia_interface()
-            connectivity = Juliafunctions.calc_connectivity(chosen_coords, chosen_elems, conndepth, scale, tol,
-                                                            eldict_covrad)
-        except:
-            print("Problem importing Python-Julia interface. Trying py-version instead.")
-            connectivity = calc_conn_py(chosen_coords, chosen_elems, conndepth, scale, tol)
-    else:
-        # PyTHON connectivity
-        connectivity = calc_conn_py(chosen_coords, chosen_elems, conndepth, scale, tol)
+    connectivity = calc_conn_py(chosen_coords, chosen_elems, conndepth, scale, tol)
     print("Connectivity calculation complete.")
     # else:
     #    print("Using precalculated connectivity")
@@ -1461,19 +1387,9 @@ def print_internal_coordinate_table(fragment, actatoms=None):
 
 # Function to check if string corresponds to an element symbol or not.
 # Compares in lowercase
-def isElement(string):
-    if string.lower() in elematomnumbers:
-        return True
-    else:
-        return False
 
 
 # Checks if list of string is list of elements or no
-def isElementList(list):
-    for l in list:
-        if not isElement(l):
-            return False
-    return True
 
 
 # From lists of coords,elems and atom indices, print coords with elem
@@ -1506,13 +1422,6 @@ def write_XYZ_for_atoms(coords, elems, members, name):
 
 # Write a multi-XYZ-file, i.e. XYZ trajectory from a list with each sublist containing list of elements and np array of coords
 # el_and_coords : [[['O','H','H'],np.array([[0.0, 0.0, 0.0],[0.0,0.0,1.0],[0.0,0.0,-1.0]])],etc.]
-def write_multi_xyz_file(el_and_coords, numatoms, filename, label=""):
-    with open(filename, "w") as f:
-        for coord in el_and_coords:
-            f.write(f"{numatoms}\n")
-            f.write(f"{label}\n")
-            for el, co in zip(coord[0], coord[1]):
-                f.write(f"{el} {co[0]} {co[1]} {co[2]}\n")
 
 
 # From lists of coords,elems and atom indices, print coords with elems
@@ -1694,10 +1603,6 @@ def change_origin_to_centroid(fullcoords, subsetcoords=None, subsetatoms=None):
 
 
 # get_solvshell function based on single point of origin. Using geometric center of molecule
-def get_solvshell_origin():
-    print("to finish")
-    # TODO: finish get_solvshell_origin
-    ashexit()
 
 
 # Determine threshold for whether atoms are connected or not based on covalent radii for pair of atoms
@@ -1745,18 +1650,6 @@ def einsum_mat(mat_v, mat_u):
     return np.sqrt(np.einsum('ij,ij->i', mat_z, mat_z))
 
 
-def bare_numpy_mat(mat_v, mat_u):
-    return np.sqrt(np.sum((mat_v - mat_u) ** 2, axis=1))
-
-
-def l2_norm_mat(mat_v, mat_u):
-    return np.linalg.norm(mat_v - mat_u, axis=1)
-
-
-def dummy_mat(mat_v, mat_u):
-    return [sum((v_i - u_i) ** 2 for v_i, u_i in zip(v, u)) ** 0.5 for v, u in zip(mat_v, mat_u)]
-
-
 # Get connected atoms to chosen atom index based on threshold
 # np version for calculating the euclidean distance
 # https://semantive.com/pl/blog/high-performance-computation-in-python-numpy/
@@ -1766,7 +1659,7 @@ def get_connected_atoms_np(coords, elems, scale, tol, atomindex):
     connatoms = []
     # Creating np array of the coords to compare
     compcoords = np.tile(coords[atomindex], (len(coords), 1))
-    # Einsum is slightly faster than bare_numpy_mat. All distances in one go
+    # All distances in one go
     distances = einsum_mat(coords, compcoords)
     # Getting all thresholds as list via list comprehension.
     el_covrad_ref = eldict_covrad[elems[atomindex]]
@@ -1802,34 +1695,10 @@ def get_connected_atoms_dict(coords, elems, scale, tol):
 
 # Get connected atoms for a small list of atoms with input fragment, includes input atoms
 # Used e.g. in NEB-TS
-def get_conn_atoms_for_list(atoms=None, fragment=None, scale=1.0, tol=0.1):
-    final_list = []
-    for atom in atoms:
-        conn = openmmqmmm.modules.module_coords.get_connected_atoms_np(fragment.coords, fragment.elems, scale, tol, atom)
-        final_list.append(conn)
-    # Flatten list
-    final_list = [item for sublist in final_list for item in sublist]
-    # Remove duplicates and sort
-    return np.unique(final_list).tolist()
 
 
 # Numpy clever loop test.
 # Either atomindex or membs has to be defined
-def get_molecule_members_loop_np(coords, elems, loopnumber, scale, tol, atomindex='', membs=None):
-    if membs is None:
-        membs = []
-        membs.append(atomindex)
-        membs = get_connected_atoms_np(coords, elems, scale, tol, atomindex)
-    # How often to search for connected atoms as the members list grows:
-    # TODO: Need to make this better
-    for i in range(loopnumber):
-        for j in membs:
-            conn = get_connected_atoms_np(coords, elems, scale, tol, j)
-            membs = membs + conn
-        membs = np.unique(membs).tolist()
-    # Remove duplicates and sort
-    membs = np.unique(membs).tolist()
-    return membs
 
 
 # Numpy clever loop test.
@@ -1885,62 +1754,12 @@ def get_molecule_members_loop_np2(coords, elems, loopnumber, scale, tol, atomind
 # Uses loopnumber for when to stop searching.
 # Does extra work but not too bad
 # Uses either single atomindex or members lists
-def get_molecule_members_loop(coords, elems, loopnumber, scale, tol, atomindex='', members=None):
-    if members is None:
-        members = []
-        members.append(atomindex)
-        connatoms = get_connected_atoms(coords, elems, scale, tol, atomindex)
-        members = members + connatoms
-    # How often to search for connected atoms as the members list grows:
-    for i in range(loopnumber):
-        # conn = [get_connected_atoms(coords, elems, scale,tol,j) for j in members]
-        for j in members:
-            conn = get_connected_atoms(coords, elems, scale, tol, j)
-            members = members + conn
-            # members=np.concatenate((members, conn))
-        members = np.unique(members).tolist()
-        members = members + conn
-    # Remove duplicates and sort
-    members = np.unique(members).tolist()
-    return members
 
 
 # Get-molecule-members with fixed recursion-depth of 4
 # Efficient but limited to 4
 # Updated to 5
 # Maybe not so efficient after all
-def get_molecule_members_fixed(coords, elems, scale, tol, atomindex='', members=None):
-    print("Disabled")
-    print("not so efficient")
-    ashexit()
-    if members is None:
-        members = [atomindex]
-        connatoms = get_connected_atoms(coords, elems, scale, tol, atomindex)
-        members = members + connatoms
-    finalmembers = members
-    # How often to search for connected atoms as the members list grows:
-    for j in members:
-        conn = get_connected_atoms(coords, elems, scale, tol, j)
-        finalmembers = finalmembers + conn
-        for k in conn:
-            conn2 = get_connected_atoms(coords, elems, scale, tol, k)
-            finalmembers = finalmembers + conn2
-            # for l in conn2:
-            #    conn3 = get_connected_atoms(coords, elems, scale,tol,l)
-            #    finalmembers = finalmembers + conn3
-            # for m in conn3:
-            #    conn4 = get_connected_atoms(coords, elems, scale, tol,m)
-            #    finalmembers = finalmembers + conn4
-    # Remove duplicates and sort
-    finalmembers = np.unique(finalmembers).tolist()
-    return finalmembers
-
-
-def create_coords_string(elems, coords):
-    coordsstring = ''
-    for el, c in zip(elems, coords):
-        coordsstring = coordsstring + el + '  ' + str(c[0]) + '  ' + str(c[1]) + '  ' + str(c[2]) + '\n'
-    return coordsstring[:-1]
 
 
 # Takes list of elements and gives formula
@@ -2054,61 +1873,6 @@ def read_xyzfiles(xyzdir, readchargemult=False, label_from_filename=True):
         mol = openmmqmmm.Fragment(xyzfile=file, readchargemult=readchargemult, label=filename)
         fragments.append(mol)
     return fragments
-
-
-def set_coordinates(atoms, V, title="", decimals=8):
-    """
-    Print coordinates V with corresponding atoms to stdout in XYZ format.
-    Parameters
-    ----------
-    atoms : list
-        List of atomic types
-    V : array
-        (N,3) matrix of atomic coordinates
-    title : string (optional)
-        Title of molecule
-    decimals : int (optional)
-        number of decimals for the coordinates
-
-    Return
-    ------
-    output : str
-        Molecule in XYZ format
-
-    """
-    N, D = V.shape
-
-    fmt = "{:2s}" + (" {:15." + str(decimals) + "f}") * 3
-
-    out = list()
-    out += [str(N)]
-    out += [title]
-
-    for i in range(N):
-        atom = atoms[i]
-        atom = atom[0].upper() + atom[1:]
-        out += [fmt.format(atom, V[i, 0], V[i, 1], V[i, 2])]
-
-    return "\n".join(out)
-
-
-def print_coordinates(atoms, V, title=""):
-    """
-    Print coordinates V with corresponding atoms to stdout in XYZ format.
-
-    Parameters
-    ----------
-    atoms : list
-        List of element types
-    V : array
-        (N,3) matrix of atomic coordinates
-    title : string (optional)
-        Title of molecule
-
-    """
-    V = np.array(V)
-    print(set_coordinates(atoms, V, title=title))
-    return
 
 
 # Write XYZfile provided list of elements and list of list of coords and filename
@@ -2461,26 +2225,6 @@ def read_ambercoordinates(prmtopfile=None, inpcrdfile=None):
 
 
 # Write Amber crd file from either ASH fragment or PDB-file
-def write_amber_crdfile(fragment=None, pdbfile=None, output="amber.crd"):
-    print("\nwrite_amber_crdfile")
-    if fragment == None and pdbfile == None:
-        print("Need to provide either fragment or pdbfile")
-        ashexit()
-    if fragment != None:
-        elems = fragment.elems
-        coords = fragment.coords
-        numatoms = fragment.numatoms
-    elif pdbfile != None:
-        elems, coords = read_pdbfile(pdbfile)
-        numatoms = len(elems)
-    full_string = ""
-    with open(output, 'w') as ofile:
-        ofile.write(f"{numatoms}\n")
-        for i, coord in enumerate(coords):
-            full_string += f"{coord[0]:12.7f}{coord[1]:12.7f}{coord[2]:12.7f}"
-            if i % 2 != 0:
-                full_string += "\n"
-        ofile.write(full_string)
 
 
 # Write PDBfile proper
@@ -2589,17 +2333,6 @@ def write_pdbfile(fragment, outputname="ASHfragment", openmmobject=None, atomnam
 
 
 # Calculate nuclear charge from XYZ-file
-def nucchargexyz(file):
-    el = []
-    with open(file) as f:
-        for count, line in enumerate(f):
-            if count > 1:
-                el.append(reformat_element(line.split()[0]))
-    totnuccharge = 0
-    for e in el:
-        atcharge = eldict[e]
-        totnuccharge += atcharge
-    return totnuccharge
 
 
 # Calculate total nuclear charge from list of elements
@@ -2629,15 +2362,6 @@ def elemstonuccharges(ellist):
         atcharge = elematomnumbers[e.lower()]
         nuccharges.append(atcharge)
     return nuccharges
-
-
-def nucchargestoelems(chargelist):
-    elems = []
-    for c in chargelist:
-        for key, value in elematomnumbers.items():
-            if value == c:
-                elems.append(key.upper())
-    return elems
 
 
 # Calculate molecular mass from list of atoms
@@ -2808,7 +2532,7 @@ def flexible_align(fragmentA, fragmentB, rotate_only=False, translate_only=False
     return newfrag
 
 
-# Recommended RMSD-calc wrapper function for ASH fragments using kabsch
+# Recommended RMSD-calc wrapper function for ASH fragments
 # Allows subset match (same set of indices or 2 sets of indices for each fragment)
 # Also simpler option: heavyatomsonly=True (ignores H-atoms)
 # NOTE: no reordering
@@ -2858,7 +2582,6 @@ def calculate_RMSD(fragmentA, fragmentB, subset=None, heavyatomsonly=False, prin
 
     # RMSD
     rmsdval = float(np.sqrt(((Anew - subsetB_coords) ** 2).sum() / len(Anew)))
-    # xrmsdval = kabsch_rmsd(subsetB_coords,Anew)
 
     if printlevel > 1:
         print("RMSD:", rmsdval)
@@ -2874,66 +2597,6 @@ def calculate_RMSD(fragmentA, fragmentB, subset=None, heavyatomsonly=False, prin
 #####################################
 # RMSD and align related functions
 #####################################
-
-def kabsch_rmsd(P, Q):
-    """
-    Rotate matrix P unto Q and calculate the RMSD
-    """
-    P = rotate(P, Q)
-    return rmsd(P, Q)
-
-
-def rotate(P, Q):
-    """
-    Rotate matrix P unto matrix Q using Kabsch algorithm
-    """
-    U = kabsch(P, Q)
-    # Rotate P
-    P = np.dot(P, U)
-    return P
-
-
-def kabsch(P, Q):
-    """
-    The optimal rotation matrix U is calculated and then used to rotate matrix
-    P unto matrix Q so the minimum root-mean-square deviation (RMSD) can be
-    calculated.
-    Using the Kabsch algorithm with two sets of paired point P and Q,
-    centered around the center-of-mass.
-    Each vector set is represented as an NxD matrix, where D is the
-    the dimension of the space.
-    The algorithm works in three steps:
-    - a translation of P and Q
-    - the computation of a covariance matrix C
-    - computation of the optimal rotation matrix U
-    http://en.wikipedia.org/wiki/Kabsch_algorithm
-    Parameters:
-    P -- (N, number of points)x(D, dimension) matrix
-    Q -- (N, number of points)x(D, dimension) matrix
-    Returns:
-    U -- Rotation matrix
-    """
-    # Computation of the covariance matrix
-    C = np.dot(np.transpose(P), Q)
-
-    # Computation of the optimal rotation matrix
-    # This can be done using singular value decomposition (SVD)
-    # Getting the sign of the det(V)*(W) to decide
-    # whether we need to correct our rotation matrix to ensure a
-    # right-handed coordinate system.
-    # And finally calculating the optimal rotation matrix U
-    # see http://en.wikipedia.org/wiki/Kabsch_algorithm
-    V, S, W = np.linalg.svd(C)
-    d = (np.linalg.det(V) * np.linalg.det(W)) < 0.0
-
-    if d:
-        S[-1] = -S[-1]
-        V[:, -1] = -V[:, -1]
-
-    # Create Rotation matrix U
-    U = np.dot(V, W)
-
-    return U
 
 
 def centroid(X):
@@ -2972,55 +2635,9 @@ def rmsd(V, W):
 
 
 # Turbomol coord->xyz
-def coord2xyz(inputfile):
-    """convert TURBOMOLE coordfile to xyz"""
-    coords = []
-    elems = []
-    with open(inputfile, 'r') as f:
-        coord = f.readlines()
-        x = []
-        y = []
-        z = []
-        atom = []
-        for line in coord[1:-1]:
-            x = float(line.split()[0]) * openmmqmmm.constants.bohr2ang
-            y = float(line.split()[1]) * openmmqmmm.constants.bohr2ang
-            z = float(line.split()[2]) * openmmqmmm.constants.bohr2ang
-            el = reformat_element(str(line.split()[3]))
-            elems.append(el)
-            coords.append([x, y, z])
-    print("coords:", coords)
-    print("elems", elems)
-    numatoms = len(elems)
-    with open("fromcoord.xyz", 'w') as cfile:
-        cfile.write(f"{numatoms}\n")
-        cfile.write(f"title\n")
-        for e, c in zip(elems, coords):
-            cfile.write(" {:13} {:20.16f} {:20.16f} {:20.16f}\n".format(e, c[0], c[1], c[2]))
-    return
 
 
 # Turbomole xyz->coord
-def xyz2coord(inputfile):
-    """convert xyz to TURBOMOLE coordfile"""
-    coords = []
-    elems = []
-    with open(inputfile, 'r') as f:
-        for i, line in enumerate(f):
-            if i > 1:
-                x = float(line.split()[1]) / openmmqmmm.constants.bohr2ang
-                y = float(line.split()[2]) / openmmqmmm.constants.bohr2ang
-                z = float(line.split()[3]) / openmmqmmm.constants.bohr2ang
-                el = reformat_element(str(line.split()[0]))
-                elems.append(el)
-                coords.append([x, y, z])
-    with open("coord", 'w') as cfile:
-        cfile.write(f"$coord\n")
-        for e, c in zip(elems, coords):
-            cfile.write("   {:20.16f} {:20.16f} {:20.16f} {:>13}\n".format(c[0], c[1], c[2], e))
-        cfile.write(f"$end\n")
-
-    return
 
 
 # Get partial list by deleting elements not present in provided list of indices.
@@ -3034,222 +2651,12 @@ def get_partial_list(allatoms, partialatoms, l):
 
 
 # Old function that used scipy to do distances and Hungarian.
-def scipy_hungarian(A, B):
-    import scipy
-    # timestampA = time.time()
-    distances = scipy.spatial.distance.cdist(A, B, 'euclidean')
-    # print("distances:", distances)
-    # openmmqmmm.print_time_rel(timestampA, modulename='scipy distances_cdist')
-    # timestampA = time.time()
-    indices_a, assignment = scipy.optimize.linear_sum_assignment(distances)
-    # print("indices_a:", indices_a)
-    # print("assignment:", assignment)
-    # openmmqmmm.print_time_rel(timestampA, modulename='scipy linear sum assignment')
-    return assignment
 
 
-# Hungarian algorithm to reorder coordinates. Uses Julia to calculates distances between coordinate-arrays A and B and then Hungarian Julia package.
-def hungarian_julia(A, B):
-    from scipy.spatial.distance import cdist
-    from scipy.optimize import linear_sum_assignment
-    try:
-        # Calculating distances via Julia
-        # print("Here. Calling Julia distances")
-        # timestampA = time.time()
-
-        # This one is SLOW!!! For rad30 Bf3hcn example it takes 23 seconds compare to 3.8 sec for scipy. 0.8 sec for scipy for both dist and hungarian
-        # distances =Juliafunctions.distance_array(A,B)
-        distances = cdist(A, B, 'euclidean')
-        # openmmqmmm.print_time_rel(timestampA, modulename='julia distance array')
-        # timestampA = time.time()
-        # Julian Hungarian call. Requires Hungarian package
-        try:
-            Juliafunctions = load_julia_interface()
-        except:
-            print("Problem loading Julia.")
-            ashexit()
-        assignment, cost = Juliafunctions.Hungarian.hungarian(distances)
-
-        # openmmqmmm.print_time_rel(timestampA, modulename='julia hungarian')
-        # timestampA = time.time()
-        # Removing zeros and offsetting by 1 (Julia 1-indexing)
-        final_assignment = assignment[assignment != 0] - 1
-
-        # final_assignment = scipy_hungarian(A,B)
-
-    except:
-        print("Problem running Julia Hungarian function. Trying scipy instead.")
-
-        ashexit()
-
-        final_assignment = scipy_hungarian(A, B)
-
-    return final_assignment
 
 
 # Hungarian reorder algorithm
 # From RMSD
-def reorder_hungarian_scipy(p_atoms, q_atoms, p_coord, q_coord):
-    """
-    Re-orders the input atom list and xyz coordinates using the Hungarian
-    method (using optimized column results)
-
-    Parameters
-    ----------
-    p_atoms : array
-        (N,1) matrix, where N is points holding the atoms' names
-    p_atoms : array
-        (N,1) matrix, where N is points holding the atoms' names
-    p_coord : array
-        (N,D) matrix, where N is points and D is dimension
-    q_coord : array
-        (N,D) matrix, where N is points and D is dimension
-
-    Returns
-    -------
-    view_reorder : array
-             (N,1) matrix, reordered indexes of atom alignment based on the
-             coordinates of the atoms
-
-    """
-
-    # Find unique atoms
-    unique_atoms = np.unique(p_atoms)
-    # print("unique_atoms:", unique_atoms)
-    # generate full view from q shape to fill in atom view on the fly
-    view_reorder = np.zeros(q_atoms.shape, dtype=int)
-    view_reorder -= 1
-
-    for atom in unique_atoms:
-        p_atom_idx, = np.where(p_atoms == atom)
-        q_atom_idx, = np.where(q_atoms == atom)
-
-        A_coord = p_coord[p_atom_idx]
-        B_coord = q_coord[q_atom_idx]
-        # print("A_coord:", A_coord)
-        # print("B_coord:", B_coord)
-
-        view = scipy_hungarian(A_coord, B_coord)
-        view_reorder[p_atom_idx] = q_atom_idx[view]
-    # print("view_reorder:", view_reorder)
-    return view_reorder
-
-
-def reorder_hungarian_julia(p_atoms, q_atoms, p_coord, q_coord):
-    """
-    Re-orders the input atom list and xyz coordinates using the Hungarian
-    method (using optimized column results)
-
-    Parameters
-    ----------
-    p_atoms : array
-        (N,1) matrix, where N is points holding the atoms' names
-    p_atoms : array
-        (N,1) matrix, where N is points holding the atoms' names
-    p_coord : array
-        (N,D) matrix, where N is points and D is dimension
-    q_coord : array
-        (N,D) matrix, where N is points and D is dimension
-
-    Returns
-    -------
-    view_reorder : array
-             (N,1) matrix, reordered indexes of atom alignment based on the
-             coordinates of the atoms
-
-    """
-
-    # Find unique atoms
-    unique_atoms = np.unique(p_atoms)
-    print("unique_atoms: ", unique_atoms)
-    # generate full view from q shape to fill in atom view on the fly
-    view_reorder = np.zeros(q_atoms.shape, dtype=int)
-    view_reorder -= 1
-    print("view_reorder: ", view_reorder)
-    for atom in unique_atoms:
-        p_atom_idx, = np.where(p_atoms == atom)
-        q_atom_idx, = np.where(q_atoms == atom)
-
-        A_coord = p_coord[p_atom_idx]
-        B_coord = q_coord[q_atom_idx]
-
-        view = hungarian_julia(A_coord, B_coord)
-        view_reorder[p_atom_idx] = q_atom_idx[view]
-
-    return view_reorder
-
-
-def check_reflections(p_atoms, q_atoms, p_coord, q_coord,
-                      reorder_method=reorder_hungarian_scipy,
-                      rotation_method=kabsch_rmsd,
-                      keep_stereo=False):
-    """
-    Minimize RMSD using reflection planes for molecule P and Q
-
-    Warning: This will affect stereo-chemistry
-
-    Parameters
-    ----------
-    p_atoms : array
-        (N,1) matrix, where N is points holding the atoms' names
-    q_atoms : array
-        (N,1) matrix, where N is points holding the atoms' names
-    p_coord : array
-        (N,D) matrix, where N is points and D is dimension
-    q_coord : array
-        (N,D) matrix, where N is points and D is dimension
-
-    Returns
-    -------
-    min_rmsd
-    min_swap
-    min_reflection
-    min_review
-
-    """
-
-    min_rmsd = np.inf
-    min_swap = None
-    min_reflection = None
-    min_review = None
-    tmp_review = None
-    swap_mask = [1, -1, -1, 1, -1, 1]
-    reflection_mask = [1, -1, -1, -1, 1, 1, 1, -1]
-
-    for swap, i in zip(AXIS_SWAPS, swap_mask):
-        for reflection, j in zip(AXIS_REFLECTIONS, reflection_mask):
-            if keep_stereo and i * j == -1:
-                continue  # skip enantiomers
-
-            tmp_atoms = copy.copy(q_atoms)
-            tmp_coord = copy.deepcopy(q_coord)
-            tmp_coord = tmp_coord[:, swap]
-            tmp_coord = np.dot(tmp_coord, np.diag(reflection))
-            tmp_coord -= centroid(tmp_coord)
-
-            # Reorder
-            if reorder_method is not None:
-                tmp_review = reorder_method(p_atoms, tmp_atoms, p_coord, tmp_coord)
-                tmp_coord = tmp_coord[tmp_review]
-                tmp_atoms = tmp_atoms[tmp_review]
-
-            # Rotation
-            if rotation_method is None:
-                this_rmsd = rmsd(p_coord, tmp_coord)
-            else:
-                this_rmsd = rotation_method(p_coord, tmp_coord)
-
-            if this_rmsd < min_rmsd:
-                min_rmsd = this_rmsd
-                min_swap = swap
-                min_reflection = reflection
-                min_review = tmp_review
-
-    if not (p_atoms == q_atoms[min_review]).all():
-        print("error: Not aligned")
-        quit()
-
-    return min_rmsd, min_swap, min_reflection, min_review
 
 
 def reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
@@ -3267,117 +2674,18 @@ def reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
     return reorderlist
 
 
-AXIS_SWAPS = np.array([
-    [0, 1, 2],
-    [0, 2, 1],
-    [1, 0, 2],
-    [1, 2, 0],
-    [2, 1, 0],
-    [2, 0, 1]])
-AXIS_REFLECTIONS = np.array([
-    [1, 1, 1],
-    [-1, 1, 1],
-    [1, -1, 1],
-    [1, 1, -1],
-    [-1, -1, 1],
-    [-1, 1, -1],
-    [1, -1, -1],
-    [-1, -1, -1]])
-
-
 ##########################################
 # MOLECULAR CRYSTAL PBC FUNCTIONS
 ##########################################
 
 
 # Extend cell in general with original cell in center
-def cell_extend_frag(cellvectors, coords, elems, cellextpars):
-    printdebug("cellextpars:", cellextpars)
-    permutations = []
-    for i in range(int(cellextpars[0])):
-        for j in range(int(cellextpars[1])):
-            for k in range(int(cellextpars[2])):
-                permutations.append([i, j, k])
-                permutations.append([-i, j, k])
-                permutations.append([i, -j, k])
-                permutations.append([i, j, -k])
-                permutations.append([-i, -j, k])
-                permutations.append([i, -j, -k])
-                permutations.append([-i, j, -k])
-                permutations.append([-i, -j, -k])
-    # Removing duplicates and sorting
-    permutations = sorted([list(x) for x in set(tuple(x) for x in permutations)],
-                          key=lambda x: (abs(x[0]), abs(x[1]), abs(x[2])))
-    # permutations = permutations.sort(key=lambda x: x[0])
-    printdebug("Num permutations:", len(permutations))
-    numcells = np.prod(cellextpars)
-    numcells = len(permutations)
-    extended = np.zeros((len(coords) * numcells, 3))
-    new_elems = []
-    index = 0
-    for perm in permutations:
-        shift = cellvectors[0:3, 0:3] * perm
-        shift = shift[:, 0] + shift[:, 1] + shift[:, 2]
-        # print("Permutation:", perm, "shift:", shift)
-        for d, el in zip(coords, elems):
-            new_pos = d + shift
-            extended[index] = new_pos
-            new_elems.append(el)
-            # print("extended[index]", extended[index])
-            # print("extended[index+1]", extended[index+1])
-            index += 1
-    printdebug("extended coords num", len(extended))
-    printdebug("new_elems  num,", len(new_elems))
-    return extended, new_elems
 
 
 # From Pymol. Not sure if useful
-def cellbasis(angles, edges):
-    from math import cos, sin, radians, sqrt
-    """
-    For the unit cell with given angles and edge lengths calculate the basis
-    transformation (vectors) as a 4x4 numpy.array
-    """
-    rad = [radians(i) for i in angles]
-    basis = np.identity(4)
-    basis[0][1] = cos(rad[2])
-    basis[1][1] = sin(rad[2])
-    basis[0][2] = cos(rad[1])
-    basis[1][2] = (cos(rad[0]) - basis[0][1] * basis[0][2]) / basis[1][1]
-    basis[2][2] = sqrt(1 - basis[0][2] ** 2 - basis[1][2] ** 2)
-    edges.append(1.0)
-    return basis * edges  # numpy.array multiplication!
 
 
 # Create a molecular cluster from a periodix box based on radius and chosen atom(s)
-
-def make_cluster_from_box(fragment=None, radius=10, center_atomindices=[0], cellparameters=None):
-    print_line_with_subheader2("Make cluster from box")
-    # Choosing how far to extend cell based on chosen cluster-radius
-    if radius < cellparameters[0]:
-        cellextension = [2, 2, 2]
-    else:
-        cellextension = [3, 3, 3]
-
-    print("Cell parameters:", cellparameters)
-    print("Radius: {} Å".format(radius))
-    print("Cell extension used: ", cellextension)
-    print("Cluster will be centered on atom indices: ", center_atomindices)
-
-    # Extend cell
-    cellvectors = cellbasis(cellparameters[3:6], cellparameters[0:3])
-    ext_coords, ext_elems = cell_extend_frag(cellvectors, fragment.coords, fragment.elems, cellextension)
-    print("Size of extended cell: ", len(ext_elems))
-    extcellfrag = Fragment(elems=ext_elems, coords=ext_coords, printlevel=2)
-    # Cut cluster with radius R from extended cell, centered on atomic index. Returns list of atoms
-    atomlist = QMregionfragexpand(fragment=extcellfrag, initial_atoms=center_atomindices, radius=radius)
-
-    # Grabbing coords and elems from atomlist and creating new fragment
-    clustercoords = np.take(ext_coords, atomlist, axis=0)
-    clusterelems = [ext_elems[i] for i in atomlist]
-    newfrag = Fragment(elems=clusterelems, coords=clustercoords, printlevel=0)
-
-    return newfrag
 
 
 # QM-region expand function. Finds whole fragments.
@@ -3406,7 +2714,6 @@ def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
                     # Using stored connectivity because takes forever otherwise
                     # If no connectivity
                     if len(fragment.connectivity) == 0:
-                        # wholemol=get_molecule_members_loop(fragment.coords, fragment.elems, index, 1, scale, tol)
                         wholemol = get_molecule_members_loop_np2(fragment.coords, fragment.elems, 99, scale, tol,
                                                                  atomindex=index)
 
@@ -3425,47 +2732,9 @@ def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
 
 
 # Similar to QMregionfragexpand but cleaner
-def cut_sphere(fragment=None, center_atom=None, radius=None):
-    scale = openmmqmmm.settings_ash.settings_dict["scale"]
-    tol = openmmqmmm.settings_ash.settings_dict["tol"]
-
-    coords = fragment.coords
-    center = fragment.coords[center_atom]
-
-    # Calculate distances from center for each coordinate
-    relative_coords = coords - center
-    distances = np.linalg.norm(relative_coords, axis=1)
-    inside_sphere = distances <= radius
-    uncut_indices = np.where(inside_sphere)[0]
-    atomlist = []
-    for uncut_index in uncut_indices:
-        wholemol = get_molecule_members_loop_np2(fragment.coords, fragment.elems, 99, scale, tol,
-                                                 atomindex=uncut_index)
-        atomlist = atomlist + wholemol
-    atomlist = np.unique(atomlist).tolist()
-    return atomlist
 
 
-# Similar to QMregionfragexpand and cut_sphere but a cubic box is cut instead
-def cut_cubic_box(fragment=None, center_atom=None, radius=None):
-    scale = openmmqmmm.settings_ash.settings_dict["scale"]
-    tol = openmmqmmm.settings_ash.settings_dict["tol"]
 
-    coords = fragment.coords
-    center = fragment.coords[center_atom]
-
-    # Calculate distances from center for each coordinate
-    relative_coords = coords - center
-    inside_box = np.all(np.abs(relative_coords) <= radius, axis=1)
-    uncut_indices = np.where(inside_box)[0]
-    # cut_indices = np.where(~inside_box)[0]
-    atomlist = []
-    for uncut_index in uncut_indices:
-        wholemol = get_molecule_members_loop_np2(fragment.coords, fragment.elems, 99, scale, tol,
-                                                 atomindex=uncut_index)
-        atomlist = atomlist + wholemol
-    atomlist = np.unique(atomlist).tolist()
-    return atomlist
 
 
 # Function to do QM-region expansion based on QM/MM pointcharge gradient
@@ -3674,281 +2943,6 @@ def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=Fa
 
 
 # Function to update list of atomindices after deletion of a list of atom indices (used in remove_atoms functions below)
-def update_atom_indices_upon_deletion(atomlist, dellist):
-    # Making sure dellist is sorted and determining highest and lowest value
-    dellist.sort(reverse=True)
-    lowest_atomindex = dellist[-1]
-    highest_atomindex = dellist[0]
-    atomlist_new = []
-    for q in atomlist:
-        if q in dellist:
-            # These QM atoms were deleted and do not survive
-            pass
-        elif q < lowest_atomindex:
-            # These QM atoms have lower value than loweste deleted atomindex and survive
-            atomlist_new.append(q)
-        elif q > highest_atomindex:
-            # Shifting these indices by length of delatoms-list
-            shiftpar = len(dellist)
-            atomlist_new.append(q - shiftpar)
-        else:
-            # These atom indices are inbetween
-            # Shifting depending on how many delatoms indices come before
-            shiftpar = len([i for i in dellist if i < q])
-            atomlist_new.append(q - shiftpar)
-    return atomlist_new
-
-
-def remove_atoms_from_PSF(atomindices=None, topfile=None, psffile=None, psfgendir=None):
-    # Change to 1-based indexing for PSFgen
-    atomindices_string = '{ ' + ' '.join(([str(i + 1) for i in atomindices])) + ' }'
-    psf_script = """
-# This section requires PSFGEN 1.6 to be loaded
-topology {}
-readpsf {}
-set psffile {}
-#For each delatom
-set delatoms {}
-for {{ set i 0}}  {{ $i < [llength $delatoms] }} {{ incr i 1 }} {{
-set d [lindex $delatoms $i]
-set startatoms false
-
-#Here finding out which segname and resid for atomnumber
-     set fp [open $psffile r]
-     while {{-1 != [gets $fp line]}} {{
-          if {{[lindex $line 1] == "NATOM" || [lindex $line 1] == "!NATOM"}} {{
-                set startatoms true
-          }}
-             if {{ $startatoms == "true" }} {{
-                if {{ [lindex $line 0] == "$d" }} {{
-                  set segname [lindex $line 1]
-                  set resid [lindex $line 2]
-                  set atomname [lindex $line 4]
-                 puts "Deleting atom $atomname (segname  $segname,  resid is $resid) from PSF information!"
-                 #PSFgen 1.6 delatom command
-                 delatom $segname $resid $atomname
-                }}
-             }}
-     }}
-
-
-}}
-close $fp
-
-#Needed?
-#regenerate angles dihedrals
-
-#Printing Xplor PSF file
-writepsf x-plor cmap newsystem_XPLOR.psf
-#writepsf charmm cmap newsystem_CHARMM.psf
-writepdb new-system.pdb
-    """.format(topfile, psffile, psffile, atomindices_string)
-
-    # Creating PSF inputfile
-    with open("psfinput.tcl", 'w') as f:
-        f.write(psf_script)
-
-    # Running PSFgen. Writing to stdout
-    process = sp.run([psfgendir + '/psfgen', 'psfinput.tcl'])
-
-
-def remove_atoms_from_system_CHARMM(fragment=None, psffile=None, topfile=None, atomindices=None, psfgendir=None,
-                                    qmatoms=None, actatoms=None, offset_atom_indices=0):
-    print_line_with_mainheader("remove_atoms_from_system_CHARMM")
-    if fragment is None or psffile is None or topfile is None or atomindices is None:
-        print("Error: remove_atoms_from_system requires keyword arguments:")
-        print("fragment, psffile, topfile, atomindices")
-        ashexit()
-
-    if psfgendir is None:
-        print(BC.WARNING,
-              "No psfgendir argument passed to remove_atoms_from_system. Attempting to find psfgendir "
-              "variable inside settings_ash.",
-              BC.END)
-        try:
-            psfgendir = openmmqmmm.settings_ash.settings_dict["psfgendir"]
-        except:
-            print(BC.FAIL, "Found no psfgendir variable in settings_ash module or in $PATH. Exiting.", BC.END)
-            ashexit()
-
-    print("Atoms to be deleted (0-based indexing):", atomindices)
-    for a in atomindices:
-        print("Atom: {}, Element: {}".format(a, fragment.elems[a]))
-    print("")
-    # Deleting element and coords for each atom index
-    atomindices.sort(reverse=True)
-    lowest_atomindex = atomindices[-1]
-    highest_atomindex = atomindices[0]
-    for atomindex in atomindices:
-        fragment.delete_atom(atomindex)
-    print("")
-    print("Removed atom from fragment.")
-
-    # Using PSFgen to create new PSF-file
-    remove_atoms_from_PSF(atomindices=atomindices, topfile=topfile, psffile=psffile, psfgendir=psfgendir)
-    print("")
-    print("Removed atom from PSF.")
-    print("Wrote new PSF-file: newsystem_XPLOR.psf")
-    print("Wrote new PDB-file: new-system.pdb")
-    print("")
-    # Writing new fragment to disk
-    fragment.write_xyzfile(xyzfilename="newfragment.xyz")
-    fragment.print_system(filename='newfragment.ygg')
-
-    # Updating provided qmatoms and actatoms lists
-    if qmatoms is not None and actatoms is not None:
-        print("qmatoms and actatoms lists provided to function. Will now update atomindices in these lists.")
-        print("Deletion list:", atomindices)
-        print("Old list of QM atoms:", qmatoms)
-        print("Old list of active atoms:", actatoms)
-        print("")
-        new_qmatoms = update_atom_indices_upon_deletion(qmatoms, atomindices)
-        new_actatoms = update_atom_indices_upon_deletion(actatoms, atomindices)
-
-        # Possible offset of atom indices
-        new_qmatoms = [i + offset_atom_indices for i in new_qmatoms]
-        new_actatoms = [i + offset_atom_indices for i in new_actatoms]
-
-        print("New list of QM atoms: ", str(new_qmatoms).strip("[]"))
-        print("New list of active atoms: ", str(new_actatoms).strip("[]"))
-        writelisttofile(new_qmatoms, "newqmatoms")
-        writelisttofile(new_actatoms, "newactive_atoms")
-    else:
-        print(
-            "Warning: qmatoms and actatoms not provided to function. Use qmatoms and actatoms keyword "
-            "arguments if you want to update qmatoms and actatoms list.")
-        print("Otherwise you have to update qmatoms and actatoms lists manually!")
-    print("")
-    print("remove_atoms_from_system_CHARMM: Done!")
-
-
-def add_atoms_to_PSF(resgroup=None, topfile=None, psffile=None, psfgendir=None, num_added_atoms=None):
-    print("Finding resgroup {} in topfile {} ".format(resgroup, topfile))
-    # Checking if resgroup present in topfile
-    resgroup_in_topfile = False
-    grab_atoms = False
-    numatoms_in_resgroup = 0
-    with open(topfile) as tfile:
-        for line in tfile:
-            if grab_atoms is True:
-                if 'RESI' in line:
-                    grab_atoms = False
-                if 'ATOM ' in line:
-                    numatoms_in_resgroup += 1
-            if resgroup in line and 'RESI' in line:
-                resgroup_in_topfile = True
-                grab_atoms = True
-
-    if resgroup_in_topfile is False:
-        print("Chosen resgroup: {} not in topfile: {}".format(resgroup, topfile))
-        print("Add residuegroup to topology file first!")
-        print("Exiting.")
-        ashexit()
-
-    print("numatoms_in_resgroup: ", numatoms_in_resgroup)
-    print("num_added_atoms: ", num_added_atoms)
-    if numatoms_in_resgroup != num_added_atoms:
-        print("Number of ATOM entries in resgroup in {} not equal to number of added atom-coordinates.")
-        print("Wrong RESgroup chosen or missing coordinates?")
-        print("Exiting")
-        ashexit()
-
-    # Dummy segmentname. Can't be something existing. Using ADD1, ADD2 etc.
-    import random
-    import string
-    dummysegname = "AD" + random.choice(string.ascii_uppercase) + str(random.randint(0, 9))
-    # matches = pygrep2(dummysegname, psffile)
-    # segname = dummysegname + str(len(matches) + 1)
-    # print("segname:", segname)
-    print("dummysegname:", dummysegname)
-    psf_script = """
-    topology {}
-    readpsf {}
-
-    segment {} {{ residue 1 {} }}
-
-    #Printing Xplor PSF file
-    writepsf x-plor cmap newsystem_XPLOR.psf
-    #writepsf charmm cmap newsystem_CHARMM.psf
-    writepdb new-system.pdb
-        """.format(topfile, psffile, dummysegname, resgroup)
-
-    # Creating PSF inputfile
-    with open("psfinput.tcl", 'w') as f:
-        f.write(psf_script)
-
-    # Running PSFgen. Writing to stdout
-    process = sp.run([psfgendir + '/psfgen', 'psfinput.tcl'])
-
-    return
-
-
-def add_atoms_to_system_CHARMM(fragment=None, added_atoms_coordstring=None, resgroup=None, psffile=None, topfile=None,
-                               psfgendir=None, qmatoms=None, actatoms=None, offset_atom_indices=0):
-    print_line_with_mainheader("add_atoms_to_system")
-    if fragment is None or psffile is None or topfile is None or added_atoms_coordstring is None or resgroup is None:
-        print("Error: add_atoms_to_system_CHARMM requires keyword arguments:")
-        print("fragment, psffile, topfile, added_atoms_coordstring, resgroup")
-        ashexit()
-
-    if psfgendir is None:
-        print(BC.WARNING,
-              "No psfgendir argument passed to remove_atoms_from_system. Attempting to find "
-              "psfgendir variable inside settings_ash.",
-              BC.END)
-        try:
-            psfgendir = openmmqmmm.settings_ash.settings_dict["psfgendir"]
-        except:
-            print(BC.FAIL, "Found no psfgendir variable in settings_ash module or in $PATH. Exiting.", BC.END)
-            ashexit()
-
-    # Adding coordinates to fragment
-    added_atoms_coords_list = added_atoms_coordstring.split('\n')
-    added_elems = []
-    added_coords = []
-    for count, line in enumerate(added_atoms_coords_list):
-        if len(line) > 1:
-            added_elems.append(reformat_element(line.split()[0]))
-            added_coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
-    num_added_atoms = len(added_elems)
-    newatomindices = [fragment.numatoms + i for i in range(0, num_added_atoms)]
-    print("newatomindices (0-based indexing):", newatomindices)
-    fragment.add_coords(added_elems, added_coords, conn=False)
-
-    # Adding atoms to PSF-file
-    add_atoms_to_PSF(resgroup, topfile, psffile, psfgendir, num_added_atoms)
-    print("")
-    print("Added atoms to PSF.")
-    print("Wrote new PSF-file: 'newsystem_XPLOR.psf'.")
-    print("Wrote new PDB-file: 'new-system.pdb'")
-    print("")
-
-    # Writing new fragment to disk
-    fragment.write_xyzfile(xyzfilename="newfragment.xyz")
-    fragment.print_system(filename='newfragment.ygg')
-
-    if qmatoms is not None and actatoms is not None:
-        print("qmatoms and actatoms lists provided to function. Will now add atomindices to these lists.")
-        new_qmatoms = qmatoms + newatomindices
-        new_actatoms = actatoms + newatomindices
-
-        # Possible offset of atom indices
-        new_qmatoms = [i + offset_atom_indices for i in new_qmatoms]
-        new_actatoms = [i + offset_atom_indices for i in new_actatoms]
-
-        print("New list of QM atoms:", str(new_qmatoms).strip("[]"))
-        print("New list of active atoms:", str(new_actatoms).strip("[]"))
-        writelisttofile(new_qmatoms, "newqmatoms")
-        writelisttofile(new_actatoms, "newactive_atoms")
-    else:
-        print(
-            "Warning: qmatoms and actatoms not provided to function. Use qmatoms and actatoms "
-            "keyword arguments if you want to update qmatoms and actatoms list.")
-        print("Otherwise you have to update qmatoms and actatoms lists manually!")
-    print("")
-
-    print("")
-    print("add_atoms_to_system_CHARMM: Done!")
 
 
 # Get list of lists of water constraints in system (O-H,O-H,H-H) via OpenMM theory
@@ -4007,26 +3001,6 @@ def getwaterconstraintslist(openmmtheoryobject=None, atomlist=None, watermodel='
 
 
 # Check whether spin multiplicity is consistent with the nuclear charge and total charge
-def check_multiplicity(elems, charge, mult, exit=True):
-    def is_even(number):
-        if number % 2 == 0:
-            return True
-        return False
-
-    # From elems list calculate nuclear charge
-    nuccharge = nucchargelist(elems)
-    num_electrons = nuccharge - charge
-    unpaired_electrons = mult - 1
-    result = list(map(is_even, (num_electrons, unpaired_electrons)))
-    if result[0] != result[1]:
-        print(
-            "The spin multiplicity {} ({} unpaired electrons) is incompatible with the total number of electrons {}".format(
-                mult, unpaired_electrons, num_electrons))
-        if exit == True:
-            print("Now exiting!")
-            ashexit()
-        else:
-            return False
 
 
 # Check if charge/mult variables are not None. If None check fragment
@@ -4109,7 +3083,7 @@ def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000):
 
 # Define XH bond constraints for a given fragment and a set of atomindices (e.g. an active region)
 # and an optional exclusion list (e.g. QM-region)
-def define_XH_constraints(fragment, actatoms=None, excludeatoms=None, conncode='py'):
+def define_XH_constraints(fragment, actatoms=None, excludeatoms=None):
     print("Inside define_XH_constraints function")
     if actatoms == None:
         subset_elems = fragment.elems
@@ -4137,21 +3111,10 @@ def define_XH_constraints(fragment, actatoms=None, excludeatoms=None, conncode='
     # py version (slow) but good enough for a few thousand atoms
     scale = openmmqmmm.settings_ash.settings_dict["scale"]
     tol = openmmqmmm.settings_ash.settings_dict["tol"]
-    if conncode == 'py':
-        act_con_list = []
-        for Hatom in Hatoms:
-            connatoms = get_connected_atoms_np(subset_coords, subset_elems, scale, tol, Hatom)
-            act_con_list.append(connatoms)
-    # Faster Julia function
-    else:
-        print("Loading Julia")
-        try:
-            Juliafunctions = load_julia_interface()
-        except:
-            print("Problem loading Julia")
-            ashexit()
-        act_con_list = Juliafunctions.get_connected_atoms_forlist_julia(subset_coords, subset_elems, scale, tol,
-                                                                        eldict_covrad, Hatoms)
+    act_con_list = []
+    for Hatom in Hatoms:
+        connatoms = get_connected_atoms_np(subset_coords, subset_elems, scale, tol, Hatom)
+        act_con_list.append(connatoms)
     # Convert XH actregion indices to finalregion indices
     final_list = []
     for XHpair in act_con_list:
@@ -4206,35 +3169,6 @@ def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False):
 
 
 # Function that adds R-group to an ASH fragment
-def swap_R_group(fragment=None, Rgroup=None, atomindex=None) -> Fragment:
-    if fragment is None or Rgroup is None or atomindex is None:
-        print("Error: add_R_group requires fragment (ASH fragment), Rgroup (string, e.g. 'Cl', 'OH', 'NO2', to be set")
-        print("and atomindex  (index of the atom to be swapped/replaced)")
-        ashexit()
-    # Look-up R-group
-    Rgroup_xyzfile = ashpath + "/databases/fragments/R-groups/" + f"{Rgroup}.xyz"
-    print("\nLooking up R-group xyzfile:", Rgroup_xyzfile)
-    if os.path.isfile(Rgroup_xyzfile) is False:
-        print(
-            f"Error: R-group xyz-file {Rgroup}.xyz not found in ASH database at: {ashpath}/databases/fragments/R-groups")
-        print("Please add it to ASH database and try again")
-        ashexit()
-
-    print("\nFragment: ", fragment)
-    print("Atom index to be swapped: ", atomindex)
-    labels = ['    WILL BE SWAPPED for R-group' if i == atomindex else '' for i in range(0, fragment.numatoms)]
-    print()
-    print_coords_all(fragment.coords, fragment.elems, labels=labels, labels2=None)
-
-    # TODO
-    R_elems, R_coords = read_xyzfile(Rgroup_xyzfile)
-
-    newelems = fragment.elems + R_elems
-    newcoords = fragment.coords + R_coords
-
-    newfragment = Fragment(elems=newelems, coords=newcoords, charge=fragment.charge, mult=fragment.mult)
-
-    return newfragment
 
 
 # Combien and place 2 fragments
@@ -4414,13 +3348,6 @@ def nuc_nuc_repulsion(coords, charges):
 
 
 # a: the coordinates b: coordinates for 1 atom
-def find_nearest_atom(a, b):
-    print("Finding nearest coordinates for chosen coordinates:", b)
-    idx_min = np.sum((a - b) ** 2, axis=1, keepdims=True).argmin(axis=0)
-    idx_min, a[idx_min]
-    print("Nearest atom index in coordinates:", idx_min)
-    print("Atom coordinates:", a[idx_min])
-    return int(idx_min[0]), a[idx_min]
 
 
 # Very simple dummy topology (no connectivity or bonds)

@@ -66,49 +66,9 @@ def check_program_location(directory, directory_name, bin_name):
 
 # Create ASH environment shell-file in home-dir
 # Simple shell script to active ASH environment for future calcs
-def create_ash_env_file():
-    ash_dir = openmmqmmm.ashpath
-    path_to_python3_dir = os.path.dirname(sys.executable)
-    # Create set_environment_ash.sh file
-    ash_multiline_string = f"""
-#!/bin/bash
-
-#################################
-# Setting up ASH environment
-#################################
-
-ulimit -s unlimited
-
-ASHPATH={ash_dir}
-python3path={path_to_python3_dir}
-
-#PYTHONPATH for finding ASH usually not recommended.
-#Better to install into Python environment (pip install)
-#export PYTHONPATH=$ASHPATH:$ASHPATH/lib:$PYTHONPATH
-
-export PATH=$python3path:$PATH
-export LD_LIBRARY_PATH=$ASHPATH/lib:$LD_LIBRARY_PATH
-
-#################################
-echo \"Sourced ASH environment file!\"
-echo \"Importing ASH within Python should now work!\"
-echo \"ASH is located in $ASHPATH\"
-echo \"The Python interpreter that you should be using is located in $python3path \"
-    """
-
-    with open(f"{os.path.expanduser('~')}/set_environment_ash.sh", "w") as f:
-        f.write(ash_multiline_string)
-    print("Created file:   set_environment_ash.sh      in your home-directory.")
-    print("Sourcing this file (in your shell) will activate ASH for future shell sessions:")
-    print("source ~/set_environment_ash.sh")
-    print()
-    print("You can add this line to your ~/.bashrc (or ~/.bash_profile or ~/.zshrc) and job-submission script")
-    exit()
 
 
-# Julia load interface
 # TODO: Avoid reloading
-julia_loaded = False
 
 
 def is_interactive() -> bool:
@@ -145,138 +105,13 @@ def basename(filename):
 
 # Attempt to generally find a 3rd-party program based on path, exename etc.
 # Either programdir variable is already set, else we try to find based on programdirname or exename
-def find_program(programdir, programdirname, exename, theorynamelabel):
-    if programdir == None:
-        print(BC.WARNING,
-              f"No {programdirname} argument passed to {theorynamelabel}Theory. Attempting to find {programdir} variable inside settings_ash",
-              BC.END)
-        try:
-            print("settings_ash.settings_dict:", openmmqmmm.settings_ash.settings_dict)
-            finalpath = openmmqmmm.settings_ash.settings_dict[programdirname]
-        except KeyError:
-            print(BC.WARNING, f"Found no {programdirname} variable in settings_ash module either.", BC.END)
-            try:
-                finalpath = os.path.dirname(os.path.dirname(shutil.which(exename)))
-                print(BC.OKGREEN, f"Found {exename} executable in PATH. Setting {programdir} to:", finalpath, BC.END)
-            except:
-                print(BC.FAIL, f"Found no {exename} executable in PATH.", BC.END)
-                ashexit()
-    else:
-        print("Program directory chosen to be:", programdir)
-        # Check if dir exists
-        if os.path.exists(programdir):
-            print("It exists.")
-        else:
-            print(f"Chosen directory : {programdir} does not exist. Exiting...")
-            ashexit()
-        finalpath = programdir
-    return finalpath
 
 
-def load_pythoncall():
-    print("Now trying pythoncall/juliacall package. This will fail if :\n\
-            - Juliacall Python package has not been installed (via pip)\n")
-    # - PythonCall julia packages has not been installed (via Julia Pkg)\n")
-    # - Julia Hungarian package has not been installed")
-    from juliacall import Main as JuliaMain
-    JuliaMain.include(ashpath + "/functions/functions_julia.jl")
-    return JuliaMain
-
-
-# def load_pyjulia():
-#    print("Now loading PyJulia. This will fail if :\n\
-#        - Julia PyCall package has not been installed\n\
-#
-#    from julia import Main as JuliaMain
-#    #NOTE: Reading old Pyjulia function file here instead.
-#    JuliaMain.include(ashpath + "/functions/functions_julia_oldpyjulia.jl")
-#    return JuliaMain
-
-def load_julia_interface(julia_library=None):
-    print("\nCalling Julia interface")
-
-    # If not set (rare) then get the settings_ash value
-    if julia_library == None:
-        julia_library = openmmqmmm.settings_ash.settings_dict["julia_library"]
-
-    print("Note: PythonCall/Juliacall is recommended (default).")
-    # Loading pythoncall or pyjulia
-    print("Library is set to:", julia_library)
-    # Global variables
-    global julia_loaded
-    global JuliaMain
-
-    # Only load if not loaded before
-    if julia_loaded is False:
-        print("Now loading Julia interface.")
-        currtime = time.time()
-        # Checking for Julia binary in PATH
-        print("This requires a Julia installation available in PATH")
-        try:
-            juliapath = os.path.dirname(shutil.which('julia'))
-            print("Found Julia in dir:", juliapath)
-        except TypeError:
-            print("Possible Problem. No julia binary found in PATH environment variable.")
-            print(
-                "Make sure the path to your desired Julia's bin directory is available in your shell-configuration or jobscript")
-            print("Will continue as pythoncall may be able to install Julia for you.")
-            # ashexit()
-
-        # Importing the necessary interface library
-        print("Loading a Python/Julia interface library")
-        if julia_library == "pythoncall":
-            print("Library: pythoncall/juliacall")
-            try:
-                JuliaMain = load_pythoncall()
-                print("Julia interface successfully loaded")
-            except:
-                print("Problem loading pythoncall/juliacall.")
-                ashexit()
-        # elif julia_library == "pyjulia":
-        #    try:
-        #        JuliaMain = load_pyjulia()
-        #        print("Julia interface successfully loaded")
-        #    except:
-        #        print("Problem loading pyjulia")
-        #        ashexit()
-        else:
-            print("Unknown Julia library:", julia_library)
-            ashexit()
-        julia_loaded = True  # Means an attempt was made to load Julia.
-        print_time_rel(currtime, modulename='loading julia interface', moduleindex=4)
-    return JuliaMain.Juliafunctions
 
 
 # Get ranges of integers from list. Returns string of ranges. Used to communitcate with crest and xtb
 # example: input: [1,2,3,4,5,6,20,21,22,23,500,700,701,702,1000,1100,1101]
 # output: '1-6,20-23,500,700-702,1000,1100-1101'
-def int_ranges(nums):
-    nums = sorted(set(nums))
-    gaps = [[s, e] for s, e in zip(nums, nums[1:]) if s + 1 < e]
-    edges = iter(nums[:1] + sum(gaps, []) + nums[-1:])
-    l_of_tuples = list(zip(edges, edges))
-
-    newstring = ""
-    for i in l_of_tuples:
-        if i[0] != i[1]:
-            newstring += str(i[0]) + '-' + str(i[1]) + ','
-        else:
-            newstring += str(i[0]) + ','
-    # remove final ,
-    newstring = newstring[0:-1]
-    return newstring
-
-
-def timefn(fn):
-    @wraps(fn)
-    def measure_time(*args, **kwargs):
-        t1 = time.time()
-        result = fn(*args, **kwargs)
-        t2 = time.time()
-        print("@timefn:" + fn.__name__ + " took " + str(t2 - t1) + " seconds")
-        return result
-
-    return measure_time
 
 
 # Grep-style function to find a line in file and return a list of words
@@ -321,46 +156,10 @@ def listdiff(list1, list2):
 
 # Range function for floats
 # Using round to deal with floating-point problem : 0.6+0.3 =0.89999
-def frange(start, stop=None, step=None, rounddigits=4):
-    # if stop and step argument is None set start=0.0 and step = 1.0
-    start = float(start)
-    if stop is None:
-        stop = start + 0.0
-        start = 0.0
-    if step is None:
-        step = 1.0
-    # print("start= ", start, "stop= ", stop, "step= ", step)
-    count = 0
-    while True:
-        temp = round(float(start + count * step), rounddigits)
-        # print("temp:", temp)
-        if step > 0 and temp >= stop:
-            break
-        elif step < 0 and temp <= stop:
-            break
-        yield temp
-        count += 1
 
 
 # Function to find n highest max values and indices
 # Quite ugly
-def n_max_values(l, num):
-    maxweight = max(l)
-    maxweight_index = l.index(max(l))
-    current_indices = [maxweight_index]
-    # Looping over
-
-    for step in range(1, num):
-        current_highest_val = 0.0
-        for index, weight in enumerate(l):
-            if index in current_indices:  # Skipping previously found max
-                pass
-            else:
-                if weight > current_highest_val:
-                    current_highest_val = weight
-                    current_highest_index = index
-        current_indices.append(current_highest_index)
-    return current_indices
 
 
 # FUNCTIONS TO PRINT MODULE AND SUBMODULE HEADERS
@@ -452,42 +251,16 @@ def isint(s):
 
 
 # Is integer odd
-def isodd(n):
-    if (n % 2) == 0:
-        return False
-    else:
-        return True
 
 
 # Compare sign of two numbers. Return True if same sign, return False if opposite sign
-def is_same_sign(a, b):
-    if a * b < 0:
-        return False
-    elif a * b > 0:
-        return True
 
 
 # Is it possible to interpret string/number as float.
-# Note: integer variable/string can be interpreted. See also is_string_float_withdecimal below
-def isfloat(s):
-    try:
-        float(s)
-        return True
-    except ValueError:
-        return False
+# Note: integer variable/string can be interpreted.
 
 
 # Is string a float with single decimal point
-def is_string_float_withdecimal(s):
-    # Checking if single . in string
-    if s.count('.') != 1:
-        return False
-    # Check if number can be interpreted as float
-    try:
-        float(s)
-        return True
-    except ValueError:
-        return False
 
 
 # Search list of lists. Returns list-index if match
@@ -506,33 +279,7 @@ def create_conn_dict(l):
     return index
 
 
-def search_list_of_lists_for_index_old(i, l):
-    for c, f in enumerate(l):
-        if i in f:
-            return c
-            break
-
-
 # Check if list of integers is sorted or not.
-def is_integerlist_ordered(list):
-    list_s = sorted(list)
-    if list == list_s:
-        return True
-    else:
-        return False
-
-
-def islist(l):
-    if type(l) == list:
-        return True
-    else:
-        return False
-
-
-def numlines_in_file(file):
-    with open(file, 'r') as fp:
-        numlines = len(fp.readlines())
-    return numlines
 
 
 # Read lines of file by slurping.
@@ -548,8 +295,6 @@ def numlines_in_file(file):
 
 
 # Find substring of string between left and right parts
-def find_between(s, start, end):
-    return (s.split(start))[1].split(end)[0]
 
 
 # Read list of integers from file. Output list of integers. Ignores blanklines, return chars, non-int characters
@@ -573,66 +318,19 @@ def read_intlist_from_file(filename, offset=0):
 
 # Read list of flaots from file. Output list of floats.
 # Works for single-line with numbers and multi-lines
-def read_floatlist_from_file(filename):
-    floatlist = []
-    try:
-        with open(filename, "r") as f:
-            for line in f:
-                for l in line.split():
-                    if isfloat(l):
-                        floatlist.append(float(l))
-    except FileNotFoundError:
-        print(f"File '{filename}' does not exists!")
-        ashexit()
-    floatlist.sort()
-    return floatlist
 
 
 # Read simple datafile (e.g. .dat and .stk files from ORCA).
 # Separator is Python default whitespace.
-def read_datafile(filename, separator=None):
-    x = []
-    y = []
-    with open(filename) as f:
-        for line in f:
-            if '#' not in line:
-                if separator == None:
-                    x.append(float(line.split()[0]))
-                    y.append(float(line.split()[1]))
-                else:
-                    x.append(float(line.split(separator)[0]))
-                    y.append(float(line.split(separator)[1]))
-    if len(x) != len(y):
-        print(f"Warning:Length of x ({len(x)}) and y {len(y)} are different!")
-
-    return np.array(x), np.array(y)
 
 
 # Write simple datafile
 # Separator is Python default whitespace.
-def write_datafile(x, y, filename="new.dat", separator="     "):
-    if len(x) != len(y):
-        print(f"Error:Length of x ({len(x)}) and y {len(y)} are different!")
-        ashexit()
-    with open(filename, 'w') as f:
-        f.write("# Created by ASH\n")
-        for i, j in zip(x, y):
-            f.write(f"{i}{separator}{j}\n")
-    print("Wrote new datafile:", filename)
 
 
 # Fast numpy-array to file
 # https://stackoverflow.com/questions/53820891/speed-of-writing-a-numpy-array-to-a-text-file
 # Note: float_format needs to match dimension of array
-def fast_nparray_write(a, float_format="%-12.7f %-12.7f %-12.7f %-8.4f", filename="bla5", writemode="w"):
-    with open(filename, writemode) as f:
-        # fmt = ' '.join([float_format]*a.shape[1])
-        # fmt = '\n'.join([fmt]*a.shape[0])
-        # print("fmt:", fmt)
-        # print(type(fmt))
-        fmt = '\n'.join([float_format] * a.shape[0])
-        data = fmt % tuple(a.ravel())
-        f.write(data)
 
 
 # Write a string to file simply
@@ -658,26 +356,6 @@ def natural_sort(l):
 
 
 # Reverse read function.
-def reverse_lines(filename, BUFSIZE=20480):
-    # f = open(filename, "r")
-    filename.seek(0, 2)
-    p = filename.tell()
-    remainder = ""
-    while True:
-        sz = min(BUFSIZE, p)
-        p -= sz
-        filename.seek(p)
-        buf = filename.read(sz) + remainder
-        if '\n' not in buf:
-            remainder = buf
-        else:
-            i = buf.index('\n')
-            for L in buf[i + 1:].split("\n")[::-1]:
-                yield L
-            remainder = buf[:i]
-        if p == 0:
-            break
-    yield remainder
 
 
 def clean_number(number):
@@ -685,22 +363,6 @@ def clean_number(number):
 
 
 # Function to get unique values
-def uniq(seq, idfun=None):
-    # order preserving
-    if idfun is None:
-        def idfun(x): return x
-    seen = {}
-    result = []
-    for item in seq:
-        marker = idfun(item)
-        # in old Python versions:
-        # if seen.has_key(marker)
-        # but in new ones:
-        if marker in seen:
-            continue
-        seen[marker] = 1
-        result.append(item)
-    return result
 
 
 # Extract column from matrix
@@ -719,21 +381,6 @@ def print_time_rel(timestamp, modulename='Unknown', moduleindex=4, currprintleve
             "Time to calculate step ({}): {:4.3f} seconds, {:3.1f} minutes.".format(modulename, secs, mins))
     # Adding time to Timings object
     timingsobject.add(modulename, secs, moduleindex=moduleindex)
-
-
-def print_time_rel_and_tot(timestampA, timestampB, modulename='Unknown', moduleindex=4):
-    secsA = time.time() - timestampA
-    minsA = secsA / 60
-    # hoursA=minsA/60
-    secsB = time.time() - timestampB
-    minsB = secsB / 60
-    # hoursB=minsB/60
-    print("-------------------------------------------------------------------")
-    print("Time to calculate step ({}): {:3.1f} seconds, {:3.1f} minutes.".format(modulename, secsA, minsA))
-    print("Total Walltime: {:3.1f} seconds, {:3.1f} minutes.".format(secsB, minsB))
-    print("-------------------------------------------------------------------")
-    # Adding time to Timings object
-    timingsobject.add(modulename, secsA, moduleindex=moduleindex)
 
 
 def print_time_tot_color(time_initial, modulename='Unknown', moduleindex=4):
@@ -849,31 +496,6 @@ class Timings:
 
 
 # General pretty table of things
-def print_pretty_table(list_of_objects=None, list_of_labels=None, title=None, spacing=15, float_decimals=4,
-                       divider_line_length=70):
-    format_spec_string = f"{spacing}"
-    format_spec_float = f"{spacing}.{float_decimals}f"
-    # Header
-    print("=" * divider_line_length)
-    print(f"{title}")
-    print("=" * divider_line_length)
-    headerstring = f""
-    for label in list_of_labels:
-        headerstring += f"{label:>{format_spec_string}}"
-    print(headerstring)
-    print("-" * divider_line_length)
-    tablestring = f""
-    for i in range(len(list_of_objects[0])):
-        for j in range(len(list_of_objects)):
-            val = list_of_objects[j][i]
-            if type(val) == float:
-                tablestring += f"{val:>{format_spec_float}}"
-            else:
-                tablestring += f"{val:>{format_spec_string}}"
-        tablestring += f"\n"
-    print(tablestring)
-    print("-" * divider_line_length)
-    print()
 
 
 # Creating object

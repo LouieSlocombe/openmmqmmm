@@ -21,10 +21,6 @@ settings_dict = {}
 # Settings will be overriden by ash_user_settings file variables if present
 settings_dict["debugflag"] = False
 
-# Julia usage
-settings_dict["load_julia"] = False
-settings_dict["julia_library"] = "pythoncall"  # pythoncall is default. pyjulia was another option (not recommended)
-
 # Whether to use ANSI color escape sequences in output or not.
 settings_dict["use_ANSI_color"] = False
 
@@ -38,8 +34,6 @@ settings_dict["print_input"] = True
 settings_dict["scale"] = 1.0
 settings_dict["tol"] = 0.1
 settings_dict["conndepth"] = 10
-settings_dict["connectivity_code"] = "py"
-settings_dict["nonbondedMM_code"] = "py"
 # Exit command
 settings_dict["print_exit_footer"] = True
 settings_dict["print_full_timings"] = True
@@ -76,8 +70,6 @@ def try_read_setting(stringvalue, datatype):
 # Keywords to look up in ash_user_settings.ini
 try_read_setting("orcadir", "string")
 
-try_read_setting("connectivity_code", "string")
-try_read_setting("nonbondedMM_code", "string")
 try_read_setting("scale", "float")
 try_read_setting("tol", "float")
 try_read_setting("use_ANSI_color", "bool")
@@ -86,5 +78,3 @@ try_read_setting("print_exit_footer", "bool")
 try_read_setting("print_full_timings", "bool")
 try_read_setting("print_logo", "bool")
 try_read_setting("debugflag", "bool")
-try_read_setting("load_julia", "bool")
-try_read_setting("julia_library", "string")

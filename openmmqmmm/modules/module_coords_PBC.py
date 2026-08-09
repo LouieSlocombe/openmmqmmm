@@ -8,31 +8,9 @@ from openmmqmmm.functions.functions_general import ashexit
 
 # Function that calculates box size of a molecule in a cubic box
 # with optional shift
-def cubic_box_size(coords, shift=0.0):
-    # max and min for x,y,z coords
-    max_values = np.max(coords, axis=0)
-    min_values = np.min(coords, axis=0)
-    # Differences for x,y,z
-    span_x = max_values[0] - min_values[0]
-    span_y = max_values[1] - min_values[1]
-    span_z = max_values[2] - min_values[2]
-    # Max span for each x,y,z
-    max_span = max(span_x, span_y, span_z)
-    # Optional shift
-    final_span = max_span + shift
-    return final_span
 
 
 # More general
-def bounding_box_dimensions(coordinates, shift=0.0):
-    # Get max and min values for x, y, z coordinates
-    max_values = np.max(coordinates, axis=0)
-    min_values = np.min(coordinates, axis=0)
-
-    # Calculate the differences along each axis to determine dimensions
-    dimensions = max_values - min_values
-    final_dims = dimensions + shift
-    return dimensions  # Return the dimensions of the bounding box
 
 
 def cell_params_to_vectors(parameters):
@@ -86,11 +64,6 @@ def cart_coords_to_fract(cart_coords, cellvectors):
     M = np.array(cellvectors)
     frac = np.dot(cart_coords, np.linalg.inv(M))
     return frac
-
-
-def fract_coords_to_cart(fract_coords, cellvectors):
-    cart = np.dot(fract_coords, np.array(cellvectors))
-    return cart
 
 
 def cell_volume(vectors):

@@ -22,10 +22,8 @@ print("ashpath:", ashpath)
 sys.path.insert(0, ashpath)
 print("Sys path:", sys.path)
 
-from .functions.functions_general import create_ash_env_file, blankline, BC, listdiff, print_time_rel, \
-    print_time_rel_and_tot, pygrep, \
-    printdebug, read_intlist_from_file, frange, writelisttofile, load_julia_interface, read_datafile, write_datafile, \
-    ashexit, natural_sort, numlines_in_file
+from .functions.functions_general import blankline, BC, listdiff, print_time_rel, pygrep, \
+    printdebug, read_intlist_from_file, writelisttofile, ashexit, natural_sort
 
 # Test if inputfile has a bad name
 inputfile_base = os.path.splitext(sys.argv[0])[0]
@@ -43,25 +41,23 @@ from .modules.module_results import ASH_Results, read_results_from_file
 # Fragment class and coordinate functions
 import openmmqmmm.modules.module_coords
 from .modules.module_coords import get_molecules_from_trajectory, eldict_covrad, write_pdbfile, Fragment, read_xyzfile, \
-    write_xyzfile, make_cluster_from_box, read_ambercoordinates, read_gromacsfile, split_multimolxyzfile, \
+    write_xyzfile, read_ambercoordinates, read_gromacsfile, split_multimolxyzfile, \
     distance_between_atoms, \
     angle_between_atoms, dihedral_between_atoms
-from .modules.module_coords import remove_atoms_from_system_CHARMM, add_atoms_to_system_CHARMM, getwaterconstraintslist, \
-    QMregionfragexpand, cut_sphere, cut_cubic_box, QMPC_fragexpand, read_xyzfiles, Reaction, define_XH_constraints, \
+from .modules.module_coords import getwaterconstraintslist, \
+    QMregionfragexpand, QMPC_fragexpand, read_xyzfiles, Reaction, define_XH_constraints, \
     simple_get_water_constraints, print_internal_coordinate_table, \
     flexible_align_pdb, flexible_align_xyz, flexible_align, insert_solute_into_solvent, nuc_nuc_repulsion, \
     calculate_RMSD
 
 # Singlepoint
 import openmmqmmm.modules.module_singlepoint
-from .modules.module_singlepoint import Singlepoint, newSinglepoint, ZeroTheory, ScriptTheory, Singlepoint_fragments, \
+from .modules.module_singlepoint import Singlepoint, ZeroTheory, Singlepoint_fragments, \
     Singlepoint_theories, Singlepoint_fragments_and_theories, Singlepoint_reaction, ReactionEnergy
 
 # Parallel
 import openmmqmmm.functions.functions_parallel
 from .functions.functions_parallel import Job_parallel, Simple_parallel
-
-Singlepoint_parallel = Job_parallel
 
 # Freq
 from .modules.module_freq import AnFreq, NumFreq, approximate_full_Hessian_from_smaller, calc_rotational_constants, \
@@ -74,7 +70,7 @@ import openmmqmmm.constants
 from .interfaces.interface_ORCA import ORCATheory, ORCA_External_Optimizer
 import openmmqmmm.interfaces.interface_ORCA
 
-from .interfaces.interface_openbabel import OpenBabelTheory, pdb_to_smiles, mol_to_pdb, sdf_to_pdb, \
+from .interfaces.interface_openbabel import pdb_to_smiles, mol_to_pdb, sdf_to_pdb, \
     writepdb_with_connectivity, \
     xyz_to_pdb_with_connectivity
 
@@ -88,10 +84,6 @@ from .interfaces.interface_OpenMM import OpenMMTheory, OpenMM_MD, OpenMM_MDclass
 # General aliases
 MolecularDynamics = OpenMM_MD
 MetaDynamics = OpenMM_metadynamics
-
-# TODO: Temporary aliases, to be deleted
-OpenMM_box_relaxation = OpenMM_box_equilibration
-small_molecule_parameterizor = small_molecule_parameterizer
 
 # MDtraj
 from .interfaces.interface_mdtraj import MDtraj_imagetraj, MDtraj_slice, MDtraj_RMSF, MDtraj_RMSD, MDtraj_coord_analyze

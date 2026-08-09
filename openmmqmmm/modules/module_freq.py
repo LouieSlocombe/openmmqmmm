@@ -12,7 +12,7 @@ import openmmqmmm.modules.module_coords
 from openmmqmmm.functions.functions_general import ashexit, listdiff, clean_number, blankline, BC, print_time_rel, \
     print_line_with_mainheader, isint
 from openmmqmmm.modules.module_QMMM import QMMMTheory
-from openmmqmmm.modules.module_coords import check_charge_mult, read_xyzfile, write_multi_xyz_file, \
+from openmmqmmm.modules.module_coords import check_charge_mult, read_xyzfile, \
     Fragment
 from openmmqmmm.modules.module_results import ASH_Results
 

@@ -17,9 +17,6 @@ from openmmqmmm.modules.module_results import ASH_Results
 
 
 # Single-point energy function
-def Singlepoint_gradient(fragment=None, theory=None, charge=None, mult=None):
-    result = Singlepoint(fragment=fragment, theory=theory, Grad=True, charge=charge, mult=mult)
-    return result
 
 
 # Single-point energy function
@@ -370,53 +367,6 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
 
 # Single-point energy function that communicates via fragment
 # NOTE: NOT SURE IF WE WANT TO GO THIS ROUTE
-def newSinglepoint(fragment=None, theory=None, Grad=False):
-    """Singlepoint function: runs a single-point energy calculation using ASH theory and ASH fragment.
-
-    Args:
-        fragment (ASH fragment, optional): An ASH fragment. Defaults to None.
-        theory (ASH theory, optional): Any valid ASH theory. Defaults to None.
-        Grad (bool, optional): Do gradient or not Defaults to False.
-
-    Returns:
-        float: Energy
-        or
-        float,np.array : Energy and gradient array
-    """
-    ashexit()
-    module_init_time = time.time()
-    print("")
-    if fragment is None or theory is None:
-        print(BC.FAIL, "Singlepoint requires a fragment and a theory object", BC.END)
-        ashexit()
-
-    # Case QM/MM: we don't pass whole fragment?
-    if isinstance(theory, openmmqmmm.QMMMTheory):
-        print("this is QM/MM. not ready")
-        ashexit()
-    # Regular single-point
-    else:
-        # Run a single-point energy job with gradient
-        if Grad == True:
-            print(BC.WARNING, "Doing single-point Energy+Gradient job on fragment. Formula: {} Label: {} ".format(
-                fragment.prettyformula, fragment.label), BC.END)
-            # An Energy+Gradient calculation
-            energy, gradient = theory.run(fragment=fragment, Grad=True)
-            print("Energy: ", energy)
-            print_time_rel(module_init_time, modulename='Singlepoint', moduleindex=1)
-            return energy, gradient
-        # Run a single-point energy job without gradient (default)
-        else:
-            print(BC.WARNING,
-                  "Doing single-point Energy job on fragment. Formula: {} Label: {} ".format(fragment.prettyformula,
-                                                                                             fragment.label), BC.END)
-            # energy = theory.run(current_coords=coords, elems=elems)
-            energy = theory.run(fragment=fragment)
-            print("Energy: ", energy)
-            # Now adding total energy to fragment
-            fragment.energy = energy
-            print_time_rel(module_init_time, modulename='Singlepoint', moduleindex=1)
-            return energy
 
 
 # Theory object that always gives zero energy and zero gradient. Useful for setting constraints
@@ -454,59 +404,6 @@ class ZeroTheory:
 
 # Theory object that executes a script present in dir and then grabs energy and gradient from files created
 # Simple way to create interfaces to programs
-class ScriptTheory:
-    def __init__(self, fragment=None, printlevel=None, numcores=1, label=None, scriptpath=None):
-        """Class FileTheory: ScriptTheory  gives zero energy and a zero-valued gradient array by calling a script
-        """
-        print_line_with_mainheader("ScriptTheory initialization")
-        print("ScriptTheory is an ASH wrapper around a script/program capable of producing energy and gradient")
-        print("from coordinates as input")
-        self.numcores = numcores
-        self.printlevel = printlevel
-        self.label = label
-        self.fragment = fragment
-        self.filename = "zerotheory"
-        # Indicate that this is a QMtheory
-        self.theorytype = "QM"
-
-        # Scriptname
-        self.scriptpath = scriptpath
-
-    def create_script_from_string(self, input):
-
-        # Create shell/python script from input-string
-        pass
-        # Make script executable
-
-    def run(self, current_coords=None, elems=None, Grad=False, PC=False, numcores=None, charge=None, mult=None,
-            label=None):
-        print(BC.OKBLUE, BC.BOLD, "------------RUNNING ScriptTheory INTERFACE-------------", BC.END)
-        # Execute script
-        # NOTE: Script should be executable and create file called energy, file called gradient
-        # Note: Should allow both full path to script or local script (should contain ./ if so)
-        p = sp.call([self.scriptpath])
-
-        # Grab energy from file energy
-        with open("energy") as f:
-            self.energy = float(f.readlines()[0])
-        print("energy:", self.energy)
-        # Grab gradient from file gradient. Simple format, first line contains numatoms, then x,y,z component in each line
-        atomcount = 0
-        with open('gradient') as grdfile:
-            for i, line in enumerate(grdfile):
-                if i == 0:
-                    numatoms = int(line.split()[0])
-                    self.gradient = np.zeros((numatoms, 3))
-                if i > 0:
-                    self.gradient[atomcount, 0] = float(line.split()[0])
-                    self.gradient[atomcount, 1] = float(line.split()[1])
-                    self.gradient[atomcount, 2] = float(line.split()[2])
-                    atomcount += 1
-        print("self.gradient:", self.gradient)
-        if Grad == False:
-            return self.energy
-        else:
-            return self.energy, self.gradient
 
 
 def ReactionEnergy(list_of_energies=None, stoichiometry=None, list_of_fragments=None, unit='kcal/mol', label=None,
