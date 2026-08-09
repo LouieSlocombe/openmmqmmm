@@ -1,3 +1,5 @@
+"""Ligand format conversion via OpenBabel (MOL/SDF/XYZ to PDB, SMILES)."""
+
 import logging
 import os
 
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 # Function to convert Mol file to PDB-file via OpenBabel
 def mol_to_pdb(file):
     # OpenBabel
+    """Convert a MOL/MOL2 file to PDB via OpenBabel."""
     try:
         from openbabel import pybel
     except ModuleNotFoundError:
@@ -30,6 +33,7 @@ def mol_to_pdb(file):
 # Function to convert SDF file to PDB-file via OpenBabel
 def sdf_to_pdb(file):
     # OpenBabel
+    """Convert an SDF file to PDB via OpenBabel."""
     try:
         from openbabel import openbabel, pybel
     except ModuleNotFoundError:
@@ -64,6 +68,7 @@ def sdf_to_pdb(file):
 # NOTE: Requires OpenBabel which seems unnecessary, probably better to use OpenMM functionality instead
 def write_pdb_with_connectivity(file):
     # OpenBabel
+    """Write a PDB file with CONECT records derived by OpenBabel."""
     try:
         from openbabel import pybel
     except ModuleNotFoundError:
@@ -78,6 +83,7 @@ def write_pdb_with_connectivity(file):
 
 # Function to read in XYZ-file (small molecule) and create PDB-file with CONECT lines (geometry needs to be sensible)
 def xyz_to_pdb_with_connectivity(file, resname="UNL"):
+    """Convert an XYZ file to a PDB file with CONECT records via OpenBabel."""
     logger.info("xyz_to_pdb_with_connectivity function:")
     # OpenBabel
     try:
@@ -116,6 +122,7 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL"):
 # Function to convert PDB-file to SMILES string
 def pdb_to_smiles(fname: str) -> str:
     # OpenBabel
+    """Return the SMILES string for a molecule in a PDB file via OpenBabel."""
     try:
         from openbabel import pybel
     except ModuleNotFoundError:

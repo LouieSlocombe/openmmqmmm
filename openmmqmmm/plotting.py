@@ -1,3 +1,5 @@
+"""Simple matplotlib plotting helper."""
+
 import logging
 
 import numpy as np
@@ -11,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class Plot:
+    """Simple matplotlib-based plotting helper for energy surfaces and convergence data."""
+
     def __init__(
         self,
         figuretitle="Plottyplot",

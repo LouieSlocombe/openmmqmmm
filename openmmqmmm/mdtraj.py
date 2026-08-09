@@ -1,3 +1,5 @@
+"""Trajectory processing via the mdtraj library (imaging, slicing, RMSF/RMSD, coordinate analysis)."""
+
 import logging
 import os
 
@@ -24,6 +26,7 @@ def mdtraj_load():
 
 
 def mdtraj_rmsf(trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True):
+    """Compute per-atom root-mean-square fluctuations of a trajectory via mdtraj."""
     logger.info("Inside MDtraj_RMSF")
     # Import mdtraj library
     mdtraj = mdtraj_load()
@@ -53,6 +56,7 @@ def mdtraj_rmsf(trajectory, pdbtopology, print_largest_values=True, threshold=0.
 
 
 def mdtraj_rmsd(trajectory, pdbtopology, atom_indices=None, parallel=True):
+    """Compute the RMSD along a trajectory via mdtraj."""
     logger.info("Inside MDtraj_RMSD")
     # Import mdtraj library
     mdtraj = mdtraj_load()
@@ -72,6 +76,7 @@ def mdtraj_image_trajectory(
     trajectory, pdbtopology, traj_format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
 ):
     # Trajectory basename
+    """Re-image (wrap) a periodic trajectory so molecules stay whole, via mdtraj."""
     traj_basename = os.path.splitext(trajectory)[0]
     # PDB-file basename
     pdb_basename = os.path.splitext(pdbtopology)[0]
@@ -130,6 +135,7 @@ def mdtraj_image_trajectory(
 # TODO: allow option to grab by ps? Requires information about timestep and traj-frequency
 def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
     # Trajectory basename
+    """Extract selected frames from a trajectory into a new file via mdtraj."""
     traj_basename = os.path.basename(os.path.splitext(trajectory)[0])
     logger.info("traj_basename: %s", traj_basename)
     # os.path.basename(
@@ -207,6 +213,7 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
 # Function to get internal coordinates from trajectory fast
 # Give trajectory file
 def mdtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=None):
+    """Analyze internal coordinates (distances/angles/dihedrals) along a trajectory via mdtraj."""
     logger.info("Inside MDtraj_coord_analyze")
     if indices is None:
         raise InputError("indices needs to be set")

@@ -1,3 +1,5 @@
+"""Geometry optimization through the geomeTRIC library (minimization, TS, constraints, active regions)."""
+
 import contextlib
 import logging
 import os
@@ -135,6 +137,13 @@ def optimize_geometry(
 
 # Class for optimization.
 class GeometricOptimizer:
+    """Geometry optimizer wrapping the geomeTRIC library.
+
+    Supports minimizations and TS optimizations, constraints, frozen atoms and
+    active-region optimizations of large systems. Usually invoked through
+    optimize_geometry.
+    """
+
     def __init__(
         self,
         theory=None,
@@ -987,6 +996,12 @@ class GeometricOptimizer:
 
 
 class GeometricArgs:
+    """Argument container passed to geometric.optimize.run_optimizer.
+
+    Attribute names mirror the geomeTRIC keyword arguments exactly (including
+    logIni) - do not rename them.
+    """
+
     def __init__(
         self,
         eng,
@@ -1040,6 +1055,13 @@ class GeometricArgs:
 
 # Engine class used to communicate with geomeTRIC
 class GeometricEngine:
+    """Custom geomeTRIC engine that evaluates energies/gradients with a theory object.
+
+    Method names (calc, load_guess_files, save_guess_files, detect_dft,
+    calc_bondorder, clearCalcs) and the attribute M are the geomeTRIC engine
+    protocol - do not rename them.
+    """
+
     def __init__(
         self,
         geometric_molf,

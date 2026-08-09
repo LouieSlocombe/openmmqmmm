@@ -1,3 +1,5 @@
+"""Periodic-cell helpers and cell-file writers (POSCAR/XSF/CIF)."""
+
 import logging
 
 import numpy as np

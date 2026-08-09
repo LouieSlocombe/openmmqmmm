@@ -1,3 +1,6 @@
+"""OpenMM interface: OpenMMTheory, MD drivers, system preparation (modeller/solvation),
+metadynamics and free-energy helpers."""
+
 import copy
 import logging
 import os
@@ -62,6 +65,13 @@ logger = logging.getLogger(__name__)
 
 
 class OpenMMTheory:
+    """Interface to the OpenMM molecular-mechanics library.
+
+    The system is defined from forcefield XML files plus a PDB file
+    (xmlfiles=/pdbfile=), an OpenMM XML system file (xmlsystemfile=), or
+    Amber/GROMACS/CHARMM files. Periodic and non-periodic systems supported.
+    """
+
     def __init__(
         self,
         platform="CPU",
@@ -2252,7 +2262,7 @@ def openmm_minimize(
     traj_frequency=100,
     use_reporter=True,
 ):
-
+    """Minimize the MM energy of a fragment with OpenMM's L-BFGS minimizer."""
     module_init_time = time.time()
     logger.info(main_header("OpenMM Optimization"))
 
@@ -2482,6 +2492,12 @@ def openmm_modeller(
     membrane_center_z=0.0,
     residuetemplate_choice=None,
 ):
+    """Prepare a protein system from a raw PDB file (pdbfixer): fix residues/atoms,
+    add hydrogens for the chosen pH, solvate, add ions and write forcefield-ready files.
+
+    Returns:
+        (OpenMMTheory, Fragment) for the prepared, solvated system.
+    """
     module_init_time = time.time()
     logger.info(main_header("OpenMM Modeller"))
     try:
@@ -2995,6 +3011,7 @@ def solvate_small_molecule(
     lj_treatment=None,
     skip_xmlfile=False,
 ):
+    """Solvate a small molecule in a water box (Amber- or CHARMM-style forcefield XML)."""
     if solvent_boxdims is None:
         solvent_boxdims = [70.0, 70.0, 70.0]
     logger.info(main_header("SmallMolecule Solvator"))
@@ -3274,6 +3291,11 @@ def openmm_md(
     chkfile=None,
     statefile=None,
 ):
+    """Run molecular dynamics of a fragment with OpenMM (also drives QM/MM MD).
+
+    Simulation length is set via simulation_steps or simulation_time (ps);
+    thermostat/barostat, trajectory format and restraints are configurable.
+    """
     logger.info(main_header("OpenMM MD wrapper function"))
     md = MolecularDynamicsEngine(
         fragment=fragment,
@@ -3336,6 +3358,11 @@ def openmm_md(
 
 
 class MolecularDynamicsEngine:
+    """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD).
+
+    Usually created via the openmm_md / openmm_metadynamics functions.
+    """
+
     def __init__(
         self,
         fragment=None,
@@ -4603,21 +4630,26 @@ def openmm_box_equilibration(
     solute_indices=None,
     barostat_frequency=25,
 ):
-    """NPT simulations until volume and density stops changing
+    """Run NPT simulations in cycles until box volume and density stop changing.
 
     Args:
-        fragment ([type], optional): [description]. Defaults to None.
-        theory ([type], optional): [description]. Defaults to None.
-        datafilename (str, optional): [description]. Defaults to "nptsim.csv".
-        numsteps_per_NPT (int, optional): [description]. Defaults to 10000.
-        volume_threshold (float, optional): [description]. Defaults to 1.0.
-        density_threshold (float, optional): [description]. Defaults to 0.001.
-        temperature (int, optional): [description]. Defaults to 300.
-        timestep (float, optional): [description]. Defaults to 0.001.
-        traj_frequency (int, optional): [description]. Defaults to 100.
-        trajectory_file_option (str, optional): [description]. Defaults to 'DCD'.
-        coupling_frequency (int, optional): [description]. Defaults to 1.
-        barostat_frequency (int, optional): [description]. Defaults to 25 (timesteps).
+        fragment: Fragment with the periodic system.
+        theory: OpenMMTheory object (periodic).
+        datafilename: CSV file for per-cycle state data.
+        numsteps_per_npt: MD steps per NPT cycle.
+        max_npt_cycles: maximum number of cycles.
+        volume_threshold: convergence threshold for the box-volume change.
+        density_threshold: convergence threshold for the density change.
+        temperature: thermostat temperature in K.
+        timestep: MD timestep in ps.
+        traj_frequency: trajectory write interval in steps.
+        trajectory_file_option: trajectory format ("DCD", ...).
+        coupling_frequency: thermostat coupling frequency in ps^-1.
+        enforce_periodic_box: wrap coordinates into the primary box.
+        barostat_frequency: barostat attempt interval in timesteps.
+
+    Returns:
+        Fragment updated with the equilibrated coordinates and box vectors.
     """
 
     logger.info(main_header("Periodic Box Size Equilibration"))
@@ -4961,6 +4993,10 @@ def openmm_metadynamics(
     numcores=1,
     walkerid=None,
 ):
+    """Run metadynamics MD using OpenMM's native metadynamics implementation.
+
+    Collective variables are defined via cv1_atoms/cv1_type (and optionally CV2).
+    """
     logger.info(main_header("OpenMM metadynamics"))
 
     # Biasdirectory
@@ -5218,6 +5254,7 @@ def openmm_md_plumed(
     plumed_input_string=None,
     numcores=1,
 ):
+    """Run MD with a PLUMED bias (requires the openmm-plumed plugin)."""
     logger.info(main_header("OpenMM metadynamics using OpenMM-Plumed interface"))
 
     logger.info("Using metadynamics via OpenMM Plumed plugin")
@@ -5315,6 +5352,7 @@ def gentle_warmup_md(
     maxoptsteps=10,
     coupling_frequency=1,
 ):
+    """Gradually warm up an MD system in stages (short timesteps first, then longer)."""
     if traj_frequencies is None:
         traj_frequencies = [1, 1, 100]
     if temperatures is None:
@@ -5567,6 +5605,7 @@ def create_cv_bias(
 
 # Calculate free-energy from total bias array
 def free_energy_from_bias_array(temperature, bias_factor, total_bias):
+    """Convert a metadynamics bias array to a free-energy surface."""
     deltaT = temperature * (bias_factor - 1)
     kjpermoleconversion = 1
     free_energy = -((temperature + deltaT) / deltaT) * total_bias * kjpermoleconversion
@@ -5575,6 +5614,7 @@ def free_energy_from_bias_array(temperature, bias_factor, total_bias):
 
 # Calculate free-energy from OpenMM biasfiles
 def get_free_energy_from_biasfiles(temperature, biasfactor, cv1_gridwidth, cv2_gridwidth, directory="."):
+    """Reconstruct a free-energy surface from metadynamics bias files on disk."""
     import glob
 
     # Checking gridwiths
@@ -5610,6 +5650,7 @@ def get_free_energy_from_biasfiles(temperature, biasfactor, cv1_gridwidth, cv2_g
 # NOTE: plot_xlim/plot_ylim in final CV units (Ang for distance/rmsd and ° for dihedrals/angles)
 # CV1_minvalue/CV1_maxvalue should be set before simulation
 def metadynamics_plot_data(biasdir=None, dpi=200, imageformat="png", plot_xlim=None, plot_ylim=None):
+    """Plot metadynamics results (free-energy surface and CV trajectories) from a bias directory."""
     import json
 
     # Read mtd settings dict from file
@@ -5758,9 +5799,9 @@ def diff_wrap_box_coords(coords_nm, boxvectors, mdtrajtopology, anchoratoms):
 
 
 def merge_pdb_files(pdbfile_1, pdbfile_2, outputname="merged.pdb"):
-
     # Function to merge PDB-files (e.g. protein and ligand) while preserving and updating connectivity records
     # PDB inputfiles
+    """Merge two PDB files into one (e.g. protein plus ligand)."""
     pdb1 = openmm.app.PDBFile(pdbfile_1)
     pdb2 = openmm.app.PDBFile(pdbfile_2)
 
@@ -5791,6 +5832,9 @@ def small_molecule_parameterizer(
     expected_lj14=0.5,
     allow_undefined_stereo=None,
 ):
+    """Generate an OpenMM forcefield XML for a small molecule with GAFF or OpenFF
+    (requires openmmforcefields, openff-toolkit and rdkit).
+    """
     logger.info(main_header("SmallMolecule Parameterizor"))
     logger.info("Input options: xyzfile, pdbfile, molfile, sdffile, smiles_string")
     logger.info("Forcefield options: GAFF, OpenFF")

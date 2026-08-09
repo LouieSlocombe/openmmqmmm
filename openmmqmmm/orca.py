@@ -1,3 +1,5 @@
+"""ORCA interface: ORCATheory, ORCA installation discovery, input generation and output parsing."""
+
 import contextlib
 import glob
 import logging
@@ -33,6 +35,14 @@ logger = logging.getLogger(__name__)
 
 # ORCA Theory object.
 class ORCATheory:
+    """Interface to the ORCA quantum chemistry program.
+
+    The ORCA installation is located via the orcadir argument, the
+    OPENMMQMMM_ORCADIR environment variable, or a validated orca binary in PATH.
+    Input is defined through orcasimpleinput (the "!" line) and orcablocks
+    ("%block ... end" sections).
+    """
+
     def __init__(
         self,
         orcadir=None,
@@ -1927,6 +1937,10 @@ def orca_external_optimizer(
     orca_blockinput="",
     actatoms=None,
 ):
+    """Optimize a geometry using ORCA's optimizer while openmmqmmm provides energies+gradients.
+
+    Works for any picklable theory: ORCA calls back into a generated otool_external script.
+    """
     logger.info(main_header("ORCA_External_Optimizer"))
     if fragment is None or theory is None:
         raise InputError("ORCA_External_Optimizer requires fragment and theory keywords")

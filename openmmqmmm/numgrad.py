@@ -1,3 +1,5 @@
+"""Numerical-gradient wrapper theory (finite differences of energies)."""
+
 import logging
 
 import numpy as np
@@ -12,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 # Numerical gradient class
 class NumGrad:
+    """Wrapper theory computing gradients numerically by finite differences of energies."""
+
     def __init__(self, theory, npoint=2, displacement=0.00264589, runmode="serial", numcores=1):
         logger.info("Creating NumGrad wrapper object")
         self.theory = theory

@@ -1,3 +1,5 @@
+"""The Results dataclass returned by job functions, plus JSON (de)serialization."""
+
 import logging
 from dataclasses import dataclass
 
@@ -13,51 +15,53 @@ logger = logging.getLogger(__name__)
 # Results dataclass that job functions return
 @dataclass
 class Results:
-    label: str = None
+    """Container for job results (energies, gradients, frequencies, thermochemistry)."""
+
+    label: str | None = None
     # Single-job: Energy and gradient
-    energy: float = None
-    qm_energy: float = None
-    mm_energy: float = None
-    qmmm_energy: float = None
-    gradient: np.array = None
-    reaction_energy: float = None
+    energy: float | None = None
+    qm_energy: float | None = None
+    mm_energy: float | None = None
+    qmmm_energy: float | None = None
+    gradient: np.ndarray | None = None
+    reaction_energy: float | None = None
 
     # Multi-energy job: Lists of energies and gradients
-    energies: list = None
-    reaction_energies: list = None
-    relative_energies: list = None
-    labels: list = None
-    gradients: list = None
-    energies_dict: dict = None
-    gradients_dict: dict = None
+    energies: list | None = None
+    reaction_energies: list | None = None
+    relative_energies: list | None = None
+    labels: list | None = None
+    gradients: list | None = None
+    energies_dict: dict | None = None
+    gradients_dict: dict | None = None
     # parallel Multi-energy job
     # Name of worker directories that could be accessed later
-    worker_dirnames: dict = None
-    charge: int = None
-    mult: int = None
+    worker_dirnames: dict | None = None
+    charge: int | None = None
+    mult: int | None = None
     # Possible unsorted information.
-    properties: dict = None
+    properties: dict | None = None
     # Frequency information
-    hessian: np.array = None
-    frequencies: list = None
-    freq_masses: list = None
-    freq_elems: list = None
-    freq_coords: np.array = None
-    freq_atoms: list = None
-    freq_tr_modenum: int = None
-    freq_projection: bool = None
-    freq_scaling_factor: float = None
-    freq_dipole_derivs: np.array = None
-    freq_polarizability_derivs: np.array = None
-    freq_raman: bool = None
-    normal_modes: np.array = None
-    Raman_activities: np.array = None
-    IR_intensities: np.array = None
-    depolarization_ratios: np.array = None
-    vib_eigenvectors: np.array = None
-    thermochemistry: dict = None
-    displacement_dipole_dictionary: dict = None
-    displacement_polarizability_dictionary: dict = None
+    hessian: np.ndarray | None = None
+    frequencies: list | None = None
+    freq_masses: list | None = None
+    freq_elems: list | None = None
+    freq_coords: np.ndarray | None = None
+    freq_atoms: list | None = None
+    freq_tr_modenum: int | None = None
+    freq_projection: bool | None = None
+    freq_scaling_factor: float | None = None
+    freq_dipole_derivs: np.ndarray | None = None
+    freq_polarizability_derivs: np.ndarray | None = None
+    freq_raman: bool | None = None
+    normal_modes: np.ndarray | None = None
+    raman_activities: np.ndarray | None = None
+    ir_intensities: np.ndarray | None = None
+    depolarization_ratios: np.ndarray | None = None
+    vib_eigenvectors: np.ndarray | None = None
+    thermochemistry: dict | None = None
+    displacement_dipole_dictionary: dict | None = None
+    displacement_polarizability_dictionary: dict | None = None
 
     # Print only defined attributes
     def print_defined(
@@ -122,6 +126,7 @@ class Results:
 
 # Read Results data from disk
 def read_results_from_file(filename="results.json"):
+    """Read a Results object from a JSON file written by Results.write_to_disk."""
     import json
     from dataclasses import fields
 

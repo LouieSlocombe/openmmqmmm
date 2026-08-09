@@ -1,3 +1,5 @@
+"""Electronic-structure analysis helpers (electronic entropy, XDM dispersion via postg, CM5 charges)."""
+
 import logging
 import os
 import shutil

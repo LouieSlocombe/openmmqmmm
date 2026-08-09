@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "openmmqmmm"
 version = "0.99"
-description = "ORCA + OpenMM QM/MM for biomolecular calculations (trimmed ASH distribution)"
+description = "ORCA + OpenMM QM/MM for biomolecular calculations (derived from ASH)"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -31,7 +31,6 @@ extras = ["matplotlib", "scipy", "parmed"]
 test = ["pytest"]
 
 [project.urls]
-Documentation = "https://ash.readthedocs.io"
 Upstream = "https://github.com/RagnarB83/ash"
 
 [tool.setuptools.packages.find]
@@ -39,11 +38,11 @@ where = ["."]
 include = ["openmmqmmm*"]
 exclude = ["openmmqmmm.tests*"]
 
-# Non-Python files required at runtime. Test data (~32 MB under
-# openmmqmmm/tests) is deliberately not shipped in wheels — run the test
-# suite from a source checkout.
+# Non-Python files shipped in wheels: the geomeTRIC logging config and the
+# PEP 561 typing marker. Test data (~2 MB under openmmqmmm/tests) stays in
+# the source repository — run the test suite from a checkout.
 [tool.setuptools.package-data]
-openmmqmmm = ["log.ini"]
+openmmqmmm = ["log.ini", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["openmmqmmm/tests"]

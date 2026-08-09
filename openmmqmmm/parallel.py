@@ -1,3 +1,5 @@
+"""Parallel execution of independent calculations with multiprocessing."""
+
 import contextlib
 import copy
 import logging
@@ -546,6 +548,7 @@ def simple_parallel(
     copytheory=False,
     version="multiprocessing",
 ):
+    """Run a list of independent function calls in parallel worker processes."""
     logger.info("")
     logger.info(sub_header("Simple_parallel function"))
     logger.info("Number of CPU cores available:  %s", numcores)

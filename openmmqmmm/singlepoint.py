@@ -25,20 +25,26 @@ logger = logging.getLogger(__name__)
 
 
 # Single-point energy function
-def single_point(fragment=None, theory=None, grad=False, charge=None, mult=None, result_write_to_disk=True):
-    """Singlepoint function: runs a single-point energy calculation using a theory and fragment.
+def single_point(
+    fragment=None,
+    theory=None,
+    grad: bool = False,
+    charge: int | None = None,
+    mult: int | None = None,
+    result_write_to_disk: bool = True,
+) -> "Results":
+    """Run a single-point energy (and optionally gradient) calculation.
 
     Args:
-        fragment (fragment, optional): An fragment. Defaults to None.
-        theory (openmmqmmm theory, optional): Any valid theory object. Defaults to None.
-        Grad (bool, optional): Do gradient or not Defaults to False.
-        charge (int, optional): Specify charge of system. Overrides fragment charge information.
-        mult (int, optional): Specify mult of system. Overrides fragment charge information.
+        fragment: Fragment holding the coordinates.
+        theory: any theory object (ORCATheory, OpenMMTheory, QMMMTheory, ...).
+        grad: also compute the gradient.
+        charge: total charge; overrides the fragment charge if given.
+        mult: spin multiplicity; overrides the fragment multiplicity if given.
+        result_write_to_disk: write the Results object to results.json.
 
     Returns:
-        float: Energy
-        or
-        float,np.array : Energy and gradient array
+        Results with energy (and gradient when grad=True) filled in.
     """
     logger.info(main_header("Singlepoint function"))
     module_init_time = time.time()
@@ -94,7 +100,8 @@ def single_point(fragment=None, theory=None, grad=False, charge=None, mult=None,
 
 # Single-point energy function that runs calculations on 1 fragment using multiple theories. Returns a list of energies.
 # TODO: allow Grad option?
-def single_point_theories(theories=None, fragment=None, charge=None, mult=None):
+def single_point_theories(theories=None, fragment=None, charge=None, mult=None) -> "Results":
+    """Run single-point calculations of one fragment with multiple theories."""
     logger.info(main_header("Singlepoint_theories function"))
     module_init_time = time.time()
     logger.info("Will run single-point calculation on the fragment with multiple theories")
@@ -164,6 +171,7 @@ def print_fragments_table(fragments, energies, tabletitle="Singlepoint_fragments
 def single_point_fragments(
     theory=None, fragments=None, stoichiometry=None, relative_energies=False, unit="kcal/mol", moreadfiles=None
 ):
+    """Run single-point calculations of one theory over multiple fragments."""
     logger.info(main_header("Singlepoint_fragments function"))
     module_init_time = time.time()
     logger.info("Will run single-point calculation on each fragment")
@@ -243,6 +251,7 @@ def single_point_fragments(
 # Single-point energy function that runs calculations on multiple fragments. Returns a list of energies.
 # Assuming fragments have charge,mult info defined.
 def single_point_fragments_and_theories(theories=None, fragments=None, stoichiometry=None):
+    """Run single-point calculations for every fragment with every theory."""
     logger.info(main_header("Singlepoint_fragments_and_theories"))
     module_init_time = time.time()
     # List of lists
@@ -299,6 +308,7 @@ def single_point_fragments_and_theories(theories=None, fragments=None, stoichiom
 # Single-point energy function that runs calculations on a Reaction object
 # Assuming fragments have charge,mult info defined.
 def single_point_reaction(theory=None, reaction=None, moreadfiles=None):
+    """Run single-point calculations for all species of a Reaction and compute the reaction energy."""
     logger.info(main_header("Singlepoint_reaction function"))
     module_init_time = time.time()
 
@@ -365,15 +375,9 @@ def single_point_reaction(theory=None, reaction=None, moreadfiles=None):
 
 # Theory object that always gives zero energy and zero gradient. Useful for setting constraints
 class ZeroTheory:
-    def __init__(self, fragment=None, numcores=1, label=None):
-        """Class Zerotheory: Simple dummy theory that gives zero energy and a zero-valued gradient array
-            Note: includes unnecessary attributes for consistency.
+    """Dummy theory returning zero energy and a zero gradient (useful for testing workflows)."""
 
-        Args:
-            fragment (fragment, optional): A valid fragment. Defaults to None.
-            numcores (int, optional): Number of cores. Defaults to 1.
-            label (str, optional): String label. Defaults to None.
-        """
+    def __init__(self, fragment=None, numcores: int = 1, label: str | None = None):
         self.numcores = numcores
         self.label = label
         self.fragment = fragment
@@ -418,18 +422,20 @@ def reaction_energy(
     silent=False,
     correction=0.0,
 ):
-    """Calculate reaction energy from list of energies (or energies from list of fragments) and stoichiometry
+    """Calculate a reaction energy from energies (or fragments with energies) and stoichiometry.
 
     Args:
-        list_of_energies ([type], optional): A list of total energies in hartrees. Defaults to None.
-        stoichiometry (list, optional): A list of integers, e.g. [-1,-1,1,1]. Defaults to None.
-        list_of_fragments (list, optional): A list of fragments . Defaults to None.
-        unit (str, optional): Unit for relative energy. Defaults to 'kcal/mol'.
-        label (string, optional): Optional label for energy. Defaults to None.
-        reference (float, optional): Optional shift-parameter of energy Defaults to None.
+        list_of_energies: total energies in hartree (alternative to list_of_fragments).
+        stoichiometry: signed integers per species, e.g. [-1, -1, 1, 1].
+        list_of_fragments: fragments carrying .energy attributes.
+        unit: output unit ("kcal/mol", "kJ/mol", "eV", "cm-1", "Eh", ...).
+        label: label used when logging the result.
+        reference: reference value; if given, the deviation is also computed.
+        silent: suppress logging of the result line.
+        correction: additive correction applied to the reaction energy.
 
     Returns:
-        tuple : energy and error in chosen unit
+        (reaction_energy, error) in the chosen unit; error is None without a reference.
     """
     conversionfactor = {
         "kcal/mol": 627.50946900,

@@ -1,3 +1,5 @@
+"""Electrostatically embedded QM/MM (QMMMTheory) with link atoms and charge-shifting."""
+
 import copy
 import logging
 import math
@@ -20,6 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 class QMMMTheory:
+    """Electrostatically embedded QM/MM combining a QM theory with an MM theory.
+
+    The QM region is defined by qmatoms (0-based indices into the fragment);
+    link atoms and charge-shifting handle covalent QM-MM boundaries.
+    """
+
     def __init__(
         self,
         qm_theory=None,
@@ -1540,6 +1548,7 @@ def grab_resids_from_psffile(psffile):
 
 # Read atomic charges present in PSF-file. assuming Xplor format
 def read_charges_from_psf(file):
+    """Read atom charges from a CHARMM PSF file."""
     charges = []
     grab = False
     with open(file) as f:
@@ -1564,6 +1573,9 @@ def read_charges_from_psf(file):
 
 
 def define_active_region(pdbfile=None, mmtheory=None, psffile=None, fragment=None, radius=None, originatom=None):
+    """Define an active region as all whole residues within a distance of a central atom,
+    writing the indices to active_atoms and a highlighted PDB file for inspection.
+    """
     logger.info(main_header("ActregionDefine"))
 
     # Checking if proper information has been provided
@@ -1709,6 +1721,7 @@ def linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad):
 
 # Convenient function to calculate and decompose the QM/MM energy of a system and QMMMTheory object
 def compute_decomposed_qm_mm_energy(fragment=None, theory=None):
+    """Decompose a QM/MM single-point energy into QM, MM and coupling terms."""
     logger.info(main_header("Decomposed QM/MM Energy Calculation"))
 
     if isinstance(theory, QMMMTheory) is False:

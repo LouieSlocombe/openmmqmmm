@@ -1,3 +1,5 @@
+"""Vibrational frequencies (analytic and numerical), normal-mode analysis and thermochemistry."""
+
 import copy
 import logging
 import math
@@ -40,6 +42,7 @@ def analytic_frequencies(
     symmetry_number=None,
     rotmode_threshold=1e-4,
 ):
+    """Compute vibrational frequencies from an analytical Hessian provided by the theory."""
     module_init_time = time.time()
     logger.warning("------------ANALYTICAL FREQUENCIES-------------")
 
@@ -95,7 +98,7 @@ def analytic_frequencies(
         except (AttributeError, KeyError, TypeError):
             logger.info("Found no IR intensities in theory object")
             IR_intens_values = None
-        Raman_activities = None
+        raman_activities = None
 
         # Print out Freq output.
         printfreqs(
@@ -103,7 +106,7 @@ def analytic_frequencies(
             len(hessatoms),
             tr_modenum=tr_modenum,
             intensities=IR_intens_values,
-            Raman_activities=Raman_activities,
+            raman_activities=raman_activities,
         )
         logger.info("\n\n")
         logger.info("Normal mode composition factors by element")
@@ -173,6 +176,11 @@ def numerical_frequencies(
     symmetry_number=None,
     force_projection=None,
 ):
+    """Compute vibrational frequencies from numerical differentiation of gradients.
+
+    Supports partial Hessians (hessatoms), 1- or 2-point differences (npoint) and
+    serial or parallel displacement calculations (runmode).
+    """
     module_init_time = time.time()
     logger.warning("------------NUMERICAL FREQUENCIES-------------")
     ################
@@ -581,15 +589,15 @@ def numerical_frequencies(
         logger.info("Raman calculation active")
         if len(polarizability_derivs) == 0:
             logger.info("No polarizability information found. Skipping Raman.")
-            Raman_activities = None
+            raman_activities = None
             depolarization_ratios = None
         else:
             logger.info("Polarizability derivatives are available.")
             # Reordering just in case
             polarizability_derivs = [polarizability_derivs[i] for i in mode_order]
-            Raman_activities, depolarization_ratios = calc_raman_activities(hessmasses, evectors, polarizability_derivs)
+            raman_activities, depolarization_ratios = calc_raman_activities(hessmasses, evectors, polarizability_derivs)
     else:
-        Raman_activities = None
+        raman_activities = None
         depolarization_ratios = None
     logger.info("")
 
@@ -599,7 +607,7 @@ def numerical_frequencies(
         len(hessatoms),
         tr_modenum=tr_modenum,
         intensities=IR_intens_values,
-        Raman_activities=Raman_activities,
+        raman_activities=raman_activities,
     )
 
     logger.info("\n\n")
@@ -647,9 +655,9 @@ def numerical_frequencies(
         hessian=hessian,
         vib_eigenvectors=evectors,
         frequencies=frequencies,
-        Raman_activities=Raman_activities,
+        raman_activities=raman_activities,
         depolarization_ratios=depolarization_ratios,
-        IR_intensities=IR_intens_values,
+        ir_intensities=IR_intens_values,
         freq_atoms=hessatoms,
         freq_elems=hesselems,
         freq_coords=hesscoords,
@@ -788,13 +796,13 @@ def calcfreq(evalues):
     return vfreq
 
 
-def printfreqs(vfreq, numatoms, tr_modenum=6, intensities=None, Raman_activities=None):
+def printfreqs(vfreq, numatoms, tr_modenum=6, intensities=None, raman_activities=None):
     logger.info("%s", "-" * 40)
     logger.info("VIBRATIONAL FREQUENCY SUMMARY")
     logger.info("%s", "-" * 40)
     if intensities is None:
         logger.info("No IR intensities were calculated. Setting values to 0.0.")
-    if Raman_activities is None:
+    if raman_activities is None:
         logger.info(
             "No Raman activities were calculated (polarizabilities not available in QM-program interface). Setting values to 0.0."
         )
@@ -805,7 +813,7 @@ def printfreqs(vfreq, numatoms, tr_modenum=6, intensities=None, Raman_activities
     for mode in range(3 * numatoms):
         vib = vfreq[mode]
         intensity = 0.0 if intensities is None else intensities[mode]
-        raman_act = 0.0 if Raman_activities is None else Raman_activities[mode]
+        raman_act = 0.0 if raman_activities is None else raman_activities[mode]
         line = f"  {mode:<6d}{vib:>14.4f}{intensity:>14.4f}{raman_act:>16.4f}"
         if mode < tr_modenum:
             line = line + "            (TR mode)"
@@ -853,20 +861,22 @@ def thermochemcalc(
     symmetry_number=None,
     rotmode_threshold=1e-4,
 ):
-    module_init_time = time.time()
-    """[summary]
+    """Compute thermochemistry via the rigid-rotor harmonic-oscillator approximation.
 
     Args:
-        vfreq ([list]): list of vibrational frequencies in cm**-1
-        atoms ([type]): active atoms (contributing to Hessian)
-        fragment ([type]): fragment object
-        multiplicity ([type]): spin multiplicity
-        temp (float, optional): [description]. Defaults to 298.15.
-        pressure (float, optional): [description]. Defaults to 1.0.
+        vfreq: vibrational frequencies in cm**-1.
+        atoms: active atoms (those contributing to the Hessian).
+        fragment: Fragment object (geometry and masses).
+        multiplicity: spin multiplicity (electronic degeneracy).
+        temp: temperature in K.
+        pressure: pressure in atm.
+        qrrho: apply a quasi-RRHO treatment for low-frequency modes.
+        qrrho_method: "Grimme" (interpolation) or "Truhlar" (raising of low modes).
 
     Returns:
-        dictionary with thermochemistry properties
+        dict of thermochemistry properties (ZPVE, enthalpy, entropy terms, Gibbs energy, ...).
     """
+    module_init_time = time.time()
     logger.info("")
     logger.info(main_header("Thermochemistry via rigid-rotor harmonic oscillator approximation"))
     logger.info("")
@@ -1330,6 +1340,7 @@ def inertia(elems, coords, center):
 
 
 def calc_rotational_constants(frag):
+    """Calculate rotational constants (GHz and cm**-1) for a fragment."""
     coords = frag.coords
     elems = frag.elems
     center = get_center(coords, elems=elems)
@@ -1424,6 +1435,7 @@ def approximate_full_hessian_from_smaller(
     charge=None,
     mult=None,
 ):
+    """Build an approximate full-system Hessian by combining a small computed Hessian with a model Hessian."""
     logger.info("approximate_full_Hessian_from_smaller")
     logger.info("")
     write_hessian(hessian_small, hessfile="smallhessian")
@@ -1682,12 +1694,14 @@ def s_vib_qrrho_grimme(freqs, T, omega_0=100, i_av=None):
 
 
 def write_hessian(hessian, hessfile="Hessian"):
+    """Write a Hessian matrix to a text file."""
     np.savetxt(hessfile, hessian)
     logger.info(f"Wrote Hessian to file: {hessfile}")
 
 
 # Read Hessian from file
 def read_hessian(file):
+    """Read a Hessian matrix from a text file written by write_hessian."""
     logger.info(f"Reading Hessian from file: {file}")
     hessian = np.loadtxt(file)
     return hessian

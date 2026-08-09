@@ -1,3 +1,6 @@
+"""Fragment and Reaction classes plus coordinate/topology utilities (XYZ/PDB/Amber/GROMACS I/O,
+connectivity, alignment, QM-region tools)."""
+
 import copy
 import logging
 import math
@@ -45,6 +48,8 @@ CONNECTIVITY_TOL = 0.1
 
 
 class Reaction:
+    """A reaction: an ordered list of fragments with stoichiometry (and optional energies)."""
+
     def __init__(self, fragments, stoichiometry, label=None, unit="eV"):
         logger.info(sub_header("New reaction"))
 
@@ -94,6 +99,13 @@ class Reaction:
 
 # Fragment class
 class Fragment:
+    """Molecular system: elements, coordinates, charge/multiplicity, connectivity and topology.
+
+    Create from a coordinate string (coordsstring=), lists (elems=/coords=), an XYZ file
+    (xyzfile=), a PDB file (pdbfile=), Amber/GROMACS/chemshell files, or a fragment file
+    written by print_system (fragfile=).
+    """
+
     def __init__(
         self,
         fragments=None,
@@ -2005,13 +2017,16 @@ def read_chemshellfragfile_xyz(fragfile):
 
 
 def conv_atomtypes_elems(atomtype):
-    """Convert atomtype string to element based on a dictionary.
-        Hopefully captures all cases. If atomtype not found then element string assumed but reformatting so correct case
+    """Convert a forcefield atomtype string to an element symbol.
+
+    Falls back to treating the atomtype as an element symbol (with case
+    normalization) when it is not in the atomtype dictionary.
 
     Args:
-        atomtype ([str]): [description]
+        atomtype: forcefield atomtype or element string, e.g. "HA" or "FE".
+
     Returns:
-        [str]: [description]
+        Element symbol, e.g. "H" or "Fe".
     """
     try:
         element = openmmqmmm.elements.atomtypes_dict[atomtype]
@@ -2718,6 +2733,7 @@ def reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
 # QM-region expand function. Finds whole fragments.
 def expand_qm_region(fragment=None, initial_atoms=None, radius=None):
     # If needed (connectivity ==0):
+    """Expand a QM region outward to include whole molecules within a distance cutoff."""
     scale = CONNECTIVITY_SCALE
     tol = CONNECTIVITY_TOL
     if fragment is None or initial_atoms is None or radius is None:
@@ -2758,6 +2774,7 @@ def expand_qm_region(fragment=None, initial_atoms=None, radius=None):
 
 # Function to do QM-region expansion based on QM/MM pointcharge gradient
 def expand_qm_pc_region(theory=None, fragment=None, thresh=5e-4):
+    """Expand a QM region based on the QM/MM pointcharge-gradient magnitude."""
     if theory is None and fragment is None:
         raise InputError("QMPC_fragexpand requires fragment and theory")
     if not isinstance(theory, openmmqmmm.QMMMTheory):
@@ -3055,6 +3072,7 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None):
 
 # Get list of bad atoms based on supplied fragment and gradient
 def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000):
+    """Report atoms with unusually large gradient components (useful for spotting clashes)."""
     indices = []
     logger.info("Checking system total gradient for bad atoms")
     logger.info("Gradient threshold setting: %s", threshold)

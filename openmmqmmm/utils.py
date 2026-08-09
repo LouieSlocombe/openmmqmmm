@@ -1,3 +1,5 @@
+"""General utilities: logging setup, file helpers, headers and small list/string tools."""
+
 import logging
 import os
 import time
