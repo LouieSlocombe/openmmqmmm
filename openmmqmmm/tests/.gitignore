@@ -1,0 +1,13 @@
+# Test runs generate output files in this directory (orca.*, finalsystem.*,
+# trajectories, ...). conftest.py deletes them at the end of the session; this
+# whitelist keeps any leftovers from a crashed run out of git status.
+*
+!.gitignore
+!conftest.py
+!test_*.py
+!extra_files/
+!extra_files/**
+!pdbfiles/
+!pdbfiles/**
+!xyzfiles/
+!xyzfiles/**

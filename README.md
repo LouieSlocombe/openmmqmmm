@@ -1,57 +1,119 @@
-**master:**
-![example workflow](https://github.com/RagnarB83/ash/actions/workflows/python-app-conda.yml/badge.svg)
-**NEW:**
-![example branch parameter](https://github.com/RagnarB83/ash/actions/workflows/python-app-conda.yml/badge.svg?branch=NEW)
+# openmmqmmm — ORCA + OpenMM QM/MM
 
-<img src="ash-simple-logo-letterbig.png" alt="drawing" width="300" align="right"/>
+A trimmed distribution of the [ASH](https://github.com/RagnarB83/ash) multiscale modelling program, reduced to the
+**ORCA + OpenMM QM/MM stack for biomolecular calculations**. The Python package is named `openmmqmmm`; the retained
+functionality keeps the upstream ASH class and function names, so existing ORCA/OpenMM QM/MM scripts that stick to the
+feature set below only need their import changed from `ash` to `openmmqmmm`.
 
- # ASH: a multi-scale, multi-theory modelling program
-ASH is a Python-based computational chemistry and QM/MM environment for molecular calculations in the gas phase, explicit solution, crystal or protein environment. It's a program for performing single-point calculations, geometry optimizations, nudged elastic band calculations, surface scans, molecular dynamics, numerical frequencies and many other things using a MM, QM, QM/MM or ONIOM Hamiltonian.
-Interfaces to popular QM codes: ORCA, xTB, PySCF, MRCC, ccpy, Psi4, Dalton, CFour, TeraChem, QUICK. Interface to the OpenMM library for MM and MD algorithms. Interfaces to specialized high-level QM codes like Block, Dice and ipie for DMRG, SHCI and AFQMC calculations. Interfaces to machine-learning libraries like PyTorch, MACE and MLatom for using and training machine learning potentials.
-Excellent environment for writing simple or complex computational chemistry workflows.
+## What is included
 
-**Citation**
-If ASH is useful in your research please cite us: `ASH: a Multi-scale, Multi-theory Modeling program <https://onlinelibrary.wiley.com/doi/10.1002/jcc.70359>`_
-R. Bjornsson, J. Comput. Chem 2026, 47, e70359.
+- `ORCATheory` — interface to the [ORCA](https://www.faccts.de/orca/) quantum chemistry program
+- `OpenMMTheory` — interface to the [OpenMM](https://openmm.org) MM library, plus
+  `OpenMM_MD` (also aliased `MolecularDynamics`), `OpenMM_Modeller` (pdbfixer-based protein setup),
+  `OpenMM_Opt`, `OpenMM_box_equilibration`, `Gentle_warm_up_MD`, metadynamics,
+  `solvate_small_molecule` and `small_molecule_parameterizer`
+- `QMMMTheory` — electrostatically embedded QM/MM with link atoms and charge-shifting (OpenMM as the MM engine)
+- `Singlepoint` (+ fragment/theory/reaction variants), `Job_parallel`
+- `Optimizer` / `geomeTRICOptimizer` — geometry optimization via geomeTRIC, including frozen/active-region optimizations
+  of large biomolecular systems (`ActiveRegion`)
+- `NumFreq` / `AnFreq` — numerical/analytical frequencies with partial Hessians and thermochemistry
+- `Fragment` — coordinates/topology handling incl. PDB, Amber, GROMACS file reading
+- Helper interfaces genuinely used by the above: mdtraj (trajectory processing), openbabel (ligand conversion) and a
+  simple matplotlib plotting object (`ASH_plot`)
 
-**In case of problems:**
-Please open an issue on Github and we will try to fix any problems as soon as possible.
+Everything else from upstream ASH has been removed — other QM-code interfaces, NEB/knarr, molcrys, PES, high-level
+workflows, ONIOM and machine-learning tools, and also the peripheral utilities that upstream ships alongside the QM/MM
+stack (cube-file/density analysis, Multiwfn interface, ORCA orbital/json/FCIDUMP tooling, the standalone
+`NonBondedTheory` MM engine, spectrum plotting, …).
 
-**Installation:**
-See https://ash.readthedocs.io/en/latest/setup.html for detailed installation instructions.
-A proper ASH installation should usually be done in a conda/mamba environment together with the OpenMM library.
+## Citation
 
-Basic installation via pip:
+This package is derived from ASH. If it is useful in your research please cite:
+[ASH: a Multi-scale, Multi-theory Modeling program](https://onlinelibrary.wiley.com/doi/10.1002/jcc.70359), R.
+Bjornsson, *J. Comput. Chem* **2026**, 47, e70359.
 
-```sh
-#Install ASH using pip (default main branch)
-pip install git+https://github.com/RagnarB83/ash.git
+## Installation
 
-#Install the NEW (development) branch of ASH
-pip install git+https://github.com/RagnarB83/ash.git@NEW
- ```
+**Requirements**
 
+- Linux or macOS, Python ≥ 3.10 (developed and tested on 3.13)
+- [OpenMM](https://openmm.org) ≥ 8, [PDBFixer](https://github.com/openmm/pdbfixer) and
+  [mdtraj](https://www.mdtraj.org) — installed from conda-forge (PDBFixer is not on PyPI, so a
+  conda/mamba environment is the recommended route)
+- [geomeTRIC](https://github.com/leeping/geomeTRIC), numpy, packaging — pulled in automatically by pip
+- [ORCA](https://www.faccts.de/orca/) — installed separately (free for academic use); required for
+  `ORCATheory` and QM/MM, not for the pure-MM/OpenMM functionality
 
-**Documentation:**
+**Conda environment (recommended)**
 
- https://ash.readthedocs.io
-
-
-**Development:**
-
-ASH welcomes any contributions.
-
-Ongoing priorities:
-- Improve packaging
-- Prepare for 1.0 release
-- Fix more Python faux pas
-- Write unit tests
-- Improve documentation of code, write docstrings.
-
-**Basic example:**
+From the repository root:
 
 ```sh
-from ash import *
+conda env create -f environment.yml
+conda activate openmmqmmm
+pip install -e .
+```
+
+`pip install -e .` is an editable (development) install: changes to the source tree take effect without
+reinstalling. Use `pip install .` for a regular install. The environment also provides `pytest` and
+`python-build` for testing and building.
+
+**Installing into an existing environment**
+
+```sh
+conda install -c conda-forge "openmm>=8" pdbfixer mdtraj
+pip install .
+```
+
+**Optional dependencies**
+
+Some functionality uses extra packages, all available on conda-forge: `openbabel` (ligand format
+conversion in `small_molecule_parameterizer`), `matplotlib` (metadynamics plots / `ASH_plot`),
+`scipy` (occupation-entropy analysis in `ORCATheory`), `parmed`
+(Amber/GROMACS file handling in `OpenMMTheory`). They are listed, commented out, in
+`environment.yml`.
+
+**Configuring ORCA**
+
+Either make sure the `orca` binary is in `PATH`, or point the package at your ORCA installation in one
+of two ways:
+
+- pass `orcadir="/path/to/orca_directory"` to `ORCATheory`, or
+- create `~/ash_user_settings.ini`:
+
+  ```ini
+  [Settings]
+  orcadir = /path/to/orca_directory
+  ```
+
+For parallel ORCA runs (`numcores` > 1) the matching OpenMPI version must also be set up, as for any
+ORCA installation.
+
+**Verifying the installation**
+
+```sh
+python -c "import openmmqmmm"
+cd openmmqmmm/tests && pytest -q
+```
+
+The fragment/OpenMM/optimizer tests run without ORCA; the QM/MM tests are skipped automatically when
+no `orca` binary is found in `PATH`. Output files generated by the tests (ORCA scratch, trajectories,
+fragment files, …) are deleted automatically at the end of the session.
+
+## Building distributions
+
+```sh
+python -m build
+```
+
+This produces an sdist and a wheel under `dist/`. Wheels ship only the runtime data file
+(`log.ini`); the test suite and its ~32 MB of reference data stay in the
+source repository, so run the tests from a checkout, not from an installed wheel.
+
+## Basic example
+
+```py
+from openmmqmmm import *
 
 coords="""
 H 0.0 0.0 0.0
@@ -59,8 +121,6 @@ F 0.0 0.0 1.0
 """
 #Create fragment from multi-line string
 HF_frag=Fragment(coordsstring=coords, charge=0, mult=1)
-#Alternative: Create fragment from XYZ-file
-#HF_frag2=Fragment(xyzfile="hf.xyz", charge=0, mult=1)
 
 #Create ORCATheory object
 input="! r2SCAN def2-SVP def2/J tightscf"
@@ -78,29 +138,32 @@ NumFreq(theory=ORCAcalc,fragment=HF_frag)
 
 #DFT Molecular dynamics simulation for 2 ps with a 0.001 ps (1 fs) timestep
 MolecularDynamics(fragment=HF_frag, theory=ORCAcalc, timestep=0.001, simulation_time=2)
+```
 
- ```
+## QM/MM example
 
-**QM/MM example:**
-
-```sh
-from ash import *
+```py
+from openmmqmmm import *
 
 # Defining a fragment
 fragment = Fragment(pdbfile="system.pdb")
 # QM-method and QM-region
 qm_orca = ORCATheory(orcasimpleinput="! r2SCAN-3c tightscf", numcores=8)
 # MM Theory
-omm  = OpenMMTheory(xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"], 
+omm  = OpenMMTheory(xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"],
                     pdbfile="system.pdb", periodic=True)
 
 # QM/MM Theory
 qmatoms = [93,94,95,96,97,133,134,135, 2001,2002]
-qm_mm = QMMMTheory(qm_theory= qm_orca, mm_theory= omm, fragment=fragment, 
+qm_mm = QMMMTheory(qm_theory= qm_orca, mm_theory= omm, fragment=fragment,
                     qm_charge=-1, qm_mult=6,  qmatoms= qmatoms, printlevel=1)
 
 # Geometry optimization
 Optimizer(theory=qm_mm,fragment=fragment, actatoms=qmatoms)
 # or Molecular dynamics
 MolecularDynamics(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
- ```
+```
+
+## Documentation
+
+Upstream ASH documentation (applies to the retained functionality): https://ash.readthedocs.io

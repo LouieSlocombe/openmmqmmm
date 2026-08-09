@@ -1,6 +1,0 @@
-
-###########################
-#Installation instructions
-###########################
-
-See https://ash.readthedocs.io/en/latest/setup.html

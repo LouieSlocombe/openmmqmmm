@@ -1,23 +1,19 @@
-/Hess-Tool/
-/venv/
-/PARALLELIZATION THOUGHTS.txt
-/__pycache__
-ash_user_settings.ini
-TODO
-.idea
-.vscode
-ASH-testdir
-backup
-euclidean-c-test
-reorder-test
-.DS_Store
-test.py
-unused
-__pycache__
-set_environment_ash.sh
+# Python
+__pycache__/
+*.egg-info/
+build/
+dist/
+venv/
 .env
-modules/__pycache__
-TODO
-ash.egg-info
-build
-.pre-commit-config.yaml
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local configuration
+ash_user_settings.ini
+
+# Scratch output from manual runs in the repo root (test output is handled
+# by openmmqmmm/tests/.gitignore and cleaned by conftest.py)
+*_OPTtraj.tmp/
