@@ -275,12 +275,12 @@ def distance_matrix_from_coords(coords):
     return distmatrix
 
 
-def calc_cm5(atomicNumbers, coords, hirschfeldcharges):
+def calc_cm5(atomic_numbers, coords, hirschfeldcharges):
     coords = np.array(coords)
-    atomicNumbers = np.array(atomicNumbers)
+    atomic_numbers = np.array(atomic_numbers)
     # all matrices have the naming scheme matrix[k,k'] according to the paper
     distances = np.array(distance_matrix_from_coords(coords))
-    Rz = _radii[atomicNumbers - 1]
+    Rz = _radii[atomic_numbers - 1]
     RzSum = np.tile(Rz, (len(Rz), 1))
     RzSum = np.add(RzSum, np.transpose(RzSum))
     Bkk = np.exp(-_alpha * (np.subtract(distances, RzSum)), out=np.zeros_like(distances), where=distances != 0)
@@ -291,7 +291,7 @@ def calc_cm5(atomicNumbers, coords, hirschfeldcharges):
     shape = Tkk.shape
     for i in range(shape[0]):
         for j in range(shape[1]):
-            numbers = [atomicNumbers[i], atomicNumbers[j]]
+            numbers = [atomic_numbers[i], atomic_numbers[j]]
             if numbers[0] == numbers[1]:
                 continue
             if set(numbers) == {1, 6}:

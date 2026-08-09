@@ -17,7 +17,7 @@ def configure_logging(level="INFO", file=None, fmt="%(message)s"):
 
     The package logs the calculation record through the standard logging
     module and stays silent by default (library convention). Calling this
-    once in a run script restores ASH-style console output:
+    once in a run script restores the classic console output:
 
         import openmmqmmm
         openmmqmmm.configure_logging()
@@ -132,17 +132,17 @@ def listdiff(list1, list2):
 
 # Inserts line into file for matched string.
 # option: Once=True means only added for first match
-def insert_line_into_file(file, string, addedstring, Once=True):
-    Added = False
+def insert_line_into_file(file, string, addedstring, once=True):
+    added = False
     with open(file) as ffr:
         contents = ffr.readlines()
     with open(file, "w") as ffw:
         for content_line in contents:
             ffw.write(content_line)
-            if string in content_line and Added is False:
+            if string in content_line and added is False:
                 ffw.write(addedstring + "\n")
-                if Once is True:
-                    Added = True
+                if once is True:
+                    added = True
 
 
 # Can variable be converted into integer

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
-from openmmqmmm import *
+from openmmqmmm import Fragment
 
 TEST_DIR = Path(__file__).parent
 
@@ -61,10 +61,10 @@ def test_fragread_files():
     HF_frag = Fragment(coordsstring=fragcoords)
     print("HF_frag conn", HF_frag.connectivity)
     # Print frag to disk
-    HF_frag.print_system("HF_frag.ygg")
+    HF_frag.print_system("HF_frag.frag")
 
-    # Creating Ash fragment by reading file (above)
-    New_frag = Fragment(fragfile="HF_frag.ygg")
+    # Creating fragment by reading file (above)
+    New_frag = Fragment(fragfile="HF_frag.frag")
 
     print("New_frag:", New_frag)
     print("New_frag dict:", New_frag.__dict__)

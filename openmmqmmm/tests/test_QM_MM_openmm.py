@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from openmmqmmm import *
+from openmmqmmm import Fragment, OpenMMTheory, ORCATheory, QMMMTheory, single_point
 from openmmqmmm.orca import find_orca
 
 TEST_DIR = Path(__file__).parent
@@ -14,7 +14,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_qm_mm_orca_openmm_MeOH_H2O():
+def test_qm_mm_orca_openmm_meoh_h2o():
     # H2O...MeOH fragment defined. Reading XYZ file
     H2O_MeOH = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
 
@@ -38,7 +38,7 @@ def test_qm_mm_orca_openmm_MeOH_H2O():
     QMMMobject = QMMMTheory(fragment=H2O_MeOH, qm_theory=qm, mm_theory=MMpart, qmatoms=qmatoms, embedding="Elstat")
 
     # Single-point energy calculation of QM/MM object
-    result = Singlepoint(theory=QMMMobject, fragment=H2O_MeOH, charge=0, mult=1, Grad=True)
+    result = single_point(theory=QMMMobject, fragment=H2O_MeOH, charge=0, mult=1, grad=True)
 
     # Determined 8 aug 2026 using ORCA 6 (PBE/def2-SVP NORI tightscf) and OpenMM 8.4
     ref_energy = -115.816207775989
@@ -63,7 +63,7 @@ def test_qm_mm_orca_openmm_MeOH_H2O():
 # Read Lysozyme solvated PDB-file, create OpenMMTheory job, define ORCATheory, create QM/MM and run SP
 def test_qm_mm_orca_openmm_lysozyme():
     numcores = 2
-    # Defining fragment containing coordinates (can be read from XYZ-file, ASH fragment or PDB-file)
+    # Defining fragment containing coordinates (can be read from XYZ-file, fragment or PDB-file)
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki_solvated.pdb"
     fragment = Fragment(pdbfile=pdbfile)
 
@@ -91,7 +91,7 @@ def test_qm_mm_orca_openmm_lysozyme():
         qmatoms=qmatomlist,
     )
 
-    result = Singlepoint(theory=qmmmobject, fragment=fragment, Grad=True)
+    result = single_point(theory=qmmmobject, fragment=fragment, grad=True)
 
     # Sanity checks (QM/MM energy of solvated protein system)
     assert result.energy < 0.0, "QM/MM energy should be negative"

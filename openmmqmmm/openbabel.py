@@ -1,10 +1,10 @@
 import logging
 import os
 
+from openmmqmmm.coords import reformat_element
 from openmmqmmm.exceptions import (
     MissingDependencyError,
 )
-from openmmqmmm.coords import reformat_element
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def sdf_to_pdb(file):
 
 # Function to read in PDB-file and write new one with CONECT lines (geometry needs to be sensible)
 # NOTE: Requires OpenBabel which seems unnecessary, probably better to use OpenMM functionality instead
-def writepdb_with_connectivity(file):
+def write_pdb_with_connectivity(file):
     # OpenBabel
     try:
         from openbabel import pybel

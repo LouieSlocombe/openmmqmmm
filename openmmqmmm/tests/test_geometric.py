@@ -1,4 +1,4 @@
-from openmmqmmm import *
+from openmmqmmm import Fragment, ZeroTheory, optimize_geometry
 
 
 def test_geometric_dummy():
@@ -14,8 +14,7 @@ def test_geometric_dummy():
     # Defining dummy theory
     zerotheorycalc = ZeroTheory()
 
-    # Optimize with dummy theory: exercises ASH-geomeTRIC coupling
-    result = Optimizer(fragment=H2Ofragment, theory=zerotheorycalc)
+    # Optimize with dummy theory: exercises the geomeTRIC coupling
+    result = optimize_geometry(fragment=H2Ofragment, theory=zerotheorycalc)
 
     assert result.energy == 0.0, "ZeroTheory energy should be 0.0"
-    print("ASH and geometric finished. Everything looks good")

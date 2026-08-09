@@ -34,7 +34,7 @@ CONNECTIVITY_SCALE = 1.0
 CONNECTIVITY_TOL = 0.1
 
 
-# ASH Reaction class: connects list of ASH fragments and stoichiometry
+# Reaction class: connects list of fragments and stoichiometry
 # TODO: Check that the charge and multiplicity is consistent with formula. Maybe do in fragment instead?
 # TODO: Check charge on both sides of reaction. Warning if different.
 # TODO: Check if mult is different on both sides of reaction. Print warning
@@ -46,7 +46,7 @@ CONNECTIVITY_TOL = 0.1
 
 class Reaction:
     def __init__(self, fragments, stoichiometry, label=None, unit="eV"):
-        logger.info(sub_header("New ASH reaction"))
+        logger.info(sub_header("New reaction"))
 
         # Reading fragments and checking for charge/mult
         self.fragments = fragments
@@ -81,7 +81,7 @@ class Reaction:
 
     def calculate_reaction_energy(self):
         if len(self.energies) == len(self.fragments):
-            self.reaction_energy = openmmqmmm.ReactionEnergy(
+            self.reaction_energy = openmmqmmm.reaction_energy(
                 list_of_energies=self.energies,
                 stoichiometry=self.stoichiometry,
                 unit=self.unit,
@@ -92,7 +92,7 @@ class Reaction:
             logger.info("Warning. Could not calculate reaction energy as we are missing energies for fragments")
 
 
-# ASH Fragment class
+# Fragment class
 class Fragment:
     def __init__(
         self,
@@ -135,9 +135,9 @@ class Fragment:
 
         # Printlevel. Default: 2 (slightly verbose)
 
-        logger.info(sub_header("New ASH fragment"))
-        # Minimal ASH Fragment
-        logger.info("ASH Fragment creation")
+        logger.info(sub_header("New fragment"))
+        # Minimal Fragment
+        logger.info("Fragment creation")
         self.energy = None
         self.elems = []
         self.coords = np.zeros((0, 3))
@@ -260,7 +260,7 @@ class Fragment:
         elif chemshellfile is not None:
             self.label = chemshellfile.split("/")[-1].split(".")[0]
             self.read_chemshellfile(chemshellfile, conncalc=conncalc)
-        # ASH fragment file
+        # fragment file
         elif fragfile is not None:
             self.label = fragfile.split("/")[-1].split(".")[0]
             self.read_fragment_from_file(fragfile)
@@ -288,25 +288,25 @@ class Fragment:
         self.constraints = None
 
     def __repr__(self):
-        logger.info("ASH Fragment object")
+        logger.info("Fragment object")
         logger.info(f"Number of Atoms in fragment: {self.numatoms}")
         logger.info(f"Formula: {self.prettyformula}")
         logger.info(f"Label: {self.label}")
         logger.info(f"Charge: {self.charge} Mult: {self.mult}")
         logger.info("Do fragment.info() for more info on fragment")
-        return "ASH fragment"
+        return "fragment"
 
     def __str__(self):
-        logger.info("ASH Fragment object")
+        logger.info("Fragment object")
         logger.info(f"Number of Atoms in fragment: {self.numatoms}")
         logger.info(f"Formula: {self.prettyformula}")
         logger.info(f"Label: {self.label}")
         logger.info(f"Charge: {self.charge} Mult: {self.mult}")
         logger.info("Do fragment.info() for more info on fragment")
-        return "ASH fragment"
+        return "fragment"
 
     def info(self):
-        logger.info("ASH Fragment object")
+        logger.info("Fragment object")
         logger.info("%s", self.__dict__)
 
     def update_attributes(self):
@@ -395,7 +395,7 @@ class Fragment:
         if conn is True:
             self.calc_connectivity(scale=scale, tol=tol)
 
-    def get_nonH_atomindices(self):
+    def get_non_h_atomindices(self):
         return [index for index, el in enumerate(self.elems) if el != "H"]
 
     def get_atomindices_for_element(self, element):
@@ -465,7 +465,7 @@ class Fragment:
             import openmm.app
         except ImportError:
             raise FileFormatError(
-                "Error: OpenMM library not found. ASH requires OpenMM library to read PDB files."
+                "Error: OpenMM library not found. the OpenMM library is required to read PDB files."
             ) from None
         pdb = openmm.app.PDBFile(filename)
         self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
@@ -489,7 +489,7 @@ class Fragment:
             import openmm.app
         except ImportError:
             raise FileFormatError(
-                "Error: OpenMM library not found. ASH requires OpenMM library to read PDB files."
+                "Error: OpenMM library not found. the OpenMM library is required to read PDB files."
             ) from None
         pdb = openmm.app.PDBxFile(filename)
         self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
@@ -661,7 +661,7 @@ class Fragment:
             import openmm.app
         except ImportError:
             raise InputError(
-                "Error: OpenMM library not found. ASH requires OpenMM library to write PDB files."
+                "Error: OpenMM library not found. the OpenMM library is required to write PDB files."
             ) from None
 
         # Adding extension
@@ -672,12 +672,12 @@ class Fragment:
             logger.info("Using input pdb_topology")
             self.pdb_topology = pdb_topology
         elif self.pdb_topology is None:
-            logger.info("Warning: ASH Fragment has no PDB-file topology defined (required for PDB-file writing)")
+            logger.info("Warning: Fragment has no PDB-file topology defined (required for PDB-file writing)")
             logger.info("Now defining new topology from scratch")
             if pdb_topology is None:
                 self.define_topology(resname=resname)  # Creates self.pdb_topology
         else:
-            logger.info("Using pdbtopology found in ASH fragment")
+            logger.info("Using pdbtopology found in fragment")
 
         # Before writing PDB-file, request connectivity calculation so that we get correct CONECT lines for non-biomolecules
         if calc_connectivity is True:
@@ -717,7 +717,7 @@ class Fragment:
         logger.info("Wrote XYZ file:  %s", xyzfilename)
         return xyzfilename
 
-    def write_XYZ_for_atoms(self, xyzfilename="Fragment-subset.xyz", atoms=None):
+    def write_xyz_for_atoms(self, xyzfilename="Fragment-subset.xyz", atoms=None):
         subset_elems = [self.elems[i] for i in atoms]
         subset_coords = np.take(self.coords, atoms, axis=0)
         with open(xyzfilename, "w") as ofile:
@@ -727,8 +727,8 @@ class Fragment:
                 line = f"{el:4} {c[0]:>12.6f} {c[1]:>12.6f} {c[2]:>12.6f}"
                 ofile.write(line + "\n")
 
-    # Print system-fragment information to file. Default name of file: "fragment.ygg
-    def print_system(self, filename="fragment.ygg"):
+    # Print system-fragment information to file
+    def print_system(self, filename="fragment.frag"):
         logger.info("Printing fragment to disk:  %s", filename)
         logger.debug("len(self.atomlist):  %s", len(self.atomlist))
         logger.debug("len(self.elems):  %s", len(self.elems))
@@ -792,7 +792,7 @@ class Fragment:
 
     # Reading fragment from file. File created from Fragment.print_system
     def read_fragment_from_file(self, fragfile):
-        logger.info("Reading ASH fragment from file: %s", fragfile)
+        logger.info("Reading fragment from file: %s", fragfile)
         coordgrab = False
         coords = []
         elems = []
@@ -805,7 +805,7 @@ class Fragment:
         with open(fragfile) as file:
             for n, line in enumerate(file):
                 if n == 0 and "Fragment:" not in line:
-                    raise FileFormatError("This is not a valid ASH fragment file. Exiting.")
+                    raise FileFormatError("This is not a valid fragment file. Exiting.")
                 if "Num atoms:" in line:
                     int(line.split()[-1])
                 if "charge :" in line:
@@ -1335,7 +1335,7 @@ def _build_connectivity(coords, elems, atom_indices=None):
 # NEW function to print internal coordinate table for active atoms based on connectivity.
 
 
-def print_internal_coordinate_table_new(fragment, actatoms=None):
+def _print_internal_coordinate_table(fragment, actatoms=None):
     """
     Prints a tabulated view of internal coordinates for active atoms
     based on the fragment's connectivity.
@@ -1505,7 +1505,7 @@ def print_coords_for_atoms(coords, elems, members, labels=None):
 # From lists of coords,elems and atom indices, write XYZ file coords with elem
 
 
-def write_XYZ_for_atoms(coords, elems, members, name):
+def write_xyz_for_atoms(coords, elems, members, name):
     subset_elems = [elems[i] for i in members]
     subset_coords = np.take(coords, members, axis=0)
     with open(name + ".xyz", "w") as ofile:
@@ -2239,7 +2239,7 @@ def write_pdbfile(
     conect_lines=None,
 ):
     logger.info("Writing PDB-file...")
-    # Using ASH fragment
+    # Using fragment
     elems = fragment.elems
     coords = fragment.coords
 
@@ -2437,15 +2437,15 @@ def list_of_masses(ellist):
 
 # For XYZ-files
 def flexible_align_xyz(
-    xyzfileA, xyzfileB, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
+    xyzfile_a, xyzfile_b, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
 ):
-    logger.info(f"Will align molecule in file {xyzfileA} onto molecule in file {xyzfileB}")
-    fragmentA = Fragment(xyzfile=xyzfileA)
-    fragmentB = Fragment(xyzfile=xyzfileB)
+    logger.info(f"Will align molecule in file {xyzfile_a} onto molecule in file {xyzfile_b}")
+    fragment_a = Fragment(xyzfile=xyzfile_a)
+    fragment_b = Fragment(xyzfile=xyzfile_b)
 
     newfragA = flexible_align(
-        fragmentA,
-        fragmentB,
+        fragment_a,
+        fragment_b,
         rotate_only=rotate_only,
         translate_only=translate_only,
         reordering=reordering,
@@ -2454,7 +2454,7 @@ def flexible_align_xyz(
     )
 
     # Write XYZ-file for newfragA
-    newfragA.write_xyzfile(f"{xyzfileA.replace('.xyz', '')}_aligned.xyz")
+    newfragA.write_xyzfile(f"{xyzfile_a.replace('.xyz', '')}_aligned.xyz")
 
 
 # For PDB-files
@@ -2462,13 +2462,13 @@ def flexible_align_pdb(
     pdbfileA, pdbfileB, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
 ):
     logger.info(f"Will align molecule in file {pdbfileA} onto molecule in file {pdbfileB}")
-    fragmentA = Fragment(pdbfile=pdbfileA)
-    fragmentB = Fragment(pdbfile=pdbfileB)
+    fragment_a = Fragment(pdbfile=pdbfileA)
+    fragment_b = Fragment(pdbfile=pdbfileB)
 
     # Call flexible align, get aligned coords as new fragA
     newfragA = flexible_align(
-        fragmentA,
-        fragmentB,
+        fragment_a,
+        fragment_b,
         rotate_only=rotate_only,
         translate_only=translate_only,
         reordering=reordering,
@@ -2477,13 +2477,19 @@ def flexible_align_pdb(
     )
 
     # Write PDBfile. PDB-info will have been read and stored
-    fragmentA.coords = newfragA.coords  # Replacing coords in original fragmentA
-    fragmentA.write_pdbfile_openmm(filename=f"{pdbfileA.replace('.pdb', '')}_aligned")  # Now write out
+    fragment_a.coords = newfragA.coords  # Replacing coords in original fragmentA
+    fragment_a.write_pdbfile_openmm(filename=f"{pdbfileA.replace('.pdb', '')}_aligned")  # Now write out
 
 
-# For ASH fragments
+# For fragments
 def flexible_align(
-    fragmentA, fragmentB, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
+    fragment_a,
+    fragment_b,
+    rotate_only=False,
+    translate_only=False,
+    reordering=False,
+    reorder_method="brute",
+    subset=None,
 ):
     logger.info("flexible_align function")
     import geometric
@@ -2498,16 +2504,16 @@ def flexible_align(
             if len(subset[0]) != len(subset[1]):
                 raise InputError("Length of subsets not equal. This is not allowed. Exiting.")
             logger.info("Will align using each list of indices for each fragment")
-            subsetA_coords, subsetA_elems = fragmentA.get_coords_for_atoms(subset[0])
-            subsetB_coords, subsetB_elems = fragmentB.get_coords_for_atoms(subset[1])
+            subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset[0])
+            subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset[1])
 
         else:
             logger.info("Subset is a list of indices")
             logger.info(
                 "Will align using the same indices in both fragments (will only work if both fragments have the same atom order)"
             )
-            subsetA_coords, subsetA_elems = fragmentA.get_coords_for_atoms(subset)
-            subsetB_coords, subsetB_elems = fragmentB.get_coords_for_atoms(subset)
+            subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset)
+            subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset)
 
         logger.info("subsetA_elems: %s", subsetA_elems)
         logger.info("subsetA_coords: %s", subsetA_coords)
@@ -2516,8 +2522,8 @@ def flexible_align(
         logger.info("subsetB_coords: %s", subsetB_coords)
 
     else:
-        subsetA_coords = fragmentA.coords
-        subsetB_coords = fragmentB.coords
+        subsetA_coords = fragment_a.coords
+        subsetB_coords = fragment_b.coords
 
     # TODO Possible reordering
     if reordering is True:
@@ -2564,28 +2570,28 @@ def flexible_align(
     # Translate only (all atoms in A)
     if translate_only is True:
         logger.info("Doing translation only")
-        Anew = fragmentA.coords + trans
+        Anew = fragment_a.coords + trans
     # Rotate only (all atoms in A)
     elif rotate_only is True:
         logger.info("Doing rotation only")
-        Anew = np.dot(fragmentA.coords, rot)
+        Anew = np.dot(fragment_a.coords, rot)
     else:
         # Apply trans+rot to all atoms in fragmentA
-        Anew = np.dot(fragmentA.coords, rot) + trans
+        Anew = np.dot(fragment_a.coords, rot) + trans
 
     # Create new frag
-    newfrag = Fragment(elems=fragmentA.elems, coords=Anew)
+    newfrag = Fragment(elems=fragment_a.elems, coords=Anew)
     logger.info("New aligned structure")
     newfrag.print_coords()
 
     return newfrag
 
 
-# Recommended RMSD-calc wrapper function for ASH fragments
+# Recommended RMSD-calc wrapper function for fragments
 # Allows subset match (same set of indices or 2 sets of indices for each fragment)
 # Also simpler option: heavyatomsonly=True (ignores H-atoms)
 # NOTE: no reordering
-def calculate_RMSD(fragmentA, fragmentB, subset=None, heavyatomsonly=False, write_aligned_structure=False):
+def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, write_aligned_structure=False):
     logger.info("calculate_RMSD function")
 
     # Do chosen subset
@@ -2598,28 +2604,28 @@ def calculate_RMSD(fragmentA, fragmentB, subset=None, heavyatomsonly=False, writ
             if len(subset[0]) != len(subset[1]):
                 raise InputError("Length of subsets not equal. This is not allowed. Exiting.")
             logger.info("Will align using each list of indices for each fragment")
-            subsetA_coords, subsetA_elems = fragmentA.get_coords_for_atoms(subset[0])
-            subsetB_coords, subsetB_elems = fragmentB.get_coords_for_atoms(subset[1])
+            subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset[0])
+            subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset[1])
 
         else:
             logger.info("Subset is a list of indices")
             logger.info(
                 "Will align using the same indices in both fragments (will only work if both fragments have the same atom order)"
             )
-            subsetA_coords, subsetA_elems = fragmentA.get_coords_for_atoms(subset)
-            subsetB_coords, subsetB_elems = fragmentB.get_coords_for_atoms(subset)
+            subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset)
+            subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset)
 
         logger.debug("subsetA_elems: %s", subsetA_elems)
         logger.debug("subsetA_coords: %s", subsetA_coords)
         logger.debug("subsetB_elems: %s", subsetB_elems)
         logger.debug("subsetB_coords: %s", subsetB_coords)
     elif heavyatomsonly is True:
-        subsetA_coords = fragmentA.coords[fragmentA.get_nonH_atomindices()]
-        subsetB_coords = fragmentB.coords[fragmentB.get_nonH_atomindices()]
+        subsetA_coords = fragment_a.coords[fragment_a.get_non_h_atomindices()]
+        subsetB_coords = fragment_b.coords[fragment_b.get_non_h_atomindices()]
 
     else:
-        subsetA_coords = fragmentA.coords
-        subsetB_coords = fragmentB.coords
+        subsetA_coords = fragment_a.coords
+        subsetB_coords = fragment_b.coords
 
     # Use geometric function to get translation and rotation matrices for the subsets
     import geometric
@@ -2634,7 +2640,7 @@ def calculate_RMSD(fragmentA, fragmentB, subset=None, heavyatomsonly=False, writ
 
     if write_aligned_structure:
         logger.info("write_aligned_structure active")
-        newfrag = Fragment(elems=fragmentA.elems, coords=Anew)
+        newfrag = Fragment(elems=fragment_a.elems, coords=Anew)
         newfrag.write_xyzfile("structA_aligned.xyz")
 
     return rmsdval
@@ -2710,7 +2716,7 @@ def reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
 
 
 # QM-region expand function. Finds whole fragments.
-def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
+def expand_qm_region(fragment=None, initial_atoms=None, radius=None):
     # If needed (connectivity ==0):
     scale = CONNECTIVITY_SCALE
     tol = CONNECTIVITY_TOL
@@ -2751,14 +2757,14 @@ def QMregionfragexpand(fragment=None, initial_atoms=None, radius=None):
 
 
 # Function to do QM-region expansion based on QM/MM pointcharge gradient
-def QMPC_fragexpand(theory=None, fragment=None, thresh=5e-4):
+def expand_qm_pc_region(theory=None, fragment=None, thresh=5e-4):
     if theory is None and fragment is None:
         raise InputError("QMPC_fragexpand requires fragment and theory")
     if not isinstance(theory, openmmqmmm.QMMMTheory):
         raise InputError("Theory is not a QMMMTheory")
 
     # QM/MM run
-    openmmqmmm.Singlepoint(theory=theory, fragment=fragment, Grad=True)
+    openmmqmmm.single_point(theory=theory, fragment=fragment, grad=True)
 
     # Selection scheme based on pointcharge gradient
     pcgrad = theory.PCgradient
@@ -2781,7 +2787,7 @@ def QMPC_fragexpand(theory=None, fragment=None, thresh=5e-4):
     logger.info("New QM-region expansion based on pointcharge gradient selection")
     fragment.print_coords_for_atoms(new_expansion, labels=new_expansion)
     logger.info("Writing coordinates to file: QMPC_selection.xyz")
-    fragment.write_XYZ_for_atoms(xyzfilename="QMPC_selection.xyz", atoms=new_expansion)
+    fragment.write_xyz_for_atoms(xyzfilename="QMPC_selection.xyz", atoms=new_expansion)
 
     return new_expansion
 
@@ -2843,7 +2849,7 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
                 )
                 if unusualboundary is False:
                     raise InputError(
-                        "Make sure you know what you are doing (also note that ASH counts atoms from 0 not 1). Exiting.\nTo override exit, add: unusualboundary=True  to QMMMTheory object"
+                        "Make sure you know what you are doing (note that atoms are counted from 0, not 1). Exiting.\nTo override exit, add: unusualboundary=True  to QMMMTheory object"
                     )
             # Adding to dict
             qm_mm_boundary_dict[qmatom] = [boundaryatom[0]]
@@ -2941,10 +2947,10 @@ def get_linkatom_positions(
 
 
 # Grabbing molecules from multi-XYZ trajectory file (can be MD-file, optimization traj etc).
-# Creating ASH fragments for each conformer
+# Creating fragments for each conformer
 def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=False):
     logger.info(small_header("Get molecules from trajectory"))
-    logger.info("Finding molecules/snapshots in multi-XYZ trajectory file and creating ASH fragments...")
+    logger.info("Finding molecules/snapshots in multi-XYZ trajectory file and creating fragments...")
     logger.info(f"Taking every {skipindex}th entry")
     list_of_molecules = []
     all_elems, all_coords, _all_titles = split_multimolxyzfile(
@@ -2959,7 +2965,7 @@ def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=Fa
 
 
 # Get list of lists of water constraints in system (O-H,O-H,H-H) via OpenMM theory
-def getwaterconstraintslist(openmmtheoryobject=None, atomlist=None, watermodel="tip3p"):
+def get_water_constraints(openmmtheoryobject=None, atomlist=None, watermodel="tip3p"):
     logger.info("Inside getwaterconstraintslist")
     if openmmtheoryobject is None or atomlist is None:
         raise InputError("getwaterconstraintslist requires openmmtheoryobject and atomlist to be set")
@@ -3075,7 +3081,7 @@ def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000):
 
 # Define XH bond constraints for a given fragment and a set of atomindices (e.g. an active region)
 # and an optional exclusion list (e.g. QM-region)
-def define_XH_constraints(fragment, actatoms=None, excludeatoms=None):
+def define_xh_constraints(fragment, actatoms=None, excludeatoms=None):
     logger.info("Inside define_XH_constraints function")
     if actatoms is None:
         subset_elems = fragment.elems
@@ -3185,7 +3191,7 @@ def combine_and_place_fragments(ref_frag, trans_frag):
     return combined_solute
 
 
-# Simple function to combine 2 ASH fragments where one is assumed to be a solute (fewer atoms) and the other assumed to be
+# Simple function to combine 2 fragments where one is assumed to be a solute (fewer atoms) and the other assumed to be
 # some kind of solvent system (box,sphere etc.)
 # Use tolerance (tol) e.g. to control how many solvent molecules around get deleted
 # Currently using 0.4 as default based on threonine in acetonitrile example
@@ -3201,7 +3207,7 @@ def insert_solute_into_solvent(
     solute2_pdb=None,
     solvent_pdb=None,
     outputname="solution.pdb",
-    write_PBC_info=True,
+    write_pbc_info=True,
 ):
     logger.info("\ninsert_solute_into_solvent\n")
     # Early exits
@@ -3329,7 +3335,7 @@ def insert_solute_into_solvent(
             logger.info("Num bonds in topology: %s", modeller.topology.getNumBonds())
 
         # PBC info
-        if write_PBC_info:
+        if write_pbc_info:
             logger.info("write_PBC_info True: Writing PBC to header of PDB-file")
             if solvent_box_vectors is not None:
                 logger.info("PBC vectors found in solvent PDB-file: %s", solvent_box_vectors)
@@ -3337,7 +3343,7 @@ def insert_solute_into_solvent(
                 modeller.topology.setPeriodicBoxVectors(solvent_box_vectors)
 
         # Write merged topology and positions to new PDB file
-        openmmqmmm.openmm.write_pdbfile_openMM(modeller.topology, mergedPositions, outputname)
+        openmmqmmm.openmm.write_pdbfile_openmm_topology(modeller.topology, mergedPositions, outputname)
     return new_frag
 
 

@@ -3,16 +3,16 @@ import os
 
 import numpy as np
 
+from openmmqmmm.coords import Fragment, write_xyzfile
 from openmmqmmm.exceptions import (
     InputError,
     MissingDependencyError,
 )
-from openmmqmmm.coords import Fragment, write_xyzfile
 
 logger = logging.getLogger(__name__)
 
 
-def MDtraj_import():
+def mdtraj_load():
     logger.info("Importing mdtraj (https://www.mdtraj.org)")
     try:
         import mdtraj
@@ -23,10 +23,10 @@ def MDtraj_import():
     return mdtraj
 
 
-def MDtraj_RMSF(trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True):
+def mdtraj_rmsf(trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True):
     logger.info("Inside MDtraj_RMSF")
     # Import mdtraj library
-    mdtraj = MDtraj_import()
+    mdtraj = mdtraj_load()
 
     # Load trajectory
     logger.info("Loading trajectory using mdtraj.")
@@ -52,10 +52,10 @@ def MDtraj_RMSF(trajectory, pdbtopology, print_largest_values=True, threshold=0.
     return large_rmsf_indices
 
 
-def MDtraj_RMSD(trajectory, pdbtopology, atom_indices=None, parallel=True):
+def mdtraj_rmsd(trajectory, pdbtopology, atom_indices=None, parallel=True):
     logger.info("Inside MDtraj_RMSD")
     # Import mdtraj library
-    mdtraj = MDtraj_import()
+    mdtraj = mdtraj_load()
 
     # Load trajectory
     logger.info("Loading trajectory using mdtraj.")
@@ -68,7 +68,7 @@ def MDtraj_RMSD(trajectory, pdbtopology, atom_indices=None, parallel=True):
 
 
 # anchor_molecules. Use if automatic guess fails
-def MDtraj_imagetraj(
+def mdtraj_image_trajectory(
     trajectory, pdbtopology, traj_format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
 ):
     # Trajectory basename
@@ -77,7 +77,7 @@ def MDtraj_imagetraj(
     pdb_basename = os.path.splitext(pdbtopology)[0]
 
     # Import mdtraj library
-    mdtraj = MDtraj_import()
+    mdtraj = mdtraj_load()
 
     # Load trajectory
     logger.info("Loading trajectory using mdtraj.")
@@ -119,7 +119,7 @@ def MDtraj_imagetraj(
     # Save PDB-snapshot
     pdbsnap_imaged.save(pdb_basename + "_imaged.pdb")
     logger.info("Saved reimaged PDB-file: %s", pdb_basename + "_imaged.pdb")
-    # Return last frame as coords or ASH fragment ?
+    # Return last frame as coords or fragment ?
     # Last frame coordinates as Angstrom
     lastframe = imaged[-1]._xyz[-1] * 10
 
@@ -128,14 +128,14 @@ def MDtraj_imagetraj(
 
 # Slicing trajectory. Mostly to grab specific snapshot
 # TODO: allow option to grab by ps? Requires information about timestep and traj-frequency
-def MDtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
+def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
     # Trajectory basename
     traj_basename = os.path.basename(os.path.splitext(trajectory)[0])
     logger.info("traj_basename: %s", traj_basename)
     # os.path.basename(
 
     # Import mdtraj library
-    mdtraj = MDtraj_import()
+    mdtraj = mdtraj_load()
 
     # Load trajectory
     logger.info("Loading trajectory using mdtraj.")
@@ -206,7 +206,7 @@ def MDtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
 
 # Function to get internal coordinates from trajectory fast
 # Give trajectory file
-def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=None):
+def mdtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=None):
     logger.info("Inside MDtraj_coord_analyze")
     if indices is None:
         raise InputError("indices needs to be set")
@@ -214,7 +214,7 @@ def MDtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=No
     logger.info("Topology: %s", pdbtopology)
     logger.info("Atom indices: %s", indices)
     # Import mdtraj library
-    mdtraj = MDtraj_import()
+    mdtraj = mdtraj_load()
 
     if pdbtopology is None:
         logger.info("A topology is required but was not provided")

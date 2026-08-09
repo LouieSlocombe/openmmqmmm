@@ -6,17 +6,16 @@ import shutil
 import subprocess as sp
 import time
 
+from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.exceptions import (
     ExternalProgramError,
     InputError,
     MissingDependencyError,
     OpenMMQMMMError,
 )
-from openmmqmmm.utils import sub_header
-from openmmqmmm.geometric import GeomeTRICOptimizerClass
-from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.qmmm import QMMMTheory
-from openmmqmmm.results import ASH_Results
+from openmmqmmm.results import Results
+from openmmqmmm.utils import sub_header
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 ###############################################
 # CHECKS FOR OPENMPI
 ###############################################
-def check_OpenMPI():
+def check_openmpi():
     # Find mpirun and take path
     try:
         openmpibindir = os.path.dirname(shutil.which("mpirun"))
@@ -34,11 +33,11 @@ def check_OpenMPI():
         ) from None
     logger.info("OpenMPI binary directory found: %s", openmpibindir)
     # Test that mpirun is executable and grab OpenMPI version number for printout
-    test_OpenMPI()
+    verify_openmpi()
     return
 
 
-def test_OpenMPI():
+def verify_openmpi():
     logger.info("Testing that mpirun is executable...")
     p = sp.Popen(["mpirun", "-V"], stdout=sp.PIPE)
     out, _err = p.communicate()
@@ -90,26 +89,26 @@ def import_mp(version="multiprocessing"):
 
 
 # Used to be Singlepoint_parallel. Default behaviour is single-point
-def Job_parallel(
+def job_parallel(
     fragments=None,
     fragmentfiles=None,
     theories=None,
     numcores=None,
     mofilesdir=None,
     allow_theory_parallelization=False,
-    Grad=False,
+    grad=False,
     copytheory=False,
     version="multiprocessing",
-    Opt=False,
+    opt=False,
     optimizer=None,
 ):
     """
     The Job_parallel function carries out multiple single-point or opt calculations in a parallel fashion
     :param fragments:
-    :type list: list of ASH objects of class Fragment
-    :type list: list of ASH fragmentfiles (strings)
+    :type list: list of Fragment objects
+    :type list: list of fragment files (strings)
     :param theories:
-    :type list: list of ASH theory objects
+    :type list: list of theory objects
     :param Grad: whether to do Gradient or not.
     :type Grad: Boolean.
     """
@@ -119,13 +118,15 @@ def Job_parallel(
     logger.info("copytheory: %s", copytheory)
 
     # OPT
-    if Opt is True:
+    if opt is True:
         logger.info("Job_parallel: Opt is True. This is an Opt_parallel job")
         if optimizer is None:
             logger.info("Job_parallel needs optimizer object which was not provided.")
             logger.info("Creating one")
+            from openmmqmmm.geometric import GeometricOptimizer
+
             # No options easily provided. Unclear if this is a good idea
-            optimizer = GeomeTRICOptimizerClass()
+            optimizer = GeometricOptimizer()
     # SP
     else:
         logger.info("Job_parallel: No Opt. This is a Singlepoint_parallel job")
@@ -144,7 +145,7 @@ def Job_parallel(
 
     # Early exits
     if fragments is None and fragmentfiles is None:
-        raise InputError("Job_parallel requires a list of ASH fragments or a list of fragmentfilenames")
+        raise InputError("Job_parallel requires a list of fragments or a list of fragmentfilenames")
     if theories is None or numcores is None:
         raise InputError(
             f"theories: {theories}\nnumcores: {numcores}\nJob_parallel requires a theory object and a numcores value"
@@ -167,7 +168,7 @@ def Job_parallel(
     mp, Pool = import_mp(version=version)
 
     # Function to handle exception of child processes
-    def Terminate_Pool_processes(message):
+    def terminate_pool_processes(message):
         logger.error("Terminating Pool processes due to exception")
         logger.error("Exception message: %s", message)
         pool.terminate()
@@ -190,7 +191,7 @@ def Job_parallel(
         logger.info("")
         logger.info("Launching pool.apply_async:")
         logger.warning("Job_parallel numcores set to: %s", numcores)
-        logger.warning(f"ASH will run {numcores} jobs simultaneously")
+        logger.warning(f"openmmqmmm will run {numcores} jobs simultaneously")
 
         # Whether to allow theory parallelization or not
         if theory.numcores != 1:
@@ -215,7 +216,7 @@ def Job_parallel(
                 logger.info("fragment: %s", fragment)
                 results.append(
                     pool.apply_async(
-                        Worker_par,
+                        worker_par,
                         kwds={
                             "theory": theory,
                             "fragment": fragment,
@@ -223,21 +224,21 @@ def Job_parallel(
                             "mofilesdir": mofilesdir,
                             "version": version,
                             "event": event,
-                            "Grad": Grad,
+                            "Grad": grad,
                             "copytheory": copytheory,
                             "optimizer": optimizer,
                         },
-                        error_callback=Terminate_Pool_processes,
+                        error_callback=terminate_pool_processes,
                     )
                 )
         # Passing list of fragment files
         elif len(fragmentfiles) > 0:
-            logger.info("Launching multiprocessing and passing list of ASH fragmentfiles")
+            logger.info("Launching multiprocessing and passing list of fragment files")
             for fragmentfile in fragmentfiles:
                 logger.info("fragmentfile: %s", fragmentfile)
                 results.append(
                     pool.apply_async(
-                        Worker_par,
+                        worker_par,
                         kwds={
                             "theory": theory,
                             "fragmentfile": fragmentfile,
@@ -245,11 +246,11 @@ def Job_parallel(
                             "mofilesdir": mofilesdir,
                             "version": version,
                             "event": event,
-                            "Grad": Grad,
+                            "Grad": grad,
                             "copytheory": copytheory,
                             "optimizer": optimizer,
                         },
-                        error_callback=Terminate_Pool_processes,
+                        error_callback=terminate_pool_processes,
                     )
                 )
     # Case: Multiple theories, 1 fragment
@@ -260,7 +261,7 @@ def Job_parallel(
             logger.info("theory: %s", theory)
             results.append(
                 pool.apply_async(
-                    Worker_par,
+                    worker_par,
                     kwds={
                         "theory": theory,
                         "fragment": fragment,
@@ -268,11 +269,11 @@ def Job_parallel(
                         "mofilesdir": mofilesdir,
                         "version": version,
                         "event": event,
-                        "Grad": Grad,
+                        "Grad": grad,
                         "copytheory": copytheory,
                         "optimizer": optimizer,
                     },
-                    error_callback=Terminate_Pool_processes,
+                    error_callback=terminate_pool_processes,
                 )
             )
     # Case: Multiple theories, 1 fragmentfile
@@ -283,7 +284,7 @@ def Job_parallel(
             logger.info("theory: %s", theory)
             results.append(
                 pool.apply_async(
-                    Worker_par,
+                    worker_par,
                     kwds={
                         "theory": theory,
                         "fragmentfile": fragmentfile,
@@ -291,11 +292,11 @@ def Job_parallel(
                         "mofilesdir": mofilesdir,
                         "version": version,
                         "event": event,
-                        "Grad": Grad,
+                        "Grad": grad,
                         "copytheory": copytheory,
                         "optimizer": optimizer,
                     },
-                    error_callback=Terminate_Pool_processes,
+                    error_callback=terminate_pool_processes,
                 )
             )
     else:
@@ -330,8 +331,8 @@ def Job_parallel(
     dipole_dict = {}
     polarizability_dict = {}
 
-    final_result = ASH_Results(label="Job_parallel", energies=[], gradients=[])
-    if Grad is True:
+    final_result = Results(label="Job_parallel", energies=[], gradients=[])
+    if grad is True:
         gradient_dict = {}
         for _i, r in enumerate(results):
             if r.ready():
@@ -378,7 +379,7 @@ def Job_parallel(
 # Worker_par for both Singlepoint-type and Opt-type jobs
 # NOTE: Version intended for apply_async
 # TODO: This function contains 2 many QM-code specifics. Needs to be generalized (QM-specifics moved to QMtheory class)
-def Worker_par(
+def worker_par(
     fragment=None,
     fragmentfile=None,
     theory=None,
@@ -387,7 +388,7 @@ def Worker_par(
     event=None,
     charge=None,
     mult=None,
-    Grad=False,
+    grad=False,
     copytheory=False,
     optimizer=None,
     version="multiprocessing",
@@ -496,9 +497,9 @@ def Worker_par(
         result = optimizer_new.run(theory=theory, fragment=fragment, charge=charge, mult=mult)
         energy = result.energy
     # Singlepoint Grad
-    elif Grad:
+    elif grad:
         energy, gradient = theory.run(
-            current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult, Grad=Grad
+            current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult, grad=grad
         )
 
         # Dipole and polarizability
@@ -528,7 +529,7 @@ def Worker_par(
     os.chdir("..")
 
     # Return label and energy or label, energy and gradient. Also worker_dirname
-    if Grad:
+    if grad:
         return (label, energy, gradient, worker_dirname, properties)
     else:
         return (label, energy, worker_dirname, properties)
@@ -537,7 +538,7 @@ def Worker_par(
 # Simple parallel function for cases where no file handling is needed.
 # parameter_dict: dict of input keywords for jobfunction
 # separate_dirs: creates and enters separate dirs per process
-def Simple_parallel(
+def simple_parallel(
     jobfunction=None,
     parameter_dict=None,
     separate_dirs=False,
@@ -564,7 +565,7 @@ def Simple_parallel(
     event = manager.Event()
 
     # Function to handle exception of child processes
-    def Terminate_Pool_processes(message):
+    def terminate_pool_processes(message):
         logger.error("Terminating Pool processes due to exception")
         logger.error("Exception message: %s", message)
         pool.terminate()
@@ -600,7 +601,7 @@ def Simple_parallel(
         logger.info("parameter_dict_new: %s", parameter_dict_new)
         # Calling apply_async.
         results.append(
-            (process, pool.apply_async(jobfunction, kwds=parameter_dict_new, error_callback=Terminate_Pool_processes))
+            (process, pool.apply_async(jobfunction, kwds=parameter_dict_new, error_callback=terminate_pool_processes))
         )
 
     # CLOSING POOL

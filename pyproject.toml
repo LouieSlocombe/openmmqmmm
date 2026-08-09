@@ -56,7 +56,7 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "I", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB", "PLE", "PLW", "BLE", "T20", "G", "LOG"]
+select = ["F", "E", "W", "I", "N", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB", "PLE", "PLW", "BLE", "T20", "G", "LOG"]
 ignore = [
     # The formatter owns line wrapping; long scientific strings exist
     "E501",
@@ -64,11 +64,19 @@ ignore = [
     "PLW2901",
     # f-strings in log calls are fine: the messages are the calculation record
     "G004",
+    # Uppercase locals are idiomatic in the physics-heavy code
+    "N806",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests use star imports until the API-rename phase makes imports explicit
-"openmmqmmm/tests/*" = ["F403", "F405", "T20"]
+# Tests may print
+"openmmqmmm/tests/*" = ["T20"]
+# __all__ is grouped semantically, not alphabetically
+"openmmqmmm/__init__.py" = ["RUF022"]
+# Mathematical/physics argument notation (A, B, C, T, Qcoord, Lgrad, ...)
+"openmmqmmm/coords.py" = ["N803"]
+"openmmqmmm/freq.py" = ["N803"]
+"openmmqmmm/qmmm.py" = ["N803"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["openmmqmmm"]

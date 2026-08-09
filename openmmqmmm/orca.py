@@ -9,9 +9,10 @@ import time
 import numpy as np
 
 import openmmqmmm.constants
+import openmmqmmm.coords
 import openmmqmmm.elstructure
 import openmmqmmm.parallel
-import openmmqmmm.coords
+from openmmqmmm.coords import _print_internal_coordinate_table, check_charge_mult
 from openmmqmmm.exceptions import (
     ExternalProgramError,
     FileFormatError,
@@ -26,7 +27,6 @@ from openmmqmmm.utils import (
     pygrep2,
     search_list_of_lists_for_index,
 )
-from openmmqmmm.coords import check_charge_mult, print_internal_coordinate_table_new
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +42,14 @@ class ORCATheory:
         extrabasis=None,
         atom_specific_basis_dict=None,
         ecp_dict=None,
-        TDDFT=False,
-        TDDFTroots=5,
-        FollowRoot=1,
+        tddft=False,
+        tddft_roots=5,
+        follow_root=1,
         orcablocks="",
         extraline="",
         first_iteration_input=None,
         brokensym=None,
-        HSmult=None,
+        hs_mult=None,
         atomstoflip=None,
         numcores=1,
         nprocs=None,
@@ -57,7 +57,7 @@ class ORCATheory:
         moreadfile=None,
         moreadfile_always=False,
         bind_to_core_option=True,
-        ignore_ORCA_error=False,
+        ignore_orca_error=False,
         autostart=True,
         propertyblock=None,
         save_output_with_label=False,
@@ -71,14 +71,14 @@ class ORCATheory:
         xdm_a1=None,
         xdm_a2=None,
         xdm_func=None,
-        NMF=False,
-        NMF_sigma=None,
+        nmf=False,
+        nmf_sigma=None,
         cpcm_radii=None,
-        ROHF_UHF_swap=False,
-        deltaSCF=False,
-        deltaSCF_PMOM=False,
-        deltaSCF_confline=None,
-        deltaSCF_turn_off_automatically=True,
+        rohf_uhf_swap=False,
+        delta_scf=False,
+        delta_scf_pmom=False,
+        delta_scf_confline=None,
+        delta_scf_turn_off_automatically=True,
     ):
         logger.info(main_header("ORCATheory initialization"))
 
@@ -93,7 +93,7 @@ class ORCATheory:
             logger.info(
                 f"ORCA parallel job requested with numcores: {numcores} . Make sure that the correct OpenMPI version (for the ORCA version) is available in your environment"
             )
-            openmmqmmm.parallel.check_OpenMPI()
+            openmmqmmm.parallel.check_openmpi()
 
         # Bind to core option when calling ORCA: i.e. execute: /path/to/orca file.inp "--bind-to none"
         # TODO: Default False; make True?
@@ -136,7 +136,7 @@ class ORCATheory:
         self.filename = filename
 
         # Whether to exit ORCA if subprocess command faile
-        self.ignore_ORCA_error = ignore_ORCA_error
+        self.ignore_orca_error = ignore_orca_error
 
         # MOREAD-file
         self.moreadfile = moreadfile
@@ -150,9 +150,9 @@ class ORCATheory:
         # Printlevel
 
         # TDDFT
-        self.TDDFT = TDDFT
-        self.TDDFTroots = TDDFTroots
-        self.FollowRoot = FollowRoot
+        self.tddft = tddft
+        self.tddft_roots = tddft_roots
+        self.follow_root = follow_root
 
         # Setting numcores of object
         # NOTE: nprocs is deprecated but kept on for a bit
@@ -185,7 +185,7 @@ class ORCATheory:
 
         # BROKEN SYM OPTIONS
         self.brokensym = brokensym
-        self.HSmult = HSmult
+        self.hs_mult = hs_mult
         if isinstance(atomstoflip, int):
             raise InputError(
                 "Error: atomstoflip should be list of integers (e.g. [0] or [2,3,5]), not a single integer."
@@ -199,13 +199,13 @@ class ORCATheory:
         else:
             self.atomstoflip = []
         # DELTASCF
-        self.deltaSCF = deltaSCF
-        self.deltaSCF_PMOM = deltaSCF_PMOM
-        self.deltaSCF_confline = deltaSCF_confline
-        self.deltaSCF_turn_off_automatically = deltaSCF_turn_off_automatically
-        if self.deltaSCF is True and self.deltaSCF_confline is None:
+        self.delta_scf = delta_scf
+        self.delta_scf_pmom = delta_scf_pmom
+        self.delta_scf_confline = delta_scf_confline
+        self.delta_scf_turn_off_automatically = delta_scf_turn_off_automatically
+        if self.delta_scf is True and self.delta_scf_confline is None:
             raise InputError("Error: DELTASCF is True but no deltaSCF_confline provided. Exiting")
-        if self.deltaSCF is True:
+        if self.delta_scf is True:
             logger.info("DeltaSCF True, turning on population analysis printing")
             self.print_population_analysis = True
 
@@ -241,15 +241,15 @@ class ORCATheory:
         self.keep_last_output = True
 
         # NMF
-        self.NMF = NMF
-        if self.NMF is True:
-            if NMF_sigma is None:
+        self.nmf = nmf
+        if self.nmf is True:
+            if nmf_sigma is None:
                 raise InputError("NMF option requires setting NMF_sigma")
-            self.NMF_sigma = NMF_sigma
+            self.nmf_sigma = nmf_sigma
 
             logger.info("NMF option is active. Will activate Fermi-smearing in ORCA input!")
-            NMF_smeartemp = self.NMF_sigma / openmmqmmm.constants.R_gasconst
-            logger.info(f"NMF_smeartemp = {NMF_smeartemp} calculated from NMF_sigma: {self.NMF_sigma}:")
+            NMF_smeartemp = self.nmf_sigma / openmmqmmm.constants.R_gasconst
+            logger.info(f"NMF_smeartemp = {NMF_smeartemp} calculated from NMF_sigma: {self.nmf_sigma}:")
             self.orcablocks = (
                 self.orcablocks
                 + f"""
@@ -262,18 +262,18 @@ end
 
         # TDDFT option
         # If gradient requested by Singlepoint(Grad=True) or Optimizer then TDDFT gradient is calculated instead
-        if self.TDDFT is True and "%tddft" not in self.orcablocks:
+        if self.tddft is True and "%tddft" not in self.orcablocks:
             self.orcablocks = (
                 self.orcablocks
                 + f"""
 %tddft
-nroots {self.TDDFTroots}
-IRoot {self.FollowRoot}
+nroots {self.tddft_roots}
+IRoot {self.follow_root}
 end
 """
             )
         # ROHF-UHF swap
-        self.ROHF_UHF_swap = ROHF_UHF_swap
+        self.rohf_uhf_swap = rohf_uhf_swap
 
         # Specific CPCM radii. e.g. to use DRACO radii
         if cpcm_radii is not None:
@@ -331,8 +331,8 @@ end
         except FileNotFoundError:
             pass
 
-    # Do an ORCA-optimization instead of ASH optimization. Useful for gas-phase chemistry when ORCA-optimizer is better than geomeTRIC
-    def Opt(self, fragment=None, Grad=None, Hessian=None, numcores=None, charge=None, mult=None):
+    # Do an ORCA-optimization instead of geomeTRIC optimization. Useful for gas-phase chemistry when ORCA-optimizer is better than geomeTRIC
+    def opt(self, fragment=None, grad=None, hessian=None, numcores=None, charge=None, mult=None):
 
         module_init_time = time.time()
         logger.info("------------RUNNING INTERNAL ORCA OPTIMIZATION-------------")
@@ -379,26 +379,26 @@ end
             charge,
             mult,
             extraline=self.extraline,
-            HSmult=self.HSmult,
+            hs_mult=self.hs_mult,
             moreadfile=self.moreadfile,
         )
         logger.info(f"ORCA Calculation started using {numcores} CPU cores")
-        run_orca_SP_ORCApar(
+        run_orca_sp_parallel(
             self.orcadir,
             self.filename + ".inp",
             numcores=numcores,
             bind_to_core_option=self.bind_to_core_option,
-            ignore_ORCA_error=self.ignore_ORCA_error,
+            ignore_orca_error=self.ignore_orca_error,
         )
         logger.info("ORCA Calculation done.")
 
         outfile = self.filename + ".out"
-        ORCAfinished, _iter = checkORCAfinished(outfile)
+        ORCAfinished, _iter = check_orca_finished(outfile)
         if ORCAfinished:
             logger.info("ORCA job finished")
-            if checkORCAOptfinished(outfile):
+            if check_orca_opt_finished(outfile):
                 logger.info("ORCA geometry optimization finished")
-                self.energy = ORCAfinalenergygrab(outfile)
+                self.energy = grab_orca_final_energy(outfile)
                 # Grab optimized coordinates from filename.xyz
                 _opt_elems, opt_coords = openmmqmmm.coords.read_xyzfile(self.filename + ".xyz")
                 logger.info("%s", opt_coords)
@@ -410,14 +410,14 @@ end
             raise ExternalProgramError("Something happened with ORCA job. Check ORCA output")
 
         logger.info("ORCA optimized energy: %s", self.energy)
-        logger.info("ASH fragment updated: %s", fragment)
+        logger.info("fragment updated: %s", fragment)
         fragment.print_coords()
         # Writing out fragment file and XYZ file
-        fragment.print_system(filename="Fragment-optimized.ygg")
+        fragment.print_system(filename="fragment_optimized.frag")
         fragment.write_xyzfile(xyzfilename="Fragment-optimized.xyz")
 
         # Printing internal coordinate table
-        print_internal_coordinate_table_new(fragment)
+        _print_internal_coordinate_table(fragment)
         log_time_since(module_init_time, "ORCA Opt-run")
         return
 
@@ -440,13 +440,13 @@ end
         current_coords=None,
         charge=None,
         mult=None,
-        current_MM_coords=None,
-        MMcharges=None,
+        current_mm_coords=None,
+        mm_charges=None,
         qm_elems=None,
         elems=None,
-        Grad=False,
-        Hessian=False,
-        PC=False,
+        grad=False,
+        hessian=False,
+        pc=False,
         numcores=None,
         label=None,
     ):
@@ -582,9 +582,9 @@ end"""
         logger.info(f"Charge: {charge}  Mult: {mult}")
         # Printing extra options chosen:
         if self.brokensym is True:
-            logger.info(f"Brokensymmetry SpinFlipping on! HSmult: {self.HSmult}.")
+            logger.info(f"Brokensymmetry SpinFlipping on! HSmult: {self.hs_mult}.")
 
-            if self.HSmult is None:
+            if self.hs_mult is None:
                 raise InputError("Error:HSmult keyword in ORCATheory has not been set. This is required. Exiting.")
             if len(qmatomstoflip) == 0:
                 raise InputError("Error: atomstoflip keyword needs to be set. This is required. Exiting.")
@@ -593,15 +593,15 @@ end"""
                 logger.info(f"Flipping atom: {flipatom} QMregionindex: {qmflipatom} Element: {qm_elems[qmflipatom]}")
         # DeltaSCF
         deltascfblock = None
-        if self.deltaSCF is True:
+        if self.delta_scf is True:
             logger.info("DeltaSCF option chosen. Will attempt MOM excited state SCF solution in first run")
-            logger.info("DeltaSCF PMOM: %s", self.deltaSCF_PMOM)
-            logger.info("Configuration line: %s", self.deltaSCF_confline)
+            logger.info("DeltaSCF PMOM: %s", self.delta_scf_pmom)
+            logger.info("Configuration line: %s", self.delta_scf_confline)
             if mult == 1 and "UKS" not in self.orcasimpleinput and "UHF" not in self.orcasimpleinput:
                 logger.info("Warning: Singlet DeltaSCF calculation requested but no UKS/UHF keyword present.")
                 logger.info("Only doubly excited SCF states can be found ")
 
-            deltascfblock = f"! DELTASCF \n%scf\n PMOM {self.deltaSCF_PMOM} \n {self.deltaSCF_confline}\nend"
+            deltascfblock = f"! DELTASCF \n%scf\n PMOM {self.delta_scf_pmom} \n {self.delta_scf_confline}\nend"
 
         if self.extrabasis != "":
             logger.info(f"Using extra basis ({self.extrabasis}) on QM-region indices : {qmatoms_extrabasis}")
@@ -612,9 +612,9 @@ end"""
         if self.fragment_indices:
             logger.info("List of fragment indices defined: %s", fragment_indices)
 
-        if PC is True:
+        if pc is True:
             logger.info("Pointcharge embedding is on!")
-            create_orca_pcfile(self.filename, current_MM_coords, MMcharges)
+            create_orca_pcfile(self.filename, current_mm_coords, mm_charges)
             if self.brokensym is True:
                 create_orca_input_pc(
                     self.filename,
@@ -625,9 +625,9 @@ end"""
                     charge,
                     mult,
                     extraline=extraline,
-                    HSmult=self.HSmult,
-                    Grad=Grad,
-                    Hessian=Hessian,
+                    hs_mult=self.hs_mult,
+                    grad=grad,
+                    hessian=hessian,
                     moreadfile=self.moreadfile,
                     atomstoflip=qmatomstoflip,
                     extrabasisatoms=qmatoms_extrabasis,
@@ -635,8 +635,8 @@ end"""
                     propertyblock=self.propertyblock,
                     fragment_indices=fragment_indices,
                     atom_specific_basis_dict=self.atom_specific_basis_dict,
-                    ROHF_UHF_swap=self.ROHF_UHF_swap,
-                    deltaSCFblock=deltascfblock,
+                    rohf_uhf_swap=self.rohf_uhf_swap,
+                    delta_scf_block=deltascfblock,
                 )
             else:
                 create_orca_input_pc(
@@ -648,16 +648,16 @@ end"""
                     charge,
                     mult,
                     extraline=extraline,
-                    Grad=Grad,
-                    Hessian=Hessian,
+                    grad=grad,
+                    hessian=hessian,
                     moreadfile=self.moreadfile,
                     extrabasisatoms=qmatoms_extrabasis,
                     extrabasis=self.extrabasis,
                     propertyblock=self.propertyblock,
                     fragment_indices=fragment_indices,
                     atom_specific_basis_dict=self.atom_specific_basis_dict,
-                    ROHF_UHF_swap=self.ROHF_UHF_swap,
-                    deltaSCFblock=deltascfblock,
+                    rohf_uhf_swap=self.rohf_uhf_swap,
+                    delta_scf_block=deltascfblock,
                 )
         else:
             if self.brokensym is True:
@@ -670,9 +670,9 @@ end"""
                     charge,
                     mult,
                     extraline=extraline,
-                    HSmult=self.HSmult,
-                    Grad=Grad,
-                    Hessian=Hessian,
+                    hs_mult=self.hs_mult,
+                    grad=grad,
+                    hessian=hessian,
                     moreadfile=self.moreadfile,
                     atomstoflip=qmatomstoflip,
                     extrabasisatoms=qmatoms_extrabasis,
@@ -680,10 +680,10 @@ end"""
                     propertyblock=self.propertyblock,
                     ghostatoms=self.ghostatoms,
                     dummyatoms=self.dummyatoms,
-                    ROHF_UHF_swap=self.ROHF_UHF_swap,
+                    rohf_uhf_swap=self.rohf_uhf_swap,
                     fragment_indices=fragment_indices,
                     atom_specific_basis_dict=self.atom_specific_basis_dict,
-                    deltaSCFblock=deltascfblock,
+                    delta_scf_block=deltascfblock,
                 )
             else:
                 create_orca_input_plain(
@@ -695,31 +695,31 @@ end"""
                     charge,
                     mult,
                     extraline=extraline,
-                    Grad=Grad,
-                    Hessian=Hessian,
+                    grad=grad,
+                    hessian=hessian,
                     moreadfile=self.moreadfile,
                     extrabasisatoms=qmatoms_extrabasis,
                     extrabasis=self.extrabasis,
                     propertyblock=self.propertyblock,
                     ghostatoms=self.ghostatoms,
                     dummyatoms=self.dummyatoms,
-                    ROHF_UHF_swap=self.ROHF_UHF_swap,
+                    rohf_uhf_swap=self.rohf_uhf_swap,
                     fragment_indices=fragment_indices,
                     atom_specific_basis_dict=self.atom_specific_basis_dict,
-                    deltaSCFblock=deltascfblock,
+                    delta_scf_block=deltascfblock,
                 )
 
         # Run inputfile using ORCA parallelization. Take numcores argument.
         logger.info("ORCA Calculation starting.")
 
-        run_orca_SP_ORCApar(
+        run_orca_sp_parallel(
             self.orcadir,
             self.filename + ".inp",
             numcores=numcores,
             bind_to_core_option=self.bind_to_core_option,
             check_for_errors=self.check_for_errors,
             check_for_warnings=self.check_for_warnings,
-            ignore_ORCA_error=self.ignore_ORCA_error,
+            ignore_orca_error=self.ignore_orca_error,
         )
         logger.info("ORCA Calculation done.")
 
@@ -728,8 +728,8 @@ end"""
         pcgradfile = self.filename + ".pcgrad"
 
         # Checking if finished.
-        if self.ignore_ORCA_error is False:
-            ORCAfinished, numiterations = checkORCAfinished(outfile)
+        if self.ignore_orca_error is False:
+            ORCAfinished, numiterations = check_orca_finished(outfile)
             # Check if ORCA finished or not. Exiting if so
             if ORCAfinished is False:
                 logger.error("Problem with ORCA run")
@@ -743,7 +743,7 @@ end"""
         else:
             logger.info("There was an ORCA error that was ignored by user-input")
 
-        if self.ROHF_UHF_swap:
+        if self.rohf_uhf_swap:
             logger.info("\nROHF UHF swap feature active.")
             logger.info("This means that a $new_job ORCA job was run with a ROHF-UHF noiter switch")
             logger.info(f"Note that the relevant GBW file is then: {self.filename}_job2.gbw\n")
@@ -760,13 +760,13 @@ end"""
             )
             self.brokensym = False
         # Turning off deltaSCF for future calcs
-        if self.deltaSCF is True:
+        if self.delta_scf is True:
             logger.info("DeltaSCF calculation done.")
-            if self.deltaSCF_turn_off_automatically is True:
+            if self.delta_scf_turn_off_automatically is True:
                 logger.info(
                     "deltaSCF_turn_off_automatically option is True. Turning off DELTASCF for future calculations."
                 )
-                self.deltaSCF = False
+                self.delta_scf = False
                 deltascfblock = None
                 if "nososcf" not in self.orcasimpleinput:
                     logger.info(
@@ -811,15 +811,15 @@ end"""
         if self.keep_last_output is True:
             shutil.copy(self.filename + ".out", self.filename + "_last.out")
 
-        # Save path to last GBW-file (used if ASH changes directories, e.g. goes from NumFreq)
+        # Save path to last GBW-file (used if the run changes directories, e.g. goes from NumFreq)
         self.path_to_last_gbwfile_used = f"{os.getcwd()}/{self.filename}.gbw"
 
         # Print population analysis in each run if requested
         if self.print_population_analysis is True:
             logger.info("\nPrinting Mulliken Population analysis:")
             logger.info("%s", "-" * 30)
-            charges = grabatomcharges_ORCA("Mulliken", self.filename + ".out")
-            spinpops = grabspinpop_ORCA("Mulliken", self.filename + ".out")
+            charges = grab_orca_atom_charges("Mulliken", self.filename + ".out")
+            spinpops = grab_orca_spin_populations("Mulliken", self.filename + ".out")
             self.properties["Mulliken_charges"] = charges
             self.properties["Mulliken_spinpops"] = spinpops
             if len(spinpops) == 0 and len(charges) != 0:
@@ -835,25 +835,25 @@ end"""
             else:
                 logger.info("Warning: No charges or spinpops were found in ORCA output. Continuing")
         # Grab energy
-        if self.ignore_ORCA_error is False:
-            self.energy = ORCAfinalenergygrab(outfile)
+        if self.ignore_orca_error is False:
+            self.energy = grab_orca_final_energy(outfile)
             logger.info("ORCA energy: %s", self.energy)
         else:
-            self.energy = ORCAfinalenergygrab(outfile)
+            self.energy = grab_orca_final_energy(outfile)
 
             if self.energy is None:
                 logger.info("No energy could be found in ORCA outputfile.")
                 logger.info("Setting energy to 0.0 and returning")
                 return 0.0
         # NMF
-        if self.NMF is True:
+        if self.nmf is True:
             logger.info("NMF option is active.")
             E_NMF = self.energy
-            occupations = np.array(SCF_FODocc_grab(outfile))
+            occupations = np.array(grab_scf_fod_occupations(outfile))
             logger.info("Fractional ccupations (Fermi distribution): %s", occupations)
             logger.info("Now also calculating correlation energy from the fractional occupation numbers")
             logger.info("Assuming Fermi distribution")
-            Ec = openmmqmmm.elstructure.get_ec_entropy(occupations, self.NMF_sigma, method="fermi")
+            Ec = openmmqmmm.elstructure.get_ec_entropy(occupations, self.nmf_sigma, method="fermi")
             logger.info("Ec: %s", Ec)
             self.properties["NMF_occupations"] = occupations
             self.properties["E_NMF"] = E_NMF
@@ -864,17 +864,17 @@ end"""
         # ICE-CI
         try:
             E_PT2_rest = float(pygrep("'rest' energy", self.filename + ".out")[-1])
-            num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = ICE_WF_CFG_CI_size(self.filename + ".out")
+            num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = grab_ice_wf_cfg_ci_size(self.filename + ".out")
             self.properties["E_var"] = self.energy
             self.properties["E_PT2_rest"] = E_PT2_rest
             self.properties["num_genCFGs"] = num_genCFGs
             self.properties["num_selected_CFGs"] = num_selected_CFGs
             self.properties["num_after_SD_CFGs"] = num_after_SD_CFGs
-        except Exception:  # noqa: BLE001 - best-effort: ICE-CI properties only exist for ICE-CI outputs
+        except Exception:  # noqa: BLE001 - best-effort: ICE-CI properties only in ICE-CI outputs
             pass
 
         # TDDFT results
-        if self.TDDFT is True:
+        if self.tddft is True:
             transition_energies = tddftgrab(f"{self.filename}.out")
             transition_intensities = tddftintens_grab(f"{self.filename}.out")
 
@@ -882,7 +882,7 @@ end"""
             self.properties["TDDFT_transition_intensities"] = transition_intensities
 
         # Grab timings from ORCA output
-        orca_timings = ORCAtimingsgrab(outfile)
+        orca_timings = grab_orca_timings(outfile)
 
         # Initializing zero gradient array
         self.grad = np.zeros((len(qm_elems), 3))
@@ -900,24 +900,24 @@ end"""
             self.grad = self.grad + dispgrad
 
         # Grab Hessian if calculated
-        if Hessian is True:
+        if hessian is True:
             logger.info("Reading Hessian from file: %s", self.filename + ".hess")
-            self.hessian = Hessgrab(self.filename + ".hess")
-            self.ir_intensities = grab_IR_intensities(self.filename + ".hess")
+            self.hessian = grab_hessian(self.filename + ".hess")
+            self.ir_intensities = grab_ir_intensities(self.filename + ".hess")
 
-        if Grad is True:
-            grad = ORCAgradientgrab(engradfile)
+        if grad is True:
+            grad = grab_orca_gradient(engradfile)
             self.grad = self.grad + grad
             logger.debug("ORCA gradient: %s", self.grad)
 
-            if PC:
+            if pc:
                 # Print time to calculate ORCA QM-PC gradient
                 if "pc_gradient" in orca_timings:
                     logger.info(
                         "%s", "Time calculating QM-Pointcharge gradient: {} seconds".format(orca_timings["pc_gradient"])
                     )
                 # Grab pointcharge gradient. i.e. gradient on MM atoms from QM-MM elstat interaction.
-                self.pcgrad = ORCApcgradientgrab(pcgradfile)
+                self.pcgrad = grab_orca_pc_gradient(pcgradfile)
                 logger.info("------------ENDING ORCA-INTERFACE-------------")
                 log_time_since(module_init_time, "ORCA run")
                 return self.energy, self.grad, self.pcgrad
@@ -1011,19 +1011,19 @@ def find_orca(orcadir=None, required=True):
 
 
 # Run ORCA single-point job using ORCA parallelization. Will add pal-block if numcores >1.
-def run_orca_SP_ORCApar(
+def run_orca_sp_parallel(
     orcadir,
     inpfile,
     numcores=1,
     check_for_warnings=True,
     check_for_errors=True,
     bind_to_core_option=True,
-    ignore_ORCA_error=False,
+    ignore_orca_error=False,
 ):
     if numcores > 1:
         palstring = f"%pal \nnprocs {numcores}\nend"
         with open(inpfile):
-            insert_line_into_file(inpfile, "!", palstring, Once=True)
+            insert_line_into_file(inpfile, "!", palstring, once=True)
     basename = inpfile.replace(".inp", "")
 
     # LD_LIBRARY_PATH enforce: https://orcaforum.kofo.mpg.de/viewtopic.php?f=11&t=10118
@@ -1042,31 +1042,29 @@ def run_orca_SP_ORCApar(
             else:
                 sp.run([orcadir + "/orca", inpfile], check=True, stdout=ofile, stderr=ofile, text=True)
             if check_for_errors:
-                grab_ORCA_errors(basename + ".out")
+                grab_orca_errors(basename + ".out")
             if check_for_warnings:
-                grab_ORCA_warnings(basename + ".out")
+                grab_orca_warnings(basename + ".out")
         except Exception as e:
             logger.info("Subprocess error! Exception message: %s", e)
 
             # We get an exception if
-            logger.error(
-                "ASH encountered a problem when running ORCA. Something went wrong, most likely ORCA ran into an error."
-            )
+            logger.error("Problem running ORCA. Something went wrong, most likely ORCA ran into an error.")
             logger.error(f"Please check the ORCA outputfile: {basename + '.out'} for error messages")
             logger.info("")
             if check_for_errors:
-                grab_ORCA_errors(basename + ".out")
+                grab_orca_errors(basename + ".out")
             if check_for_warnings:
-                grab_ORCA_warnings(basename + ".out")
-            logger.info("ignore_ORCA_error: %s", ignore_ORCA_error)
-            if ignore_ORCA_error is True:
+                grab_orca_warnings(basename + ".out")
+            logger.info("ignore_ORCA_error: %s", ignore_orca_error)
+            if ignore_orca_error is True:
                 logger.info("ignore_ORCA_error here")
                 return
             else:
                 raise ExternalProgramError(f"ORCA run failed - check the output file: {basename}.out") from e
 
 
-def grab_ORCA_warnings(filename):
+def grab_orca_warnings(filename):
     warning_lines = []
     # Error-words to search for
     # TODO: Avoid searching though file multiple times.
@@ -1094,7 +1092,7 @@ def grab_ORCA_warnings(filename):
         logger.info("%s", "".join(warnings))
 
 
-def grab_ORCA_errors(filename):
+def grab_orca_errors(filename):
     error_lines = []
     # Error-words to search for
     # TODO: Avoid searching though file multiple times.
@@ -1132,7 +1130,7 @@ def grab_ORCA_errors(filename):
 
 # Check if ORCA finished.
 # Todo: Use reverse-read instead to speed up?
-def checkORCAfinished(file):
+def check_orca_finished(file):
     scf_iterations = None
     with open(file, errors="ignore") as f:
         for line in f:
@@ -1143,7 +1141,7 @@ def checkORCAfinished(file):
     return False, None
 
 
-def checkORCAOptfinished(file):
+def check_orca_opt_finished(file):
     converged = False
     with open(file, errors="ignore") as f:
         for line in f:
@@ -1156,7 +1154,7 @@ def checkORCAOptfinished(file):
 
 
 # Grab Final single point energy. Ignoring possible encoding errors in file
-def ORCAfinalenergygrab(file, errors="ignore"):
+def grab_orca_final_energy(file, errors="ignore"):
     Energy = None
     with open(file, errors=errors) as f:
         for line in f:
@@ -1167,7 +1165,7 @@ def ORCAfinalenergygrab(file, errors="ignore"):
                     # Changing: sometimes ORCA adds info to the right of energy
                     Energy = float(line.split()[5]) if "(MM)" in line else float(line.split()[4])
     if Energy is None:
-        logger.error("ASH found no energy in file: %s", file)
+        logger.error("Found no energy in file: %s", file)
         logger.error("Something went wrong with ORCA run. Check ORCA outputfile: %s", file)
         logger.info("------------ENDING ORCA-INTERFACE-------------")
         return None
@@ -1175,7 +1173,7 @@ def ORCAfinalenergygrab(file, errors="ignore"):
 
 
 # Grab ORCA timings. Return dictionary
-def ORCAtimingsgrab(file):
+def grab_orca_timings(file):
     timings = {}  # in seconds
     try:
         with open(file, errors="ignore") as f:
@@ -1216,7 +1214,7 @@ def ORCAtimingsgrab(file):
 
 
 # Grab gradient from ORCA engrad file
-def ORCAgradientgrab(engradfile):
+def grab_orca_gradient(engradfile):
     grab = False
     numatomsgrab = False
     row = 0
@@ -1246,7 +1244,7 @@ def ORCAgradientgrab(engradfile):
 
 
 # Grab pointcharge gradient from ORCA pcgrad file
-def ORCApcgradientgrab(pcgradfile):
+def grab_orca_pc_gradient(pcgradfile):
     with open(pcgradfile) as pgradfile:
         for count, line in enumerate(pgradfile):
             if count == 0:
@@ -1344,7 +1342,7 @@ def tddftintens_grab(file):
 # Grab TDDFT orbital pairs from ORCA output
 
 
-def grab_IR_intensities(filename):
+def grab_ir_intensities(filename):
     grab = False
     intensities = []
     with open(filename) as f:
@@ -1360,7 +1358,7 @@ def grab_IR_intensities(filename):
 # Function to write ORCA-style Hessian file
 
 
-def write_ORCA_Hessfile(hessian, coords, elems, masses, hessatoms, outputname):
+def write_orca_hessfile(hessian, coords, elems, masses, hessatoms, outputname):
     hessdim = hessian.shape[0]
     with open(outputname, "w") as orcahessfile:
         orcahessfile.write("$orca_hessian_file\n")
@@ -1427,7 +1425,7 @@ def write_ORCA_Hessfile(hessian, coords, elems, masses, hessatoms, outputname):
 
 
 # Function to grab Hessian from ORCA-Hessian file
-def Hessgrab(hessfile):
+def grab_hessian(hessfile):
     hesstake = False
     j = 0
     orcacoldim = 5
@@ -1479,11 +1477,11 @@ def create_orca_input_pc(
     orcablockinput,
     charge,
     mult,
-    Grad=False,
+    grad=False,
     extraline="",
-    HSmult=None,
+    hs_mult=None,
     atomstoflip=None,
-    Hessian=False,
+    hessian=False,
     extrabasisatoms=None,
     extrabasis=None,
     atom_specific_basis_dict=None,
@@ -1492,8 +1490,8 @@ def create_orca_input_pc(
     moreadfile=None,
     propertyblock=None,
     fragment_indices=None,
-    ROHF_UHF_swap=False,
-    deltaSCFblock=None,
+    rohf_uhf_swap=False,
+    delta_scf_block=None,
 ):
     if extrabasisatoms is None:
         extrabasisatoms = []
@@ -1502,9 +1500,9 @@ def create_orca_input_pc(
         orcafile.write(orcasimpleinput + "\n")
         if extraline != "":
             orcafile.write(extraline + "\n")
-        if Grad:
+        if grad:
             orcafile.write("! Engrad" + "\n")
-        if Hessian:
+        if hessian:
             orcafile.write("! Freq" + "\n")
         if moreadfile is not None:
             logger.info("MOREAD option active. Will read orbitals from file: %s", moreadfile)
@@ -1520,11 +1518,11 @@ def create_orca_input_pc(
             orcafile.write("end  \n")
         orcafile.write("\n")
         # DELTASCF
-        if deltaSCFblock is not None:
-            orcafile.write(deltaSCFblock)
+        if delta_scf_block is not None:
+            orcafile.write(delta_scf_block)
         orcafile.write("\n")
         if atomstoflip is not None:
-            orcafile.write(f"*xyz {charge} {HSmult}\n")
+            orcafile.write(f"*xyz {charge} {hs_mult}\n")
         else:
             orcafile.write(f"*xyz {charge} {mult}\n")
         # Writing coordinates. Adding extrabasis keyword for atom if option active
@@ -1549,7 +1547,7 @@ def create_orca_input_pc(
         if propertyblock is not None:
             orcafile.write(propertyblock)
         # For ROHF job, add newjob and switch to UHF noiter
-        if ROHF_UHF_swap:
+        if rohf_uhf_swap:
             newjobline = f"""\n$new_job
 {orcasimpleinput.replace("ROHF", "UHF noiter ")}
 {orcablockinput}
@@ -1571,10 +1569,10 @@ def create_orca_input_plain(
     orcablockinput,
     charge,
     mult,
-    Grad=False,
-    Hessian=False,
+    grad=False,
+    hessian=False,
     extraline="",
-    HSmult=None,
+    hs_mult=None,
     atomstoflip=None,
     extrabasis=None,
     extrabasisatoms=None,
@@ -1584,8 +1582,8 @@ def create_orca_input_plain(
     dummyatoms=None,
     fragment_indices=None,
     atom_specific_basis_dict=None,
-    ROHF_UHF_swap=False,
-    deltaSCFblock=None,
+    rohf_uhf_swap=False,
+    delta_scf_block=None,
 ):
     if extrabasisatoms is None:
         extrabasisatoms = []
@@ -1597,9 +1595,9 @@ def create_orca_input_plain(
         orcafile.write(orcasimpleinput + "\n")
         if extraline != "":
             orcafile.write(extraline)
-        if Grad is True:
+        if grad is True:
             orcafile.write("! Engrad" + "\n")
-        if Hessian is True:
+        if hessian is True:
             orcafile.write("! Freq" + "\n")
         if moreadfile is not None:
             logger.info("MOREAD option active. Will read orbitals from file: %s", moreadfile)
@@ -1614,11 +1612,11 @@ def create_orca_input_plain(
             orcafile.write("end  \n")
             orcafile.write("\n")
         # DELTASCF
-        if deltaSCFblock is not None:
-            orcafile.write(deltaSCFblock)
+        if delta_scf_block is not None:
+            orcafile.write(delta_scf_block)
         orcafile.write("\n")
         if atomstoflip is not None:
-            orcafile.write(f"*xyz {charge} {HSmult}\n")
+            orcafile.write(f"*xyz {charge} {hs_mult}\n")
         else:
             orcafile.write(f"*xyz {charge} {mult}\n")
 
@@ -1647,7 +1645,7 @@ def create_orca_input_plain(
         if propertyblock is not None:
             orcafile.write(propertyblock)
         # For ROHF job, add newjob and switch to UHF noiter
-        if ROHF_UHF_swap:
+        if rohf_uhf_swap:
             newjobline = f"""\n$new_job
 {orcasimpleinput.replace("ROHF", "UHF noiter ")}
 {orcablockinput}
@@ -1670,7 +1668,7 @@ def create_orca_pcfile(name, coords, listofcharges):
 
 
 # Grabbing spin populations
-def grabspinpop_ORCA(chargemodel, outputfile):
+def grab_orca_spin_populations(chargemodel, outputfile):
     grab = False
     spinpops = []
     BS = False  # if broken-symmetry job
@@ -1710,7 +1708,7 @@ def grabspinpop_ORCA(chargemodel, outputfile):
     return spinpops
 
 
-def grabatomcharges_ORCA(chargemodel, outputfile):
+def grab_orca_atom_charges(chargemodel, outputfile):
     grab = False
     coordgrab = False
     charges = []
@@ -1843,7 +1841,7 @@ def grabatomcharges_ORCA(chargemodel, outputfile):
 # If no stability analysis present in output, then also return true
 
 
-def SCF_FODocc_grab(filename):
+def grab_scf_fod_occupations(filename):
     occgrab = False
     occupations = []
     with open(filename) as f:
@@ -1862,7 +1860,7 @@ def SCF_FODocc_grab(filename):
 
 
 # Grab ICE-WF CFG info from CI job
-def ICE_WF_CFG_CI_size(filename):
+def grab_ice_wf_cfg_ci_size(filename):
     num_after_SD_CFGs = 0
     num_genCFGs = 0
     num_selected_CFGs = 0
@@ -1878,8 +1876,8 @@ def ICE_WF_CFG_CI_size(filename):
 
 
 # Writes the ORCA-style .engrad file that the generated otool_external script
-# (see create_ASH_otool below) produces for ORCA's ExtOpt driver.
-def print_gradient_in_ORCAformat(energy, gradient, basename, extrabasename="_EXT"):
+# (see write_otool_script below) produces for ORCA's ExtOpt driver.
+def print_gradient_in_orca_format(energy, gradient, basename, extrabasename="_EXT"):
     numatoms = len(gradient)
     with open(basename + extrabasename + ".engrad", "w") as f:
         f.write("#\n")
@@ -1900,39 +1898,33 @@ def print_gradient_in_ORCAformat(energy, gradient, basename, extrabasename="_EXT
         f.write("#\n")
 
 
-def create_ASH_otool(basename=None, theoryfile=None, scriptlocation=None, charge=None, mult=None):
+def write_otool_script(basename=None, theoryfile=None, scriptlocation=None, charge=None, mult=None):
     import stat
 
     with open(scriptlocation + "/otool_external", "w") as otool:
         otool.write("#!/usr/bin/env python3\n")
-        otool.write("from openmmqmmm import *\n")
-        otool.write("import pickle\n")
-        otool.write("import numpy as np\n\n")
-        otool.write(f'frag=Fragment(xyzfile="{basename}.xyz")\n')
-        otool.write("\n")
-        otool.write("#Unpickling theory object\n")
-        otool.write(f'theory = pickle.load(open("{theoryfile}", "rb" ))\n')
-        otool.write(f"result=Singlepoint(theory=theory,fragment=frag,Grad=True, charge={charge}, mult={mult})\n")
-        otool.write("energy = result.energy\n")
-        otool.write("gradient = result.gradient\n")
-        otool.write("print(gradient)\n")
-        otool.write(
-            f'openmmqmmm.orca.print_gradient_in_ORCAformat(energy,gradient,"{basename}")\n'
-        )
+        otool.write("import pickle\n\n")
+        otool.write("from openmmqmmm import Fragment, single_point\n")
+        otool.write("from openmmqmmm.orca import print_gradient_in_orca_format\n\n")
+        otool.write(f'frag = Fragment(xyzfile="{basename}.xyz")\n')
+        otool.write(f'with open("{theoryfile}", "rb") as theoryfh:\n')
+        otool.write("    theory = pickle.load(theoryfh)\n")
+        otool.write(f"result = single_point(theory=theory, fragment=frag, grad=True, charge={charge}, mult={mult})\n")
+        otool.write(f'print_gradient_in_orca_format(result.energy, result.gradient, "{basename}")\n')
     st = os.stat(scriptlocation + "/otool_external")
     os.chmod(scriptlocation + "/otool_external", st.st_mode | stat.S_IEXEC)
 
 
-# Using ORCA as External Optimizer for ASH
+# Using ORCA as an external optimizer
 # Will only work for theories that can be pickled.
-def ORCA_External_Optimizer(
+def orca_external_optimizer(
     fragment=None,
     theory=None,
     orcadir=None,
     charge=None,
     mult=None,
-    ORCA_jobkeyword="Opt",
-    ORCA_blockinput="",
+    orca_jobkeyword="Opt",
+    orca_blockinput="",
     actatoms=None,
 ):
     logger.info(main_header("ORCA_External_Optimizer"))
@@ -1964,18 +1956,18 @@ def ORCA_External_Optimizer(
     with open(theoryfilename, "wb") as theoryfh:
         pickle.dump(theory, theoryfh)
 
-    # Write otool_script once in location that ORCA will launch. This is an ASH E+Grad calculator
+    # Write otool_script once in location that ORCA will launch. This is an energy+gradient calculator script
     # ORCA will call : otool_external test_EXT.extinp.tmp
     # ASH_otool creates basename_Ext.engrad that ORCA reads
     basename = "ORCAEXTERNAL"
     scriptlocation = "."
     os.environ["PATH"] += os.pathsep + "."
-    create_ASH_otool(
+    write_otool_script(
         basename=basename, theoryfile=theoryfilename, scriptlocation=scriptlocation, charge=charge, mult=mult
     )
 
     # Create XYZ-file for ORCA-Extopt
-    xyzfile = "ASH-xyzfile.xyz"
+    xyzfile = "orca_external.xyz"
     fragment.write_xyzfile(xyzfile)
 
     # Active atoms become inverted constraints
@@ -1994,16 +1986,16 @@ end
 """
     # ORCA input file
     with open(basename + ".inp", "w") as o:
-        o.write(f"! ExtOpt {ORCA_jobkeyword}\n")
+        o.write(f"! ExtOpt {orca_jobkeyword}\n")
         o.write("\n")
-        o.write(f"{ORCA_blockinput}")
+        o.write(f"{orca_blockinput}")
         o.write(f"{constraintsblock}")
         o.write("%method\n")
         o.write('ProgExt "otool_external"\n')
         o.write("end\n")
         o.write(f"*xyzfile {charge} {mult} {xyzfile}\n")
 
-    if "GOAT" in ORCA_jobkeyword.upper():
+    if "GOAT" in orca_jobkeyword.upper():
         logger.info("GOAT keyword found. ")
 
     # Call ORCA to do Opt/GOAT etc. job
@@ -2011,11 +2003,11 @@ end
         sp.run(["orca", basename + ".inp"], check=True, stdout=ofile, stderr=ofile, text=True)
 
     # Check if ORCA finished
-    ORCAfinished, _iter = checkORCAfinished(basename + ".out")
+    ORCAfinished, _iter = check_orca_finished(basename + ".out")
     if ORCAfinished is not True:
         raise ExternalProgramError("Something failed about external ORCA job")
     # Check if optimization completed
-    if checkORCAOptfinished(basename + ".out") is not True:
+    if check_orca_opt_finished(basename + ".out") is not True:
         raise ExternalProgramError("ORCA external job failed. Check outputfile: {}".format(basename + ".out"))
     logger.info("ORCA external job finished")
 

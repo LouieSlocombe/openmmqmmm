@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 # Numerical gradient class
-class NumGradclass:
+class NumGrad:
     def __init__(self, theory, npoint=2, displacement=0.00264589, runmode="serial", numcores=1):
         logger.info("Creating NumGrad wrapper object")
         self.theory = theory
@@ -31,13 +31,13 @@ class NumGradclass:
     def run(
         self,
         current_coords=None,
-        current_MM_coords=None,
-        MMcharges=None,
+        current_mm_coords=None,
+        mm_charges=None,
         qm_elems=None,
         elems=None,
-        Grad=False,
-        Hessian=False,
-        PC=False,
+        grad=False,
+        hessian=False,
+        pc=False,
         numcores=None,
         restart=False,
         label=None,
@@ -58,7 +58,7 @@ class NumGradclass:
             logger.info("Running original geometry first")
             # Energy for original geometry.
             orig_energy = self.theory.run(
-                current_coords=current_coords, elems=elems, Grad=False, label=label, charge=charge, mult=mult
+                current_coords=current_coords, elems=elems, grad=False, label=label, charge=charge, mult=mult
             )
             #
             dispdict = {}
@@ -71,7 +71,7 @@ class NumGradclass:
                     f"Running displacement {i + 1} / {len(list_of_displaced_geos)}. Displacing Atom:{disp[0]} Coord:{disp[1]} Direction:{disp[2]}"
                 )
                 energy = self.theory.run(
-                    current_coords=dispgeo, elems=elems, Grad=False, label=label, charge=charge, mult=mult
+                    current_coords=dispgeo, elems=elems, grad=False, label=label, charge=charge, mult=mult
                 )
                 dispdict[(disp)] = energy
 
@@ -79,12 +79,12 @@ class NumGradclass:
             logger.info("Numgrad: runmode is parallel")
             origfrag = openmmqmmm.Fragment(coords=current_coords, elems=elems, label="orig", charge=charge, mult=mult)
             all_disp_fragments = [origfrag, *all_disp_fragments]
-            result = openmmqmmm.parallel.Job_parallel(
+            result = openmmqmmm.parallel.job_parallel(
                 fragments=all_disp_fragments,
                 theories=[self.theory],
                 numcores=self.numcores,
                 allow_theory_parallelization=True,
-                Grad=False,
+                grad=False,
                 copytheory=True,
             )
             logger.info("result: %s", result)
@@ -161,7 +161,7 @@ def creating_displaced_geos(current_coords, elems, displacement, npoint, charge,
 
     logger.debug("List of displacements: %s", list_of_displacements)
 
-    # Creating ASH fragments
+    # Creating fragments
     # Creating displacement labels as strings and adding to fragment
     # Also calclabels, currently used by runmode serial only
     all_disp_fragments = []

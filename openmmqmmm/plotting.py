@@ -10,7 +10,7 @@ from openmmqmmm.utils import main_header
 logger = logging.getLogger(__name__)
 
 
-class ASH_plot:
+class Plot:
     def __init__(
         self,
         figuretitle="Plottyplot",

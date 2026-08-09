@@ -71,7 +71,7 @@ def cell_volume(vectors):
 
 
 # Write Cartesian-based POSCAR files
-def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, filename="POSCAR"):
+def write_poscar_file(coords, elems, cellvectors=None, celldimensions=None, filename="POSCAR"):
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     elif celldimensions is not None:
@@ -87,7 +87,7 @@ def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, file
     counts = [elems.count(e) for e in unique_elements]
 
     with open(filename, "w") as f:
-        f.write("ASH created POSCAR file" + "\n")
+        f.write("openmmqmmm created POSCAR file" + "\n")
         f.write("1.0" + "\n")
         f.write(f"{cellvectors[0, 0]:.4f} {cellvectors[0, 1]:.4f} {cellvectors[0, 2]:.4f} " + "\n")
         f.write(f"{cellvectors[1, 0]:.4f} {cellvectors[1, 1]:.4f} {cellvectors[1, 2]:.4f}" + "\n")
@@ -104,7 +104,7 @@ def write_POSCAR_file(coords, elems, cellvectors=None, celldimensions=None, file
 
 
 # Write XSF files
-def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.xsf"):
+def write_xsf_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.xsf"):
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     elif celldimensions is not None:
@@ -134,7 +134,7 @@ def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
     return filename
 
 
-def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.cif"):
+def write_cif_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.cif"):
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     elif celldimensions is not None:
@@ -150,7 +150,7 @@ def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
     a, b, c, alpha, beta, gamma = celldimensions
 
     with open(filename, "w") as f:
-        f.write("data_ASH_output\n")
+        f.write("data_openmmqmmm_output\n")
         f.write(f"_cell_length_a    {a:.6f}\n")
         f.write(f"_cell_length_b    {b:.6f}\n")
         f.write(f"_cell_length_c    {c:.6f}\n")

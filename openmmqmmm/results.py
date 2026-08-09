@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 # Dataclasses https://realpython.com/python-data-classes/
 
 
-# Results dataclass that ASH job-functions return
+# Results dataclass that job functions return
 @dataclass
-class ASH_Results:
+class Results:
     label: str = None
     # Single-job: Energy and gradient
     energy: float = None
@@ -44,12 +44,12 @@ class ASH_Results:
     freq_elems: list = None
     freq_coords: np.array = None
     freq_atoms: list = None
-    freq_TRmodenum: int = None
+    freq_tr_modenum: int = None
     freq_projection: bool = None
     freq_scaling_factor: float = None
     freq_dipole_derivs: np.array = None
     freq_polarizability_derivs: np.array = None
-    freq_Raman: bool = None
+    freq_raman: bool = None
     normal_modes: np.array = None
     Raman_activities: np.array = None
     IR_intensities: np.array = None
@@ -63,18 +63,18 @@ class ASH_Results:
     def print_defined(
         self,
     ):
-        logger.info("\nPrinting defined attributes of ASH_Results dataclass")
+        logger.info("\nPrinting defined attributes of Results dataclass")
         for k, v in self.__dict__.items():
             if v is not None:
                 logger.info(f"{k}: {v}")
 
-    def write_to_disk(self, filename="ASH.result"):
+    def write_to_disk(self, filename="results.json"):
         import json
 
-        logger.info("\nWriting to disk defined attributes of ASH_Results dataclass")
+        logger.info("\nWriting to disk defined attributes of Results dataclass")
 
         newdict = {}
-        # Looping over attributes, converting ndarrays to lists and skipping ASH objects
+        # Looping over attributes, converting ndarrays to lists and skipping openmmqmmm objects
         for k, v in self.__dict__.items():
             # Deal with np array
             if isinstance(v, np.ndarray):
@@ -96,7 +96,7 @@ class ASH_Results:
                 else:
                     newdict[k] = v
             elif isinstance(v, Fragment):
-                logger.info("Warning: Fragment object is not included in ASH.result on disk")
+                logger.info("Warning: Fragment objects are not included in the results file on disk")
             else:
                 newdict[k] = v
 
@@ -115,17 +115,17 @@ class ASH_Results:
             with open(filename, "w") as f:
                 f.write(json.dumps(newdict, allow_nan=True))
         except TypeError as e:
-            logger.info(f"Error writing ASH_Results to disk: {e}")
+            logger.info(f"Error writing Results to disk: {e}")
             logger.info("Skipping writing to disk")
             return
 
 
-# Read ASH-Results data from disk
-def read_results_from_file(filename="ASH.result"):
+# Read Results data from disk
+def read_results_from_file(filename="results.json"):
     import json
     from dataclasses import fields
 
-    logger.info("Reading ASH_Results data from file:")
+    logger.info("Reading Results data from file:")
     with open(filename) as f:
         data = json.load(f)
     logger.info("Data read from file:")
@@ -133,6 +133,6 @@ def read_results_from_file(filename="ASH.result"):
         logger.info(f"{k} : {v}")
 
     # Ignore keys from files written by older versions with more fields
-    known_fields = {f.name for f in fields(ASH_Results)}
-    r = ASH_Results(**{k: v for k, v in data.items() if k in known_fields})
+    known_fields = {f.name for f in fields(Results)}
+    r = Results(**{k: v for k, v in data.items() if k in known_fields})
     return r

@@ -1,13 +1,13 @@
 from pathlib import Path
 
-from openmmqmmm import *
+from openmmqmmm import Fragment, OpenMMTheory, openmm_modeller, single_point
 
 TEST_DIR = Path(__file__).parent
 
 
 # Read solvated PDB-file, create OpenMMTheory job and run MM singlepoint
 def test_openmm_basic():
-    # Defining fragment containing coordinates (can be read from XYZ-file, ASH fragment or PDB-file)
+    # Defining fragment containing coordinates (can be read from XYZ-file, fragment or PDB-file)
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki_solvated.pdb"
     fragment = Fragment(pdbfile=pdbfile)
 
@@ -20,7 +20,7 @@ def test_openmm_basic():
         rigidwater=False,
     )
     # Singlepoint MM energy
-    Singlepoint(theory=omm, fragment=fragment, Grad=True)
+    single_point(theory=omm, fragment=fragment, grad=True)
 
 
 # Read raw PDB-file, fix using pdbfixer, setup using Modeller and optimize
@@ -28,11 +28,11 @@ def test_openmm_modeller():
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki.pdb"
 
     # Setting up new system, adding hydrogens, solvent, ions and defining forcefield, topology
-    _openmmobject, _ashfragment = OpenMM_Modeller(
+    _openmmobject, _ashfragment = openmm_modeller(
         pdbfile=pdbfile,
         forcefield="CHARMM36",
         watermodel="tip3p",
-        pH=7.0,
+        ph=7.0,
         solvent_padding=10.0,
         ionicstrength=0.1,
         platform="CPU",

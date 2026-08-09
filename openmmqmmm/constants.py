@@ -40,7 +40,7 @@ ang2m = 1e-10
 # R in hartree/K. Converted from 8.31446261815324000 J/Kmol
 R_gasconst = 3.16681161675373e-06
 R_gasconst_kcalK = 1.987191683e-3  # kcal/mol/K
-k_b_JK = 1.380649e-23
+k_b_jk = 1.380649e-23
 
 # From OpenMM
 BOLTZMANN = 1.380649e-23  # J/K

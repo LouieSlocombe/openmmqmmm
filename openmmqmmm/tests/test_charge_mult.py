@@ -1,4 +1,4 @@
-from openmmqmmm import *
+from openmmqmmm import Fragment
 
 
 def test_chargemult():

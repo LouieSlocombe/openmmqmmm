@@ -14,23 +14,23 @@ import time
 import numpy as np
 
 import openmmqmmm
+from openmmqmmm.coords import check_charge_mult
 from openmmqmmm.exceptions import (
     InputError,
 )
+from openmmqmmm.results import Results
 from openmmqmmm.utils import log_time_since, main_header
-from openmmqmmm.coords import check_charge_mult
-from openmmqmmm.results import ASH_Results
 
 logger = logging.getLogger(__name__)
 
 
 # Single-point energy function
-def Singlepoint(fragment=None, theory=None, Grad=False, charge=None, mult=None, result_write_to_disk=True):
-    """Singlepoint function: runs a single-point energy calculation using ASH theory and ASH fragment.
+def single_point(fragment=None, theory=None, grad=False, charge=None, mult=None, result_write_to_disk=True):
+    """Singlepoint function: runs a single-point energy calculation using a theory and fragment.
 
     Args:
-        fragment (ASH fragment, optional): An ASH fragment. Defaults to None.
-        theory (ASH theory, optional): Any valid ASH theory. Defaults to None.
+        fragment (fragment, optional): An fragment. Defaults to None.
+        theory (openmmqmmm theory, optional): Any valid theory object. Defaults to None.
         Grad (bool, optional): Do gradient or not Defaults to False.
         charge (int, optional): Specify charge of system. Overrides fragment charge information.
         mult (int, optional): Specify mult of system. Overrides fragment charge information.
@@ -51,16 +51,16 @@ def Singlepoint(fragment=None, theory=None, Grad=False, charge=None, mult=None, 
     charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Singlepoint", theory=theory)
 
     # Run a single-point energy job with gradient
-    if Grad:
+    if grad:
         logger.info("")
         logger.warning(
             f"Doing single-point Energy+Gradient job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
         )
         # An Energy+Gradient calculation where we change the number of cores to 12
-        energy, gradient = theory.run(current_coords=coords, elems=elems, Grad=True, charge=charge, mult=mult)
+        energy, gradient = theory.run(current_coords=coords, elems=elems, grad=True, charge=charge, mult=mult)
         logger.info("Energy:  %s", energy)
         log_time_since(module_init_time, "Singlepoint")
-        result = ASH_Results(label="Singlepoint", energy=energy, gradient=gradient, charge=charge, mult=mult)
+        result = Results(label="Singlepoint", energy=energy, gradient=gradient, charge=charge, mult=mult)
         if theory.theorytype == "QM/MM":
             result.qmmm_energy = theory.QM_MM_energy
             result.mm_energy = theory.MMenergy
@@ -82,7 +82,7 @@ def Singlepoint(fragment=None, theory=None, Grad=False, charge=None, mult=None, 
         # Now adding total energy to fragment
         fragment.set_energy(energy)
         log_time_since(module_init_time, "Singlepoint")
-        result = ASH_Results(label="Singlepoint", energy=energy, charge=charge, mult=mult)
+        result = Results(label="Singlepoint", energy=energy, charge=charge, mult=mult)
         if theory.theorytype == "QM/MM":
             result.qmmm_energy = theory.QM_MM_energy
             result.mm_energy = theory.MMenergy
@@ -94,7 +94,7 @@ def Singlepoint(fragment=None, theory=None, Grad=False, charge=None, mult=None, 
 
 # Single-point energy function that runs calculations on 1 fragment using multiple theories. Returns a list of energies.
 # TODO: allow Grad option?
-def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None):
+def single_point_theories(theories=None, fragment=None, charge=None, mult=None):
     logger.info(main_header("Singlepoint_theories function"))
     module_init_time = time.time()
     logger.info("Will run single-point calculation on the fragment with multiple theories")
@@ -109,7 +109,7 @@ def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None):
         )
 
         # Running single-point.
-        result = Singlepoint(theory=theory, fragment=fragment, charge=charge, mult=mult)
+        result = single_point(theory=theory, fragment=fragment, charge=charge, mult=mult)
 
         # Preserve outputfile
         calc_label = "Frag_" + theory.__class__.__name__ + "_"
@@ -122,7 +122,7 @@ def Singlepoint_theories(theories=None, fragment=None, charge=None, mult=None):
 
     # Printing final table
     print_theories_table(theories, energies, fragment)
-    result = ASH_Results(label="Singlepoint_theories", energies=energies, charge=charge, mult=mult)
+    result = Results(label="Singlepoint_theories", energies=energies, charge=charge, mult=mult)
     result.write_to_disk(filename="ASH_SP_theories.result")
     log_time_since(module_init_time, "Singlepoint_theories")
     return result
@@ -161,7 +161,7 @@ def print_fragments_table(fragments, energies, tabletitle="Singlepoint_fragments
 # Single-point energy function that runs calculations on multiple fragments. Returns a list of energies.
 # Assuming fragments have charge,mult info defined.
 # If stoichiometry provided then print reaction energy
-def Singlepoint_fragments(
+def single_point_fragments(
     theory=None, fragments=None, stoichiometry=None, relative_energies=False, unit="kcal/mol", moreadfiles=None
 ):
     logger.info(main_header("Singlepoint_fragments function"))
@@ -186,7 +186,7 @@ def Singlepoint_fragments(
             theory.moreadfile = moreadfiles[i]
 
         # Running single-point
-        result = Singlepoint(theory=theory, fragment=frag, charge=charge, mult=mult)
+        result = single_point(theory=theory, fragment=frag, charge=charge, mult=mult)
 
         logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {result.energy} Eh")
 
@@ -202,7 +202,7 @@ def Singlepoint_fragments(
         logger.info("")
 
     # Create Results object
-    result = ASH_Results(label="Singlepoint_fragments", energies=energies, charge=charge, mult=mult)
+    result = Results(label="Singlepoint_fragments", energies=energies, charge=charge, mult=mult)
 
     # Print table
     print_fragments_table(fragments, energies)
@@ -231,7 +231,7 @@ def Singlepoint_fragments(
     # Printing reaction energy if stoichiometry was provided
     if stoichiometry is not None:
         logger.info("Stoichiometry provided: %s", stoichiometry)
-        r = ReactionEnergy(
+        r = reaction_energy(
             list_of_energies=energies, stoichiometry=stoichiometry, list_of_fragments=fragments, unit=unit, label="ΔE"
         )
         result.reaction_energy = r[0]
@@ -242,7 +242,7 @@ def Singlepoint_fragments(
 
 # Single-point energy function that runs calculations on multiple fragments. Returns a list of energies.
 # Assuming fragments have charge,mult info defined.
-def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiometry=None):
+def single_point_fragments_and_theories(theories=None, fragments=None, stoichiometry=None):
     logger.info(main_header("Singlepoint_fragments_and_theories"))
     module_init_time = time.time()
     # List of lists
@@ -250,7 +250,7 @@ def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiome
 
     # Looping over theories and getting energies for list of fragments
     for theory in theories:
-        result = Singlepoint_fragments(theory=theory, fragments=fragments, stoichiometry=stoichiometry)
+        result = single_point_fragments(theory=theory, fragments=fragments, stoichiometry=stoichiometry)
         all_energies.append(result.energies)
 
     logger.info("\n")
@@ -267,7 +267,7 @@ def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiome
         # Reaction energy if stoichiometry provided
         if stoichiometry is not None:
             logger.info("Stoichiometry provided: %s", stoichiometry)
-            ReactionEnergy(
+            reaction_energy(
                 list_of_energies=elist,
                 stoichiometry=stoichiometry,
                 list_of_fragments=fragments,
@@ -278,11 +278,11 @@ def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiome
             logger.info("%s", "_" * 60)
     logger.info("\nFinal list of lists of total energies: %s", all_energies)
 
-    result = ASH_Results(label="Singlepoint_fragments_and_theories", energies=all_energies)
+    result = Results(label="Singlepoint_fragments_and_theories", energies=all_energies)
     if stoichiometry is not None:
         logger.info("Final reaction energies:")
         for elist, t in zip(all_energies, theories, strict=False):
-            r = ReactionEnergy(
+            r = reaction_energy(
                 list_of_energies=elist,
                 stoichiometry=stoichiometry,
                 list_of_fragments=fragments,
@@ -296,9 +296,9 @@ def Singlepoint_fragments_and_theories(theories=None, fragments=None, stoichiome
     return result
 
 
-# Single-point energy function that runs calculations on an ASH reaction object
+# Single-point energy function that runs calculations on a Reaction object
 # Assuming fragments have charge,mult info defined.
-def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
+def single_point_reaction(theory=None, reaction=None, moreadfiles=None):
     logger.info(main_header("Singlepoint_reaction function"))
     module_init_time = time.time()
 
@@ -319,7 +319,7 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
             with contextlib.suppress(IndexError, TypeError):
                 theory.moreadfile = moreadfiles[i]
         # Running single-point
-        result = Singlepoint(theory=theory, fragment=frag, charge=frag.charge, mult=frag.mult)
+        result = single_point(theory=theory, fragment=frag, charge=frag.charge, mult=frag.mult)
         energy = result.energy
         logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {energy} Eh")
         # Preserve outputfile
@@ -356,9 +356,7 @@ def Singlepoint_reaction(theory=None, reaction=None, moreadfiles=None):
 
     reaction.calculate_reaction_energy()
 
-    result = ASH_Results(
-        label="Singlepoint_reaction", energies=reaction.energies, reaction_energy=reaction.reaction_energy
-    )
+    result = Results(label="Singlepoint_reaction", energies=reaction.energies, reaction_energy=reaction.reaction_energy)
 
     log_time_since(module_init_time, "Singlepoint_reaction")
     result.write_to_disk(filename="ASH_SP_reaction.result")
@@ -372,7 +370,7 @@ class ZeroTheory:
             Note: includes unnecessary attributes for consistency.
 
         Args:
-            fragment (ASH fragment, optional): A valid ASH fragment. Defaults to None.
+            fragment (fragment, optional): A valid fragment. Defaults to None.
             numcores (int, optional): Number of cores. Defaults to 1.
             label (str, optional): String label. Defaults to None.
         """
@@ -388,20 +386,20 @@ class ZeroTheory:
         self,
         current_coords=None,
         elems=None,
-        Grad=False,
-        PC=False,
+        grad=False,
+        pc=False,
         numcores=None,
         charge=None,
         mult=None,
         label=None,
-        current_MM_coords=None,
-        MMcharges=None,
+        current_mm_coords=None,
+        mm_charges=None,
         qm_elems=None,
     ):
         self.energy = 0.0
         # Gradient as np array
         self.gradient = np.zeros((len(elems), 3))
-        if not Grad:
+        if not grad:
             return self.energy
         else:
             return self.energy, self.gradient
@@ -410,7 +408,7 @@ class ZeroTheory:
 # Simple way to create interfaces to programs
 
 
-def ReactionEnergy(
+def reaction_energy(
     list_of_energies=None,
     stoichiometry=None,
     list_of_fragments=None,
@@ -425,7 +423,7 @@ def ReactionEnergy(
     Args:
         list_of_energies ([type], optional): A list of total energies in hartrees. Defaults to None.
         stoichiometry (list, optional): A list of integers, e.g. [-1,-1,1,1]. Defaults to None.
-        list_of_fragments (list, optional): A list of ASH fragments . Defaults to None.
+        list_of_fragments (list, optional): A list of fragments . Defaults to None.
         unit (str, optional): Unit for relative energy. Defaults to 'kcal/mol'.
         label (string, optional): Optional label for energy. Defaults to None.
         reference (float, optional): Optional shift-parameter of energy Defaults to None.
