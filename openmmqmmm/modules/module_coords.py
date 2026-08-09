@@ -18,7 +18,6 @@ from openmmqmmm.functions.functions_general import ashexit, isint, listdiff, pri
 import openmmqmmm.dictionaries_lists
 import openmmqmmm.settings_ash
 import openmmqmmm.constants
-from openmmqmmm.dictionaries_lists import eldict
 
 ashpath = os.path.dirname(openmmqmmm.__file__)
 

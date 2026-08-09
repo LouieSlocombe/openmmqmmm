@@ -14,7 +14,7 @@ import openmmqmmm.modules.module_coords
 import openmmqmmm.settings_ash
 from openmmqmmm.functions.functions_general import ashexit, insert_line_into_file, BC, print_time_rel, \
     print_line_with_mainheader, pygrep2, \
-    pygrep, search_list_of_lists_for_index, print_if_level, writestringtofile, check_program_location, listdiff
+    pygrep, search_list_of_lists_for_index, print_if_level, writestringtofile, listdiff
 from openmmqmmm.modules.module_coords import check_charge_mult, print_internal_coordinate_table_new
 from openmmqmmm.modules.module_singlepoint import Singlepoint
 
@@ -1589,26 +1589,6 @@ def create_orca_pcfile(name, coords, listofcharges):
 
 # Chargemodel select. Creates ORCA-inputline with appropriate keywords
 # To be added to ORCA input.
-def chargemodel_select(chargemodel):
-    extraline = ""
-    if chargemodel == 'NPA':
-        extraline = '! NPA'
-    elif chargemodel == 'CHELPG':
-        extraline = '! CHELPG'
-    elif chargemodel == 'Hirshfeld':
-        extraline = '! Hirshfeld'
-    elif chargemodel == 'CM5':
-        extraline = '! Hirshfeld'
-    elif chargemodel == 'Mulliken':
-        pass
-    elif chargemodel == 'Loewdin':
-        pass
-    elif chargemodel == 'DDEC6':
-        pass
-    elif chargemodel == "IAO":
-        extraline = '\n%loc LocMet IAOIBO \n T_CORE -99999999 end'
-
-    return extraline
 
 
 # Grabbing spin populations

@@ -38,32 +38,6 @@ else:
         UNDERLINE = ''
 
 
-def check_program_location(directory, directory_name, bin_name):
-    if directory != None:
-        finaldirectory = directory
-        print(BC.OKGREEN, f"Using directory path provided: {finaldirectory}", BC.END)
-    else:
-        print(BC.WARNING,
-              f"No {directory_name} argument passed. Attempting to find {directory_name} variable in ASH settings file (~/ash_user_settings.ini)",
-              BC.END)
-        try:
-            finaldirectory = openmmqmmm.settings_ash.settings_dict[directory_name]
-            print(BC.OKGREEN,
-                  f"Using {directory_name} path provided from ASH settings file (~/ash_user_settings.ini): ",
-                  finaldirectory, BC.END)
-        except KeyError:
-            print(BC.WARNING, f"Found no {directory_name} variable in ASH settings file either.", BC.END)
-            print(BC.WARNING, f"Checking for {bin_name} in PATH environment variable.", BC.END)
-            try:
-                finaldirectory = os.path.dirname(shutil.which(f'{bin_name}'))
-                print(BC.OKGREEN, f"Found {bin_name} binary in PATH. Using the following directory:", finaldirectory,
-                      BC.END)
-            except TypeError:
-                print(BC.FAIL, f"Found no {bin_name} binary in PATH environment variable either. Giving up.", BC.END)
-                ashexit()
-    return finaldirectory
-
-
 # Create ASH environment shell-file in home-dir
 # Simple shell script to active ASH environment for future calcs
 
@@ -105,8 +79,6 @@ def basename(filename):
 
 # Attempt to generally find a 3rd-party program based on path, exename etc.
 # Either programdir variable is already set, else we try to find based on programdirname or exename
-
-
 
 
 # Get ranges of integers from list. Returns string of ranges. Used to communitcate with crest and xtb

@@ -20,7 +20,6 @@ from openmmqmmm.modules.module_coords import Fragment, write_pdbfile, distance_b
     define_dummy_topology
 
 from openmmqmmm.modules.module_coords_PBC import cell_params_to_vectors, cell_vectors_to_params
-from openmmqmmm.interfaces.interface_ORCA import ORCATheory, grabatomcharges_ORCA, chargemodel_select
 from openmmqmmm.modules.module_singlepoint import Singlepoint
 from openmmqmmm.interfaces.interface_mdtraj import MDtraj_import, MDtraj_imagetraj, MDtraj_RMSF
 import openmmqmmm.functions.functions_parallel
@@ -3323,39 +3322,6 @@ def write_xmlfile_nonbonded(resnames=None, atomnames_per_res=None, atomtypes_per
 
 
 # TODO: Move elsewhere?
-def basic_atom_charges_ORCA(fragment=None, charge=None, mult=None, orcatheory=None, chargemodel=None, numcores=1):
-    atompropdict = {}
-    print("Will calculate charges using ORCA.")
-
-    # Define default ORCA object if notprovided
-    if orcatheory is None:
-        print("orcatheory not provided. Will do r2SCAN/def2-SVP single-point calculation")
-        orcasimpleinput = "! r2SCAN def2-SVP tightscf "
-        orcablocks = "%scf maxiter 300 end"
-        orcatheory = ORCATheory(orcasimpleinput=orcasimpleinput,
-                                orcablocks=orcablocks, numcores=numcores)
-    if chargemodel == 'CM5':
-        orcatheory.extraline = chargemodel_select(chargemodel)
-    # Run ORCA calculation
-    Singlepoint(theory=orcatheory, fragment=fragment, charge=charge, mult=mult)
-    if 'DDEC' not in chargemodel:
-        atomcharges = grabatomcharges_ORCA(chargemodel, orcatheory.filename + '.out')
-        atompropdict['charges'] = atomcharges
-    else:
-        atomcharges, molmoms, voldict = DDEC_calc(elems=fragment.elems, theory=orcatheory,
-                                                  gbwfile=orcatheory.filename + '.gbw', numcores=numcores,
-                                                  DDECmodel='DDEC3', calcdir='DDEC', molecule_charge=charge,
-                                                  molecule_spinmult=mult)
-        atompropdict['charges'] = atomcharges
-        r0list, epsilonlist = DDEC_to_LJparameters(fragment.elems, molmoms, voldict)
-        print("r0list:", r0list)
-        print("epsilonlist:", epsilonlist)
-        atompropdict['r0s'] = r0list
-        atompropdict['epsilons'] = epsilonlist
-
-    print("atomcharges:", atomcharges)
-    print("fragment elems:", fragment.elems)
-    return atompropdict
 
 
 def read_NPT_statefile(npt_output):
@@ -5612,8 +5578,6 @@ def diff_wrap_box_coords(coords_nm, boxvectors, mdtrajtopology, anchoratoms):
     # Re-imaging trajectory
     imaged = traj.image_molecules(anchor_molecules=anchors)
     return imaged._xyz[0] * 10.0
-
-
 
 
     # return np.array(newk)
