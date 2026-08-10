@@ -41,7 +41,7 @@ def single_point(
         grad: also compute the gradient.
         charge: total charge; overrides the fragment charge if given.
         mult: spin multiplicity; overrides the fragment multiplicity if given.
-        result_write_to_disk: write the Results object to results.json.
+        result_write_to_disk: write the Results object to results_singlepoint.json.
 
     Returns:
         Results with energy (and gradient when grad=True) filled in.
@@ -72,7 +72,7 @@ def single_point(
             result.mm_energy = theory.MMenergy
             result.qm_energy = theory.QMenergy
         if result_write_to_disk:
-            result.write_to_disk(filename="ASH_SP.result")
+            result.write_to_disk(filename="results_singlepoint.json")
         return result
     # Run a single-point energy job without gradient (default)
     else:
@@ -94,7 +94,7 @@ def single_point(
             result.mm_energy = theory.MMenergy
             result.qm_energy = theory.QMenergy
         if result_write_to_disk:
-            result.write_to_disk(filename="ASH_SP.result")
+            result.write_to_disk(filename="results_singlepoint.json")
         return result
 
 
@@ -128,26 +128,31 @@ def single_point_theories(theories=None, fragment=None, charge=None, mult=None) 
         energies.append(result.energy)
 
     # Printing final table
-    print_theories_table(theories, energies, fragment)
+    print_theories_table(theories, energies, fragment, charge=charge, mult=mult)
     result = Results(label="Singlepoint_theories", energies=energies, charge=charge, mult=mult)
-    result.write_to_disk(filename="ASH_SP_theories.result")
+    result.write_to_disk(filename="results_singlepoint_theories.json")
     log_time_since(module_init_time, "Singlepoint_theories")
     return result
 
 
 # Pretty table of fragments and theories
-def print_theories_table(theories, energies, fragment):
+def print_theories_table(theories, energies, fragment, charge=None, mult=None):
     logger.info("")
     logger.info("%s", "=" * 70)
     logger.info("Singlepoint_theories: Table of energies of each theory:")
     logger.info("%s", "=" * 70)
+
+    # Charge/mult may have been passed to the job rather than stored on the fragment, and an
+    # MM theory resolves both to None. Format via str so the table never raises on None.
+    charge = fragment.charge if charge is None else charge
+    mult = fragment.mult if mult is None else mult
 
     logger.info(
         "%s", "\n{:15} {:15} {:>7} {:>7} {:>20}".format("Theory class", "Theory Label", "Charge", "Mult", "Energy(Eh)")
     )
     logger.info("%s", "-" * 70)
     for t, e in zip(theories, energies, strict=False):
-        logger.info(f"{t.__class__.__name__:15} {t.label!s:15} {fragment.charge:>7} {fragment.mult:>7} {e:>20.10f}")
+        logger.info(f"{t.__class__.__name__:15} {t.label!s:15} {charge!s:>7} {mult!s:>7} {e:>20.10f}")
     logger.info("")
 
 
@@ -243,7 +248,7 @@ def single_point_fragments(
             list_of_energies=energies, stoichiometry=stoichiometry, list_of_fragments=fragments, unit=unit, label="ΔE"
         )
         result.reaction_energy = r[0]
-    result.write_to_disk(filename="ASH_SP_fragments.result")
+    result.write_to_disk(filename="results_singlepoint_fragments.json")
     log_time_since(module_init_time, "Singlepoint_fragments")
     return result
 
@@ -300,7 +305,7 @@ def single_point_fragments_and_theories(theories=None, fragments=None, stoichiom
             )
             result.reaction_energies.append(r[0])
     logger.info("")
-    result.write_to_disk(filename="ASH_SP_fragments_theories.result")
+    result.write_to_disk(filename="results_singlepoint_fragments_theories.json")
     log_time_since(module_init_time, "Singlepoint_fragments_and_theories")
     return result
 
@@ -369,7 +374,7 @@ def single_point_reaction(theory=None, reaction=None, moreadfiles=None):
     result = Results(label="Singlepoint_reaction", energies=reaction.energies, reaction_energy=reaction.reaction_energy)
 
     log_time_since(module_init_time, "Singlepoint_reaction")
-    result.write_to_disk(filename="ASH_SP_reaction.result")
+    result.write_to_disk(filename="results_singlepoint_reaction.json")
     return result
 
 

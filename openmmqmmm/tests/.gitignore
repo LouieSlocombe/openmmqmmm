@@ -1,6 +1,6 @@
-# Test runs generate output files in this directory (orca.*, finalsystem.*,
-# trajectories, ...). conftest.py deletes them at the end of the session; this
-# whitelist keeps any leftovers from a crashed run out of git status.
+# conftest.py runs every test in its own temporary directory, so output files
+# (orca.*, finalsystem.*, trajectories, ...) should never land here. This
+# whitelist keeps any leftovers from a crashed or manual run out of git status.
 *
 !.gitignore
 !conftest.py

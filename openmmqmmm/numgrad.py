@@ -125,7 +125,10 @@ class NumGrad:
         self.energy = orig_energy
         self.gradient = gradient
 
-        return self.energy, self.gradient
+        # Match the theory-object contract: energy alone unless a gradient was asked for
+        if grad:
+            return self.energy, self.gradient
+        return self.energy
 
 
 def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult):

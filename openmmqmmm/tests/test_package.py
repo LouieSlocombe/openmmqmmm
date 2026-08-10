@@ -2,9 +2,17 @@ import stat
 import subprocess
 import sys
 
+import openmmqmmm
 from openmmqmmm.orca import find_orca
 
 ORCA_PROBE_OUTPUT = "This program requires the name of a parameterfile"
+
+
+def test_version_is_exposed():
+    """The package exposes __version__, sourced from the installed metadata."""
+    assert isinstance(openmmqmmm.__version__, str)
+    assert openmmqmmm.__version__
+    assert "__version__" in openmmqmmm.__all__
 
 
 def test_import_silent():

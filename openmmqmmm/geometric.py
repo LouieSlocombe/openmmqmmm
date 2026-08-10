@@ -991,7 +991,7 @@ class GeometricOptimizer:
         # Note: could include the geometry in object but can be very large causing printing head-aches on screen, ignoring for now since the geometry is in the Fragment object anyway
         result = Results(label="Optimizer", energy=finalenergy)
         if self.result_write_to_disk is True:
-            result.write_to_disk(filename="ASH_Optimizer.result")
+            result.write_to_disk(filename="results_optimizer.json")
         return result
 
 

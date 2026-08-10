@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.1 (2026-08-10)
+
+Bug-fix release from a full audit of the 1.0.0 tree. The 1.0.0 rename pass left several call
+sites pointing at the old names; the parallel-execution path did not run at all.
+
+### Fixed
+- `job_parallel` raised `TypeError: worker_par() got an unexpected keyword argument 'Grad'` on
+  every worker — the kwarg was renamed on the callee but not at the four `apply_async` call
+  sites. This made `job_parallel`, `numerical_frequencies(runmode="parallel")` and
+  `NumGrad(runmode="parallel")` completely unusable.
+- RCD charge shifting (`QMMMTheory(chargeboundary_method="rcd")`) kept only the last RCD site
+  per step instead of all of them, so the point-charge field had more charges than coordinates;
+  an empty MM boundary raised `UnboundLocalError`. `QMMMTheory` now also verifies that charges
+  and coordinates are the same length before handing the field to the QM code.
+- `UnboundLocalError` in the parallel worker when `mofilesdir` was combined with a string label;
+  unsupported label/theory combinations now raise `InputError`.
+- Parallel workers restore their working directory when a job fails, so a failure no longer
+  corrupts subsequent jobs assigned to the same pool worker.
+- `job_parallel` validated `theories`/`numcores` after already indexing them, raising `TypeError`
+  instead of `InputError`.
+- `single_point_theories` crashed with `TypeError` while printing its summary table when charge
+  and multiplicity were passed as arguments rather than set on the fragment.
+- `check_gradient_for_bad_atoms` printed the z coordinate twice and never the y coordinate.
+- `NumGrad.run` ignored `grad=` and always returned an (energy, gradient) tuple.
+- Electrostatic embedding with a QM-free theory built flat `(3,)` zero-gradients instead of
+  per-atom `(natoms, 3)` arrays, breaking the QM/MM gradient assembly.
+
+### Changed
+- Results files are now named `results_singlepoint.json`, `results_singlepoint_theories.json`,
+  `results_singlepoint_fragments.json`, `results_singlepoint_fragments_theories.json`,
+  `results_singlepoint_reaction.json`, `results_anfreq.json`, `results_numfreq.json` and
+  `results_optimizer.json`. 1.0.0 documented JSON results but every call site still wrote the
+  old `ASH_*.result` names.
+
+### Added
+- `openmmqmmm.__version__`.
+- Google-style docstrings on the remaining undocumented public coordinate helpers.
+- Regression tests for `job_parallel` (the gap that let the kwarg bug ship) and for the
+  `Results` write/read round-trip.
+
 ## 1.0.0 (2026-08-09)
 
 Full modernization of the codebase. **Breaking release**: the ASH-compatible API is gone —

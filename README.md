@@ -92,7 +92,8 @@ script:
 
 ```py
 import openmmqmmm
-openmmqmmm.configure_logging()                      # INFO to console
+
+openmmqmmm.configure_logging()  # INFO to console
 # openmmqmmm.configure_logging(level="DEBUG", file="calc.log")
 ```
 
@@ -112,8 +113,7 @@ F 0.0 0.0 1.0
 """
 hf_frag = Fragment(coordsstring=coords, charge=0, mult=1)
 
-orca_calc = ORCATheory(orcasimpleinput="! r2SCAN def2-SVP def2/J tightscf",
-                       orcablocks="%scf maxiter 200 end")
+orca_calc = ORCATheory(orcasimpleinput="! r2SCAN def2-SVP def2/J tightscf", orcablocks="%scf maxiter 200 end")
 
 single_point(theory=orca_calc, fragment=hf_frag)
 optimize_geometry(theory=orca_calc, fragment=hf_frag)
@@ -130,12 +130,12 @@ configure_logging()
 fragment = Fragment(pdbfile="system.pdb")
 
 qm_orca = ORCATheory(orcasimpleinput="! r2SCAN-3c tightscf", numcores=8)
-omm = OpenMMTheory(xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"],
-                   pdbfile="system.pdb", periodic=True)
+omm = OpenMMTheory(
+    xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"], pdbfile="system.pdb", periodic=True
+)
 
 qmatoms = [93, 94, 95, 96, 97, 133, 134, 135, 2001, 2002]
-qm_mm = QMMMTheory(qm_theory=qm_orca, mm_theory=omm, fragment=fragment,
-                   qm_charge=-1, qm_mult=6, qmatoms=qmatoms)
+qm_mm = QMMMTheory(qm_theory=qm_orca, mm_theory=omm, fragment=fragment, qm_charge=-1, qm_mult=6, qmatoms=qmatoms)
 
 # Geometry optimization of the QM region
 optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
@@ -156,7 +156,9 @@ Module-level behavior: importing the package is silent and side-effect free — 
 `~/ash_user_settings.ini` reading (use `OPENMMQMMM_ORCADIR` or `orcadir=`), no `printlevel`
 keywords (use `configure_logging(level=...)` / per-module logger levels), and errors raise
 exceptions instead of exiting the interpreter. Fragment files use the `.frag` extension (was
-`.ygg`) and results are written to `results.json` (was `ASH.result`).
+`.ygg`) and each job function writes its `Results` object to a `results_*.json` file — for
+example `results_singlepoint.json`, `results_optimizer.json`, `results_numfreq.json` (was
+`ASH_SP.result`, `ASH_Optimizer.result`, `ASH_NumFreq.result`).
 
 | ASH / 0.x name | New name |
 |---|---|

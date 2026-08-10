@@ -1441,6 +1441,12 @@ def _print_internal_coordinate_table(fragment, actatoms=None):
 
 # OLD FUNCTION.
 def print_internal_coordinate_table(fragment, actatoms=None):
+    """Log a table of bonds, angles and dihedrals for a fragment.
+
+    Args:
+        fragment: Fragment to analyze. Connectivity is recalculated as needed.
+        actatoms: optional list of atom indices to restrict the table to.
+    """
     timeA = time.time()
     logger.info("\nPrinting internal coordinate table")
     if actatoms is not None:
@@ -1664,16 +1670,43 @@ def dihedral(A, B, C, D):
 # User-functions
 # atoms is a list of atom indices,
 def distance_between_atoms(fragment=None, atoms=None):
+    """Return the distance between two atoms of a fragment.
+
+    Args:
+        fragment: Fragment holding the coordinates.
+        atoms: list of 2 atom indices (0-based).
+
+    Returns:
+        Distance in Angstrom.
+    """
     dist = distance(fragment.coords[atoms[0]], fragment.coords[atoms[1]])
     return dist
 
 
 def angle_between_atoms(fragment=None, atoms=None):
+    """Return the A-B-C angle spanned by three atoms of a fragment.
+
+    Args:
+        fragment: Fragment holding the coordinates.
+        atoms: list of 3 atom indices (0-based); the middle one is the vertex.
+
+    Returns:
+        Angle in degrees.
+    """
     angle_deg = angle(fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]])
     return angle_deg
 
 
 def dihedral_between_atoms(fragment=None, atoms=None):
+    """Return the A-B-C-D dihedral angle spanned by four atoms of a fragment.
+
+    Args:
+        fragment: Fragment holding the coordinates.
+        atoms: list of 4 atom indices (0-based), in bonding order.
+
+    Returns:
+        Signed dihedral angle in degrees.
+    """
     dihed_deg = dihedral(
         fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]], fragment.coords[atoms[3]]
     )
@@ -1873,6 +1906,22 @@ def molformulatolist(formulastring):
 
 # Read XYZ file
 def read_xyzfile(filename):
+    """Read elements and coordinates from an XYZ file.
+
+    The element column may hold either element symbols or atomic numbers.
+
+    Args:
+        filename: path to the XYZ file.
+
+    Returns:
+        Tuple (elems, coords): list of element symbols and a list of
+        [x, y, z] coordinate triples in Angstrom.
+
+    Raises:
+        FileFormatError: if the atom count in the header does not match the
+            number of coordinate lines, or the elements and coordinates
+            disagree in length.
+    """
     # Will accept atom-numbers as well as symbols
     logger.info(f"Reading coordinates from XYZ file '{filename}'.")
     coords = []
@@ -1905,6 +1954,18 @@ def read_xyzfile(filename):
 # Read all XYZ-files from directory
 # Return fragment list
 def read_xyzfiles(xyzdir, readchargemult=False, label_from_filename=True):
+    """Create a Fragment for every XYZ file in a directory.
+
+    Files are processed in natural (human) sort order.
+
+    Args:
+        xyzdir: directory to scan for *.xyz files.
+        readchargemult: read charge and multiplicity from each XYZ title line.
+        label_from_filename: unused; the filename is always used as the label.
+
+    Returns:
+        List of Fragment objects, one per file.
+    """
     logger.info("read_xyzfiles function")
     logger.info("Note: will read XYZ-files in directory using natural sorting")
     import glob
@@ -1924,6 +1985,15 @@ def read_xyzfiles(xyzdir, readchargemult=False, label_from_filename=True):
 # Write XYZfile provided list of elements and list of list of coords and filename
 # Fast version. Note: list comprehension is bottleneck, unclear how to make this faster though
 def write_xyzfile(elems, coords, name, writemode="w", title="title"):
+    """Write elements and coordinates to an XYZ file.
+
+    Args:
+        elems: list of element symbols.
+        coords: sequence of [x, y, z] coordinate triples in Angstrom.
+        name: output basename; ".xyz" is appended.
+        writemode: file mode, "w" to overwrite or "a" to append a frame.
+        title: text for the XYZ title (second) line.
+    """
     # Adding headerlines to list
     header = [f"{len(elems)}\n", f"{title}\n"]
     atomlines = [f"{el:4} {c[0]:16.12f} {c[1]:16.12f} {c[2]:16.12f}\n" for el, c in zip(elems, coords, strict=False)]
@@ -1937,6 +2007,18 @@ def write_xyzfile(elems, coords, name, writemode="w", title="title"):
 # Created for splitting crest_conformers.xyz but may also be used for MD traj.
 # Also grabs last word in title line. Typically an energy (has to be converted to float outside)
 def split_multimolxyzfile(file, writexyz=False, skipindex=1, return_fragments=False):
+    """Split a multi-molecule XYZ file (trajectory, conformer set) into its frames.
+
+    Args:
+        file: path to the multi-molecule XYZ file.
+        writexyz: also write each frame to its own molecule<N>.xyz file.
+        skipindex: keep only every Nth frame.
+        return_fragments: return Fragment objects instead of raw arrays.
+
+    Returns:
+        A list of Fragment objects if return_fragments is True, otherwise the
+        tuple (all_elems, all_coords, all_titles) with one entry per frame.
+    """
     all_coords = []
     all_elems = []
     all_titles = []
@@ -2133,6 +2215,20 @@ def read_pdbfile_info(filename, use_atomnames_as_elements=False):
 # Read AMBERCRD file and coords and box info
 # Not part of Fragment class because we don't have element information here
 def read_gromacsfile(grofile):
+    """Read a GROMACS .gro coordinate file.
+
+    Args:
+        grofile: path to the .gro file.
+
+    Returns:
+        Tuple (elems, coords, box_dims): element symbols guessed from the atom
+        names, an (natoms, 3) numpy array of coordinates converted from nm to
+        Angstrom, and [a, b, c, 90.0, 90.0, 90.0] cell parameters in Angstrom
+        (the cell is assumed orthorhombic) or None if the file had no box line.
+
+    Raises:
+        FileFormatError: if the parsed elements and coordinates disagree in length.
+    """
     elems = []
     coords = []
     # TODO: Change coords to numpy array instead
@@ -2184,6 +2280,17 @@ def read_gromacsfile(grofile):
 # Read AMBERCRD file and coords and box info
 # Not part of Fragment class because we don't have element information here
 def read_ambercoordinates(prmtopfile=None, inpcrdfile=None):
+    """Read an Amber inpcrd/rst coordinate file, taking elements from the prmtop.
+
+    Args:
+        prmtopfile: Amber topology file, used for the element list.
+        inpcrdfile: Amber coordinate file (inpcrd or restart).
+
+    Returns:
+        Tuple (elems, coords, box_dims): element symbols, an (natoms, 3) numpy
+        array of coordinates in Angstrom, and the cell parameters from the
+        final line (empty list if the file had no box line).
+    """
     elems = []
     coords = []
     # TODO: Change coords to numpy array instead
@@ -2253,6 +2360,28 @@ def write_pdbfile(
     charges_column=None,
     conect_lines=None,
 ):
+    """Write a fragment to a PDB file.
+
+    Per-atom PDB columns are taken from an OpenMMTheory topology when
+    openmmobject is given, otherwise from the explicit *labels arguments, and
+    otherwise filled with generic defaults.
+
+    Args:
+        fragment: Fragment holding elements and coordinates.
+        outputname: output basename; ".pdb" is appended.
+        openmmobject: OpenMMTheory whose topology supplies atom/residue/chain labels.
+        atomnames: per-atom names, overriding the topology.
+        resnames: per-atom residue names, overriding the topology.
+        residlabels: per-atom residue numbers, overriding the topology.
+        chainlabels: per-atom chain identifiers, overriding the topology.
+        segmentlabels: per-atom segment identifiers, overriding the topology.
+        dummyname: residue name used for dummy atoms.
+        charges_column: optional per-atom values written into the occupancy column.
+        conect_lines: optional pre-built CONECT records to append.
+
+    Returns:
+        The name of the written file.
+    """
     logger.info("Writing PDB-file...")
     # Using fragment
     elems = fragment.elems
@@ -2454,6 +2583,20 @@ def list_of_masses(ellist):
 def flexible_align_xyz(
     xyzfile_a, xyzfile_b, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
 ):
+    """Align the molecule in one XYZ file onto the molecule in another.
+
+    Writes the aligned structure to <xyzfile_a stem>_aligned.xyz.
+
+    Args:
+        xyzfile_a: XYZ file to move.
+        xyzfile_b: XYZ file to align onto (stays fixed).
+        rotate_only: apply only the rotation, not the translation.
+        translate_only: apply only the translation, not the rotation.
+        reordering: reorder the atoms of A to match B before aligning.
+        reorder_method: reordering algorithm, e.g. "brute" or "hungarian".
+        subset: atom indices to align on; a list of two lists gives separate
+            indices for A and B.
+    """
     logger.info(f"Will align molecule in file {xyzfile_a} onto molecule in file {xyzfile_b}")
     fragment_a = Fragment(xyzfile=xyzfile_a)
     fragment_b = Fragment(xyzfile=xyzfile_b)
@@ -2476,6 +2619,21 @@ def flexible_align_xyz(
 def flexible_align_pdb(
     pdbfileA, pdbfileB, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
 ):
+    """Align the molecule in one PDB file onto the molecule in another.
+
+    Writes the aligned structure to <pdbfileA stem>_aligned.pdb, preserving the
+    PDB metadata read from pdbfileA.
+
+    Args:
+        pdbfileA: PDB file to move.
+        pdbfileB: PDB file to align onto (stays fixed).
+        rotate_only: apply only the rotation, not the translation.
+        translate_only: apply only the translation, not the rotation.
+        reordering: reorder the atoms of A to match B before aligning.
+        reorder_method: reordering algorithm, e.g. "brute" or "hungarian".
+        subset: atom indices to align on; a list of two lists gives separate
+            indices for A and B.
+    """
     logger.info(f"Will align molecule in file {pdbfileA} onto molecule in file {pdbfileB}")
     fragment_a = Fragment(pdbfile=pdbfileA)
     fragment_b = Fragment(pdbfile=pdbfileB)
@@ -2506,6 +2664,21 @@ def flexible_align(
     reorder_method="brute",
     subset=None,
 ):
+    """Align one fragment onto another (Kabsch superposition, optional reordering).
+
+    Args:
+        fragment_a: Fragment to move.
+        fragment_b: Fragment to align onto (stays fixed).
+        rotate_only: apply only the rotation, not the translation.
+        translate_only: apply only the translation, not the rotation.
+        reordering: reorder the atoms of A to match B before aligning.
+        reorder_method: reordering algorithm, e.g. "brute" or "hungarian".
+        subset: atom indices to align on; a list of two lists gives separate
+            indices for A and B.
+
+    Returns:
+        A new Fragment holding the aligned coordinates of fragment_a.
+    """
     logger.info("flexible_align function")
     import geometric
 
@@ -2607,6 +2780,22 @@ def flexible_align(
 # Also simpler option: heavyatomsonly=True (ignores H-atoms)
 # NOTE: no reordering
 def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, write_aligned_structure=False):
+    """Return the RMSD between two fragments after optimal superposition.
+
+    Args:
+        fragment_a: first Fragment.
+        fragment_b: second Fragment.
+        subset: atom indices to compare; a list of two lists gives separate
+            indices for A and B.
+        heavyatomsonly: exclude hydrogen atoms from the comparison.
+        write_aligned_structure: also write the aligned structure to disk.
+
+    Returns:
+        RMSD in Angstrom.
+
+    Raises:
+        InputError: if the two subsets differ in length.
+    """
     logger.info("calculate_RMSD function")
 
     # Do chosen subset
@@ -2966,6 +3155,17 @@ def get_linkatom_positions(
 # Grabbing molecules from multi-XYZ trajectory file (can be MD-file, optimization traj etc).
 # Creating fragments for each conformer
 def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=False):
+    """Create a Fragment for every snapshot in a multi-molecule XYZ trajectory.
+
+    Args:
+        file: path to the multi-molecule XYZ file.
+        writexyz: also write each snapshot to its own XYZ file.
+        skipindex: keep only every Nth snapshot.
+        conncalc: calculate connectivity for each fragment (slow for large systems).
+
+    Returns:
+        List of Fragment objects labelled "<file>_<index>".
+    """
     logger.info(small_header("Get molecules from trajectory"))
     logger.info("Finding molecules/snapshots in multi-XYZ trajectory file and creating fragments...")
     logger.info(f"Taking every {skipindex}th entry")
@@ -2983,6 +3183,23 @@ def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=Fa
 
 # Get list of lists of water constraints in system (O-H,O-H,H-H) via OpenMM theory
 def get_water_constraints(openmmtheoryobject=None, atomlist=None, watermodel="tip3p"):
+    """Return bond constraints for every water molecule in an OpenMM system.
+
+    Water residues are identified by residue name (HOH, WAT, TIP) using the
+    residue and element information stored on the OpenMMTheory object.
+
+    Args:
+        openmmtheoryobject: OpenMMTheory providing resnames and mm_elements.
+        atomlist: atom indices to search (e.g. the active region).
+        watermodel: water model name; "tip3p" and "spc" are supported.
+
+    Returns:
+        List of [i, j] atom-index pairs to constrain (O-H and H-H).
+
+    Raises:
+        InputError: for a missing argument, an unknown water model, or an
+            OpenMMTheory object without residue/element information.
+    """
     logger.info("Inside getwaterconstraintslist")
     if openmmtheoryobject is None or atomlist is None:
         raise InputError("getwaterconstraintslist requires openmmtheoryobject and atomlist to be set")
@@ -3085,7 +3302,7 @@ def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000):
         logger.info("Index    Element           Coordinates                              Gradient")
         for i in indices:
             logger.info(
-                f"{i:7} {fragment.elems[i]:>5} {fragment.coords[i][0]:>12.6f} {fragment.coords[i][2]:>12.6f} {fragment.coords[i][2]:>12.6f}      {gradient[i][0]:>6.3f} {gradient[i][1]:>6.3f} {gradient[i][2]:>6.3f}"
+                f"{i:7} {fragment.elems[i]:>5} {fragment.coords[i][0]:>12.6f} {fragment.coords[i][1]:>12.6f} {fragment.coords[i][2]:>12.6f}      {gradient[i][0]:>6.3f} {gradient[i][1]:>6.3f} {gradient[i][2]:>6.3f}"
             )
         logger.info("")
         logger.info(
@@ -3100,6 +3317,23 @@ def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000):
 # Define XH bond constraints for a given fragment and a set of atomindices (e.g. an active region)
 # and an optional exclusion list (e.g. QM-region)
 def define_xh_constraints(fragment, actatoms=None, excludeatoms=None):
+    """Return X-H bond constraints for a fragment or a region of it.
+
+    Every hydrogen is paired with the atom it is bonded to, as determined from
+    the calculated connectivity.
+
+    Args:
+        fragment: Fragment holding elements and coordinates.
+        actatoms: atom indices to restrict the search to (the active region);
+            all atoms if None. Returned indices are always full-system indices.
+        excludeatoms: atom indices to leave unconstrained.
+
+    Returns:
+        List of [X, H] atom-index pairs to constrain.
+
+    Raises:
+        InternalError: if a hydrogen is not found bonded to exactly one atom.
+    """
     logger.info("Inside define_XH_constraints function")
     if actatoms is None:
         subset_elems = fragment.elems
@@ -3155,6 +3389,22 @@ def actindex_to_fullindex(actindex, actatoms):
 # Simple get_water constraints for fragment without doing connectivity
 # Limitation: Assumes all waters from starting index to end and that waters are ordered: O H H
 def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False):
+    """Return water bond constraints by position, without residue information.
+
+    Assumes the water molecules are stored in O, H, H order and occupy a
+    contiguous block at the end of the coordinate file.
+
+    Args:
+        fragment: Fragment holding the elements.
+        starting_index: index of the oxygen of the first water molecule.
+        onlyHH: constrain only the H-H distance, leaving the O-H bonds free.
+
+    Returns:
+        List of [i, j] atom-index pairs to constrain.
+
+    Raises:
+        InputError: if starting_index is missing or does not point at an oxygen.
+    """
     logger.info("Inside simple_get_water_constraints function")
     logger.info(
         "Warning: Note that water residues have to have O,H,H order and have to be at the end of the coordinate file"
@@ -3227,6 +3477,28 @@ def insert_solute_into_solvent(
     outputname="solution.pdb",
     write_pbc_info=True,
 ):
+    """Insert one or two solute molecules into a solvent box, removing clashes.
+
+    Solvent molecules overlapping the solute are deleted whole, so the result
+    stays chemically sensible.
+
+    Args:
+        solute: Fragment for the solute.
+        solute2: optional second solute Fragment.
+        solvent: Fragment holding the pre-equilibrated solvent box.
+        scale: covalent-radius scale factor used for clash detection.
+        tol: covalent-radius tolerance (Angstrom) used for clash detection.
+        write_pdb: also write the combined system to a PDB file.
+        write_solute_connectivity: include CONECT records for the solute.
+        solute_pdb: PDB file supplying the topology metadata for the solute.
+        solute2_pdb: PDB file supplying the topology metadata for the second solute.
+        solvent_pdb: PDB file supplying the topology metadata for the solvent.
+        outputname: filename for the written PDB file.
+        write_pbc_info: write the solvent cell dimensions as a CRYST1 record.
+
+    Returns:
+        A new Fragment containing the solute(s) plus the trimmed solvent.
+    """
     logger.info("\ninsert_solute_into_solvent\n")
     # Early exits
     if write_pdb:
@@ -3368,6 +3640,15 @@ def insert_solute_into_solvent(
 # Basic fast function to calculate the Coulomb energy.
 # Assumes coords in Angstrom
 def nuc_nuc_repulsion(coords, charges):
+    """Return the classical nucleus-nucleus repulsion energy of a set of point charges.
+
+    Args:
+        coords: (natoms, 3) array of coordinates in Angstrom.
+        charges: per-atom charges (nuclear charges for the usual use).
+
+    Returns:
+        Repulsion energy in Hartree.
+    """
     charges = np.array(charges)  # Ensure charges is a numpy array
     coords_b = coords * 1.88972612546
     diff = coords_b[:, None, :] - coords_b[None, :, :]

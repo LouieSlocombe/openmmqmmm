@@ -455,13 +455,16 @@ class QMMMTheory:
         timeA = time.time()
         logger.info("Adding updated RCD charges at QM/MM boundary by RCD.")
 
-        # Distribute charge fractions to neighboring MM atoms
-        for MM1index, MM2indices in zip(self.MMboundarydict.keys(), self.MMboundarydict.values(), strict=False):
+        # One RCD site per MM2 atom, in the same order as rcd_shifting_prep created the
+        # matching extra charges, so that charges and coordinates stay index-aligned.
+        newsites = []
+        for MM1index, MM2indices in self.MMboundarydict.items():
             # Looping over MM2 atoms
             for i in MM2indices:
-                # Add new RCD sites to pointchargecoords and pointcharges
-                newsite = (fullcoords[i] + fullcoords[MM1index]) / 2
-                pointchargecoords = np.append(used_mmcoords, [newsite], axis=0)
+                # New RCD site sits midway between the MM1 and MM2 atom
+                newsites.append((fullcoords[i] + fullcoords[MM1index]) / 2)
+
+        pointchargecoords = np.append(used_mmcoords, np.array(newsites), axis=0) if newsites else used_mmcoords
 
         log_time_since(timeA, "RCD_shifting_update")
         return pointchargecoords
@@ -1176,6 +1179,14 @@ class QMMMTheory:
 
         logger.info("Number of pointcharges (to QM program): %s", len(self.pointcharges))
         logger.info("Number of charge coordinates: %s", len(self.pointchargecoords))
+        # The QM code pairs charges with coordinates positionally: a mismatch here is silently
+        # wrong physics rather than an error, so check it before handing the field over.
+        if len(self.pointcharges) != len(self.pointchargecoords):
+            raise InternalError(
+                f"Point-charge field is inconsistent: {len(self.pointcharges)} charges but "
+                f"{len(self.pointchargecoords)} coordinates (chargeboundary_method={self.chargeboundary_method}, "
+                f"dipole_correction={self.dipole_correction})"
+            )
         logger.info(f"Running QM/MM object with {numcores} cores available")
         ################
         # QMTheory.run
@@ -1186,8 +1197,10 @@ class QMMMTheory:
             logger.info("No QMtheory. Skipping QM calc")
             QMenergy = 0.0
             self.linkatoms = False
-            PCgradient = np.array([0.0, 0.0, 0.0])
-            QMgradient = np.array([0.0, 0.0, 0.0])
+            # Per-atom zero gradients, matching the shapes a real QM code would return
+            # (mech_run does the same). A flat (3,) array breaks make_qm_pc_gradient.
+            PCgradient = np.zeros((len(self.pointchargecoords), 3))
+            QMgradient = np.zeros((len(used_qmcoords), 3))
         else:
             # TODO: Add check whether QM-code supports both pointcharges and pointcharge-gradient?
 

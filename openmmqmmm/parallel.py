@@ -136,6 +136,14 @@ def job_parallel(
 
     logger.info("Number of CPU cores available:  %s", numcores)
 
+    # Early exits. Must come before any use of the arguments below
+    if fragments is None and fragmentfiles is None:
+        raise InputError("Job_parallel requires a list of fragments or a list of fragmentfilenames")
+    if theories is None or numcores is None:
+        raise InputError(
+            f"theories: {theories}\nnumcores: {numcores}\nJob_parallel requires a theory object and a numcores value"
+        )
+
     if isinstance(theories[0], QMMMTheory):
         logger.info("Warning: Job_parallel using QMMMTheory with OpenMMTheory MM is experimental")
         logger.info("Specifically there are issues with platform='CPU'.")
@@ -145,13 +153,6 @@ def job_parallel(
     logger.info("Mofilesdir: %s", mofilesdir)
     logger.warning("Warning: Output from Job_parallel will be erratic due to simultaneous output from multiple workers")
 
-    # Early exits
-    if fragments is None and fragmentfiles is None:
-        raise InputError("Job_parallel requires a list of fragments or a list of fragmentfilenames")
-    if theories is None or numcores is None:
-        raise InputError(
-            f"theories: {theories}\nnumcores: {numcores}\nJob_parallel requires a theory object and a numcores value"
-        )
     # Fragment objects passed or name of fragmentfiles
     if fragments is not None:
         logger.info("Number of fragments: %s", len(fragments))
@@ -226,7 +227,7 @@ def job_parallel(
                             "mofilesdir": mofilesdir,
                             "version": version,
                             "event": event,
-                            "Grad": grad,
+                            "grad": grad,
                             "copytheory": copytheory,
                             "optimizer": optimizer,
                         },
@@ -248,7 +249,7 @@ def job_parallel(
                             "mofilesdir": mofilesdir,
                             "version": version,
                             "event": event,
-                            "Grad": grad,
+                            "grad": grad,
                             "copytheory": copytheory,
                             "optimizer": optimizer,
                         },
@@ -271,7 +272,7 @@ def job_parallel(
                         "mofilesdir": mofilesdir,
                         "version": version,
                         "event": event,
-                        "Grad": grad,
+                        "grad": grad,
                         "copytheory": copytheory,
                         "optimizer": optimizer,
                     },
@@ -294,7 +295,7 @@ def job_parallel(
                         "mofilesdir": mofilesdir,
                         "version": version,
                         "event": event,
-                        "Grad": grad,
+                        "grad": grad,
                         "copytheory": copytheory,
                         "optimizer": optimizer,
                     },
@@ -374,6 +375,15 @@ def job_parallel(
     # And dictionary with dirnames used (so we can look up stuff)
     final_result.worker_dirnames = worker_dirnames_dict
 
+    # Results from jobs that died are skipped above so that a broken pool cannot hang the
+    # collection loop. Silently returning the survivors would look like a successful run with
+    # missing data, so report the shortfall instead.
+    if len(final_result.energies) != len(results):
+        raise OpenMMQMMMError(
+            f"Job_parallel: only {len(final_result.energies)} of {len(results)} jobs returned a result. "
+            "Check the worker output above for the underlying exception."
+        )
+
     # TODO: JSON-array problem, reenable later
     return final_result
 
@@ -421,15 +431,14 @@ def worker_par(
     # Making label flexible. Can be tuple but inputfilename is converted to string below
     logger.info(f"label: {label} (type {type(label)})")
     if label is None:
-        logger.info(
-            "No label provided to fragment or theory objects. This is required to distinguish between calculations "
+        raise InputError(
+            "No label provided to fragment or theory objects. This is required to distinguish between calculations"
         )
-        logger.info("Exiting.")
-        raise Exception("Labelproblem")
     # Using label (could be tuple) to create a labelstring which is used to name worker directories
     # Tuple-label (1 or 2 elements).
     # Otherwise normally string
     # TODO: Needs to be generalized.  Remove RC1, RC2 strings
+    moreadfile_path = None
     if isinstance(label, tuple):
         if len(label) == 2:
             labelstring = str(str(label[0]) + "_" + str(label[1])).replace(".", "_")
@@ -464,14 +473,16 @@ def worker_par(
 
     ###############################
     # TODO: Need to revisit all of this, ideally remove
-    if theory.__class__.__name__ == "ORCATheory":
-        if mofilesdir is not None:
-            theory.moreadfile = moreadfile_path + ".gbw"
-            logger.info("Setting moreadfile to: %s", theory.moreadfile)
-    else:
-        if mofilesdir is not None:
-            logger.info("moreadfile option not ready for this Theory. exiting")
-            raise Exception()
+    if mofilesdir is not None:
+        if theory.__class__.__name__ != "ORCATheory":
+            raise InputError(f"The mofilesdir option is only supported for ORCATheory, not {theory.__class__.__name__}")
+        if moreadfile_path is None:
+            raise InputError(
+                f"The mofilesdir option needs a tuple, float or int label to build the MO-file name, "
+                f"but the label was {label!r} (type {type(label).__name__})"
+            )
+        theory.moreadfile = moreadfile_path + ".gbw"
+        logger.info("Setting moreadfile to: %s", theory.moreadfile)
 
     ####################################
     # Handling Directory
@@ -482,53 +493,58 @@ def worker_par(
         os.mkdir(worker_dirname)
     except FileExistsError:
         logger.info("Dir exists. continuing")
+    # Pool workers are reused for later jobs, so the cwd must be restored even if this job fails
+    parent_dir = os.getcwd()
     os.chdir(worker_dirname)
-    logger.warning(
-        f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
-    )
-
-    #####################
-    # RUN WORKER JOB
-    #####################
-    # Create property dict containing some results except energy and gradient
-    properties = {}
-    # Optimizer
-    if optimizer is not None:
-        # Make copy of optimizer
-        optimizer_new = copy.copy(optimizer)
-        result = optimizer_new.run(theory=theory, fragment=fragment, charge=charge, mult=mult)
-        energy = result.energy
-    # Singlepoint Grad
-    elif grad:
-        energy, gradient = theory.run(
-            current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult, grad=grad
+    try:
+        logger.warning(
+            f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
         )
 
-        # Dipole and polarizability
-        try:
-            dm = theory.get_dipole_moment()
-            properties = {"dipole_moment": dm}
-        except Exception:  # noqa: BLE001 - best-effort property grab
-            pass
-        try:
-            polarizability = theory.get_polarizability_tensor()
-            properties = {"polarizability": polarizability}
-        except Exception:  # noqa: BLE001 - best-effort property grab
-            pass
+        #####################
+        # RUN WORKER JOB
+        #####################
+        # Create property dict containing some results except energy and gradient
+        properties = {}
+        # Optimizer
+        if optimizer is not None:
+            # Make copy of optimizer
+            optimizer_new = copy.copy(optimizer)
+            result = optimizer_new.run(theory=theory, fragment=fragment, charge=charge, mult=mult)
+            energy = result.energy
+        # Singlepoint Grad
+        elif grad:
+            energy, gradient = theory.run(
+                current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult, grad=grad
+            )
 
-    # Singlepoint energy
-    else:
-        energy = theory.run(current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult)
-    #####################
+            # Dipole and polarizability
+            try:
+                dm = theory.get_dipole_moment()
+                properties = {"dipole_moment": dm}
+            except Exception:  # noqa: BLE001 - best-effort property grab
+                pass
+            try:
+                polarizability = theory.get_polarizability_tensor()
+                properties = {"polarizability": polarizability}
+            except Exception:  # noqa: BLE001 - best-effort property grab
+                pass
 
-    logger.info("Energy:  %s", energy)
+        # Singlepoint energy
+        else:
+            energy = theory.run(
+                current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult
+            )
+        #####################
 
-    # Now adding total energy to fragment.
-    # NOTE: Add to theory also?
-    fragment.energy = energy
+        logger.info("Energy:  %s", energy)
 
-    # Exiting workerdir
-    os.chdir("..")
+        # Now adding total energy to fragment.
+        # NOTE: Add to theory also?
+        fragment.energy = energy
+    finally:
+        # Exiting workerdir
+        os.chdir(parent_dir)
 
     # Return label and energy or label, energy and gradient. Also worker_dirname
     if grad:

@@ -4,6 +4,8 @@ Derived from the ASH multiscale modelling program by R. Bjornsson.
 """
 
 import logging as _logging
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _get_version
 
 # Fragment class and coordinate functions
 from .coords import (
@@ -121,8 +123,15 @@ from .utils import configure_logging
 # configure_logging() sets up the classic console output in one call.
 _logging.getLogger(__name__).addHandler(_logging.NullHandler())
 
+# Version comes from the package metadata; pyproject.toml is the single source of truth.
+try:
+    __version__ = _get_version("openmmqmmm")
+except _PackageNotFoundError:  # running from a source tree with no install
+    __version__ = "0.0.0+unknown"
+
 # Public API — the only names star-imports provide
 __all__ = [
+    "__version__",
     # Core classes
     "Fragment",
     "GeometricOptimizer",

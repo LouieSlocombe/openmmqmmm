@@ -144,7 +144,7 @@ def analytic_frequencies(
             normal_modes=nmodes,
             thermochemistry=thermodict,
         )
-        result.write_to_disk(filename="ASH_AnFreq.result")
+        result.write_to_disk(filename="results_anfreq.json")
         return result
 
     else:
@@ -671,7 +671,7 @@ def numerical_frequencies(
         freq_raman=Raman,
         freq_polarizability_derivs=polarizability_derivs,
     )
-    result.write_to_disk(filename="ASH_NumFreq.result")
+    result.write_to_disk(filename="results_numfreq.json")
     return result
 
 
