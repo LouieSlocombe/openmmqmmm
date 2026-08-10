@@ -1,5 +1,77 @@
 # Changelog
 
+## Unreleased
+
+A second audit pass, this time driven by writing tests for the untested modules. Statement
+coverage went from 28% to 43% (36% without ORCA installed) across 289 tests, and the new
+tests found eight defects — most of them silent wrong answers rather than crashes.
+
+### Fixed
+- **ORCA input files were malformed whenever `extraline` or `orcablocks` was set on a
+  gas-phase calculation.** `create_orca_input_plain` wrote `extraline` with no trailing
+  newline and `orcablocks` with no leading one, so directives ran together on a single
+  line: `! OPT %scf maxiter 200 end`, or `! TightSCF! Engrad` for a gradient run. ORCA
+  exits with an error. The point-charge variant used by QM/MM had the separators right, so
+  only gas-phase runs were affected. The two near-duplicate writers are now one
+  implementation, differing only by the `%pointcharges` line.
+- **`ORCATheory.opt()` could not be called twice** and leaked into later calculations: it
+  appended `! OPT` to `self.extraline`, so a second call emitted `! OPT ! OPT` and any
+  subsequent `run()` single point silently inherited the optimization directive. It also
+  now returns the optimized energy instead of None.
+- **The thermal vibrational energy used the wrong Bose-Einstein factor** — `1/exp(x - 1)`
+  instead of `1/(exp(x) - 1)` — making that term 2.7x too large for water and, worse,
+  sending it to zero rather than the classical RT limit for the low-frequency modes that
+  dominate floppy biomolecular systems. The corrected value reproduces ORCA's to the
+  printed precision. Zero-frequency modes are now excluded rather than dividing by zero.
+- **`enforce_periodic_box` was passed to OpenMM and mdtraj**, whose APIs spell it
+  `enforcePeriodicBox`. The 1.0.0 snake_case rename pass had renamed keyword arguments of
+  the external libraries, not just the package's own. `openmm_minimize` raised TypeError
+  after doing all its work but before updating the fragment; the MD state retrieval,
+  trajectory reporters, metadynamics and the geomeTRIC QM/MM path were also affected.
+- **`elemlisttoformula` returned a different string in every process**, because it iterated
+  a set. The formula is embedded in the calculation labels `single_point_fragments` builds,
+  so those were not reproducible between runs. Formulas are now in Hill notation.
+- **`write_orca_hessfile` produced files `grab_hessian` could not read**: nothing marked
+  the end of the `$hessian` block, so the reader ran on into `$atoms` and raised IndexError.
+- **`grab_orca_timings` matched one of its nine labels** against ORCA 6.x output, including
+  the point-charge gradient timing that the QM/MM path reports. It now tolerates the
+  varying column widths.
+- **`NumGrad(npoint=...)` silently returned a zero gradient** for any value other than 1 or
+  2 — which an optimizer reads as an already-converged structure. Unsupported stencils now
+  raise `InputError` at construction.
+- `single_point_theories`, `single_point_fragments` and `single_point_reaction` raised
+  `AttributeError` for any theory without a `cleanup()` method, `ZeroTheory` included.
+- `OpenMMTheory.write_pdbfile` ignored an explicit `positions=` argument whenever the
+  object had its own, silently writing the original coordinates.
+- `Reaction` now rejects a stoichiometry that does not match the fragment count at
+  construction, rather than after every fragment has been through the QM program.
+- `ORCATheory.cleanup()` never deleted the ORCA `*tmp` scratch files: the glob pattern was
+  the literal string `"self.filename*tmp"` rather than an f-string.
+
+### Changed
+- **Severity now lives in the log level, not the message text.** 50 warnings and errors
+  were emitted through `logger.info` with a `WARNING:`/`Error:` prefix, so filtering by
+  level did not surface them; section banners and routine progress lines were conversely
+  emitted at WARNING. Leftover debug output (`logger.info("here")`, internal attribute
+  dumps) is gone or demoted to DEBUG.
+- **`openmm.py` (6169 lines) is now a package**: `openmm/theory.py`, `openmm/systemsetup.py`,
+  `openmm/md.py` and `openmm/metadynamics.py`. Every name is re-exported, so imports are
+  unchanged.
+- `inertia` uses `np.array` rather than the pending-deprecation `np.matrix`.
+
+### Added
+- Google-style docstrings on all 128 public methods of the exported classes — `Fragment`,
+  `OpenMMTheory`, `QMMMTheory`, `ORCATheory` and the rest had none.
+- Return annotations on every exported function, so the shipped `py.typed` marker is no
+  longer a promise the package does not keep.
+- Test suites for the ORCA output parsers (against committed ORCA 6.1.1 reference output),
+  the frequency/thermochemistry engine, `NumGrad`, the coordinate helpers, the periodic-cell
+  helpers, `OpenMMTheory` and the single-point job functions.
+- Tests that enforce the conventions above: no warning text at INFO, no undocumented public
+  method, no exported function without a return annotation.
+- Coverage measurement (`pytest --cov`, `pytest-cov` in the `test` extra), a coverage floor
+  in CI, a wheel-build-and-import CI job, `CLAUDE.md`, and runnable `examples/`.
+
 ## 1.0.1 (2026-08-10)
 
 Bug-fix release from a full audit of the 1.0.0 tree. The 1.0.0 rename pass left several call

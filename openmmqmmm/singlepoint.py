@@ -24,6 +24,18 @@ from openmmqmmm.utils import log_time_since, main_header
 logger = logging.getLogger(__name__)
 
 
+def _cleanup_theory(theory):
+    """Clean up a theory's scratch files if it defines a cleanup method.
+
+    cleanup() is optional: the theory contract these job functions accept is "any
+    theory object", and calling it unconditionally raised AttributeError for theories
+    that have nothing to clean up (ZeroTheory among them).
+    """
+    cleanup = getattr(theory, "cleanup", None)
+    if callable(cleanup):
+        cleanup()
+
+
 # Single-point energy function
 def single_point(
     fragment=None,
@@ -59,7 +71,7 @@ def single_point(
     # Run a single-point energy job with gradient
     if grad:
         logger.info("")
-        logger.warning(
+        logger.info(
             f"Doing single-point Energy+Gradient job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
         )
         # An Energy+Gradient calculation where we change the number of cores to 12
@@ -124,7 +136,7 @@ def single_point_theories(theories=None, fragment=None, charge=None, mult=None) 
             shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
 
         logger.info(f"Theory Label: {theory.label} Energy: {result.energy} Eh")
-        theory.cleanup()
+        _cleanup_theory(theory)
         energies.append(result.energy)
 
     # Printing final table
@@ -175,7 +187,7 @@ def print_fragments_table(fragments, energies, tabletitle="Singlepoint_fragments
 # If stoichiometry provided then print reaction energy
 def single_point_fragments(
     theory=None, fragments=None, stoichiometry=None, relative_energies=False, unit="kcal/mol", moreadfiles=None
-):
+) -> "Results":
     """Run single-point calculations of one theory over multiple fragments."""
     logger.info(main_header("Singlepoint_fragments function"))
     module_init_time = time.time()
@@ -208,7 +220,7 @@ def single_point_fragments(
         with contextlib.suppress(OSError, AttributeError):
             shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
 
-        theory.cleanup()
+        _cleanup_theory(theory)
         energies.append(result.energy)
         # Adding energy as the fragment attribute
         frag.set_energy(result.energy)
@@ -255,7 +267,7 @@ def single_point_fragments(
 
 # Single-point energy function that runs calculations on multiple fragments. Returns a list of energies.
 # Assuming fragments have charge,mult info defined.
-def single_point_fragments_and_theories(theories=None, fragments=None, stoichiometry=None):
+def single_point_fragments_and_theories(theories=None, fragments=None, stoichiometry=None) -> "Results":
     """Run single-point calculations for every fragment with every theory."""
     logger.info(main_header("Singlepoint_fragments_and_theories"))
     module_init_time = time.time()
@@ -312,7 +324,7 @@ def single_point_fragments_and_theories(theories=None, fragments=None, stoichiom
 
 # Single-point energy function that runs calculations on a Reaction object
 # Assuming fragments have charge,mult info defined.
-def single_point_reaction(theory=None, reaction=None, moreadfiles=None):
+def single_point_reaction(theory=None, reaction=None, moreadfiles=None) -> "Results":
     """Run single-point calculations for all species of a Reaction and compute the reaction energy."""
     logger.info(main_header("Singlepoint_reaction function"))
     module_init_time = time.time()
@@ -341,14 +353,14 @@ def single_point_reaction(theory=None, reaction=None, moreadfiles=None):
         calc_label = "Frag_" + str(frag.formula) + "_" + str(frag.charge) + "_" + str(frag.mult) + "_"
         with contextlib.suppress(OSError, AttributeError):
             shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
-        theory.cleanup()
+        _cleanup_theory(theory)
         reaction.energies.append(energy)
 
         # TODO: Change this so that instead we just grab whatever each Theory level deemed important
         # theory.properties feature?
         # Check if ORCATheory object contains ICE-CI info
         if isinstance(theory, openmmqmmm.ORCATheory):
-            logger.info("theory.properties: %s", theory.properties)
+            logger.debug("Theory properties: %s", theory.properties)
             # Add selected properties to Reaction object
             try:
                 reaction.properties["E_var"].append(theory.properties["E_var"])
@@ -391,6 +403,9 @@ class ZeroTheory:
         # Indicate that this is a QMtheory
         self.theorytype = "QM"
 
+    def cleanup(self):
+        """No files to clean up; present so ZeroTheory satisfies the theory contract."""
+
     def run(
         self,
         current_coords=None,
@@ -405,6 +420,14 @@ class ZeroTheory:
         mm_charges=None,
         qm_elems=None,
     ):
+        """Return zero energy and, if requested, a zero gradient.
+
+        Accepts the same arguments as a real theory's run method so it can stand in for
+        one in workflow tests.
+
+        Returns:
+            0.0, or (0.0, zeros((natoms, 3))) when grad=True.
+        """
         self.energy = 0.0
         # Gradient as np array
         self.gradient = np.zeros((len(elems), 3))
@@ -426,7 +449,7 @@ def reaction_energy(
     reference=None,
     silent=False,
     correction=0.0,
-):
+) -> tuple[float, float | None]:
     """Calculate a reaction energy from energies (or fragments with energies) and stoichiometry.
 
     Args:

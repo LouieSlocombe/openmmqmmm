@@ -202,7 +202,7 @@ class ORCATheory:
             )
         # Add UKS if not present for broken-symmetry jobs
         if self.brokensym is True and "UKS" not in self.orcasimpleinput and "UHF" not in self.orcasimpleinput:
-            logger.info("Warning: UKS/UHF keyword not present in orcasimpleinput for BS job. Adding.")
+            logger.warning("UKS/UHF keyword not present in orcasimpleinput for BS job. Adding.")
             self.orcasimpleinput = self.orcasimpleinput + " UKS"
         if atomstoflip is not None:
             self.atomstoflip = atomstoflip
@@ -314,10 +314,16 @@ end
 
     # Set numcores method
     def set_numcores(self, numcores):
+        """Set how many cores ORCA is launched with.
+
+        Args:
+            numcores: number of cores passed to ORCA's %pal block.
+        """
         self.numcores = numcores
 
     # Cleanup after run.
     def cleanup(self):
+        """Delete the ORCA scratch and output files of the previous run."""
         logger.info("Cleaning up old ORCA files")
         list_files = []
         # Keeping outputfiles
@@ -335,15 +341,31 @@ end
         for file in list_files:
             with contextlib.suppress(FileNotFoundError):
                 os.remove(file)
-        try:
-            for tmpfile in glob.glob("self.filename*tmp"):
+        for tmpfile in glob.glob(f"{self.filename}*tmp"):
+            with contextlib.suppress(FileNotFoundError):
                 os.remove(tmpfile)
-        except FileNotFoundError:
-            pass
 
     # Do an ORCA-optimization instead of geomeTRIC optimization. Useful for gas-phase chemistry when ORCA-optimizer is better than geomeTRIC
     def opt(self, fragment=None, grad=None, hessian=None, numcores=None, charge=None, mult=None):
+        """Optimize the geometry with ORCA's own optimizer rather than geomeTRIC.
 
+        Useful for gas-phase chemistry where ORCA's internal optimizer converges better.
+        Updates the fragment's coordinates in place on success.
+
+        Args:
+            fragment: Fragment to optimize; its coordinates are replaced by the optimized ones.
+            grad: unused; ORCA's optimizer computes its own gradients.
+            hessian: unused; kept for signature compatibility with run().
+            numcores: cores for the ORCA run; defaults to the object's setting.
+            charge: total charge; defaults to the fragment's.
+            mult: spin multiplicity; defaults to the fragment's.
+
+        Returns:
+            The optimized energy in hartree.
+
+        Raises:
+            ExternalProgramError: if ORCA fails or the optimization does not converge.
+        """
         module_init_time = time.time()
         logger.info("------------RUNNING INTERNAL ORCA OPTIMIZATION-------------")
         # Coords provided to run or else taken from initialization.
@@ -365,7 +387,9 @@ end
         if numcores is None:
             numcores = self.numcores
 
-        self.extraline = self.extraline + "\n! OPT "
+        # Built locally, not stored: appending to self.extraline would accumulate
+        # "! OPT" across repeated opt() calls and leak into later run() single points.
+        extraline = "\n".join(filter(None, [self.extraline.strip("\n"), "! OPT"]))
 
         logger.info(f"Running ORCA with {numcores} cores available")
         logger.info("Object label: %s", self.label)
@@ -373,7 +397,7 @@ end
         logger.info("Creating inputfile: %s", self.filename + ".inp")
         logger.info("ORCA input:")
         logger.info("%s", self.orcasimpleinput)
-        logger.info("%s", self.extraline)
+        logger.info("%s", extraline)
         logger.info("%s", self.orcablocks)
         if self.propertyblock is not None:
             logger.info("%s", self.propertyblock)
@@ -388,7 +412,7 @@ end
             self.orcablocks,
             charge,
             mult,
-            extraline=self.extraline,
+            extraline=extraline,
             hs_mult=self.hs_mult,
             moreadfile=self.moreadfile,
         )
@@ -429,17 +453,26 @@ end
         # Printing internal coordinate table
         _print_internal_coordinate_table(fragment)
         log_time_since(module_init_time, "ORCA Opt-run")
-        return
+        return self.energy
 
     # Method to grab dipole moment from an ORCA outputfile (assumes run has been executed)
     def get_dipole_moment(self):
+        """Read the dipole moment from the last ORCA output file.
+
+        Returns:
+            The dipole moment vector in atomic units.
+        """
         dm = grab_dipole_moment(self.filename + ".out")
         logger.info("Dipole moment: %s", dm)
         return dm
 
     def get_polarizability_tensor(self):
-        logger.info("here")
-        logger.info("self.filename+'.out': %s", self.filename + ".out")
+        """Read the static polarizability tensor from the last ORCA output file.
+
+        Returns:
+            The 3x3 polarizability tensor in atomic units.
+        """
+        logger.debug("Reading polarizability from: %s", self.filename + ".out")
         polarizability, _diag_pz = grab_polarizability_tensor(self.filename + ".out")
         logger.info("polarizability: %s", polarizability)
         return polarizability
@@ -460,6 +493,26 @@ end
         numcores=None,
         label=None,
     ):
+        """Run an ORCA calculation and return the energy (and gradient).
+
+        Args:
+            current_coords: QM-region coordinates in Angstrom.
+            charge: total charge of the QM region.
+            mult: spin multiplicity of the QM region.
+            current_mm_coords: point-charge coordinates for electrostatic embedding.
+            mm_charges: point-charge values for electrostatic embedding.
+            qm_elems: element symbols of the QM region (falls back to elems).
+            elems: element symbols of the whole system.
+            grad: also compute the gradient.
+            hessian: also compute an analytic Hessian.
+            pc: embed the calculation in the supplied point-charge field.
+            numcores: cores for this run; defaults to the object's setting.
+            label: label used for scratch-file naming in parallel runs.
+
+        Returns:
+            The energy in hartree, or (energy, gradient) when grad=True. Electrostatic
+            embedding additionally returns the point-charge gradient.
+        """
         module_init_time = time.time()
         self.runcalls += 1
         logger.info("------------RUNNING ORCA INTERFACE-------------")
@@ -608,7 +661,7 @@ end"""
             logger.info("DeltaSCF PMOM: %s", self.delta_scf_pmom)
             logger.info("Configuration line: %s", self.delta_scf_confline)
             if mult == 1 and "UKS" not in self.orcasimpleinput and "UHF" not in self.orcasimpleinput:
-                logger.info("Warning: Singlet DeltaSCF calculation requested but no UKS/UHF keyword present.")
+                logger.warning("Singlet DeltaSCF calculation requested but no UKS/UHF keyword present.")
                 logger.info("Only doubly excited SCF states can be found ")
 
             deltascfblock = f"! DELTASCF \n%scf\n PMOM {self.delta_scf_pmom} \n {self.delta_scf_confline}\nend"
@@ -622,102 +675,40 @@ end"""
         if self.fragment_indices:
             logger.info("List of fragment indices defined: %s", fragment_indices)
 
+        # Broken-symmetry runs additionally flip the spin of selected atoms and start
+        # from the high-spin multiplicity; everything else is common to all four cases.
+        brokensym_options = {"hs_mult": self.hs_mult, "atomstoflip": qmatomstoflip} if self.brokensym is True else {}
         if pc is True:
             logger.info("Pointcharge embedding is on!")
             create_orca_pcfile(self.filename, current_mm_coords, mm_charges)
-            if self.brokensym is True:
-                create_orca_input_pc(
-                    self.filename,
-                    qm_elems,
-                    current_coords,
-                    self.orcasimpleinput,
-                    self.orcablocks,
-                    charge,
-                    mult,
-                    extraline=extraline,
-                    hs_mult=self.hs_mult,
-                    grad=grad,
-                    hessian=hessian,
-                    moreadfile=self.moreadfile,
-                    atomstoflip=qmatomstoflip,
-                    extrabasisatoms=qmatoms_extrabasis,
-                    extrabasis=self.extrabasis,
-                    propertyblock=self.propertyblock,
-                    fragment_indices=fragment_indices,
-                    atom_specific_basis_dict=self.atom_specific_basis_dict,
-                    rohf_uhf_swap=self.rohf_uhf_swap,
-                    delta_scf_block=deltascfblock,
-                )
-            else:
-                create_orca_input_pc(
-                    self.filename,
-                    qm_elems,
-                    current_coords,
-                    self.orcasimpleinput,
-                    self.orcablocks,
-                    charge,
-                    mult,
-                    extraline=extraline,
-                    grad=grad,
-                    hessian=hessian,
-                    moreadfile=self.moreadfile,
-                    extrabasisatoms=qmatoms_extrabasis,
-                    extrabasis=self.extrabasis,
-                    propertyblock=self.propertyblock,
-                    fragment_indices=fragment_indices,
-                    atom_specific_basis_dict=self.atom_specific_basis_dict,
-                    rohf_uhf_swap=self.rohf_uhf_swap,
-                    delta_scf_block=deltascfblock,
-                )
+            write_orca_input = create_orca_input_pc
+            # Ghost/dummy atoms are a gas-phase option only: they have no MM counterpart.
+            embedding_options = {}
         else:
-            if self.brokensym is True:
-                create_orca_input_plain(
-                    self.filename,
-                    qm_elems,
-                    current_coords,
-                    self.orcasimpleinput,
-                    self.orcablocks,
-                    charge,
-                    mult,
-                    extraline=extraline,
-                    hs_mult=self.hs_mult,
-                    grad=grad,
-                    hessian=hessian,
-                    moreadfile=self.moreadfile,
-                    atomstoflip=qmatomstoflip,
-                    extrabasisatoms=qmatoms_extrabasis,
-                    extrabasis=self.extrabasis,
-                    propertyblock=self.propertyblock,
-                    ghostatoms=self.ghostatoms,
-                    dummyatoms=self.dummyatoms,
-                    rohf_uhf_swap=self.rohf_uhf_swap,
-                    fragment_indices=fragment_indices,
-                    atom_specific_basis_dict=self.atom_specific_basis_dict,
-                    delta_scf_block=deltascfblock,
-                )
-            else:
-                create_orca_input_plain(
-                    self.filename,
-                    qm_elems,
-                    current_coords,
-                    self.orcasimpleinput,
-                    self.orcablocks,
-                    charge,
-                    mult,
-                    extraline=extraline,
-                    grad=grad,
-                    hessian=hessian,
-                    moreadfile=self.moreadfile,
-                    extrabasisatoms=qmatoms_extrabasis,
-                    extrabasis=self.extrabasis,
-                    propertyblock=self.propertyblock,
-                    ghostatoms=self.ghostatoms,
-                    dummyatoms=self.dummyatoms,
-                    rohf_uhf_swap=self.rohf_uhf_swap,
-                    fragment_indices=fragment_indices,
-                    atom_specific_basis_dict=self.atom_specific_basis_dict,
-                    delta_scf_block=deltascfblock,
-                )
+            write_orca_input = create_orca_input_plain
+            embedding_options = {"ghostatoms": self.ghostatoms, "dummyatoms": self.dummyatoms}
+        write_orca_input(
+            self.filename,
+            qm_elems,
+            current_coords,
+            self.orcasimpleinput,
+            self.orcablocks,
+            charge,
+            mult,
+            extraline=extraline,
+            grad=grad,
+            hessian=hessian,
+            moreadfile=self.moreadfile,
+            extrabasisatoms=qmatoms_extrabasis,
+            extrabasis=self.extrabasis,
+            propertyblock=self.propertyblock,
+            fragment_indices=fragment_indices,
+            atom_specific_basis_dict=self.atom_specific_basis_dict,
+            rohf_uhf_swap=self.rohf_uhf_swap,
+            delta_scf_block=deltascfblock,
+            **brokensym_options,
+            **embedding_options,
+        )
 
         # Run inputfile using ORCA parallelization. Take numcores argument.
         logger.info("ORCA Calculation starting.")
@@ -843,7 +834,7 @@ end"""
                     logger.info(f"{i:<2} {el:<2}: {ch:>10.4f} {sp:>10.4f}")
                 logger.info("")
             else:
-                logger.info("Warning: No charges or spinpops were found in ORCA output. Continuing")
+                logger.warning("No charges or spinpops were found in ORCA output. Continuing")
         # Grab energy
         if self.ignore_orca_error is False:
             self.energy = grab_orca_final_energy(outfile)
@@ -1182,43 +1173,61 @@ def grab_orca_final_energy(file, errors="ignore"):
     return Energy
 
 
-# Grab ORCA timings. Return dictionary
+# ORCA timing lines, as "line label" -> "key in the returned dictionary". The labels
+# are matched against the start of the stripped line; the column widths and the number
+# of dots separating label from value vary between ORCA versions and between sections
+# of the same output, so neither may be relied on.
+ORCA_TIMING_LABELS = {
+    "Calculating one electron integrals": "one_elec_integrals",
+    "GTO integral calculation": "time_gtointegrals",
+    "One electron gradient": "one_elec_gradient",
+    "Point charge gradient": "pc_gradient",
+    "RI-J Coulomb gradient": "rij_coulomb_gradient",
+    "SCF Gradient evaluation": "time_scfgrad",
+    "SCF iterations": "time_scfiterations",
+    "Sum of individual times": "total_time",
+    "XC gradient": "xc_gradient",
+}
+
+
+def _seconds_from_timing_line(line):
+    """Extract the value in seconds from an ORCA timing line, or None.
+
+    Handles both layouts ORCA uses: `label  ....  0.032 sec  ( 34.1%)` and
+    `label  ... done (  0.0 sec)`.
+    """
+    fields = line.split()
+    for index, field in enumerate(fields):
+        if field.startswith("sec") and index:
+            try:
+                return float(fields[index - 1].strip("()"))
+            except ValueError:
+                return None
+    return None
+
+
 def grab_orca_timings(file):
+    """Collect the per-module timings ORCA reports, in seconds.
+
+    Args:
+        file: path to an ORCA output file.
+
+    Returns:
+        dict of timing name (see ORCA_TIMING_LABELS) to seconds. Labels ORCA did not
+        report are simply absent; an unreadable file gives an empty dict.
+    """
     timings = {}  # in seconds
     try:
         with open(file, errors="ignore") as f:
             for line in f:
-                if "Calculating one electron integrals" in line:
-                    one_elec_integrals = float(line.split()[-2].replace("(", ""))
-                    timings["one_elec_integrals"] = one_elec_integrals
-                if "SCF Gradient evaluation         ..." in line:
-                    time_scfgrad = float(line.split()[4])
-                    timings["time_scfgrad"] = time_scfgrad
-                if "SCF iterations                  ..." in line:
-                    time_scfiterations = float(line.split()[3])
-                    timings["time_scfiterations"] = time_scfiterations
-                if "GTO integral calculation        ..." in line:
-                    time_gtointegrals = float(line.split()[4])
-                    timings["time_gtointegrals"] = time_gtointegrals
-                if "SCF Gradient evaluation         ..." in line:
-                    time_scfgrad = float(line.split()[4])
-                    timings["time_scfgrad"] = time_scfgrad
-                if "Sum of individual times         ...:" in line:
-                    total_time = float(line.split()[4])
-                    timings["total_time"] = total_time
-                if "One electron gradient       ...." in line:
-                    one_elec_gradient = float(line.split()[4])
-                    timings["one_elec_gradient"] = one_elec_gradient
-                if "RI-J Coulomb gradient       ...." in line:
-                    rij_coulomb_gradient = float(line.split()[4])
-                    timings["rij_coulomb_gradient"] = rij_coulomb_gradient
-                if "XC gradient                 ...." in line:
-                    xc_gradient = float(line.split()[3])
-                    timings["xc_gradient"] = xc_gradient
-                if "Point charge gradient       ...." in line:
-                    pc_gradient = float(line.split()[4])
-                    timings["pc_gradient"] = pc_gradient
-    except (OSError, ValueError, IndexError):
+                stripped = line.strip()
+                for label, key in ORCA_TIMING_LABELS.items():
+                    if stripped.startswith(label):
+                        seconds = _seconds_from_timing_line(stripped)
+                        if seconds is not None:
+                            timings[key] = seconds
+                        break
+    except OSError:
         pass
     return timings
 
@@ -1311,7 +1320,6 @@ def grab_polarizability_tensor(outfile):
                     pz_tensor[count, 2] = float(line.split()[2])
                     count += 1
             if "STATIC POLARIZABILITY TENSOR" in line:
-                logger.info("grab True")
                 grab = True
     return pz_tensor, diag_pz_tensor
 
@@ -1429,13 +1437,23 @@ def write_orca_hessfile(hessian, coords, elems, masses, hessatoms, outputname):
             for el, mass, coord in zip(elems, masses, coords, strict=False)
         )
         orcahessfile.write("\n")
-        orcahessfile.write("\n")
+        # ORCA terminates its own .hess files this way; tools that read the file
+        # (including grab_hessian) use the section markers to bound each block.
+        orcahessfile.write("$end\n")
     logger.info("")
     logger.info("ORCA-style Hessian written to: %s", outputname)
 
 
 # Function to grab Hessian from ORCA-Hessian file
 def grab_hessian(hessfile):
+    """Read a Hessian matrix from an ORCA-style .hess file.
+
+    Args:
+        hessfile: path to a file containing a `$hessian` block.
+
+    Returns:
+        The (3N, 3N) Hessian as a numpy array.
+    """
     hesstake = False
     j = 0
     orcacoldim = 5
@@ -1444,9 +1462,10 @@ def grab_hessian(hessfile):
     grabsize = False
     with open(hessfile) as hfile:
         for line in hfile:
-            if "$vibrational_frequencies" in line:
-                hesstake = False
-                continue
+            # Any following section ends the Hessian block: $vibrational_frequencies
+            # in ORCA's own files, $atoms in the ones write_orca_hessfile produces.
+            if hesstake and line.startswith("$"):
+                break
             if hesstake and len(line.split()) == 1 and grabsize:
                 grabsize = False
                 hessdim = int(line.split()[0])
@@ -1458,6 +1477,9 @@ def grab_hessian(hessfile):
                     for i in range(hessdim - shiftpar):
                         hessarray2d[j, i + shiftpar] = line.split()[i + 1]
                     j += 1
+                    if j == hessdim:
+                        # Matrix complete; stop before trailing sections are misread as rows
+                        hesstake = False
             elif hesstake and len(line.split()) == 5:
                 continue
                 # Headerline
@@ -1477,9 +1499,24 @@ def grab_hessian(hessfile):
         return hessarray2d
 
 
-# Create PC-embedded ORCA inputfile from elems,coords, input, charge, mult,pointcharges
-# Allows for extraline that could be another '!' line or block-inputline.
-def create_orca_input_pc(
+def _write_input_block(orcafile, text):
+    """Write a block of ORCA input, guaranteeing it ends with exactly one newline.
+
+    ORCA input is line-oriented: a `!` keyword line or a `%block ... end` that runs
+    into whatever is written next is a syntax error. These blocks come from
+    free-form user strings (`orcasimpleinput`, `orcablocks`, `extraline`) that may
+    or may not carry their own trailing newline, so the separator is enforced here
+    rather than trusted to the caller.
+
+    Args:
+        orcafile: open file object for the ORCA input file.
+        text: block of input text; nothing is written if it is empty or None.
+    """
+    if text:
+        orcafile.write(text.rstrip("\n") + "\n")
+
+
+def _create_orca_input(
     name,
     elems,
     coords,
@@ -1487,29 +1524,65 @@ def create_orca_input_pc(
     orcablockinput,
     charge,
     mult,
+    pcfile=None,
     grad=False,
+    hessian=False,
     extraline="",
     hs_mult=None,
     atomstoflip=None,
-    hessian=False,
-    extrabasisatoms=None,
     extrabasis=None,
+    extrabasisatoms=None,
     atom_specific_basis_dict=None,
-    extraspecialbasisatoms=None,
-    extraspecialbasis=None,
     moreadfile=None,
     propertyblock=None,
+    ghostatoms=None,
+    dummyatoms=None,
     fragment_indices=None,
     rohf_uhf_swap=False,
     delta_scf_block=None,
 ):
+    """Write an ORCA input file, with or without an external point-charge field.
+
+    This is the single implementation behind `create_orca_input_pc` (electrostatic
+    embedding, used by QM/MM) and `create_orca_input_plain` (everything else). The
+    two differ only by the `%pointcharges` line.
+
+    Args:
+        name: basename of the input file; `<name>.inp` is written.
+        elems: element symbols, one per atom.
+        coords: coordinates in Angstrom, one (x, y, z) row per atom.
+        orcasimpleinput: the `!` keyword line, e.g. "! r2SCAN def2-SVP".
+        orcablockinput: `%block ... end` input, may span multiple lines.
+        charge: total charge of the system.
+        mult: spin multiplicity.
+        pcfile: point-charge file to reference from a `%pointcharges` line.
+            None (the default) writes no point-charge field.
+        grad: request an analytic gradient (`! Engrad`).
+        hessian: request an analytic Hessian (`! Freq`).
+        extraline: extra `!` keyword or block line written after orcasimpleinput.
+        hs_mult: high-spin multiplicity, used for the `*xyz` line in broken-symmetry runs.
+        atomstoflip: atom indices whose spin is flipped (broken symmetry).
+        extrabasis: basis set assigned to the atoms in extrabasisatoms.
+        extrabasisatoms: atom indices that receive extrabasis.
+        atom_specific_basis_dict: {(element, index): basis lines} for per-atom basis sets.
+        moreadfile: GBW file to read starting orbitals from (`! MOREAD`).
+        propertyblock: extra property-block input appended after the coordinates.
+        ghostatoms: atom indices written as ghost atoms (`El:`).
+        dummyatoms: atom indices written as dummy atoms (`DA`).
+        fragment_indices: list of index lists defining fragments; matching atoms are
+            tagged `El(n)`. Atoms in no fragment (e.g. link atoms) are written plain.
+        rohf_uhf_swap: append a `$new_job` block repeating the calculation as UHF noiter.
+        delta_scf_block: DeltaSCF input block written before the coordinates.
+    """
     if extrabasisatoms is None:
         extrabasisatoms = []
-    pcfile = name + ".pc"
+    if ghostatoms is None:
+        ghostatoms = []
+    if dummyatoms is None:
+        dummyatoms = []
     with open(name + ".inp", "w") as orcafile:
-        orcafile.write(orcasimpleinput + "\n")
-        if extraline != "":
-            orcafile.write(extraline + "\n")
+        _write_input_block(orcafile, orcasimpleinput)
+        _write_input_block(orcafile, extraline)
         if grad:
             orcafile.write("! Engrad" + "\n")
         if hessian:
@@ -1518,10 +1591,11 @@ def create_orca_input_pc(
             logger.info("MOREAD option active. Will read orbitals from file: %s", moreadfile)
             orcafile.write("\n! MOREAD" + "\n")
             orcafile.write(f'%moinp "{moreadfile}"' + "\n")
-        orcafile.write(f'%pointcharges "{pcfile}"\n')
-        orcafile.write(orcablockinput + "\n")
+        if pcfile is not None:
+            orcafile.write(f'%pointcharges "{pcfile}"\n')
+        _write_input_block(orcafile, orcablockinput)
         if atomstoflip is not None:
-            atomstoflipstring = ",".join(map(str, atomstoflip))
+            atomstoflipstring = str(atomstoflip) if isinstance(atomstoflip, int) else ",".join(map(str, atomstoflip))
             orcafile.write("%scf\n")
             orcafile.write(f"Flipspin {atomstoflipstring}" + "\n")
             orcafile.write(f"FinalMs {(mult - 1) / 2}" + "\n")
@@ -1545,110 +1619,19 @@ def create_orca_input_pc(
                 # Regular line
                 orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
                 orcafile.writelines(str(bline) for bline in atom_specific_basis_dict[(el, i)])
-            # Adding fragment specification
-            elif fragment_indices is not None:
-                fragmentindex = search_list_of_lists_for_index(i, fragment_indices)
-                # To prevent linkatoms:
-                if fragmentindex is not None:
-                    orcafile.write("{} {} {} {} \n".format(f"{el}({fragmentindex + 1})", c[0], c[1], c[2]))
-            else:
-                orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
-        orcafile.write("*\n")
-        if propertyblock is not None:
-            orcafile.write(propertyblock)
-        # For ROHF job, add newjob and switch to UHF noiter
-        if rohf_uhf_swap:
-            newjobline = f"""\n$new_job
-{orcasimpleinput.replace("ROHF", "UHF noiter ")}
-{orcablockinput}
-* xyz {charge} {mult}
-"""
-            orcafile.write(newjobline)
-            for el, c in zip(elems, coords, strict=False):
-                orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
-            orcafile.write("*\n")
-
-
-# Create simple ORCA inputfile from elems,coords, input, charge, mult,pointcharges
-# Allows for extraline that could be another '!' line or block-inputline.
-def create_orca_input_plain(
-    name,
-    elems,
-    coords,
-    orcasimpleinput,
-    orcablockinput,
-    charge,
-    mult,
-    grad=False,
-    hessian=False,
-    extraline="",
-    hs_mult=None,
-    atomstoflip=None,
-    extrabasis=None,
-    extrabasisatoms=None,
-    moreadfile=None,
-    propertyblock=None,
-    ghostatoms=None,
-    dummyatoms=None,
-    fragment_indices=None,
-    atom_specific_basis_dict=None,
-    rohf_uhf_swap=False,
-    delta_scf_block=None,
-):
-    if extrabasisatoms is None:
-        extrabasisatoms = []
-    if ghostatoms is None:
-        ghostatoms = []
-    if dummyatoms is None:
-        dummyatoms = []
-    with open(name + ".inp", "w") as orcafile:
-        orcafile.write(orcasimpleinput + "\n")
-        if extraline != "":
-            orcafile.write(extraline)
-        if grad is True:
-            orcafile.write("! Engrad" + "\n")
-        if hessian is True:
-            orcafile.write("! Freq" + "\n")
-        if moreadfile is not None:
-            logger.info("MOREAD option active. Will read orbitals from file: %s", moreadfile)
-            orcafile.write("\n! MOREAD" + "\n")
-            orcafile.write(f'%moinp "{moreadfile}"' + "\n")
-        orcafile.write(orcablockinput)
-        if atomstoflip is not None:
-            atomstoflipstring = str(atomstoflip) if isinstance(atomstoflip, int) else ",".join(map(str, atomstoflip))
-            orcafile.write("%scf\n")
-            orcafile.write(f"Flipspin {atomstoflipstring}" + "\n")
-            orcafile.write(f"FinalMs {(mult - 1) / 2}" + "\n")
-            orcafile.write("end  \n")
-            orcafile.write("\n")
-        # DELTASCF
-        if delta_scf_block is not None:
-            orcafile.write(delta_scf_block)
-        orcafile.write("\n")
-        if atomstoflip is not None:
-            orcafile.write(f"*xyz {charge} {hs_mult}\n")
-        else:
-            orcafile.write(f"*xyz {charge} {mult}\n")
-
-        for i, (el, c) in enumerate(zip(elems, coords, strict=False)):
-            # Extra basis on each atom
-            if i in extrabasisatoms:
-                orcafile.write(f'{el} {c[0]} {c[1]} {c[2]} newgto "{extrabasis}" end\n')
-            # Atom-specific basis-dict option (new basis set definition for each atom)
-            elif atom_specific_basis_dict is not None:
-                logger.info("Writing atom-specific basis for atom: %s", i)
-                # Regular line
-                orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
-                orcafile.writelines(str(bline) for bline in atom_specific_basis_dict[(el, i)])
             # Setting atom to be a ghost atom
             elif i in ghostatoms:
                 orcafile.write("{}{} {} {} {} \n".format(el, ":", c[0], c[1], c[2]))
             elif i in dummyatoms:
                 orcafile.write("{} {} {} {} \n".format("DA", c[0], c[1], c[2]))
-            # Adding fragment specification
+            # Adding fragment specification. Atoms belonging to no fragment (link
+            # atoms, most commonly) are written without a fragment tag.
             elif fragment_indices is not None:
                 fragmentindex = search_list_of_lists_for_index(i, fragment_indices)
-                orcafile.write("{} {} {} {} \n".format(f"{el}({fragmentindex + 1})", c[0], c[1], c[2]))
+                if fragmentindex is not None:
+                    orcafile.write("{} {} {} {} \n".format(f"{el}({fragmentindex + 1})", c[0], c[1], c[2]))
+                else:
+                    orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
             else:
                 orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
         orcafile.write("*\n")
@@ -1665,6 +1648,25 @@ def create_orca_input_plain(
             for el, c in zip(elems, coords, strict=False):
                 orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
             orcafile.write("*\n")
+
+
+def create_orca_input_pc(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, **kwargs):
+    """Write an ORCA input file with an electrostatic-embedding point-charge field.
+
+    Thin wrapper around `_create_orca_input` that points the `%pointcharges` line at
+    `<name>.pc`; see that function for the keyword arguments.
+    """
+    _create_orca_input(
+        name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, pcfile=name + ".pc", **kwargs
+    )
+
+
+def create_orca_input_plain(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, **kwargs):
+    """Write an ORCA input file with no point-charge field.
+
+    Thin wrapper around `_create_orca_input`; see that function for the keyword arguments.
+    """
+    _create_orca_input(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, pcfile=None, **kwargs)
 
 
 # Create ORCA pointcharge file based on provided list of elems and coords (MM region elems and coords)
@@ -1732,7 +1734,7 @@ def grab_orca_atom_charges(chargemodel, outputfile):
         BS = True
 
     if chargemodel == "NPA" or chargemodel == "NBO":
-        logger.info("Warning: NPA/NBO charge-option in ORCA requires setting environment variable NBOEXE:")
+        logger.warning("NPA/NBO charge-option in ORCA requires setting environment variable NBOEXE:")
         logger.info("e.g. export NBOEXE=/path/to/nbo7.exe")
         with open(outputfile) as ofile:
             for line in ofile:
@@ -1936,7 +1938,7 @@ def orca_external_optimizer(
     orca_jobkeyword="Opt",
     orca_blockinput="",
     actatoms=None,
-):
+) -> float:
     """Optimize a geometry using ORCA's optimizer while openmmqmmm provides energies+gradients.
 
     Works for any picklable theory: ORCA calls back into a generated otool_external script.
@@ -1946,7 +1948,7 @@ def orca_external_optimizer(
         raise InputError("ORCA_External_Optimizer requires fragment and theory keywords")
 
     if charge is None or mult is None:
-        logger.warning("Warning: Charge/mult was not provided to ORCA_External_Optimizer")
+        logger.warning("Charge/mult was not provided to ORCA_External_Optimizer")
         if fragment.charge is not None and fragment.mult is not None:
             logger.warning(
                 f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult} Using this instead"

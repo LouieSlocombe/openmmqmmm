@@ -103,7 +103,7 @@ def job_parallel(
     version="multiprocessing",
     opt=False,
     optimizer=None,
-):
+) -> "Results":
     """
     The Job_parallel function carries out multiple single-point or opt calculations in a parallel fashion
     :param fragments:
@@ -145,13 +145,13 @@ def job_parallel(
         )
 
     if isinstance(theories[0], QMMMTheory):
-        logger.info("Warning: Job_parallel using QMMMTheory with OpenMMTheory MM is experimental")
+        logger.warning("Job_parallel using QMMMTheory with OpenMMTheory MM is experimental")
         logger.info("Specifically there are issues with platform='CPU'.")
         logger.info("Try platform='Reference' instead or GPU options OpenCL or CUDA if possible")
     logger.info("Number of theories: %s", len(theories))
     logger.info("Running single-point calculations in parallel")
     logger.info("Mofilesdir: %s", mofilesdir)
-    logger.warning("Warning: Output from Job_parallel will be erratic due to simultaneous output from multiple workers")
+    logger.warning("Output from Job_parallel will be erratic due to simultaneous output from multiple workers")
 
     # Fragment objects passed or name of fragmentfiles
     if fragments is not None:
@@ -193,12 +193,12 @@ def job_parallel(
         logger.info("Case: Multiple fragments but one theory")
         logger.info("")
         logger.info("Launching pool.apply_async:")
-        logger.warning("Job_parallel numcores set to: %s", numcores)
-        logger.warning(f"openmmqmmm will run {numcores} jobs simultaneously")
+        logger.info("Job_parallel numcores set to: %s", numcores)
+        logger.info(f"openmmqmmm will run {numcores} jobs simultaneously")
 
         # Whether to allow theory parallelization or not
         if theory.numcores != 1:
-            logger.warning("WARNING: Theory numcores set to: %s", theory.numcores)
+            logger.warning("Theory numcores set to: %s", theory.numcores)
             if allow_theory_parallelization is True:
                 totnumcores = numcores * theory.numcores
                 logger.warning("allow_theory_parallelization is True.")
@@ -497,7 +497,7 @@ def worker_par(
     parent_dir = os.getcwd()
     os.chdir(worker_dirname)
     try:
-        logger.warning(
+        logger.info(
             f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
         )
 
@@ -563,7 +563,7 @@ def simple_parallel(
     numcores=None,
     copytheory=False,
     version="multiprocessing",
-):
+) -> dict:
     """Run a list of independent function calls in parallel worker processes."""
     logger.info("")
     logger.info(sub_header("Simple_parallel function"))

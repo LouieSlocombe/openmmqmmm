@@ -21,6 +21,7 @@ dependencies:
   - packaging
   # Development / build tooling
   - pytest
+  - pytest-cov
   - python-build
   - pip:
       # geomeTRIC optimizer

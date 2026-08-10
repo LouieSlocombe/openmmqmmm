@@ -160,16 +160,29 @@ exiting the interpreter. Job functions are snake_case (`single_point`, `optimize
 writes its `Results` object to a `results_*.json` file — for example `results_singlepoint.json`,
 `results_optimizer.json`, `results_numfreq.json`.
 
+## Examples
+
+Runnable versions of the two examples above live in [examples/](examples/):
+
+```sh
+python examples/gasphase_hf.py
+python examples/qmmm_optimization.py system.pdb
+```
+
 ## Testing
 
 ```sh
 pytest
 ```
 
-from the repository root. The fragment/OpenMM/optimizer tests run without ORCA; the QM/MM tests
-are skipped automatically when no ORCA installation is found. Tests run in isolated temporary
-directories, so no output files are left behind. The test data (~2 MB) lives in the source
-repository and is not shipped in wheels.
+from the repository root, which takes about four minutes. The fragment/OpenMM/optimizer tests
+run without ORCA, and so do the ORCA input-writing and output-parsing tests (they use a fake
+ORCA installation and committed reference output); the two end-to-end QM/MM tests are skipped
+automatically when no ORCA installation is found. Set `OPENMMQMMM_ORCADIR` to run those too.
+
+Coverage is measured with `pytest --cov` (needs the `test` extra: `pip install -e ".[test]"`).
+Tests run in isolated temporary directories, so no output files are left behind. The test data
+(~2.5 MB) lives in the source repository and is not shipped in wheels.
 
 ## Building distributions
 
