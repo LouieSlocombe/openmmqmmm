@@ -2349,7 +2349,7 @@ def read_ambercoordinates(prmtopfile=None, inpcrdfile=None):
 # TODO: Add option to write new hybrid-36 standard PDB file instead of current hexadecimal nonstandard fix
 def write_pdbfile(
     fragment,
-    outputname="ASHfragment",
+    outputname="fragment",
     openmmobject=None,
     atomnames=None,
     resnames=None,

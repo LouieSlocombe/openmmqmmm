@@ -7,8 +7,8 @@ Electrostatically embedded QM/MM for biomolecular systems, combining the
 ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 
 > **Compatibility note:** version 1.0 renamed the public API (snake_case functions, no import-time
-> side effects, logging instead of print). Scripts written for upstream ASH or for the 0.x
-> `openmmqmmm` releases need the [migration table](#migrating-from-ash--0x) below.
+> side effects, logging instead of print). Scripts written for the 0.x releases need updating; see
+> the 1.0.0 entry in [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 ## What is included
 
@@ -150,40 +150,15 @@ All package errors derive from `openmmqmmm.OpenMMQMMMError`, with specific subcl
 `InternalError` (each also inherits the closest builtin, so `except ValueError` etc. keep
 working).
 
-## Migrating from ASH / 0.x
+## Conventions
 
-Module-level behavior: importing the package is silent and side-effect free — no banner, no
-`~/ash_user_settings.ini` reading (use `OPENMMQMMM_ORCADIR` or `orcadir=`), no `printlevel`
-keywords (use `configure_logging(level=...)` / per-module logger levels), and errors raise
-exceptions instead of exiting the interpreter. Fragment files use the `.frag` extension (was
-`.ygg`) and each job function writes its `Results` object to a `results_*.json` file — for
-example `results_singlepoint.json`, `results_optimizer.json`, `results_numfreq.json` (was
-`ASH_SP.result`, `ASH_Optimizer.result`, `ASH_NumFreq.result`).
-
-| ASH / 0.x name | New name |
-|---|---|
-| `Singlepoint` (+`_fragments`, `_theories`, ...) | `single_point` (+`single_point_fragments`, ...) |
-| `geomeTRICOptimizer` / `Optimizer` / `Opt` | `optimize_geometry` |
-| `NumFreq` / `AnFreq` | `numerical_frequencies` / `analytic_frequencies` |
-| `OpenMM_MD` / `MolecularDynamics` | `openmm_md` |
-| `OpenMM_Opt` | `openmm_minimize` |
-| `OpenMM_Modeller` | `openmm_modeller` |
-| `OpenMM_metadynamics` / `MetaDynamics` | `openmm_metadynamics` |
-| `OpenMM_box_equilibration`, `Gentle_warm_up_MD` | `openmm_box_equilibration`, `gentle_warmup_md` |
-| `Job_parallel` / `Simple_parallel` | `job_parallel` / `simple_parallel` |
-| `ReactionEnergy` | `reaction_energy` |
-| `ASH_Results` / `ASH_plot` | `Results` / `Plot` |
-| `OpenMM_MDclass` / `NumGradclass` | `MolecularDynamicsEngine` / `NumGrad` |
-| `MDtraj_imagetraj`, `MDtraj_RMSD`, ... | `mdtraj_image_trajectory`, `mdtraj_rmsd`, ... |
-| `actregiondefine` | `define_active_region` |
-| `QMregionfragexpand` / `QMPC_fragexpand` | `expand_qm_region` / `expand_qm_pc_region` |
-| `ORCA_External_Optimizer` | `orca_external_optimizer` |
-| kwargs `Grad=`, `Hessian=`, `PC=`, `MMcharges=` | `grad=`, `hessian=`, `pc=`, `mm_charges=` |
-| kwargs `ActiveRegion=`, `NumGrad=`, `TruncatedPC=` | `active_region=`, `num_grad=`, `truncated_pc=` |
-| kwargs `TDDFT=`, `HSmult=`, `QRRHO=`, `pH=` | `tddft=`, `hs_mult=`, `qrrho=`, `ph=` |
-
-Class names that were already CapWords (`ORCATheory`, `OpenMMTheory`, `QMMMTheory`, `Fragment`,
-`Reaction`, `ZeroTheory`) are unchanged.
+Importing the package is silent and side-effect free, and errors raise exceptions rather than
+exiting the interpreter. Job functions are snake_case (`single_point`, `optimize_geometry`,
+`numerical_frequencies`, `openmm_md`), classes are CapWords (`ORCATheory`, `OpenMMTheory`,
+`QMMMTheory`, `Fragment`, `Results`), and keyword arguments are snake_case (`grad=`,
+`active_region=`, `num_grad=`). Fragment files use the `.frag` extension, and each job function
+writes its `Results` object to a `results_*.json` file — for example `results_singlepoint.json`,
+`results_optimizer.json`, `results_numfreq.json`.
 
 ## Testing
 

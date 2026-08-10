@@ -36,7 +36,7 @@ class Plot:
         tight_layout=True,
         padding=None,
     ):
-        logger.info(main_header("ASH_energy_plot"))
+        logger.info(main_header("Energy plot"))
         import matplotlib.pyplot as plt
 
         self.working = True
@@ -60,7 +60,7 @@ class Plot:
 
         if self.num_subplots > 1:
             logger.warning(
-                "Note: For multiple subplots use:\n ASH_plot(x_axislabels=['X1','X2','X3], y_axislabels=['Y1','Y2','Y3'], subplot_titles='Title1,'Title2','Title3']"
+                "Note: For multiple subplots use:\n Plot(x_axislabels=['X1','X2','X3'], y_axislabels=['Y1','Y2','Y3'], subplot_titles=['Title1','Title2','Title3'])"
             )
         else:
             logger.info("X-axis label: %s", x_axislabel)
@@ -165,7 +165,7 @@ class Plot:
     ):
         import matplotlib.pyplot as plt
 
-        logger.info("Adding new series to ASH_plot object")
+        logger.info("Adding new series to Plot object")
 
         if bar is True and (scatter is True or line is True):
             raise InputError("Error: you can not add a bar together with scatter and line at the same time")

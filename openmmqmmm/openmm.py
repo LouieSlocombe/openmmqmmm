@@ -766,7 +766,7 @@ class OpenMMTheory:
             # Cleaning up bondconstraint list. Adding distance if missing
             if 2 in [len(con) for con in bondconstraints]:
                 logger.info(
-                    "Missing distance value for some constraints. Can apply current-geometry distances if ASH\n"
+                    "Missing distance value for some constraints. Can apply current-geometry distances if a\n"
                     "fragment has been provided"
                 )
                 if fragment is None:
@@ -2754,7 +2754,7 @@ def openmm_modeller(
         logger.info("Exception found during forcefield_obj.getUnmatchedResidues.")
         logger.info("Exception: %s", e)
         logger.info(
-            "\nASH interpretation. you probably have multiple matching templates in the forcefield XML-file for a residue"
+            "\nInterpretation: you probably have multiple matching templates in the forcefield XML-file for a residue"
         )
         raise InputError(
             "This occurs e.g. for the case of Fe2+ vs Fe3+ ion in the Amber FF.\nTo deal with this problem, you have to provide a residuetemplate_choice dictionary to this interface\nExample: residuetemplate_choice should be a dict like this: residuetemplate_choice={'FER':'FE2'}   \n   where FER is here the name of the residue (in PDB-file) and FE2 is the name of the desired template in the forcefield XML-file"

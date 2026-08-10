@@ -32,7 +32,10 @@ sites pointing at the old names; the parallel-execution path did not run at all.
   `results_singlepoint_fragments.json`, `results_singlepoint_fragments_theories.json`,
   `results_singlepoint_reaction.json`, `results_anfreq.json`, `results_numfreq.json` and
   `results_optimizer.json`. 1.0.0 documented JSON results but every call site still wrote the
-  old `ASH_*.result` names.
+  old `*.result` names.
+- Removed the last legacy naming from the code: the `write_pdbfile` default output name, the
+  geomeTRIC engine local variable, and the remaining legacy references in log and error text.
+  The upstream migration table was dropped from README.md; the rename summary below covers it.
 
 ### Added
 - `openmmqmmm.__version__`.
@@ -42,15 +45,21 @@ sites pointing at the old names; the parallel-execution path did not run at all.
 
 ## 1.0.0 (2026-08-09)
 
-Full modernization of the codebase. **Breaking release**: the ASH-compatible API is gone —
-see the migration table in README.md.
+Full modernization of the codebase. **Breaking release**: the legacy 0.x API is gone.
 
 ### Changed
 - Public API renamed to PEP8 style: `Singlepoint` → `single_point`, `geomeTRICOptimizer` →
-  `optimize_geometry`, `NumFreq` → `numerical_frequencies`, `OpenMM_MD` → `openmm_md`,
-  `ASH_Results` → `Results`, and ~90 further symbol renames; keyword arguments snake_cased
-  (`Grad=` → `grad=`, `ActiveRegion=` → `active_region=`, ...). The `Optimizer`/`Opt`/
-  `MolecularDynamics`/`MetaDynamics` aliases are gone.
+  `optimize_geometry`, `NumFreq` / `AnFreq` → `numerical_frequencies` /
+  `analytic_frequencies`, `OpenMM_MD` → `openmm_md`, `OpenMM_Opt` → `openmm_minimize`,
+  `OpenMM_Modeller` → `openmm_modeller`, `OpenMM_metadynamics` → `openmm_metadynamics`,
+  `Job_parallel` / `Simple_parallel` → `job_parallel` / `simple_parallel`, `ReactionEnergy` →
+  `reaction_energy`, `actregiondefine` → `define_active_region`, `ORCA_External_Optimizer` →
+  `orca_external_optimizer`, and ~90 further symbol renames. The `Results` dataclass and the
+  `Plot` class took over from their prefixed predecessors. Keyword arguments were snake_cased
+  (`Grad=` → `grad=`, `ActiveRegion=` → `active_region=`, `TruncatedPC=` → `truncated_pc=`,
+  ...). The `Optimizer`/`Opt`/`MolecularDynamics`/`MetaDynamics` aliases are gone. Class names
+  that were already CapWords (`ORCATheory`, `OpenMMTheory`, `QMMMTheory`, `Fragment`,
+  `Reaction`, `ZeroTheory`) are unchanged.
 - Flat module layout: `openmmqmmm.orca`, `openmmqmmm.openmm`, `openmmqmmm.coords`, ... (the
   `modules/`, `functions/`, `interfaces/` subpackages and their name prefixes are gone).
 - All output goes through the `logging` module (per-module loggers under `openmmqmmm.*`).
@@ -60,10 +69,10 @@ see the migration table in README.md.
   `MissingDependencyError`, `ExternalProgramError`, `FileFormatError`, `InternalError`)
   instead of printing and exiting the interpreter.
 - ORCA discovery: `orcadir` argument → `OPENMMQMMM_ORCADIR` environment variable → validated
-  `orca` in `PATH`. The `~/ash_user_settings.ini` machinery was removed. Discovery rejects
+  `orca` in `PATH`. The `~/*_user_settings.ini` machinery was removed. Discovery rejects
   unrelated `orca` binaries (e.g. the GNOME screen reader) and cannot hang on them.
-- Fragment files use the `.frag` extension (was `.ygg`); results are written to
-  `results.json` (was `ASH.result`); openmm is a declared dependency.
+- Fragment files use the `.frag` extension (was `.ygg`); results are written as JSON (was a
+  `.result` file); openmm is a declared dependency.
 
 ### Fixed
 - Crash in `print_dummy_orca_file` for 2-column Hessian remainders (malformed format string)

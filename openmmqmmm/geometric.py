@@ -866,7 +866,7 @@ class GeometricOptimizer:
 
         # Defining GeometricEngine engine object containing geometry and theory. ActiveRegion boolean passed.
         # Also now passing list of atoms to print in each step.
-        ashengine = GeometricEngine(
+        engine = GeometricEngine(
             mol_geometric_frag,
             theory,
             active_region=self.active_region,
@@ -883,7 +883,7 @@ class GeometricOptimizer:
         # Defining args object, containing engine object
         logger.info("self.constraintsfile: %s", self.constraintsfile)
         final_geometric_args = GeometricArgs(
-            ashengine,
+            engine,
             self.constraintsfile,
             coordsys=self.coordsystem,
             maxiter=self.maxiter,
@@ -916,7 +916,7 @@ class GeometricOptimizer:
 
         ###################################
         logger.info("")
-        logger.info(f"geomeTRIC Geometry optimization converged in {ashengine.iteration_count + 1} steps!")
+        logger.info(f"geomeTRIC Geometry optimization converged in {engine.iteration_count + 1} steps!")
         logger.info("")
 
         # QM/MM: Doing final energy evaluation if Truncated PC option was on
@@ -927,22 +927,22 @@ class GeometricOptimizer:
                 )
                 theory.truncated_pc = False
                 finalenergy, _finalgrad = theory.run(
-                    current_coords=ashengine.full_current_coords,
+                    current_coords=engine.full_current_coords,
                     elems=fragment.elems,
                     grad=True,
                     charge=charge,
                     mult=mult,
                 )
             else:
-                finalenergy = ashengine.energy
+                finalenergy = engine.energy
         else:
             # Updating energy and coordinates of fragment before ending
-            finalenergy = ashengine.energy
+            finalenergy = engine.energy
 
         logger.info("Final optimized energy: %s", finalenergy)
 
         # Replacing coordinates in fragment
-        fragment.replace_coords(fragment.elems, ashengine.full_current_coords, conn=False)
+        fragment.replace_coords(fragment.elems, engine.full_current_coords, conn=False)
         # Writing out fragment file and XYZ file
         fragment.print_system(filename="fragment_optimized.frag")
         fragment.write_xyzfile(xyzfilename="Fragment-optimized.xyz")
@@ -1140,7 +1140,7 @@ class GeometricEngine:
         logger.info("geometric called detect_dft option option for GeometricEngine.")
         return True
 
-    # geometric checks if calc_bondorder method is implemented for the ASHengine. Disabled until we implement this
+    # geometric checks if calc_bondorder method is implemented for the custom engine. Disabled until we implement this
     def calc_bondorder(self, coords, dirname):
         logger.info("geometric called calc_bondorder option option for GeometricEngine.")
         if self.BOmatrix is not None:
