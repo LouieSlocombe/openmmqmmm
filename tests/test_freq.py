@@ -85,7 +85,7 @@ def test_thermal_corrections_match_orca(water):
 
 
 def test_symmetry_number_lowers_rotational_entropy(water):
-    """sigma defaults to 1 and must be supplied for symmetric molecules.
+    """Sigma defaults to 1 and must be supplied for symmetric molecules.
 
     Getting this wrong is a silent RT*ln(sigma) error in every reaction free energy,
     so the default is pinned here deliberately rather than assumed.

@@ -60,7 +60,8 @@ class Plot:
 
         if self.num_subplots > 1:
             logger.warning(
-                "Note: For multiple subplots use:\n Plot(x_axislabels=['X1','X2','X3'], y_axislabels=['Y1','Y2','Y3'], subplot_titles=['Title1','Title2','Title3'])"
+                "Note: For multiple subplots use:\n Plot(x_axislabels=['X1','X2','X3'], y_axislabels=['Y1','Y2','Y3'], "
+                "subplot_titles=['Title1','Title2','Title3'])"
             )
         else:
             logger.info("X-axis label: %s", x_axislabel)
@@ -188,6 +189,14 @@ class Plot:
             marker: matplotlib marker style.
             legend: include this series in the legend.
             x_scaling: factor applied to every x value.
+            y_scaling: factor applied to every y value.
+            xticklabelrotation: rotation in degrees for the x tick labels, applied when
+                x_labels is given.
+            x_scale_log: use a logarithmic x axis.
+            y_scale_log: use a logarithmic y axis.
+            colormap: matplotlib colormap used to colour the bars when bar=True and no
+                barcolors are supplied.
+            linestyle: matplotlib line style for the connecting line.
         """
         import matplotlib.pyplot as plt
 
@@ -206,9 +215,10 @@ class Plot:
             # If Python lists
             if not isinstance(x_list, (list, np.ndarray)) or not isinstance(y_list, (list, np.ndarray)):
                 raise InputError(
-                    "Please provide either a valid x_list and y_list (can be Python lists or Numpy arrays) or a surfacedictionary (Python dict)\n{}\n{}".format(
-                        f"x_list: {x_list}", f"y_list: {y_list}"
-                    )
+                    (
+                        "Please provide either a valid x_list and y_list (can be Python lists "
+                        "or Numpy arrays) or a surfacedictionary (Python dict)\n{}\n{}"
+                    ).format(f"x_list: {x_list}", f"y_list: {y_list}")
                 )
             else:
                 x = list(x_list)

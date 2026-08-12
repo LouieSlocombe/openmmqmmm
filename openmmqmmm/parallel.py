@@ -72,7 +72,8 @@ def import_mp(version="multiprocessing"):
             logger.info("multiprocess library successfully loaded")
         except ImportError:
             raise MissingDependencyError(
-                "This requires the multiprocess library to be installed\nPlease install using pip: pip install multiprocess"
+                "This requires the multiprocess library to be installed\nPlease install using pip: pip install "
+                "multiprocess"
             ) from None
     return mp, Pool
 
@@ -104,15 +105,34 @@ def job_parallel(
     opt=False,
     optimizer=None,
 ) -> "Results":
-    """
-    The Job_parallel function carries out multiple single-point or opt calculations in a parallel fashion
-    :param fragments:
-    :type list: list of Fragment objects
-    :type list: list of fragment files (strings)
-    :param theories:
-    :type list: list of theory objects
-    :param Grad: whether to do Gradient or not.
-    :type Grad: Boolean.
+    """Carry out multiple single-point or optimization calculations in parallel.
+
+    Runs over fragments or fragmentfiles, over theories, or over both.
+
+    Args:
+        fragments: list of Fragment objects to run.
+        fragmentfiles: list of fragment filenames (strings) to read from disk instead.
+        theories: list of theory objects. A single theory is applied to every fragment.
+        numcores: number of jobs to run simultaneously (the worker pool size). Required.
+        mofilesdir: directory holding MO files (GBW files for ORCA), used with the
+            multiple-fragment option.
+        allow_theory_parallelization: when False (the default) each theory's own
+            numcores is forced to 1, so at most numcores cores are busy. When True each
+            job may use theory.numcores, so up to numcores * theory.numcores cores run
+            at once — make sure that many slots are actually available.
+        grad: also compute the gradient.
+        copytheory: experimental. Deep-copy the theory for each job so that first-run-only
+            features (brokensym, for one) are not deactivated by a preceding run.
+        version: which library to parallelize with — "multiprocessing" (standard library)
+            or "multiprocess" (a fork using dill, more reliable for objects that pickle
+            badly).
+        opt: run geometry optimizations rather than single points.
+        optimizer: optimizer object to use when opt is True. A default GeometricOptimizer
+            is created if none is given.
+
+    Returns:
+        Results labelled "Job_parallel", holding one energy per job (and one gradient
+        per job when grad=True).
     """
     logger.info("")
     logger.info(sub_header("Job_parallel function"))
@@ -203,11 +223,13 @@ def job_parallel(
                 totnumcores = numcores * theory.numcores
                 logger.warning("allow_theory_parallelization is True.")
                 logger.warning(
-                    f"Each job can use {theory.numcores} CPU cores, thus up to {totnumcores} CPU cores can be running simultaneously. Make sure that that's how many slots are available."
+                    f"Each job can use {theory.numcores} CPU cores, thus up to {totnumcores} CPU cores can be running "
+                    f"simultaneously. Make sure that that's how many slots are available."
                 )
             else:
                 logger.warning(
-                    "allow_theory_parallelization is False. Now turning off theory.parallelization (setting theory numcores to 1)"
+                    "allow_theory_parallelization is False. Now turning off theory.parallelization (setting theory "
+                    "numcores to 1)"
                 )
                 logger.warning("This can be overriden by: Job_parallel(allow_theory_parallelization=True)\n")
                 theory.numcores = 1
@@ -461,7 +483,6 @@ def worker_par(
     # Label is not a tuple
     elif isinstance(label, (float, int)):
         logger.info("Label is float or int")
-        #
         labelstring = str(label).replace(".", "_")
         # Label is float or int.
         if mofilesdir is not None:

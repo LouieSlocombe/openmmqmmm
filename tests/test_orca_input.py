@@ -48,8 +48,10 @@ def test_keywords_and_blocks_each_get_their_own_line(tmp_path):
 
 @pytest.mark.parametrize("extraline", ["! TightSCF", "! TightSCF\n", "\n! Noautostart\n"])
 def test_extraline_is_separated_from_what_follows(tmp_path, extraline):
-    """A user extraline is separated from the next directive whether or not it
-    carries its own trailing newline."""
+    """A user extraline is always separated from the next directive.
+
+    This holds whether or not the extraline carries its own trailing newline.
+    """
     name = str(tmp_path / "orca")
     create_orca_input_plain(name, extraline=extraline, grad=True, **BASE_ARGS)
 

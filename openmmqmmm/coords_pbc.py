@@ -181,12 +181,13 @@ def write_cif_file(coords, elems, cellvectors=None, celldimensions=None, filenam
 
 
 def align_to_standard_orientation(fragment_coords, cell_vectors):
-    """
-    Rotates the entire system (atoms and cell) into the standard
-    upper-triangular orientation.
+    """Rotate the entire system (atoms and cell) into the standard orientation.
 
-    cell_vectors: 3x3 matrix where rows are [a, b, c]
-    fragment_coords: Nx3 array of atomic positions
+    The standard orientation is the upper-triangular cell convention.
+
+    Args:
+        fragment_coords: Nx3 array of atomic positions.
+        cell_vectors: 3x3 matrix where rows are [a, b, c].
     """
     # 1. Transpose cell_vectors because QR works on columns
     H = cell_vectors.T

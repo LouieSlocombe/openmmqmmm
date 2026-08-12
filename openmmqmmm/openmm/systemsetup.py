@@ -1,5 +1,8 @@
-"""Building and preparing OpenMM systems: modeller, solvation, minimization,
-ligand parameterization and PDB writing."""
+"""Building and preparing OpenMM systems.
+
+Covers the modeller, solvation, minimization, ligand parameterization and PDB
+writing helpers.
+"""
 
 import contextlib
 import logging
@@ -219,14 +222,17 @@ def openmm_minimize(
     )
     logger.info(
         "%s",
-        f"Final Potential energy is: {state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system) / openmmqmmm.constants.hartokj} Eh",
+        f"Final Potential energy is: "
+        f"{state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system) / openmmqmmm.constants.hartokj} "
+        f"Eh",
     )
     forces_final = np.array(state.getForces(asNumpy=True)) / kjmolnm_to_atomic_factor
     rms_force = np.sqrt(sum(n * n for n in forces_final.flatten()) / len(forces_final.flatten()))
     logger.info(f"Final RMS force: {rms_force} Eh/Bohr (w/o restraints)")
     logger.info(f"Final Max force: {forces_final.max()} Eh/Bohr (w/o restraints)")
 
-    # Writing final PDB-file. If system is non-periodic (according to OpenMMTheory settings) then we set enforcePeriodicBox to False
+    # Writing final PDB-file. If system is non-periodic (according to OpenMMTheory settings) then we set
+    # enforcePeriodicBox to False
     # to avoid some strange geometry translation
     if openmmobject.periodic is True:
         logger.info(f"Writing final PDB file (enforcePeriodicBox={enforce_periodic_box})")
@@ -281,8 +287,10 @@ def openmm_modeller(
     membrane_center_z=0.0,
     residuetemplate_choice=None,
 ) -> tuple:
-    """Prepare a protein system from a raw PDB file (pdbfixer): fix residues/atoms,
-    add hydrogens for the chosen pH, solvate, add ions and write forcefield-ready files.
+    """Prepare a protein system from a raw PDB file using pdbfixer.
+
+    Fixes residues and atoms, adds hydrogens for the chosen pH, solvates, adds ions
+    and writes forcefield-ready files.
 
     Returns:
         (OpenMMTheory, Fragment) for the prepared, solvated system.
@@ -441,8 +449,9 @@ def openmm_modeller(
             openmm_app.PDBFile.writeFile(fixer.topology, fixer.positions, pdbfh)
         logger.info("PDBFixer done.")
         logger.warning(
-            "Warning: PDBFixer can create unreasonable orientations of residues if residues are missing or multiple occupancies are present.\n \
-        You should inspect the created PDB-file to be sure."
+            "Warning: PDBFixer can create unreasonable orientations of residues if residues "
+            "are missing or multiple occupancies are present.\n         "
+            "You should inspect the created PDB-file to be sure."
         )
         logger.info("Wrote PDBfile: system_afterfixes.pdb")
         pdbfile_for_modeller = "system_afterfixes.pdb"
@@ -468,7 +477,8 @@ def openmm_modeller(
     # Getting residues for each chain
     for chain_x in modeller_chains:
         logger.info(
-            f"This is chain {chain_x.index}, it has {len(chain_x._residues)} residues and they are: {chain_x._residues}\n"
+            f"This is chain {chain_x.index}, it has {len(chain_x._residues)} residues and they are: "
+            f"{chain_x._residues}\n"
         )
     logger.info("\n")
 
@@ -546,7 +556,10 @@ def openmm_modeller(
             "\nInterpretation: you probably have multiple matching templates in the forcefield XML-file for a residue"
         )
         raise InputError(
-            "This occurs e.g. for the case of Fe2+ vs Fe3+ ion in the Amber FF.\nTo deal with this problem, you have to provide a residuetemplate_choice dictionary to this interface\nExample: residuetemplate_choice should be a dict like this: residuetemplate_choice={'FER':'FE2'}   \n   where FER is here the name of the residue (in PDB-file) and FE2 is the name of the desired template in the forcefield XML-file"
+            "This occurs e.g. for the case of Fe2+ vs Fe3+ ion in the Amber FF.\nTo deal with this problem, you have "
+            "to provide a residuetemplate_choice dictionary to this interface\nExample: residuetemplate_choice should "
+            "be a dict like this: residuetemplate_choice={'FER':'FE2'}   \n   where FER is here the name of the "
+            "residue (in PDB-file) and FE2 is the name of the desired template in the forcefield XML-file"
         ) from e
     logger.info("No problem with unmatched residues found. Continuing")
 
@@ -556,14 +569,16 @@ def openmm_modeller(
     except ValueError as errormessage:
         logger.error("\nOpenMM modeller.addHydrogens signalled a ValueError")
         logger.info(
-            "This is a common error and suggests a problem in PDB-file or missing residue information in the forcefield."
+            "This is a common error and suggests a problem in PDB-file or missing residue information in the "
+            "forcefield."
         )
         logger.info(
             "Non-standard inorganic/organic residues require providing an additional XML-file via extraxmlfile= option"
         )
         logger.info("Note that C-terminii require the dangling O-atom to be named OXT ")
         raise InputError(
-            f"Read the OpenMM documentation on dealing with this problem.\n\nFull error message from OpenMM:\n{errormessage}"
+            f"Read the OpenMM documentation on dealing with this problem.\n\nFull error message from "
+            f"OpenMM:\n{errormessage}"
         ) from errormessage
 
     write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_afterH.pdb")
@@ -581,7 +596,8 @@ def openmm_modeller(
         logger.info("Setting periodic to False")
         logger.info("Available implicit solvent models:")
         logger.info(
-            "implicit/gbn2.xml, implicit/hct.xml, implicit/obc1.xml, implicit/obc2.xml, implicit/gbn.xml, implicit/gbn2.xml"
+            "implicit/gbn2.xml, implicit/hct.xml, implicit/obc1.xml, implicit/obc2.xml, implicit/gbn.xml, "
+            "implicit/gbn2.xml"
         )
         fragment = Fragment(pdbfile="system_afterH.pdb")
         if implicit_solvent_xmlfile is None:
@@ -706,33 +722,40 @@ def openmm_modeller(
     logger.info("1. Define using separate forcefield XML files and PDB-file (for topology):")
     if extraxmlfile is None:
         logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", periodic={periodic})'
+            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
+            f"periodic={periodic})"
         )
     else:
         logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], pdbfile="finalsystem.pdb", periodic={periodic})'
+            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], '
+            f'pdbfile="finalsystem.pdb", periodic={periodic})'
         )
     logger.info("2. Define using separate forcefield XML files and PDBx/mmCIF file (instead of PDB):")
     if extraxmlfile is None:
         logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbxfile="finalsystem.cif", periodic={periodic})'
+            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbxfile="finalsystem.cif", '
+            f"periodic={periodic})"
         )
     else:
         logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], pdbxfile="finalsystem.cif", periodic={periodic})'
+            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], '
+            f'pdbxfile="finalsystem.cif", periodic={periodic})'
         )
     logger.info(
         "3. Use forcefield object file :\n %s",
-        f'omm = OpenMMTheory(topoforce=True, forcefield=forcefield_object, pdbfile="finalsystem.pdb", topology=modeller.topology, periodic={periodic})',
+        f'omm = OpenMMTheory(topoforce=True, forcefield=forcefield_object, pdbfile="finalsystem.pdb", '
+        f"topology=modeller.topology, periodic={periodic})",
     )
     logger.info("")
     logger.info("")
     if residuetemplate_choice is not None:
         logger.warning(
-            "Warning: A residuetemplate_choice option was provided to OpenMM_Modeller. This means that you will have to provide this also when defining an OpenMMTheory object."
+            "Warning: A residuetemplate_choice option was provided to OpenMM_Modeller. This means that you will have "
+            "to provide this also when defining an OpenMMTheory object."
         )
         logger.info(
-            f'E.g. like this: omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", periodic={periodic}, residuetemplate_choice={residuetemplate_choice})'
+            f'E.g. like this: omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
+            f"periodic={periodic}, residuetemplate_choice={residuetemplate_choice})"
         )
     # Check system for atoms with large gradient and print warning
     # TODO: Can we avoid re-creating the omm object ?
@@ -820,7 +843,8 @@ def solvate_small_molecule(
 
     if xmlfile is None and skip_xmlfile is False:
         raise InputError(
-            "No xmlfile was provided. You must provide one\nIf you need a forcefield for the solute then try :\n              small_molecule_parameterizer"
+            "No xmlfile was provided. You must provide one\nIf you need a forcefield for the solute then try :\n       "
+            "       small_molecule_parameterizer"
         )
 
     # Read XML-file and check for LJ treatment
@@ -834,7 +858,8 @@ def solvate_small_molecule(
             lj_treatment = "charmm"
         else:
             raise InputError(
-                "Unknown LJ14 scaling type in XML-file: neither CHARMM nor Amber format was recognized\nSolvation requires an Amber- or CHARMM-style forcefield XML-file"
+                "Unknown LJ14 scaling type in XML-file: neither CHARMM nor Amber format was recognized\nSolvation "
+                "requires an Amber- or CHARMM-style forcefield XML-file"
             )
 
         logger.info("LJ_treatment: %s", lj_treatment)
@@ -903,7 +928,8 @@ def solvate_small_molecule(
     logger.info("\nTo use this system setup to define a future OpenMMTheory object you can  do:\n")
 
     logger.info(
-        f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="system_aftersolvent.pdb", periodic=True, rigidwater=True)'
+        f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="system_aftersolvent.pdb", '
+        f"periodic=True, rigidwater=True)"
     )
     logger.info("")
     logger.info("")
@@ -1006,7 +1032,10 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
             return "system_afteratlocfixes.pdb"
         else:
             raise InputError(
-                "You should delete either the labelled A or B location of the residue-atom/atoms and then remove the A/B label from column 17 in the file\nAlternatively, you can choose use_higher_occupancy=True keyword in OpenMM_Modeller and openmmqmmm will keep the higher occupied form and go on \nMake sure that there is always an A or B form present.\nExiting."
+                "You should delete either the labelled A or B location of the residue-atom/atoms and then remove the "
+                "A/B label from column 17 in the file\nAlternatively, you can choose use_higher_occupancy=True keyword "
+                "in OpenMM_Modeller and openmmqmmm will keep the higher occupied form and go on \nMake sure that there "
+                "is always an A or B form present.\nExiting."
             )
     # Returning original pdbfile if all OK
 
@@ -1047,8 +1076,9 @@ def small_molecule_parameterizer(
     expected_lj14=0.5,
     allow_undefined_stereo=None,
 ) -> tuple:
-    """Generate an OpenMM forcefield XML for a small molecule with GAFF or OpenFF
-    (requires openmmforcefields, openff-toolkit and rdkit).
+    """Generate an OpenMM forcefield XML for a small molecule with GAFF or OpenFF.
+
+    Requires openmmforcefields, openff-toolkit and rdkit.
     """
     logger.info(main_header("SmallMolecule Parameterizor"))
     logger.info("Input options: xyzfile, pdbfile, molfile, sdffile, smiles_string")
@@ -1090,7 +1120,8 @@ def small_molecule_parameterizer(
         from openmmforcefields.generators import GAFFTemplateGenerator
     except ImportError as errormessage:
         raise MissingDependencyError(
-            f"OpenFF and openmmforcefields libraries are required but could not be imported\nYou can install like this:   conda install --yes -c conda-forge openmmforcefields\nPython import error message: {errormessage}"
+            f"OpenFF and openmmforcefields libraries are required but could not be imported\nYou can install like "
+            f"this:   conda install --yes -c conda-forge openmmforcefields\nPython import error message: {errormessage}"
         ) from errormessage
     logger.info("")
 
@@ -1109,7 +1140,8 @@ def small_molecule_parameterizer(
         # Create an OpenFF Molecule object from SMILES string
         molecule = Molecule.from_smiles(smiles_string, allow_undefined_stereo=allow_undefined_stereo)
         logger.info(
-            "A SMILES string input means that no coordinate information is available. PDB-file created will have dummy coordinates that you have to fill in yourself."
+            "A SMILES string input means that no coordinate information is available. PDB-file created will have dummy "
+            "coordinates that you have to fill in yourself."
         )
     elif xyzfile:
         logger.info("XYZ file provided: %s", xyzfile)
@@ -1228,7 +1260,8 @@ def small_molecule_parameterizer(
     # Modifying XML-files
     logger.info("A new XML-file for molecule has been created: %s", final_xmlfilename)
     logger.info(
-        f"Modifying 1-4 scaling parameters in XML-file to match Amber14 FF (coul14={expected_coul14}  and lj14={expected_lj14})"
+        f"Modifying 1-4 scaling parameters in XML-file to match Amber14 FF (coul14={expected_coul14}  and "
+        f"lj14={expected_lj14})"
     )
     find_replace_string_in_file(final_xmlfilename, 'coulomb14scale="1.0"', f'coulomb14scale="{expected_coul14}"')
     find_replace_string_in_file(final_xmlfilename, 'lj14scale="1.0"', f'lj14scale="{expected_lj14}"')
@@ -1249,12 +1282,12 @@ def small_molecule_parameterizer(
     logger.info("")
     if abs(coulomb_xml - coulomb_sys) > 1e-5:
         raise InputError(
-            f"abs(coulomb_xml - coulomb_sys): {abs(coulomb_xml - coulomb_sys)}\nProblem with Coulomb-14 scaling in XML-file"
+            f"abs(coulomb_xml - coulomb_sys): {abs(coulomb_xml - coulomb_sys)}\nProblem with Coulomb-14 scaling in "
+            f"XML-file"
         )
     if abs(lj_xml - lj_sys) > 1e-5:
         raise InputError(f"abs(lj_xml - lj_system): {abs(lj_xml - lj_sys)}\nProblem with LJ-14 scaling in XML-file")
     logger.info("XML-file and forcefield objects are consistent. All good!")
-    #
     logger.info("Now returning a Forcefield object containing ligand compatible with the Amber14 FF.\n")
     logger.info(
         "You can feed this object into OpenMM_Modeller like this:\n\
@@ -1267,7 +1300,8 @@ def small_molecule_parameterizer(
     )
     logger.info("")
     logger.info(
-        f"The XML-file just created: {final_xmlfilename} can also be used directly (recommended only together with Amber14)\n"
+        f"The XML-file just created: {final_xmlfilename} can also be used directly (recommended only together with "
+        f"Amber14)\n"
     )
     logger.info(
         f"You can use it in OpenMM_Modeller like this:\n\
@@ -1370,7 +1404,8 @@ def write_xmlfile_parmed(topology, system, xmlfilename):
         import parmed
     except ImportError:
         raise MissingDependencyError(
-            "Problem importing parmed Python library\nMake sure parmed is present in your Python.\nParmed can be installed using pip: pip install parmed"
+            "Problem importing parmed Python library\nMake sure parmed is present in your Python.\nParmed can be "
+            "installed using pip: pip install parmed"
         ) from None
     st = parmed.openmm.load_topology(topology, system=system)
     w = parmed.amber.parameters.ParameterSet.from_structure(st)

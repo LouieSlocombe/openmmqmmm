@@ -14,9 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # This version is pinned in three places that must agree: here, the ruff rev in
+      # .pre-commit-config.yaml, and the `dev` extra in pyproject.toml. ruff's
+      # formatter output can change between releases, so a skew is what lets a
+      # locally-clean tree fail the format gate below.
       - uses: astral-sh/ruff-action@v3
         with:
-          version: "0.16.2"  # keep in sync with the version used locally
+          version: "0.16.2"
           args: "check ."
       - uses: astral-sh/ruff-action@v3
         with:

@@ -1,4 +1,6 @@
-"""OpenMM interface: OpenMMTheory, MD drivers, system preparation (modeller/solvation),
+"""OpenMM interface for openmmqmmm.
+
+Provides OpenMMTheory, the MD drivers, system preparation (modeller/solvation),
 metadynamics and free-energy helpers.
 
 Split across submodules for navigability; every name is re-exported here, so

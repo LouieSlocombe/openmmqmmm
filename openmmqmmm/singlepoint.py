@@ -1,9 +1,8 @@
-"""
-Singlepoint module:
+"""Single-point energy and gradient jobs.
 
-Function Singlepoint
-
-class ZeroTheory
+Provides the single_point job function and its variants over multiple theories,
+fragments and reactions, plus ZeroTheory — a null theory that returns zero energy
+and gradient.
 """
 
 import contextlib
@@ -72,7 +71,8 @@ def single_point(
     if grad:
         logger.info("")
         logger.info(
-            f"Doing single-point Energy+Gradient job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
+            f"Doing single-point Energy+Gradient job on fragment. Formula: {fragment.prettyformula} Label: "
+            f"{fragment.label} "
         )
         # An Energy+Gradient calculation where we change the number of cores to 12
         energy, gradient = theory.run(current_coords=coords, elems=elems, grad=True, charge=charge, mult=mult)

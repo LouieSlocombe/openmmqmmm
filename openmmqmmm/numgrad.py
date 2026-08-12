@@ -91,7 +91,6 @@ class NumGrad:
             orig_energy = self.theory.run(
                 current_coords=current_coords, elems=elems, grad=False, label=label, charge=charge, mult=mult
             )
-            #
             dispdict = {}
             logger.info(f"Will now loop over {len(list_of_displacements)} displacements")
 
@@ -99,7 +98,8 @@ class NumGrad:
             for i, dispgeo in enumerate(list_of_displaced_geos):
                 disp = list_of_displacements[i]
                 logger.info(
-                    f"Running displacement {i + 1} / {len(list_of_displaced_geos)}. Displacing Atom:{disp[0]} Coord:{disp[1]} Direction:{disp[2]}"
+                    f"Running displacement {i + 1} / {len(list_of_displaced_geos)}. Displacing Atom:{disp[0]} "
+                    f"Coord:{disp[1]} Direction:{disp[2]}"
                 )
                 energy = self.theory.run(
                     current_coords=dispgeo, elems=elems, grad=False, label=label, charge=charge, mult=mult

@@ -1,0 +1,30 @@
+# Editor-side half of the style contract. ruff owns Python layout (see the
+# [tool.ruff.format] section of pyproject.toml); this file carries the same
+# line-ending and encoding rules to the files ruff does not format.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+
+[*.{yml,yaml,toml,json}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+# Two trailing spaces are a hard line break in Markdown
+trim_trailing_whitespace = false
+
+# Committed reference data: ORCA output, PDB/XYZ structures and forcefield XML are
+# compared byte-for-byte by the test suite. Never normalize them.
+[tests/{orca_outputs,extra_files,pdbfiles,xyzfiles}/**]
+trim_trailing_whitespace = false
+insert_final_newline = false

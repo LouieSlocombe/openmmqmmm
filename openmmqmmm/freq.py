@@ -205,7 +205,10 @@ def numerical_frequencies(
         if isinstance(theory, QMMMTheory):
             logger.info("Theory object provided is a QM/MM Theory")
             raise InputError(
-                "Error: No hessatoms option was provided. This is required for QM/MM Theories\nPlease provide a list of atom indices to the hessatoms keyword of NumFreq to define the partial Hessian\nFor QM/MM numerical frequencies you want the list of hessatoms to be the same atoms used to define the \nactive-region in the optimization (or the QM-region)\nExiting now."
+                "Error: No hessatoms option was provided. This is required for QM/MM Theories\nPlease provide a list "
+                "of atom indices to the hessatoms keyword of NumFreq to define the partial Hessian\nFor QM/MM "
+                "numerical frequencies you want the list of hessatoms to be the same atoms used to define the "
+                "\nactive-region in the optimization (or the QM-region)\nExiting now."
             )
         else:
             hessatoms = allatoms
@@ -232,7 +235,8 @@ def numerical_frequencies(
     # If hessatoms_masses list was provided
     if hessatoms_masses is not None and len(hessatoms_masses) != len(hessatoms):
         raise InputError(
-            "Error: Number of provided masses (hessatoms_masses keyword) is not equal to number of Hessian-atoms.\nCheck input masses!"
+            "Error: Number of provided masses (hessatoms_masses keyword) is not equal to number of "
+            "Hessian-atoms.\nCheck input masses!"
         )
     # Checking for linearity. Determines how many Trans+Rot modes
     if detect_linear(coords=fragment.coords, elems=fragment.elems, threshold=rotmode_threshold) is True:
@@ -243,7 +247,8 @@ def numerical_frequencies(
     # Molecular orbitals
     #####################
     # ORCA-specific: Copy old GBW file from .. dir
-    # NOTE: Pretty ugly. Not sure if there is a good alternative at the moment. Moreadfile option would override this anyway
+    # NOTE: Pretty ugly. Not sure if there is a good alternative at the moment. Moreadfile option would override this
+    # anyway
     try:
         if theory.theorytype == "QM":
             if isinstance(theory, openmmqmmm.orca.ORCATheory):
@@ -419,8 +424,6 @@ def numerical_frequencies(
             grad=True,
             copytheory=True,
         )
-        # result_par = openmmqmmm.Singlepoint_parallel(fragments=all_image_fragments, theories=[self.theory], numcores=self.numcores,
-        #    allow_theory_parallelization=True, Grad=True, copytheory=False)
         gradient_dict = result.gradients_dict
         # Gradient_dict is already correctly formatted
         displacement_grad_dictionary = gradient_dict
@@ -804,7 +807,8 @@ def printfreqs(vfreq, numatoms, tr_modenum=6, intensities=None, raman_activities
         logger.info("No IR intensities were calculated. Setting values to 0.0.")
     if raman_activities is None:
         logger.info(
-            "No Raman activities were calculated (polarizabilities not available in QM-program interface). Setting values to 0.0."
+            "No Raman activities were calculated (polarizabilities not available in QM-program interface). Setting "
+            "values to 0.0."
         )
     logger.info("Note: imaginary modes shown as negative")
     logger.info(
@@ -846,7 +850,6 @@ def printfreqs_and_nm_elem_comps(vfreq, fragment, evectors, hessatoms=None, tr_m
 # FOR SADDLEPOINT, the SP mode will be the largest imaginary mode, hence mode 0.
 
 
-#
 def thermochemcalc(
     vfreq,
     atoms,
@@ -874,6 +877,16 @@ def thermochemcalc(
         pressure: pressure in atm.
         qrrho: apply a quasi-RRHO treatment for low-frequency modes.
         qrrho_method: "Grimme" (interpolation) or "Truhlar" (raising of low modes).
+        qrrho_omega_0: cut-off frequency in cm**-1 for the quasi-RRHO treatment —
+            omega_0 for the Grimme interpolation, the low-frequency threshold for
+            Truhlar.
+        use_full_geo_in_rotational_analysis: run the rotational analysis on the whole
+            fragment geometry. When False only the Hessian atoms are used.
+        symmetry_number: rotational symmetry number sigma_r. Defaults to 1.0, which is
+            correct for the C1, Ci and Cs point groups only — set it explicitly for any
+            more symmetric molecule.
+        rotmode_threshold: threshold used to decide whether the structure is linear,
+            which fixes the number of translational and rotational modes.
 
     Returns:
         dict of thermochemistry properties (ZPVE, enthalpy, entropy terms, Gibbs energy, ...).
@@ -1172,7 +1185,8 @@ CARTESIAN COORDINATES (ANGSTROEM)
         outfile.write("-----------------------\n")
         outfile.write("\n")
         outfile.write(
-            "Scaling factor for frequencies =  1.000000000 (Found in file - NOT applied to frequencies read from HESS file)\n"
+            "Scaling factor for frequencies =  1.000000000 (Found in file - NOT applied to frequencies read from HESS "
+            "file)\n"
         )
         outfile.write("\n")
         numatoms = len(elems)
@@ -1235,7 +1249,8 @@ CARTESIAN COORDINATES (ANGSTROEM)
                 # NOTE: RB note: but TS mode should also be here. Let's not set anything to zero
                 # Disabling zero-val setting below
                 # if chunk == 0:
-                # TODO: Here defning values to print based on values in nmodes matrix. TO be confiremd that this is correct. TODO.
+                # TODO: Here defning values to print based on values in nmodes matrix. TO be confiremd that this is
+                # correct. TODO.
                 if hessdim - j == 1:
                     val1 = nmodes[j][i]
                 elif hessdim - j == 2:
@@ -1269,7 +1284,10 @@ CARTESIAN COORDINATES (ANGSTROEM)
                 if chunk == chunks - 1:
                     for _k in range(index, index + left):
                         if left == 6:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} {val4:>10.6f} {val5:>10.6f} {val6:>10.6f}"
+                            line = (
+                                f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} "
+                                f"{val4:>10.6f} {val5:>10.6f} {val6:>10.6f}"
+                            )
                         elif left == 5:
                             line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} {val4:>10.6f} {val5:>10.6f}"
                         elif left == 4:
@@ -1282,7 +1300,10 @@ CARTESIAN COORDINATES (ANGSTROEM)
                             line = f"{i:>6d} {val1:>14.6f}"
                 else:
                     for _k in range(index, index + orcahesscoldim):
-                        line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} {val4:>10.6f} {val5:>10.6f} {val6:>10.6f}"
+                        line = (
+                            f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} "
+                            f"{val4:>10.6f} {val5:>10.6f} {val6:>10.6f}"
+                        )
                 outfile.write(" " + str(line) + "\n")
                 line = ""
                 chunkheader = ""
@@ -1468,7 +1489,8 @@ def approximate_full_hessian_from_smaller(
         if all(item in large_atomindices for item in small_atomindices) is False:
             raise InputError(
                 "{}\nThis does not make sense. Exiting".format(
-                    f"small_atomindices: {small_atomindices} are not all present in large_atomindices: {large_atomindices}"
+                    f"small_atomindices: {small_atomindices} are not all present in large_atomindices: "
+                    f"{large_atomindices}"
                 )
             )
         # If large Hessian is a partial Hessian of the full system then we need to change small Hessian atomindices
@@ -1503,7 +1525,8 @@ def approximate_full_hessian_from_smaller(
         fullhessian = calc_model_hessian_orca(usedfragment, model=rest_hessian)
     elif rest_hessian == "xtb":
         raise InputError(
-            "Error: restHessian='xtb' is not available in this ORCA+OpenMM build. Use an ORCA model Hessian, 'unit' or 'zero' instead."
+            "Error: restHessian='xtb' is not available in this ORCA+OpenMM build. Use an ORCA model Hessian, 'unit' or "
+            "'zero' instead."
         )
     # Or with unit matrix
     elif rest_hessian == "unit" or rest_hessian == "identity":
@@ -1625,21 +1648,24 @@ def s_vib(freqs, T):
 def s_vib_qrrho_truhlar(freqs, T, lowfreq_thresh=100):
     logger.warning("Quasi-RRHO by Truhlar approximation active.")
     logger.info(
-        "This means that the vibrational entropy is calculated according to Truhlar-approach of raising low-energy vibrations to 100 cm-1"
+        "This means that the vibrational entropy is calculated according to Truhlar-approach of raising low-energy "
+        "vibrations to 100 cm-1"
     )
     logger.info("Cite: R. F. Riberio et al. J. Phys. Chem. B, 115, 14556 (2011) ")
     # Vibrational entropy via quasi-RRHO
     TS_vib_final = 0.0
     # Looping over frequencies
     for f in freqs:
+        freq_value = f
         if f < 100.0:
             logger.warning(
-                f"Warning: Frequency ({f}) is below low-freq threshold ({lowfreq_thresh}) cm-1. Setting to {lowfreq_thresh} cm-1"
+                f"Warning: Frequency ({f}) is below low-freq threshold ({lowfreq_thresh}) cm-1. "
+                f"Setting to {lowfreq_thresh} cm-1"
             )
-            f = 100.0
+            freq_value = 100.0
         # Vib. temp and TS_vib for freq f
         vibtemp = (
-            f * openmmqmmm.constants.c * openmmqmmm.constants.h_planck_hartreeseconds
+            freq_value * openmmqmmm.constants.c * openmmqmmm.constants.h_planck_hartreeseconds
         ) / openmmqmmm.constants.R_gasconst
         logger.info("vibtemp: %s", vibtemp)
         TS_vib_f = T * (

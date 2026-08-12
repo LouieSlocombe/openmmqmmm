@@ -101,7 +101,8 @@ class ORCATheory:
         # Checking OpenMPI
         if numcores != 1:
             logger.info(
-                f"ORCA parallel job requested with numcores: {numcores} . Make sure that the correct OpenMPI version (for the ORCA version) is available in your environment"
+                f"ORCA parallel job requested with numcores: {numcores} . Make sure that the correct OpenMPI version "
+                f"(for the ORCA version) is available in your environment"
             )
             openmmqmmm.parallel.check_openmpi()
 
@@ -113,7 +114,9 @@ class ORCATheory:
         # Checking if user added Opt, Freq keywords
         if " OPT" in orcasimpleinput.upper() or " FREQ" in orcasimpleinput.upper():
             raise InputError(
-                f"Error. orcasimpleinput variable can not contain ORCA job-directives like: Opt, Freq, Numfreq\nString: {orcasimpleinput.upper()}\norcasimpleinput should only contain information on electronic-structure method (e.g. functional), basis set, grid, SCF convergence etc."
+                f"Error. orcasimpleinput variable can not contain ORCA job-directives like: Opt, Freq, "
+                f"Numfreq\nString: {orcasimpleinput.upper()}\norcasimpleinput should only contain information on "
+                f"electronic-structure method (e.g. functional), basis set, grid, SCF convergence etc."
             )
         if "!" not in orcasimpleinput:
             raise InputError(
@@ -232,7 +235,8 @@ class ORCATheory:
             self.extrabasisatoms = []
             self.extrabasis = ""
         # Atom-specific basis set options
-        # Within ORCA inputfile, define a basis set for each and every atom. Requires a dictionary with element as key and basis set as value
+        # Within ORCA inputfile, define a basis set for each and every atom. Requires a dictionary with element as key
+        # and basis set as value
         self.atom_specific_basis_dict = atom_specific_basis_dict
         self.ecp_dict = ecp_dict  # ECP dict that usually goes with atom_specific dict
 
@@ -345,7 +349,8 @@ end
             with contextlib.suppress(FileNotFoundError):
                 os.remove(tmpfile)
 
-    # Do an ORCA-optimization instead of geomeTRIC optimization. Useful for gas-phase chemistry when ORCA-optimizer is better than geomeTRIC
+    # Do an ORCA-optimization instead of geomeTRIC optimization. Useful for gas-phase chemistry when ORCA-optimizer is
+    # better than geomeTRIC
     def opt(self, fragment=None, grad=None, hessian=None, numcores=None, charge=None, mult=None):
         """Optimize the geometry with ORCA's own optimizer rather than geomeTRIC.
 
@@ -610,7 +615,8 @@ end"""
                 logger.info(f"No {self.filename}.gbw file is present in dir.")
                 if self.path_to_last_gbwfile_used is not None:
                     logger.info(
-                        f"Found a path ({self.path_to_last_gbwfile_used}) to last GBW-file used by this Theory object. Will try to copy this file do current dir"
+                        f"Found a path ({self.path_to_last_gbwfile_used}) to last GBW-file used by this Theory object. "
+                        f"Will try to copy this file do current dir"
                     )
                     try:
                         shutil.copy(self.path_to_last_gbwfile_used, f"./{self.filename}.gbw")
@@ -753,11 +759,13 @@ end"""
         else:
             self.gbwfile = self.filename + ".gbw"
 
-        # Now that we have possibly run a BS-DFT calculation, turning Brokensym off for future calcs (opt, restart, etc.)
+        # Now that we have possibly run a BS-DFT calculation, turning Brokensym off for future calcs (opt, restart,
+        # etc.)
         # using this theory object
         if self.brokensym is True:
             logger.info(
-                "ORCA Flipspin calculation done. Now turning off brokensym in ORCA object for possible future calculations"
+                "ORCA Flipspin calculation done. Now turning off brokensym in ORCA object for possible future "
+                "calculations"
             )
             self.brokensym = False
         # Turning off deltaSCF for future calcs
@@ -771,17 +779,20 @@ end"""
                 deltascfblock = None
                 if "nososcf" not in self.orcasimpleinput:
                     logger.info(
-                        "Adding NOSOSCF to orcasimpleinput to avoid future calculations from falling back to ground-state"
+                        "Adding NOSOSCF to orcasimpleinput to avoid future calculations from falling back to "
+                        "ground-state"
                     )
                     self.orcasimpleinput = self.orcasimpleinput + " nososcf"
                 if "nodamp" not in self.orcasimpleinput:
                     logger.info(
-                        "Adding NODAMP to orcasimpleinput to avoid future calculations from falling back to ground-state"
+                        "Adding NODAMP to orcasimpleinput to avoid future calculations from falling back to "
+                        "ground-state"
                     )
                     self.orcasimpleinput = self.orcasimpleinput + " nodamp"
                 if "nolshift" not in self.orcasimpleinput:
                     logger.info(
-                        "Adding NOLSHIFT to orcasimpleinput to avoid future calculations from falling back to ground-state"
+                        "Adding NOLSHIFT to orcasimpleinput to avoid future calculations from falling back to "
+                        "ground-state"
                     )
                     self.orcasimpleinput = self.orcasimpleinput + " nolshift"
             else:
@@ -985,13 +996,13 @@ def find_orca(orcadir=None, required=True):
     ):
         if not directory:
             continue
-        directory = os.path.expanduser(directory)
-        if _looks_like_orca_dir(directory) and _orca_binary_runs(directory):
-            logger.info(f"Using ORCA installation: {directory} (from {source})")
-            return directory
+        resolved = os.path.expanduser(directory)
+        if _looks_like_orca_dir(resolved) and _orca_binary_runs(resolved):
+            logger.info(f"Using ORCA installation: {resolved} (from {source})")
+            return resolved
         if required:
             raise ExternalProgramError(
-                f"The {source} points at {directory}, which is not a working ORCA installation "
+                f"The {source} points at {resolved}, which is not a working ORCA installation "
                 "(orca binary plus orca_* helper binaries expected)"
             )
         return None
@@ -1006,7 +1017,8 @@ def find_orca(orcadir=None, required=True):
 
     if required:
         raise ExternalProgramError(
-            "Found no working ORCA installation.\nPass orcadir= , set the OPENMMQMMM_ORCADIR environment variable, or put the orca binary in PATH"
+            "Found no working ORCA installation.\nPass orcadir= , set the OPENMMQMMM_ORCADIR environment variable, or "
+            "put the orca binary in PATH"
         )
     return None
 
@@ -1951,7 +1963,8 @@ def orca_external_optimizer(
         logger.warning("Charge/mult was not provided to ORCA_External_Optimizer")
         if fragment.charge is not None and fragment.mult is not None:
             logger.warning(
-                f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult} Using this instead"
+                f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult} Using "
+                f"this instead"
             )
             logger.warning("Make sure this is what you want!")
             charge = fragment.charge

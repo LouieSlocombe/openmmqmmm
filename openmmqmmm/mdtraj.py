@@ -52,7 +52,8 @@ def mdtraj_rmsf(
             atom_string = str(firstframe.topology.atom(i))
             rmsfvalue = rmsflist[i]
             logger.info(
-                f"{i:>6} {atom_string:<14} {firstframe.xyz[0][i][0]:>12.6f} {firstframe.xyz[0][i][1]:>12.6f} {firstframe.xyz[0][i][2]:>12.6f}      {rmsfvalue:>12.6f}"
+                f"{i:>6} {atom_string:<14} {firstframe.xyz[0][i][0]:>12.6f} {firstframe.xyz[0][i][1]:>12.6f} "
+                f"{firstframe.xyz[0][i][2]:>12.6f}      {rmsfvalue:>12.6f}"
             )
     return large_rmsf_indices
 
@@ -153,7 +154,9 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None) -> str
     logger.info("User frame selection: %s", frames)
     if frames is None:
         raise InputError(
-            "Error: frames keyword needs to be set. Should usually be a list of two integers.\nE.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or frames='last' to grab first or last"
+            "Error: frames keyword needs to be set. Should usually be a list of two integers.\nE.g. frames=[0,1] to "
+            "grab first frame or frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or "
+            "frames='last' to grab first or last"
         )
     elif frames == "first":
         frames = [0, 1]
@@ -163,7 +166,9 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None) -> str
         frames = [0, traj.n_frames]
     elif len(frames) != 2:
         raise InputError(
-            "Error: frames keyword needs to be a list of two integers.\nE.g. frames=[0,1] to grab first frame or frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or frames='last' to grab first or last"
+            "Error: frames keyword needs to be a list of two integers.\nE.g. frames=[0,1] to grab first frame or "
+            "frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or frames='last' to grab first "
+            "or last"
         )
 
     # Slicing trajectory
@@ -179,7 +184,8 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None) -> str
 
     # Save trajectory in format
     logger.info(
-        f"Writing sliced trajectory to file in format {format} (you can change this by format keyword to be 'DCD', 'XYZ' or 'PDB') "
+        f"Writing sliced trajectory to file in format {format} (you can change this by format keyword to be 'DCD', "
+        f"'XYZ' or 'PDB') "
     )
     if traj_format == "DCD":
         tslice.save(traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd")
@@ -192,7 +198,8 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None) -> str
     elif traj_format == "XYZ":
         # Looping over selection and writing XYZ since mdtraj does not give proper elements
         logger.warning(
-            "Warning: the MDtraj_slice XYZ-writing requires guessing element names based on atomnames in the topology PDB-file."
+            "Warning: the MDtraj_slice XYZ-writing requires guessing element names based on atomnames in the topology "
+            "PDB-file."
         )
         logger.info("This is not always successful (might require manual change of the atomnames in PDB-file)")
         dummyfrag = Fragment(pdbfile=pdbtopology)

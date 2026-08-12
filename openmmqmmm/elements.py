@@ -1,9 +1,8 @@
-"""
-Various lists and dictionaries of elements etc.
-"""
+"""Various lists and dictionaries of elements etc."""
 
 # Conversion of common atom types or atomnames to elements.
-# Used by: module_coords: conv_atomtypes_elems and read_gromacsfile. Also in read_pdbfile when atomnames option is active
+# Used by: module_coords: conv_atomtypes_elems and read_gromacsfile. Also in read_pdbfile when atomnames option is
+# active
 # Added MW as atomtype for M-site. Problem for QM-code
 atomtypes_dict = {
     "H": "H",

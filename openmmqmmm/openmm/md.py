@@ -330,13 +330,15 @@ class MolecularDynamicsEngine:
                 if len(restraint) == 4:
                     logger.info("Bond restraint assumed")
                     logger.info(
-                        f"Atoms: {restraint[0]} {restraint[1]} Value: {restraint[2]} Force-constant: {restraint[3]} kcal/mol/Angstrom^2"
+                        f"Atoms: {restraint[0]} {restraint[1]} Value: {restraint[2]} Force-constant: {restraint[3]} "
+                        f"kcal/mol/Angstrom^2"
                     )
                     self.openmmobject.add_custom_bond_force(restraint[0], restraint[1], restraint[2], restraint[3])
                 elif len(restraint) == 5:
                     logger.info("Angle restraint assumed")
                     logger.info(
-                        f"Atoms: {restraint[0]} {restraint[1]} {restraint[2]} Value: {restraint[3]} Force-constant: {restraint[4]} kcal/mol/radian^2"
+                        f"Atoms: {restraint[0]} {restraint[1]} {restraint[2]} Value: {restraint[3]} Force-constant: "
+                        f"{restraint[4]} kcal/mol/radian^2"
                     )
                     self.openmmobject.add_custom_angle_force(
                         restraint[0], restraint[1], restraint[2], restraint[3], restraint[4]
@@ -344,7 +346,8 @@ class MolecularDynamicsEngine:
                 elif len(restraint) == 6:
                     logger.info("Torsion restraint assumed")
                     logger.info(
-                        f"Atoms: {restraint[0]} {restraint[1]} {restraint[2]} {restraint[3]} Value: {restraint[4]} Force-constant: {restraint[5]} kcal/mol/radian^2"
+                        f"Atoms: {restraint[0]} {restraint[1]} {restraint[2]} {restraint[3]} Value: {restraint[4]} "
+                        f"Force-constant: {restraint[5]} kcal/mol/radian^2"
                     )
                     self.openmmobject.add_custom_torsion_force(
                         restraint[0], restraint[1], restraint[2], restraint[3], restraint[4], restraint[5]
@@ -419,8 +422,10 @@ class MolecularDynamicsEngine:
                 WARNING: Autoconstraints have not been set in OpenMMTheory object definition. This means that by
                          default no bonds are constrained in the MD simulation. This usually requires a small
                          timestep: 0.5 fs or so.
-                         autoconstraints='HBonds' is recommended for 2 fs timesteps with LangevinIntegrator and 4fs with LangevinMiddleIntegrator).
-                         autoconstraints='AllBonds' or autoconstraints='HAngles' allows even larger timesteps to be used.
+                         autoconstraints='HBonds' is recommended for 2 fs timesteps with
+                         LangevinIntegrator and 4fs with LangevinMiddleIntegrator).
+                         autoconstraints='AllBonds' or autoconstraints='HAngles' allows even
+                         larger timesteps to be used.
                          See : https://github.com/openmm/openmm/pull/2754 and https://github.com/openmm/openmm/issues/2520
                          for recommended simulation settings in OpenMM.
                          """)
@@ -445,11 +450,13 @@ class MolecularDynamicsEngine:
             if solute_indices is None:
                 raise InputError("Dummyatomrestraint requires solute_indices to be set")
             logger.warning(
-                "Warning: Using dummyatomrestraints. This means that we will add a dummy atom to topology and OpenMM coordinates"
+                "Warning: Using dummyatomrestraints. This means that we will add a dummy atom to topology and OpenMM "
+                "coordinates"
             )
             logger.info("We do not add the dummy atom to the fragment")
             logger.info(
-                "Affects visualization of trajectory (make sure to use PDB-file that contains the dummy-atom, printed in the end)"
+                "Affects visualization of trajectory (make sure to use PDB-file that contains the dummy-atom, printed "
+                "in the end)"
             )
             # Should be centroid of solute or something rather
             solute_coords = np.take(self.fragment.coords, solute_indices, axis=0)
@@ -533,7 +540,8 @@ class MolecularDynamicsEngine:
         self.datafilename = datafilename
         if self.datafilename is not None:
             # Remove old file
-            # Added because of problems (19 May 2023 by CVS) in read NPT data file (OpenMM box equilibration) as header is printed each time
+            # Added because of problems (19 May 2023 by CVS) in read NPT data file (OpenMM box equilibration) as header
+            # is printed each time
             # Now removing file before starting. Possibly better to put this elsewhere as we may sometimes
             # want to keep running simulation while appending to datafile
             with contextlib.suppress(FileNotFoundError):
@@ -581,9 +589,8 @@ class MolecularDynamicsEngine:
                 # Get geometric center of system (Angstrom)
                 centerforce_center = self.fragment.get_coordinate_center()
                 logger.info("centerforce_center: %s", centerforce_center)
-            # Alternative (PBC wrapping issues, however)
-            # self.openmmobject.add_flatbottom_centerforce(molA_indices=centerforce_atoms, molB_indices=rest_system,
-            #                                              forceconstant=centerforce_constant, distance=centerforce_distance)
+            # An alternative is add_flatbottom_centerforce(mol_a_indices=centerforce_atoms,
+            # mol_b_indices=rest_system, ...), but it runs into PBC wrapping issues.
             self.openmmobject.add_centerforce(
                 center_coords=centerforce_center,
                 atomindices=centerforce_atoms,
@@ -700,7 +707,11 @@ class MolecularDynamicsEngine:
         """Advance the metadynamics simulation by one bias-deposition interval.
 
         Args:
-            steps: number of MD steps between bias depositions.
+            step: current MD step number, used to decide when the collective variables
+                are flushed to disk.
+            meta_object: the OpenMM Metadynamics object depositing the bias.
+            metadyn_settings: metadynamics settings — collective-variable types and the
+                saveFrequency/frequency pair controlling how often CVs are written.
         """
         checkpoint = time.time()
         cv1scaling = 1
@@ -754,13 +765,15 @@ class MolecularDynamicsEngine:
             f"Step {step}. Saving a statefile and checkpointfile : OpenMM_MD_state.xml and OpenMM_MD_checkpoint.chk"
         )
         logger.info(
-            "Can be used to restart a simulation (statefile and chkfile keywords) using the same coordinates and velocities."
+            "Can be used to restart a simulation (statefile and chkfile keywords) using the same coordinates and "
+            "velocities."
         )
         self.simulation.saveState("OpenMM_MD_state.xml")
         self.simulation.saveCheckpoint("OpenMM_MD_checkpoint.chk")
 
     # Simulation loop.
-    # NOTE: process_id passed by Simple_parallel function when doing multiprocessing, e.g. Plumed multiwalker metadynamics
+    # NOTE: process_id passed by Simple_parallel function when doing multiprocessing, e.g. Plumed multiwalker
+    # metadynamics
     def run(
         self,
         simulation_steps=None,
@@ -780,6 +793,21 @@ class MolecularDynamicsEngine:
         Args:
             simulation_steps: number of steps to run; overrides simulation_time.
             simulation_time: simulation length in ps, converted using the timestep.
+            metadynamics: run OpenMM-native metadynamics rather than plain MD.
+            metadyn_settings: metadynamics settings (collective variables, deposition
+                frequency, ...) used when metadynamics is True.
+            plumedinput: Plumed input as a string. WALKERID in it is substituted with
+                process_id for multiwalker runs.
+            process_id: worker index, passed by the parallel driver for multiwalker
+                Plumed runs. Defaults to 0.
+            workerdir: directory to change into before running, so parallel workers do
+                not overwrite each other's output.
+            restraints: bond restraints to add to the system before running.
+            restart: reuse the already-defined simulation object and append to the
+                existing reporter files instead of starting fresh.
+            chkfile: OpenMM checkpoint file to restore positions and velocities from.
+            statefile: OpenMM state XML file to restore positions and velocities from.
+                Used when chkfile is not given.
 
         Returns:
             The final Results object for the trajectory.
@@ -1348,7 +1376,8 @@ class MolecularDynamicsEngine:
                 self.simulation.step(simulation_steps)
         else:
             raise InputError(
-                f"Error: Unrecognized Theory runtype ({self.theory_runtype}) for MD. This might mean that this theory object is not yet supported for running MD. Exiting."
+                f"Error: Unrecognized Theory runtype ({self.theory_runtype}) for MD. This might mean that this theory "
+                f"object is not yet supported for running MD. Exiting."
             )
 
         logger.info(small_header("OpenMM MD simulation finished!"))
@@ -1423,10 +1452,12 @@ class MolecularDynamicsEngine:
         # Saving state to disk
         # Can be used to restart using statefile option
         logger.info(
-            "Saving a statefile and checkpointfile of the final frame of the simulation: OpenMM_MD_final_state.xml and OpenMM_MD_final_checkpoint.chk"
+            "Saving a statefile and checkpointfile of the final frame of the simulation: OpenMM_MD_final_state.xml and "
+            "OpenMM_MD_final_checkpoint.chk"
         )
         logger.info(
-            "These file can be used to restart a simulation (statefile and chkfile keywords) using the same coordinates and velocities."
+            "These file can be used to restart a simulation (statefile and chkfile keywords) using the same "
+            "coordinates and velocities."
         )
         self.simulation.saveState("OpenMM_MD_final_state.xml")
         self.simulation.saveCheckpoint("OpenMM_MD_final_checkpoint.chk")
@@ -1470,20 +1501,29 @@ def openmm_box_equilibration(
         datafilename: CSV file for per-cycle state data.
         numsteps_per_npt: MD steps per NPT cycle.
         max_npt_cycles: maximum number of cycles.
+        pressure: barostat pressure in bar.
         volume_threshold: convergence threshold for the box-volume change.
         density_threshold: convergence threshold for the density change.
         temperature: thermostat temperature in K.
         timestep: MD timestep in ps.
         traj_frequency: trajectory write interval in steps.
+        trajfilename: base name of the trajectory file; the extension comes from
+            trajectory_file_option.
         trajectory_file_option: trajectory format ("DCD", ...).
         coupling_frequency: thermostat coupling frequency in ps^-1.
         enforce_periodic_box: wrap coordinates into the primary box.
+        use_mdtraj: after the run, reimage the trajectory with mdtraj and write
+            <trajfilename>_lastframe.pdb. Skipped silently if mdtraj is unavailable.
+        dummyatomrestraint: add a dummy atom to the topology and restrain the solute to
+            it, keeping the solute centred as the box changes size. Requires
+            solute_indices.
+        solute_indices: atom indices of the solute; required when dummyatomrestraint
+            is True.
         barostat_frequency: barostat attempt interval in timesteps.
 
     Returns:
         Fragment updated with the equilibrated coordinates and box vectors.
     """
-
     logger.info(main_header("Periodic Box Size Equilibration"))
     module_init_time = time.time()
 
@@ -1492,7 +1532,8 @@ def openmm_box_equilibration(
 
     if numsteps_per_npt < traj_frequency:
         raise InputError(
-            "Parameter 'numpsteps_per_NPT' must be greater than 'traj_frequency', otherwise no data will be written during the equilibration!"
+            "Parameter 'numpsteps_per_NPT' must be greater than 'traj_frequency', otherwise no data will be written "
+            "during the equilibration!"
         )
 
     numpoints_for_convergence_check = numsteps_per_npt // traj_frequency
@@ -1586,7 +1627,8 @@ def openmm_box_equilibration(
 
         if i == max_npt_cycles - 1:
             logger.warning(
-                f"Warning: Max NPT cycles reached ({max_npt_cycles}). Total steps taken: {steps} and {timestep * steps} ps !\n"
+                f"Warning: Max NPT cycles reached ({max_npt_cycles}). Total steps taken: {steps} and "
+                f"{timestep * steps} ps !\n"
             )
             logger.warning("The NPT simulation may not be properly converged")
             break
@@ -1801,14 +1843,14 @@ def create_cv_bias(
             CV_unit = 1
             CV_unit_label = "CN"
             biaswidth_cv_unit = 1  # TODO
-            biaswidth_cv_unit_label = "CN"  #
+            biaswidth_cv_unit_label = "CN"
         elif cv_type.lower() == "custom":
             CV_min_val = 0.0
             CV_max_val = 5.0  # TODO
             CV_unit = 1
             CV_unit_label = "Custom"
             biaswidth_cv_unit = 1  # TODO
-            biaswidth_cv_unit_label = "Custom"  #
+            biaswidth_cv_unit_label = "Custom"
     else:
         logger.info("CV range given.")
         CV_min_val = cv_range[0]
@@ -1874,7 +1916,9 @@ def create_cv_bias(
 
         if cv_parameters is None:
             raise InputError(
-                "Error: CV-type coordination number requires a threshold value (when the distance should not longer be considered a bond)\nThis should be passed as a list using CV1_parameters/CV2_parameters, e.g. CV1_parameters=[2.0]"
+                "Error: CV-type coordination number requires a threshold value (when the distance should not longer be "
+                "considered a bond)\nThis should be passed as a list using CV1_parameters/CV2_parameters, e.g. "
+                "CV1_parameters=[2.0]"
             )
         logger.info(f"List CV_parameters contains: {cv_parameters}. Using {cv_parameters[0]} as threshold")
         # Defining custom cvforce

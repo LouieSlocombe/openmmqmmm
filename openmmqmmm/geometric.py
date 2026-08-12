@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 ##################################################
 
 
-# Wrapper function around GeomeTRICOptimizerClass
+# Wrapper function around GeometricOptimizer
 def optimize_geometry(
     theory=None,
     fragment=None,
@@ -78,9 +78,7 @@ def optimize_geometry(
     force_no_pbc=False,
     pbc_format_option="CIF",
 ) -> "Results":
-    """
-    Wrapper function around GeomeTRICOptimizerClass
-    """
+    """Wrapper function around the GeometricOptimizer class."""
     timeA = time.time()
 
     # EARLY EXIT
@@ -191,7 +189,8 @@ class GeometricOptimizer:
 
         if active_region is True and coordsystem.lower() == "tric":
             logger.warning(
-                "Warning: ActiveRegion is set but the coordsystem is TRIC. The HDLC coordinate system is usually much more robust for large systems than TRIC."
+                "Warning: ActiveRegion is set but the coordsystem is TRIC. The HDLC coordinate system is usually much "
+                "more robust for large systems than TRIC."
             )
             logger.info("")
             if force_coordsystem is True:
@@ -200,7 +199,8 @@ class GeometricOptimizer:
             else:
                 logger.info("force_coordsystem is False.")
                 logger.warning(
-                    "Warning: Now switching to HDLC to avoid likely robustness problems with TRIC. To avoid this behaviour (and force use of TRIC) you can use set the Boolean force_coordsystem to True."
+                    "Warning: Now switching to HDLC to avoid likely robustness problems with TRIC. To avoid this "
+                    "behaviour (and force use of TRIC) you can use set the Boolean force_coordsystem to True."
                 )
                 coordsystem = "hdlc"
 
@@ -559,11 +559,13 @@ class GeometricOptimizer:
                     # Changing from zero-indexing (openmmqmmm) to 1-indexing (geomeTRIC)
                     if constrainvalue is True:
                         confile.write(
-                            f"dihedral {dihedralentry[0] + 1} {dihedralentry[1] + 1} {dihedralentry[2] + 1} {dihedralentry[3] + 1} {dihedralentry[4]}\n"
+                            f"dihedral {dihedralentry[0] + 1} {dihedralentry[1] + 1} {dihedralentry[2] + 1} "
+                            f"{dihedralentry[3] + 1} {dihedralentry[4]}\n"
                         )
                     else:
                         confile.write(
-                            f"dihedral {dihedralentry[0] + 1} {dihedralentry[1] + 1} {dihedralentry[2] + 1} {dihedralentry[3] + 1}\n"
+                            f"dihedral {dihedralentry[0] + 1} {dihedralentry[1] + 1} {dihedralentry[2] + 1} "
+                            f"{dihedralentry[3] + 1}\n"
                         )
         if xconstraints is not None:
             self.constraintsfile = "constraints.txt"
@@ -650,8 +652,10 @@ class GeometricOptimizer:
             if self.hessian.shape[0] != 3 * len(atomsused):
                 raise InputError(
                     "{}\n{}".format(
-                        f"Error: Hessian shape is {self.hessian.shape}  which is incompatible with the  number of active atoms present ({len(atomsused)})",
-                        f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
+                        f"Error: Hessian shape is {self.hessian.shape}  which is incompatible with the  number of "
+                        f"active atoms present ({len(atomsused)})",
+                        f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the "
+                        f"system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
                     )
                 )
 
@@ -666,7 +670,8 @@ class GeometricOptimizer:
             logger.info("Hessian option provided is a string")
             if self.hessian == "xtb":
                 raise InputError(
-                    "Error: hessian='xtb' is not available in this ORCA+OpenMM build. Use '1point', '2point', 'partial' or a Hessian file instead."
+                    "Error: hessian='xtb' is not available in this ORCA+OpenMM build. Use '1point', '2point', "
+                    "'partial' or a Hessian file instead."
                 )
             # NumFreq 1 and 2-point Hessians
             elif self.hessian == "1point":
@@ -762,8 +767,10 @@ class GeometricOptimizer:
                 if hessian_read.shape[0] != 3 * len(atomsused):
                     raise InputError(
                         "{}\n{}".format(
-                            f"Error: Hessian shape is {hessian_read.shape}  which is incompatible with the  number of active atoms present ({len(atomsused)})",
-                            f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
+                            f"Error: Hessian shape is {hessian_read.shape}  which is incompatible with the  number of "
+                            f"active atoms present ({len(atomsused)})",
+                            f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the "
+                            f"system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
                         )
                     )
 
@@ -795,7 +802,8 @@ class GeometricOptimizer:
         if largest_atom_index >= fragment.numatoms:
             raise InputError(
                 "{}\nThis does not make sense. Please provide a correct actatoms list. Exiting.".format(
-                    f"Found active-atom index ({largest_atom_index}) that is larger or equal (>=) than the number of atoms of system ({fragment.numatoms})!"
+                    f"Found active-atom index ({largest_atom_index}) that is larger or equal (>=) than the number of "
+                    f"atoms of system ({fragment.numatoms})!"
                 )
             )
         # Get active region coordinates and elements
@@ -840,7 +848,8 @@ class GeometricOptimizer:
         #################
         # CONSTRAINTS
         #################
-        # If constraints not directly provided to run method, then we look at self.constraints and then fragment.constraints
+        # If constraints not directly provided to run method, then we look at self.constraints and then
+        # fragment.constraints
         if constraints is None:
             logger.info("No constraints provided to run method.")
             logger.info("Testing if constraints present in optimizer object")
@@ -926,7 +935,9 @@ class GeometricOptimizer:
         except Exception as e:
             logger.info("")
             raise MissingDependencyError(
-                f"Problem importing geomeTRIC module!\nEither install geomeTRIC using pip:\n conda install geometric\n or \n pip install geometric\n or manually from Github (https://github.com/leeping/geomeTRIC)\nActual error message: {e}"
+                f"Problem importing geomeTRIC module!\nEither install geomeTRIC using pip:\n conda install geometric\n "
+                f"or \n pip install geometric\n or manually from Github (https://github.com/leeping/geomeTRIC)\nActual "
+                f"error message: {e}"
             ) from e
         # bondorders
         # generally unused, except PBC
@@ -936,7 +947,6 @@ class GeometricOptimizer:
         if self.pbc_active is True:
             logger.info("For PBC we activate constraints")
             self.bothre = 0.5
-        #
         mol_geometric_frag = geometric.molecule.Molecule("initialxyzfiletric.xyz")
 
         # Defining GeometricEngine engine object containing geometry and theory. ActiveRegion boolean passed.
@@ -1063,7 +1073,8 @@ class GeometricOptimizer:
         logger.info("")
 
         # Now returning final Results object
-        # Note: could include the geometry in object but can be very large causing printing head-aches on screen, ignoring for now since the geometry is in the Fragment object anyway
+        # Note: could include the geometry in object but can be very large causing printing head-aches on screen,
+        # ignoring for now since the geometry is in the Fragment object anyway
         result = Results(label="Optimizer", energy=finalenergy)
         if self.result_write_to_disk is True:
             result.write_to_disk(filename="results_optimizer.json")
@@ -1254,7 +1265,8 @@ class GeometricEngine:
         logger.info("geometric called clearCalcs option for GeometricEngine.")
         logger.info("This option is currently not supported here. Continuing.")
 
-    # Writing out trajectory file for full system in case of ActiveRegion. Note: Actregion coordinates are done done by GeomeTRIC
+    # Writing out trajectory file for full system in case of ActiveRegion. Note: Actregion coordinates are done done by
+    # GeomeTRIC
     def write_trajectory_full(self):
         logger.info("Writing trajectory for Full system to file: geometric_OPTtraj_Full.xyz")
         with open("geometric_OPTtraj_Full.xyz", "a") as trajfile:
@@ -1284,7 +1296,8 @@ class GeometricEngine:
             if self.iteration_count == 0:
                 trajfile.write("Iteration QM-energy       (Eh) MM-Energy (Eh)  QM/MM-Energy (Eh)\n")
             trajfile.write(
-                f"{self.iteration_count}         {self.theory.QMenergy} {self.theory.MMenergy} {self.theory.QM_MM_energy}\n"
+                f"{self.iteration_count}         {self.theory.QMenergy} {self.theory.MMenergy} "
+                f"{self.theory.QM_MM_energy}\n"
             )
 
     def write_pdbtrajectory(self):

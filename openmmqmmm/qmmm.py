@@ -192,7 +192,8 @@ class QMMMTheory:
             self.pc = True
         else:
             raise InputError(
-                "Unknown embedding. Valid options are: elstat (synonyms: electrostatic, electronic), mech (synonym: mechanical)"
+                "Unknown embedding. Valid options are: elstat (synonyms: electrostatic, electronic), mech (synonym: "
+                "mechanical)"
             )
         logger.info("Embedding: %s", self.embedding)
         # Whether to do dipole correction or not
@@ -236,7 +237,8 @@ class QMMMTheory:
         # self.pointcharges are pointcharges that the QM-code will see (dipole-charges, no zero-valued charges etc)
         # Length of self.charges: system size
         # Length of self.charges_qmregionzeroed: system size
-        # Length of self.pointcharges: unknown. does not contain zero-valued charges (e.g. QM-atoms etc.), contains dipole-charges
+        # Length of self.pointcharges: unknown. does not contain zero-valued charges (e.g. QM-atoms etc.), contains
+        # dipole-charges
 
         # self.charges_qmregionzeroed will have QM-charges zeroed (but not removed)
         self.charges_qmregionzeroed = []
@@ -264,11 +266,13 @@ class QMMMTheory:
             if fragment.numatoms != mm_theory.numatoms:
                 raise InputError(
                     "{}\nThis does not make sense. Check coordinates and forcefield files. Exiting...".format(
-                        f"Number of atoms in fragment ({fragment.numatoms}) and MMtheory object differ ({mm_theory.numatoms})"
+                        f"Number of atoms in fragment ({fragment.numatoms}) and MMtheory object differ "
+                        f"({mm_theory.numatoms})"
                     )
                 )
 
-            # Update: Tolerance modification to make sure we definitely catch connected atoms and get QM-MM boundary right.
+            # Update: Tolerance modification to make sure we definitely catch connected atoms and get QM-MM boundary
+            # right.
             # Scale=1.0 and tol=0.1 fails for S-C bond in rubredoxin from a classical MD run
             # Bumping up a bit here.
             # 21 Sep 2023. bumping from +0.1 to +0.2. C-C bond in lysine failed
@@ -292,7 +296,8 @@ class QMMMTheory:
                 logger.info("Found covalent QM-MM boundary. Linkatoms option set to True")
                 logger.info("Boundaryatoms (QM:MM pairs): %s", self.boundaryatoms)
                 logger.info(
-                    f"Note: used connectivity settings, scale={conn_scale} and tol={conn_tolerance} to determine boundary."
+                    f"Note: used connectivity settings, scale={conn_scale} and tol={conn_tolerance} to determine "
+                    f"boundary."
                 )
                 self.linkatoms = True
                 logger.info("Linkatom_forceprojection_method: %s", self.linkatom_forceproj_method)
@@ -308,14 +313,16 @@ class QMMMTheory:
                 # Will only apply when running OpenMM_Opt or OpenMM_MD
                 self.mm_theory.remove_constraints_for_atoms(self.qmatoms)
 
-                # Remove bonded interactions in MM part. Only in OpenMM. Assuming they were never defined in NonbondedTheory
+                # Remove bonded interactions in MM part. Only in OpenMM. Assuming they were never defined in
+                # NonbondedTheory
                 # Applies to both elstat and mech embedding.
                 logger.info("Removing bonded terms for QM-region in MMtheory")
                 self.mm_theory.modify_bonded_forces(self.qmatoms)
 
                 # Adding exceptions for nonbonded QM atoms. Will ignore QM-QM Coulomb and QM-QM LJ interactions.
                 # Applies to both elstat and mech embedding.
-                # NOTE: For QM-MM elstat interactions Coulomb charges are zeroed below (update_charges and delete_exceptions)
+                # NOTE: For QM-MM elstat interactions Coulomb charges are zeroed below (update_charges and
+                # delete_exceptions)
                 logger.info("Removing nonbonded terms for QM-region in MMtheory (QM-QM interactions)")
                 self.mm_theory.addexceptions(self.qmatoms)
 
@@ -334,7 +341,9 @@ class QMMMTheory:
                 self.mm_theory.update_charges(self.qmatoms, [0.0 for i in self.qmatoms])
             elif self.embedding.lower() == "polembed_drude":
                 raise InputError(
-                    "Polembed Drude embedding enabled.\nThis means that QM-atoms will be zeroed for QM-MM interactions calculated by QM program\nBut MM program will have charged defined for QM-region\nNot implemented yet. Exiting"
+                    "Polembed Drude embedding enabled.\nThis means that QM-atoms will be zeroed for QM-MM interactions "
+                    "calculated by QM program\nBut MM program will have charged defined for QM-region\nNot implemented "
+                    "yet. Exiting"
                 )
                 self.zero_qm_charges()  # Modifies self.charges_qmregionzeroed
                 # Also removing QM-MM Coulomb interaction exceptions in OpenMM
@@ -410,7 +419,8 @@ class QMMMTheory:
         log_time_since(timeA, "get_MMboundary")
 
     # Set QMcharges to Zero and shift charges at boundary
-    # TODO: Add both L2 scheme (delete whole charge-group of M1) and charge-shifting scheme (shift charges to Mx atoms and add dipoles for each Mx atom)
+    # TODO: Add both L2 scheme (delete whole charge-group of M1) and charge-shifting scheme (shift charges to Mx atoms
+    # and add dipoles for each Mx atom)
 
     def zero_qm_charges(self):
         """Set the MM charges of the QM-region atoms to zero for electrostatic embedding."""
@@ -649,7 +659,8 @@ class QMMMTheory:
         else:
             self.truncated_pc_recalc_flag = False
             logger.info(
-                f"This is QM/MM run no. {self.truncated_pc_calls}. Using approximate truncated PC field: {len(self.truncated_PC_region_indices)} charges"
+                f"This is QM/MM run no. {self.truncated_pc_calls}. Using approximate truncated PC field: "
+                f"{len(self.truncated_PC_region_indices)} charges"
             )
             # NOTE: Here taking 1st-iter full PCs (values have not changed during opt/md)
             self.pointcharges = [self.pointcharges_full[i] for i in self.truncated_PC_region_indices]
@@ -800,7 +811,8 @@ class QMMMTheory:
             exit_after_customexternalforce_update = self.exit_after_customexternalforce_update
 
         # OPTION: QM-region charge/mult from QMMMTheory definition
-        # If qm_charge/qm_mult defined then we use. Otherwise charge/mult may have been defined by jobtype-function and passed on via run
+        # If qm_charge/qm_mult defined then we use. Otherwise charge/mult may have been defined by jobtype-function and
+        # passed on via run
         if self.qm_charge is not None:
             logger.info("Charge provided from QMMMTheory object:  %s", self.qm_charge)
             charge = self.qm_charge
@@ -915,7 +927,8 @@ class QMMMTheory:
         _used_mmcoords, used_qmcoords = current_coords[~self.xatom_mask], current_coords[self.xatom_mask]
 
         if self.linkatoms is True:
-            # Update linkatom coordinates. Sets: self.linkatoms_dict, self.linkatom_indices, self.num_linkatoms, self.linkatoms_coords
+            # Update linkatom coordinates. Sets: self.linkatoms_dict, self.linkatom_indices, self.num_linkatoms,
+            # self.linkatoms_coords
             linkatoms_coords = self.create_linkatoms(current_coords)
             # Add linkatom coordinates to QM-coordinates
             used_qmcoords = np.append(used_qmcoords, np.array(linkatoms_coords), axis=0)
@@ -1235,7 +1248,8 @@ class QMMMTheory:
             if self.embedding.lower() == "elstat" or self.embedding.lower() == "polembed_drude":
                 self.pointcharges = [self.charges_qmregionzeroed[i] for i in self.mmatoms]
 
-        # NOTE: Now we have updated MM-coordinates (if doing linkatoms, with dipolecharges etc) and updated mm-charges (more, due to dipolecharges if linkatoms)
+        # NOTE: Now we have updated MM-coordinates (if doing linkatoms, with dipolecharges etc) and updated mm-charges
+        # (more, due to dipolecharges if linkatoms)
         # We also have MMcharges that have been set to zero due to QM/MM
         # We do not delete charges but set to zero
         # If no qmatoms then do MM-only
@@ -1306,7 +1320,8 @@ class QMMMTheory:
         used_mmcoords, used_qmcoords = current_coords[~self.xatom_mask], current_coords[self.xatom_mask]
 
         if self.linkatoms is True:
-            # Update linkatom coordinates. Sets: self.linkatoms_dict, self.linkatom_indices, self.num_linkatoms, self.linkatoms_coords
+            # Update linkatom coordinates. Sets: self.linkatoms_dict, self.linkatom_indices, self.num_linkatoms,
+            # self.linkatoms_coords
             linkatoms_coords = self.create_linkatoms(current_coords)
             # Add linkatom coordinates to QM-coordinates
             used_qmcoords = np.append(used_qmcoords, np.array(linkatoms_coords), axis=0)
@@ -1321,7 +1336,8 @@ class QMMMTheory:
         else:
             self.pointchargecoords = used_mmcoords
 
-        # TRUNCATED PC Option: Speeding up QM/MM jobs of large systems by passing only a truncated PC field to the QM-code most of the time
+        # TRUNCATED PC Option: Speeding up QM/MM jobs of large systems by passing only a truncated PC field to the
+        # QM-code most of the time
         # Speeds up QM-pointcharge gradient that otherwise dominates
         # TODO: TruncatedPC is inactive
         if self.truncated_pc is True:
@@ -1562,7 +1578,8 @@ class QMMMTheory:
         logger.info("")
         if self.embedding.lower() == "elstat":
             logger.info(
-                "Note: You are using electrostatic embedding. This means that the QM-energy is actually the polarized QM-energy"
+                "Note: You are using electrostatic embedding. This means that the QM-energy is actually the polarized "
+                "QM-energy"
             )
             logger.info("Note: MM energy also contains the QM-MM Lennard-Jones interaction\n")
         energywarning = ""
@@ -1744,8 +1761,9 @@ def read_charges_from_psf(file) -> list[float]:
 def define_active_region(
     pdbfile=None, mmtheory=None, psffile=None, fragment=None, radius=None, originatom=None
 ) -> list[int]:
-    """Define an active region as all whole residues within a distance of a central atom,
-    writing the indices to active_atoms and a highlighted PDB file for inspection.
+    """Define an active region as all whole residues within a distance of a central atom.
+
+    Writes the indices to active_atoms and a highlighted PDB file for inspection.
     """
     logger.info(main_header("ActregionDefine"))
 
@@ -1809,7 +1827,8 @@ def define_active_region(
     logger.info("Active region size: %s", len(act_indices))
     logger.info("Active-region indices written to file: active_atoms")
     logger.info(
-        'The active_atoms list  can be read-into Python script like this:	 actatoms = read_intlist_from_file("active_atoms")'
+        "The active_atoms list  can be read-into Python script like this:	 actatoms = "
+        'read_intlist_from_file("active_atoms")'
     )
     # Print XYZ file with active region shown
     openmmqmmm.coords.write_xyz_for_atoms(fragment.coords, fragment.elems, act_indices, "ActiveRegion")

@@ -159,7 +159,6 @@ def openmm_metadynamics(
         barostat_frequency=barostat_frequency,
     )
 
-    #
     if user_cvforce1 is not None:
         logger.info("User CV-force 1 was given: %s", user_cvforce1)
         md.user_cvforce1 = user_cvforce1
@@ -241,7 +240,9 @@ def openmm_metadynamics(
     if funnel_restraint is not None:
         if funnel_parameters is None:
             raise InputError(
-                "Error: funnel_restraint requires passing a dictionary with funnel definition parameters.\nExample: funnel_parameters = {'ligand_indices':[0,1,2], 'k_xyz':10.0, 'z_cc':11.0, 'alpha':35.0, 'R_cylinder':1.0, 'force_group':10}"
+                "Error: funnel_restraint requires passing a dictionary with funnel definition parameters.\nExample: "
+                "funnel_parameters = {'ligand_indices':[0,1,2], 'k_xyz':10.0, 'z_cc':11.0, 'alpha':35.0, "
+                "'R_cylinder':1.0, 'force_group':10}"
             )
 
         # Getting atom indices for host and guess
@@ -358,7 +359,8 @@ def openmm_md_plumed(
         import openmmplumed
     except ModuleNotFoundError:
         raise MissingDependencyError(
-            "openmmplumed module plugin not found. See https://github.com/openmm/openmm-plumed \nYou can install via conda: \nconda install -c conda-forge openmm-plumed"
+            "openmmplumed module plugin not found. See https://github.com/openmm/openmm-plumed \nYou can install via "
+            "conda: \nconda install -c conda-forge openmm-plumed"
         ) from None
 
     # Creating MDclass
@@ -407,7 +409,8 @@ def openmm_md_plumed(
     # OPTION to provide the full Plumed input as string instead
     if plumed_input_string is not None:
         logger.info(
-            "plumed_input_string provided. Will read all options from this string (make sure to provide atom indices in 1-based indexing)"
+            "plumed_input_string provided. Will read all options from this string (make sure to provide atom indices "
+            "in 1-based indexing)"
         )
         writestringtofile(plumed_input_string, "plumedinput.in")
         plumedinput = plumed_input_string
@@ -426,7 +429,8 @@ def openmm_md_plumed(
 
     os.path.dirname(os.path.dirname(os.path.dirname(openmmplumed.mm.pluginLoadedLibNames[0])))
     logger.info(
-        "You can now analyze/plot the metadynamics data with plumed's own tools (requires presence of HILLS and COLVAR files in directory)"
+        "You can now analyze/plot the metadynamics data with plumed's own tools (requires presence of HILLS and COLVAR "
+        "files in directory)"
     )
     logger.info("\n")
 
@@ -541,7 +545,7 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat="png", plot_xlim=N
         # Plot
         logger.info("Now plotting:")
         try:
-            import matplotlib.pyplot
+            import matplotlib.pyplot as plt
         except ImportError:
             logger.info("Problem importing matplotlib")
             return
@@ -552,11 +556,11 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat="png", plot_xlim=N
         # See https://matplotlib.org/3.1.0/tutorials/colors/colormaps.html
         colormap_option3 = "RdYlBu_r"
         X2, Y2 = np.meshgrid(xvalues, yvalues)
-        option3fig, option3ax = matplotlib.pyplot.subplots()
-        cm = matplotlib.pyplot.cm.get_cmap(colormap_option3)
+        option3fig, option3ax = plt.subplots()
+        cm = plt.cm.get_cmap(colormap_option3)
         colorscatter = option3ax.scatter(X2, Y2, c=rel_free_energy, marker="o", linestyle="-", linewidth=1, cmap=cm)
         # Colorbar
-        cbar = matplotlib.pyplot.colorbar(colorscatter)
+        cbar = plt.colorbar(colorscatter)
         cbar.set_label("ΔG (kcal/mol)", fontweight="bold", fontsize="xx-small")
         # Limits
         if plot_xlim is not None:
