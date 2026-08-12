@@ -15,6 +15,10 @@ import numpy as np
 
 import openmmqmmm.constants
 import openmmqmmm.elements
+
+# Re-exported: the tables live in elements.py, one row per element, but they have been
+# importable from coords since before that module existed and callers still use them here.
+from openmmqmmm.elements import atommasses, eldict_covrad, elematomnumbers
 from openmmqmmm.exceptions import (
     FileFormatError,
     InputError,
@@ -254,8 +258,7 @@ class Fragment:
                 # TODO: remove diatomic_bondlength and use bondlength only
                 if diatomic_bondlength is None:
                     raise InputError("diatomic option requires bondlength to be set. Exiting!")
-                else:
-                    bondlength = diatomic_bondlength
+                bondlength = diatomic_bondlength
             self.elems = molformulatolist(diatomic)
             if len(self.elems) != 2:
                 raise InputError(f"Problem with molecular formula diatomic={diatomic} string!")
@@ -584,12 +587,13 @@ class Fragment:
         self.elems = []
         logger.info("%s", pdb.topology)
         for atom in pdb.topology.atoms():
-            try:
-                self.elems.append(atom.element.symbol)
-            except AttributeError:
+            if atom.element is None:
+                # Virtual sites (the TIP4P M-site, for one) carry no element
                 logger.warning("Could not fully parse element information from PDB-topology for atom: %s", atom)
                 logger.info("This may be a virtual site. Adding 'M' as dummy element for this atom.")
                 self.elems.append("M")
+            else:
+                self.elems.append(atom.element.symbol)
 
         # Topology
         self.pdb_topology = pdb.topology
@@ -1061,345 +1065,24 @@ class Fragment:
 
 
 def reformat_list_to_array(data):
+    """Return coordinates as an (N, 3) array, accepting an array or a list of lists.
+
+    Anything else is rejected rather than returned as None: this feeds Fragment.coords,
+    and a None there surfaces much later as an unrelated error.
+    """
     # If np array already
     if isinstance(data, np.ndarray):
         return data
     # Reformat to np array
-    elif isinstance(data, list):
+    if isinstance(data, list):
         # Checking if input is a list of lists or not
         if any(isinstance(el, list) for el in data) is False:
             raise InputError("Error (reformat_list_to_array): input should be a list of lists, not just a list")
         return np.array(data)
-
-
-# TODO: Reorganize and move to dictionaries_lists ?
-# Elements and atom numbers
-# Added M-site dummy atom
-elematomnumbers = {
-    "m": 0,
-    "h": 1,
-    "he": 2,
-    "li": 3,
-    "be": 4,
-    "b": 5,
-    "c": 6,
-    "n": 7,
-    "o": 8,
-    "f": 9,
-    "ne": 10,
-    "na": 11,
-    "mg": 12,
-    "al": 13,
-    "si": 14,
-    "p": 15,
-    "s": 16,
-    "cl": 17,
-    "ar": 18,
-    "k": 19,
-    "ca": 20,
-    "sc": 21,
-    "ti": 22,
-    "v": 23,
-    "cr": 24,
-    "mn": 25,
-    "fe": 26,
-    "co": 27,
-    "ni": 28,
-    "cu": 29,
-    "zn": 30,
-    "ga": 31,
-    "ge": 32,
-    "as": 33,
-    "se": 34,
-    "br": 35,
-    "kr": 36,
-    "rb": 37,
-    "sr": 38,
-    "y": 39,
-    "zr": 40,
-    "nb": 41,
-    "mo": 42,
-    "tc": 43,
-    "ru": 44,
-    "rh": 45,
-    "pd": 46,
-    "ag": 47,
-    "cd": 48,
-    "in": 49,
-    "sn": 50,
-    "sb": 51,
-    "te": 52,
-    "i": 53,
-    "xe": 54,
-    "cs": 55,
-    "ba": 56,
-    "la": 57,
-    "ce": 58,
-    "pr": 59,
-    "nd": 60,
-    "pm": 61,
-    "sm": 62,
-    "eu": 63,
-    "gd": 64,
-    "tb": 65,
-    "dy": 66,
-    "ho": 67,
-    "er": 68,
-    "tm": 69,
-    "yb": 70,
-    "lu": 71,
-    "hf": 72,
-    "ta": 73,
-    "w": 74,
-    "re": 75,
-    "os": 76,
-    "ir": 77,
-    "pt": 78,
-    "au": 79,
-    "hg": 80,
-    "tl": 81,
-    "pb": 82,
-    "bi": 83,
-    "po": 84,
-    "at": 85,
-    "rn": 86,
-    "fr": 87,
-    "ra": 88,
-    "ac": 89,
-    "th": 90,
-    "pa": 91,
-    "u": 92,
-    "np": 93,
-    "pu": 94,
-    "am": 95,
-    "cm": 96,
-    "bk": 97,
-    "cf": 98,
-    "es": 99,
-    "fm": 100,
-    "md": 101,
-    "no": 102,
-    "lr": 103,
-    "rf": 104,
-    "db": 105,
-    "sg": 106,
-    "bh": 107,
-    "hs": 108,
-    "mt": 109,
-    "ds": 110,
-    "rg": 111,
-    "cn": 112,
-    "nh": 113,
-    "fl": 114,
-    "mc": 115,
-    "lv": 116,
-    "ts": 117,
-    "og": 118,
-}
-
-# Atom masses
-atommasses = [
-    1.00794,
-    4.002602,
-    6.94,
-    9.0121831,
-    10.81,
-    12.01070,
-    14.00670,
-    15.99940,
-    18.99840316,
-    20.1797,
-    22.98976928,
-    24.305,
-    26.9815385,
-    28.085,
-    30.973762,
-    32.065,
-    35.45,
-    39.948,
-    39.0983,
-    40.078,
-    44.955908,
-    47.867,
-    50.9415,
-    51.9961,
-    54.938044,
-    55.845,
-    58.933194,
-    58.6934,
-    63.546,
-    65.38,
-    69.723,
-    72.63,
-    74.921595,
-    78.971,
-    79.904,
-    83.798,
-    85.4678,
-    87.62,
-    88.90584,
-    91.224,
-    92.90637,
-    95.96,
-    97,
-    101.07,
-    102.9055,
-    106.42,
-    107.8682,
-    112.414,
-    114.818,
-    118.71,
-    121.76,
-    127.6,
-    126.90447,
-    131.293,
-    132.905452,
-    137.327,
-    138.90547,
-    140.116,
-    140.90766,
-    144.242,
-    145,
-    150.36,
-    151.964,
-    157.25,
-    158.92535,
-    162.5,
-    164.93033,
-    167.259,
-    168.93422,
-    173.054,
-    174.9668,
-    178.49,
-    180.94788,
-    183.84,
-    186.207,
-    190.23,
-    192.217,
-    195.084,
-    196.966569,
-    200.592,
-    204.38,
-    207.2,
-    208.9804,
-    209,
-    210,
-    222,
-    223,
-    226,
-    227,
-    232.0377,
-    231.03588,
-    238.02891,
-    237,
-    244,
-    243,
-    247,
-    247,
-    251,
-    252,
-    257,
-    258,
-    259,
-    262,
-]
-# Covalent radii for elements (Alvarez) in Angstrom.
-# Used for connectivity
-# Added dummy atom, M
-eldict_covrad = {
-    "H": 0.31,
-    "He": 0.28,
-    "Li": 1.28,
-    "Be": 0.96,
-    "B": 0.84,
-    "C": 0.76,
-    "N": 0.71,
-    "O": 0.66,
-    "F": 0.57,
-    "Ne": 0.58,
-    "Na": 1.66,
-    "Mg": 1.41,
-    "Al": 1.21,
-    "Si": 1.11,
-    "P": 1.07,
-    "S": 1.05,
-    "Cl": 1.02,
-    "Ar": 1.06,
-    "K": 2.03,
-    "Ca": 1.76,
-    "Sc": 1.70,
-    "Ti": 1.6,
-    "V": 1.53,
-    "Cr": 1.39,
-    "Mn": 1.61,
-    "Fe": 1.52,
-    "Co": 1.50,
-    "Ni": 1.24,
-    "Cu": 1.32,
-    "Zn": 1.22,
-    "Ga": 1.22,
-    "Ge": 1.20,
-    "As": 1.19,
-    "Se": 1.20,
-    "Br": 1.20,
-    "Kr": 1.16,
-    "Rb": 2.2,
-    "Sr": 1.95,
-    "Y": 1.9,
-    "Zr": 1.75,
-    "Nb": 1.64,
-    "Mo": 1.54,
-    "Tc": 1.47,
-    "Ru": 1.46,
-    "Rh": 1.42,
-    "Pd": 1.39,
-    "Ag": 1.45,
-    "Cd": 1.44,
-    "In": 1.42,
-    "Sn": 1.39,
-    "Sb": 1.39,
-    "Te": 1.38,
-    "I": 1.39,
-    "Xe": 1.40,
-    "Cs": 2.44,
-    "Ba": 2.15,
-    "La": 2.07,
-    "Ce": 2.04,
-    "Pr": 2.03,
-    "Nd": 2.01,
-    "Pm": 1.99,
-    "Sm": 1.98,
-    "Eu": 1.98,
-    "Gd": 1.96,
-    "Tb": 1.94,
-    "Dy": 1.92,
-    "Ho": 1.92,
-    "Er": 1.89,
-    "Tm": 1.90,
-    "Yb": 1.87,
-    "Lu": 1.87,
-    "Hf": 1.75,
-    "Ta": 1.70,
-    "W": 1.62,
-    "Re": 1.51,
-    "Os": 1.44,
-    "Ir": 1.41,
-    "Pt": 1.36,
-    "Au": 1.36,
-    "Hg": 1.32,
-    "Tl": 1.45,
-    "Pb": 1.46,
-    "Bi": 1.48,
-    "Po": 1.40,
-    "At": 1.50,
-    "Rn": 1.50,
-    "U": 1.96,
-}
-# Modified radii for certain elements like Na, K
-eldict_covrad["Na"] = 0.0001
-eldict_covrad["K"] = 0.0001
-# Dummy atom M. For example the M-site on TIP4P model
-eldict_covrad["M"] = 0.0
+    raise InputError(
+        "Error (reformat_list_to_array): coordinates must be a list of lists or a numpy array, "
+        f"got {type(data).__name__}"
+    )
 
 
 # Function to reformat element string to be correct('cu' or 'CU' become 'Cu')
@@ -1422,83 +1105,7 @@ def reformat_element(elem, isatomnum=False):
     return el_correct
 
 
-# Covalent radii (Angstrom) used for simple connectivity detection.
-# Subset covering most common elements; extend as needed.
-_COVALENT_RADII = {
-    "H": 0.31,
-    "He": 0.28,
-    "Li": 1.28,
-    "Be": 0.96,
-    "B": 0.84,
-    "C": 0.76,
-    "N": 0.71,
-    "O": 0.66,
-    "F": 0.57,
-    "Ne": 0.58,
-    "Na": 1.66,
-    "Mg": 1.41,
-    "Al": 1.21,
-    "Si": 1.11,
-    "P": 1.07,
-    "S": 1.05,
-    "Cl": 1.02,
-    "Ar": 1.06,
-    "K": 2.03,
-    "Ca": 1.76,
-    "Sc": 1.70,
-    "Ti": 1.60,
-    "V": 1.53,
-    "Cr": 1.39,
-    "Mn": 1.61,
-    "Fe": 1.52,
-    "Co": 1.50,
-    "Ni": 1.24,
-    "Cu": 1.32,
-    "Zn": 1.22,
-    "Ga": 1.22,
-    "Ge": 1.20,
-    "As": 1.19,
-    "Se": 1.20,
-    "Br": 1.20,
-    "Kr": 1.16,
-    "Rb": 2.20,
-    "Sr": 1.95,
-    "Y": 1.90,
-    "Zr": 1.75,
-    "Nb": 1.64,
-    "Mo": 1.54,
-    "Tc": 1.47,
-    "Ru": 1.46,
-    "Rh": 1.42,
-    "Pd": 1.39,
-    "Ag": 1.45,
-    "Cd": 1.44,
-    "In": 1.42,
-    "Sn": 1.39,
-    "Sb": 1.39,
-    "Te": 1.38,
-    "I": 1.39,
-    "Xe": 1.40,
-    "Cs": 2.44,
-    "Ba": 2.15,
-    "La": 2.07,
-    "Ce": 2.04,
-    "Pr": 2.03,
-    "Nd": 2.01,
-    "Hf": 1.75,
-    "Ta": 1.70,
-    "W": 1.62,
-    "Re": 1.51,
-    "Os": 1.44,
-    "Ir": 1.41,
-    "Pt": 1.36,
-    "Au": 1.36,
-    "Hg": 1.32,
-    "Tl": 1.45,
-    "Pb": 1.46,
-    "Bi": 1.48,
-}
-_DEFAULT_RADIUS = 1.50  # fallback for unknown elements
+_DEFAULT_RADIUS = 1.50  # fallback for elements missing from eldict_covrad
 _CONNECTIVITY_TOLERANCE = 0.40  # Angstrom added to sum of covalent radii
 
 
@@ -1506,7 +1113,11 @@ def _build_connectivity(coords, elems, atom_indices=None):
     coords = np.asarray(coords)
     n = len(elems)
 
-    radii = np.array([_COVALENT_RADII.get(e.capitalize(), _DEFAULT_RADIUS) for e in elems])
+    # Same radii as the other connectivity paths (threshold_conn, get_connected_atoms_np):
+    # eldict_covrad carries the Na/K and M-site overrides that keep ions and TIP4P dummy
+    # sites from bonding to their neighbours. This used to be a second, unmodified copy of
+    # the Alvarez table, so the two paths disagreed about exactly those atoms.
+    radii = np.array([eldict_covrad.get(e.capitalize(), _DEFAULT_RADIUS) for e in elems])
 
     # Keep full-length connectivity list so downstream code
     # can continue using global atom indices
@@ -1733,38 +1344,34 @@ def print_coords_all(coords, elems, indices=None, labels=None, labels2=None):
         if labels is None:
             for i in range(len(elems)):
                 logger.info(f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}")
-        else:
-            if labels2 is None:
-                for i in range(len(elems)):
-                    logger.info(
-                        f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} "
-                        f"{labels[i]:>6}"
-                    )
-            else:
-                for i in range(len(elems)):
-                    logger.info(
-                        f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} "
-                        f"{labels[i]:>6} {labels2[i]:>6}"
-                    )
-    else:
-        if labels is None:
+        elif labels2 is None:
             for i in range(len(elems)):
                 logger.info(
-                    f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}"
+                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}"
                 )
         else:
-            if labels2 is None:
-                for i in range(len(elems)):
-                    logger.info(
-                        f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-                        f"{coords[i][2]:>12.8f} {labels[i]:>6}"
-                    )
-            else:
-                for i in range(len(elems)):
-                    logger.info(
-                        f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-                        f"{coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}"
-                    )
+            for i in range(len(elems)):
+                logger.info(
+                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} "
+                    f"{labels[i]:>6} {labels2[i]:>6}"
+                )
+    elif labels is None:
+        for i in range(len(elems)):
+            logger.info(
+                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}"
+            )
+    elif labels2 is None:
+        for i in range(len(elems)):
+            logger.info(
+                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
+                f"{coords[i][2]:>12.8f} {labels[i]:>6}"
+            )
+    else:
+        for i in range(len(elems)):
+            logger.info(
+                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
+                f"{coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}"
+            )
 
 
 # From lists of coords,elems and atom indices, print coords with elems
@@ -1785,38 +1392,34 @@ def _write_coords_lines(f, coords, elems, indices, labels, labels2, description)
                 for i in range(len(elems))
             )
 
-        else:
-            if labels2 is None:
-                f.writelines(
-                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} "
-                    f"{labels[i]:>6}\n"
-                    for i in range(len(elems))
-                )
-            else:
-                f.writelines(
-                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6} "
-                    f"{labels2[i]:>6}\n"
-                    for i in range(len(elems))
-                )
-    else:
-        if labels is None:
+        elif labels2 is None:
             f.writelines(
-                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
+                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}\n"
                 for i in range(len(elems))
             )
         else:
-            if labels2 is None:
-                f.writelines(
-                    f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-                    f"{coords[i][2]:>12.8f} {labels[i]:>6}\n"
-                    for i in range(len(elems))
-                )
-            else:
-                f.writelines(
-                    f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-                    f"{coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}\n"
-                    for i in range(len(elems))
-                )
+            f.writelines(
+                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6} "
+                f"{labels2[i]:>6}\n"
+                for i in range(len(elems))
+            )
+    elif labels is None:
+        f.writelines(
+            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
+            for i in range(len(elems))
+        )
+    elif labels2 is None:
+        f.writelines(
+            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
+            f"{coords[i][2]:>12.8f} {labels[i]:>6}\n"
+            for i in range(len(elems))
+        )
+    else:
+        f.writelines(
+            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
+            f"{coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}\n"
+            for i in range(len(elems))
+        )
 
 
 ##############################################################
@@ -1838,8 +1441,7 @@ def angle(A, B, C):
     # Calculate the angle in radians
     angle_rad = np.arccos(dot_product / (magnitude1 * magnitude2))
     # Convert angle to degrees
-    angle_deg = np.degrees(angle_rad)
-    return angle_deg
+    return np.degrees(angle_rad)
 
 
 def dihedral(A, B, C, D):
@@ -1861,8 +1463,7 @@ def dihedral(A, B, C, D):
         dihedral_angle = np.arccos(dot / (np.linalg.norm(n1) * np.linalg.norm(n2)))
 
     # Convert from radians to degrees
-    dihedral_angle = dihedral_angle * 180 / np.pi
-    return dihedral_angle
+    return dihedral_angle * 180 / np.pi
 
 
 # User-functions
@@ -1877,8 +1478,7 @@ def distance_between_atoms(fragment=None, atoms=None) -> float:
     Returns:
         Distance in Angstrom.
     """
-    dist = distance(fragment.coords[atoms[0]], fragment.coords[atoms[1]])
-    return dist
+    return distance(fragment.coords[atoms[0]], fragment.coords[atoms[1]])
 
 
 def angle_between_atoms(fragment=None, atoms=None) -> float:
@@ -1891,8 +1491,7 @@ def angle_between_atoms(fragment=None, atoms=None) -> float:
     Returns:
         Angle in degrees.
     """
-    angle_deg = angle(fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]])
-    return angle_deg
+    return angle(fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]])
 
 
 def dihedral_between_atoms(fragment=None, atoms=None) -> float:
@@ -1905,10 +1504,9 @@ def dihedral_between_atoms(fragment=None, atoms=None) -> float:
     Returns:
         Signed dihedral angle in degrees.
     """
-    dihed_deg = dihedral(
+    return dihedral(
         fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]], fragment.coords[atoms[3]]
     )
-    return dihed_deg
 
 
 # TODO: clean up
@@ -1986,7 +1584,6 @@ def einsum_mat(mat_v, mat_u):
 # np version for calculating the euclidean distance
 # https://semantive.com/pl/blog/high-performance-computation-in-python-numpy/
 def get_connected_atoms_np(coords, elems, scale, tol, atomindex):
-    connatoms = []
     # Creating np array of the coords to compare
     compcoords = np.tile(coords[atomindex], (len(coords), 1))
     # All distances in one go
@@ -2006,8 +1603,7 @@ def get_connected_atoms_np(coords, elems, scale, tol, atomindex):
     # Getting difference of distances and thresholds
     diff = distances - thresholds
     # Getting connatoms by finding indices of diff with negative values (i.e. where distance is smaller than threshold)
-    connatoms = np.where(diff < 0)[0].tolist()
-    return connatoms
+    return np.where(diff < 0)[0].tolist()
 
 
 # Get a dictionary of atoms (values) connected to each atom (key)
@@ -2028,7 +1624,6 @@ def get_molecule_members_loop_np2(coords, elems, loopnumber, scale, tol, atomind
     if membs is None:
         membs = []
         membs.append(atomindex)
-        time.time()
         membs = get_connected_atoms_np(coords, elems, scale, tol, atomindex)
 
     # If membs is just an integer turn into list
@@ -2106,10 +1701,7 @@ def molformulatolist(formulastring):
         else:
             number = 1
             numels.append(int(number))
-    atoms = []
-    for i, j in zip(els, numels, strict=False):
-        for _k in range(j):
-            atoms.append(i)
+    atoms = [element for element, count in zip(els, numels, strict=False) for _ in range(count)]
     # Final reverse
     els.reverse()
     numels.reverse()
@@ -2285,8 +1877,7 @@ def split_multimolxyzfile(file, writexyz=False, skipindex=1, return_fragments=Fa
 
     if return_fragments is True:
         return fragments
-    else:
-        return all_elems, all_coords, all_titles
+    return all_elems, all_coords, all_titles
 
 
 # Read Tcl-Chemshell fragment file and grab elems and coords. Coordinates converted from Bohr to Angstrom
@@ -2324,13 +1915,11 @@ def conv_atomtypes_elems(atomtype):
         Element symbol, e.g. "H" or "Fe".
     """
     try:
-        element = openmmqmmm.elements.atomtypes_dict[atomtype]
-        return element
+        return openmmqmmm.elements.atomtypes_dict[atomtype]
     except KeyError:
         # Assume correct element but could be wrongly formatted (e.g. FE instead of Fe) so reformatting
         try:
-            element = reformat_element(atomtype)
-            return element
+            return reformat_element(atomtype)
         except InputError:
             raise InputError(
                 (
@@ -2366,20 +1955,19 @@ def read_pdbfile(filename, use_atomnames_as_elements=False):
                     if use_atomnames_as_elements is True:
                         elem_name = openmmqmmm.elements.atomtypes_dict[atom_name]
                         elemcol.append(elem_name)
-                    else:
-                        if len(elem) != 0:
-                            if len(elem) == 2:
-                                # Making sure second elem letter is lowercase
-                                elemcol.append(reformat_element(elem))
-                            else:
-                                elemcol.append(reformat_element(elem))
+                    elif len(elem) != 0:
+                        if len(elem) == 2:
+                            # Making sure second elem letter is lowercase
+                            elemcol.append(reformat_element(elem))
                         else:
-                            logger.info("While reading line:")
-                            raise FileFormatError(
-                                f"{line}\nNo element found in element-column of PDB-file\nEither fix element-column "
-                                f"(columns 77-78) or try to use to read element-information from atomname-column:\n "
-                                f"Fragment(pdbfile='X', use_atomnames_as_elements=True)"
-                            )
+                            elemcol.append(reformat_element(elem))
+                    else:
+                        logger.info("While reading line:")
+                        raise FileFormatError(
+                            f"{line}\nNo element found in element-column of PDB-file\nEither fix element-column "
+                            f"(columns 77-78) or try to use to read element-information from atomname-column:\n "
+                            f"Fragment(pdbfile='X', use_atomnames_as_elements=True)"
+                        )
                 # if 'HETATM' in line:
     except FileNotFoundError:
         raise FileFormatError(f"File '{filename}' does not exist!") from None
@@ -2391,8 +1979,7 @@ def read_pdbfile(filename, use_atomnames_as_elements=False):
             f"len coords {len(coords)}\nlen elemcol {len(elemcol)}\ndid not find same number of elements as "
             f"coordinates\nNeed to define elements in some other way"
         )
-    else:
-        elems = elemcol
+    elems = elemcol
     return elems, coords_np
 
 
@@ -2754,27 +2341,7 @@ def elemstonuccharges(ellist):
 
 # Calculate molecular mass from list of atoms
 def totmasslist(ellist):
-    totmass = 0
-    warning_issued = False
-    for e in ellist:
-        try:
-            atcharge = int(elematomnumbers[e.lower()])
-            if atcharge == 0:
-                logger.warning(
-                    f"Warning: element '{e}' has atomic number 0. This is likely a dummy atom. Using mass of 0.0"
-                )
-                atmass = 0.0
-            else:
-                atmass = atommasses[atcharge - 1]
-        except KeyError:
-            atmass = 0.0
-            if warning_issued is False:
-                logger.warning(f"Unknown element: '{e}' found in element-list")
-                logger.info("Could be dummy atom. Using mass of 0.0")
-                warning_issued = True
-
-        totmass += atmass
-    return totmass
+    return sum(list_of_masses(ellist))
 
 
 # Calculate list of masses from list of elements
@@ -2789,6 +2356,13 @@ def list_of_masses(ellist):
                     f"Warning: element '{e}' has atomic number 0. This is likely a dummy atom. Using mass of 0.0"
                 )
                 atmass = 0.0
+            elif atcharge > len(atommasses):
+                # atommasses stops at Lr (Z=103); indexing past it would wrap round to a
+                # random lighter element instead of failing.
+                raise InputError(
+                    f"No atomic mass available for element '{e}' (Z={atcharge}). "
+                    f"The mass table covers Z=1-{len(atommasses)}."
+                )
             else:
                 atmass = atommasses[atcharge - 1]
         except KeyError:
@@ -3099,8 +2673,7 @@ def centroid(X):
     Returns:
         The centroid, as a (D,) array.
     """
-    C = X.mean(axis=0)
-    return C
+    return X.mean(axis=0)
 
 
 def rmsd(V, W):
@@ -3138,8 +2711,7 @@ def reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
     q_atoms = np.array([elematomnumbers[el.lower()] for el in q_atoms])
 
     q_review = reorder_method(p_atoms, q_atoms, p_coord, q_coord)
-    reorderlist = [q_review.tolist()][0]
-    return reorderlist
+    return [q_review.tolist()][0]
 
 
 # QM-region expand function. Finds whole fragments.
@@ -3150,16 +2722,13 @@ def expand_qm_region(fragment=None, initial_atoms=None, radius=None) -> list[int
     tol = CONNECTIVITY_TOL
     if fragment is None or initial_atoms is None or radius is None:
         raise InputError("Provide fragment, initial_atoms and radius keyword arguments to QMregionfragexpand!")
-    subsetelems = [fragment.elems[i] for i in initial_atoms]
     subsetcoords = np.take(fragment.coords, initial_atoms, axis=0)
     if len(fragment.connectivity) == 0:
         logger.info("No connectivity found. Using slow way of finding nearby fragments...")
     atomlist = []
 
-    for i, c in enumerate(subsetcoords):
-        subsetelems[i]
+    for c in subsetcoords:
         for index, allc in enumerate(fragment.coords):
-            fragment.elems[index]
             if index >= len(subsetcoords):
                 dist = distance(c, allc)
                 if dist < radius:
@@ -3178,10 +2747,8 @@ def expand_qm_region(fragment=None, initial_atoms=None, radius=None) -> list[int
                                 wholemol = q
                                 break
 
-                    [fragment.elems[i] for i in wholemol]
                     atomlist = atomlist + wholemol
-    atomlist = np.unique(atomlist).tolist()
-    return atomlist
+    return np.unique(atomlist).tolist()
 
 
 # Function to do QM-region expansion based on QM/MM pointcharge gradient
@@ -3306,7 +2873,6 @@ def get_linkatom_positions(
     bondpairs_eq_dict=None,
     linkatom_ratio=0.723,
 ):
-    time.time()
     logger.info("Inside get_linkatom_positions")
     logger.info("linkatom_type: %s", linkatom_type)
     logger.info("linkatom_method: %s", linkatom_method)
@@ -3429,7 +2995,7 @@ def get_water_constraints(openmmtheoryobject=None, atomlist=None, watermodel="ti
     logger.info("Inside getwaterconstraintslist")
     if openmmtheoryobject is None or atomlist is None:
         raise InputError("getwaterconstraintslist requires openmmtheoryobject and atomlist to be set")
-    if watermodel == "tip3p" or watermodel == "spc":
+    if watermodel in {"tip3p", "spc"}:
         water_resname = ["HOH", "WAT", "TIP"]
     else:
         raise InputError("unknown watermodel")
@@ -3607,14 +3173,12 @@ def define_xh_constraints(fragment, actatoms=None, excludeatoms=None) -> list:
 
 # Simple function to convert atom indices from full system to Active region. Single index case
 def fullindex_to_actindex(fullindex, actatoms):
-    actindex = actatoms.index(fullindex)
-    return actindex
+    return actatoms.index(fullindex)
 
 
 # Simple function to convert atom indices from active region to full-system case.
 def actindex_to_fullindex(actindex, actatoms):
-    fullindex = actatoms[actindex]
-    return fullindex
+    return actatoms[actindex]
 
 
 # Simple get_water constraints for fragment without doing connectivity
@@ -3684,10 +3248,7 @@ def combine_and_place_fragments(ref_frag, trans_frag):
             logger.info("Molecules are sufficiently far apart")
             break
 
-    combined_solute = Fragment(
-        elems=ref_frag.elems + trans_frag.elems, coords=np.vstack((ref_frag.coords, trans_frag.coords))
-    )
-    return combined_solute
+    return Fragment(elems=ref_frag.elems + trans_frag.elems, coords=np.vstack((ref_frag.coords, trans_frag.coords)))
 
 
 # Simple function to combine 2 fragments where one is assumed to be a solute (fewer atoms) and the other assumed to be
@@ -3780,10 +3341,7 @@ def insert_solute_into_solvent(
 
     # Find atoms connected to solute index 0. Uses scale and tol
     membs = get_molecule_members_loop_np2(new_frag.coords, new_frag.elems, 20, scale, tol, atomindex=0, membs=None)
-    delatoms = []
-    for i in membs:
-        if i >= solute.numatoms:
-            delatoms.append(i)
+    delatoms = [i for i in membs if i >= solute.numatoms]
     logger.info("First delatoms: %s", delatoms)
     if solute2 is not None:
         membs2 = get_molecule_members_loop_np2(

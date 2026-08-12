@@ -1,0 +1,14 @@
+! UHF def2-SVP CHELPG
+
+# Open-shell water cation: a doublet, so ORCA prints the "... AND SPIN POPULATIONS"
+# variants of the Mulliken and Loewdin tables as well as the plain charge tables.
+# Hirshfeld is requested explicitly; CHELPG above adds the CHELPG charge table.
+%output
+  Print[P_Hirshfeld] 1
+end
+
+*xyz 1 2
+O   0.0000000   0.0000000   0.1173000
+H   0.0000000   0.7572000  -0.4692000
+H   0.0000000  -0.7572000  -0.4692000
+*

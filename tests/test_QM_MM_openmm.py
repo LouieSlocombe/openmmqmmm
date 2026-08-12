@@ -97,3 +97,81 @@ def test_qm_mm_orca_openmm_lysozyme():
     assert result.energy < 0.0, "QM/MM energy should be negative"
     assert np.isfinite(result.energy), "QM/MM energy should be finite"
     assert np.all(np.isfinite(result.gradient)), "QM/MM gradient should be finite"
+
+
+# The two tests above both use electrostatic embedding on a QM region that is a whole
+# molecule. That leaves mech_run and the link-atom force projection — the code both
+# embeddings share — with no coverage at all.
+
+
+def _meoh_water_qmmm(qmatoms, embedding, tag, unusualboundary=False):
+    """Build the MeOH...H2O QM/MM system with a given QM region and embedding."""
+    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
+    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
+
+    qm = ORCATheory(orcasimpleinput="! PBE def2-SVP NORI tightscf", filename=f"orca_{tag}")
+    mm = OpenMMTheory(
+        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
+        pdbfile="h2o_MeOH.pdb",
+        autoconstraints=None,
+        rigidwater=False,
+    )
+    qmmm = QMMMTheory(
+        fragment=fragment,
+        qm_theory=qm,
+        mm_theory=mm,
+        qmatoms=qmatoms,
+        embedding=embedding,
+        unusualboundary=unusualboundary,
+    )
+    return qmmm, fragment
+
+
+def test_qm_mm_mechanical_embedding():
+    """Mechanical embedding: QM and MM energies simply added, no point-charge field.
+
+    Determined 12 Aug 2026 with ORCA 6.1.1 (PBE/def2-SVP NORI tightscf) and OpenMM 8.4.
+    ORCA is not bit-reproducible between runs; repeated runs of this system spread by
+    ~1e-10 Eh in the energy and ~1e-6 Eh/bohr in the gradient, which sets the tolerances.
+    """
+    qmmm, fragment = _meoh_water_qmmm([3, 4, 5, 6, 7, 8], "Mech", "mech")
+    result = single_point(theory=qmmm, fragment=fragment, charge=0, mult=1, grad=True)
+
+    assert qmmm.num_linkatoms == 0, "The QM region is a whole molecule: no bond is cut"
+    assert np.isclose(result.energy, -115.8225732022, atol=2e-6)
+    assert result.gradient.shape == (9, 3)
+    # Mechanical embedding leaves out the QM-MM electrostatic coupling, so it must not
+    # reproduce the electrostatic result.
+    assert not np.isclose(result.energy, -115.816207775989, atol=1e-4)
+
+
+def test_qm_mm_link_atom_force_projection():
+    """A QM region that cuts a covalent bond gets a link atom, whose force is projected.
+
+    The QM region here is the methanol hydroxyl (O2, H6), which cuts the C1-O2 bond. A
+    link atom caps it. A link atom is not a degree of freedom of the real system, so its
+    gradient has to be redistributed onto the two atoms of the bond it caps — if that
+    projection is dropped the link atom's force vanishes from the total and the geometry
+    optimizer walks the QM/MM boundary apart.
+
+    unusualboundary is set because the cut bond is C-O rather than the usual C-C; the
+    check exists to catch accidental QM regions, and here the region is deliberate.
+    """
+    qm1, mm1 = 7, 3  # O2 (QM side of the cut bond) and C1 (MM side)
+    qmmm, fragment = _meoh_water_qmmm([7, 8], "Elstat", "linkatom", unusualboundary=True)
+    result = single_point(theory=qmmm, fragment=fragment, charge=0, mult=1, grad=True)
+
+    assert qmmm.num_linkatoms == 1, "Cutting the C1-O2 bond must create exactly one link atom"
+    assert result.gradient.shape == (9, 3), "The gradient covers the real atoms only, not the link atom"
+    assert np.all(np.isfinite(result.gradient))
+
+    # The projection splits the link atom's force between its two host atoms with opposite
+    # signs, so their contributions very nearly cancel. Everything else is small by
+    # comparison, which is what makes this visible in the total gradient.
+    projected = np.abs(result.gradient[[qm1, mm1]]).max()
+    residual = np.abs(result.gradient[qm1] + result.gradient[mm1]).max()
+    assert projected > 1.0, "The link atom's force should dominate its two host atoms"
+    assert residual < 0.01 * projected, "QM1 and MM1 contributions must be equal and opposite"
+
+    # Atoms with no link atom and no QM role carry ordinary small gradients.
+    assert np.abs(result.gradient[[4, 5, 6]]).max() < 1e-8, "Pure MM atoms of the capped group"

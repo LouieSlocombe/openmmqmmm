@@ -13,7 +13,7 @@ from openmmqmmm.exceptions import (
     InputError,
     MissingDependencyError,
 )
-from openmmqmmm.openmm.md import MolecularDynamicsEngine
+from openmmqmmm.openmm.md import MolecularDynamicsEngine, engine_kwargs_from
 from openmmqmmm.utils import (
     main_header,
     writestringtofile,
@@ -88,12 +88,15 @@ def openmm_metadynamics(
     biasdir=".",
     multiplewalkers=False,
     numcores=1,
-    walkerid=None,
 ) -> None:
     """Run metadynamics MD using OpenMM's native metadynamics implementation.
 
     Collective variables are defined via cv1_atoms/cv1_type (and optionally CV2).
     """
+    # Captured before any local is bound. The collective-variable and bias parameters are
+    # this function's own and are filtered out; the rest describe the MD run itself.
+    engine_kwargs = engine_kwargs_from(locals())
+
     logger.info(main_header("OpenMM metadynamics"))
 
     # Biasdirectory
@@ -120,44 +123,7 @@ def openmm_metadynamics(
         raise InputError("Error: For multiplewalkers=True  you must set numcores to the number of walkers")
 
     # Creating MDclass
-    md = MolecularDynamicsEngine(
-        fragment=fragment,
-        theory=theory,
-        charge=charge,
-        mult=mult,
-        timestep=timestep,
-        traj_frequency=traj_frequency,
-        temperature=temperature,
-        integrator=integrator,
-        constraints=constraints,
-        specialatoms=specialatoms,
-        specialtraj_frequency=specialtraj_frequency,
-        barostat=barostat,
-        pressure=pressure,
-        trajectory_file_option=trajectory_file_option,
-        coupling_frequency=coupling_frequency,
-        anderson_thermostat=anderson_thermostat,
-        enforcePeriodicBox=enforce_periodic_box,
-        special_wrapping=special_wrapping,
-        special_wrapping_updatepos=special_wrapping_updatepos,
-        wrapping_atoms=wrapping_atoms,
-        dummyatomrestraint=dummyatomrestraint,
-        center_on_atoms=center_on_atoms,
-        solute_indices=solute_indices,
-        datafilename=datafilename,
-        dummy_mm=dummy_mm,
-        platform=platform,
-        hydrogenmass=hydrogenmass,
-        add_centerforce=add_centerforce,
-        trajfilename=trajfilename,
-        chkfile=chkfile,
-        statefile=statefile,
-        centerforce_atoms=centerforce_atoms,
-        centerforce_constant=centerforce_constant,
-        centerforce_distance=centerforce_distance,
-        centerforce_center=centerforce_center,
-        barostat_frequency=barostat_frequency,
-    )
+    md = MolecularDynamicsEngine(**engine_kwargs)
 
     if user_cvforce1 is not None:
         logger.info("User CV-force 1 was given: %s", user_cvforce1)
@@ -269,31 +235,18 @@ def openmm_metadynamics(
     logger.info("Now starting metadynamics simulation")
 
     if multiplewalkers is True:
+        # Multiple walkers ran md.run through simple_parallel with version="multiprocess"
+        # (the multiprocess library is needed here: multiprocessing cannot pickle the
+        # _io.TextIOWrapper the run holds). simple_parallel has no restraints parameter,
+        # so restraints were silently dropped -- reinstate the path only with a test.
         raise InputError("{}\nError: Disabled".format(f"Now launching Metadynamics job with {numcores} walkers"))
-        # Input parameters passed as dictionary to Simple_parallel
-        # NOTE: multiprocess library (instead of multiprocessing) is necessary.
-        # Otherwise pickling problem involving _io.TextIOWrapper
-        openmmqmmm.parallel.simple_parallel(
-            jobfunction=md.run,
-            parameter_dict={
-                "simulation_steps": simulation_steps,
-                "simulation_time": simulation_time,
-                "metadynamics": native_MTD,
-                "metadyn_settings": metadyn_settings,
-            },
-            numcores=numcores,
-            version="multiprocess",
-            separate_dirs=True,
-            restraints=restraints,
-        )
-    else:
-        md.run(
-            simulation_steps=simulation_steps,
-            simulation_time=simulation_time,
-            metadynamics=native_MTD,
-            metadyn_settings=metadyn_settings,
-            restraints=restraints,
-        )
+    md.run(
+        simulation_steps=simulation_steps,
+        simulation_time=simulation_time,
+        metadynamics=native_MTD,
+        metadyn_settings=metadyn_settings,
+        restraints=restraints,
+    )
     logger.info("Metadynamics simulation done")
 
     # Finalizing simulation (writes and updates files)
@@ -305,7 +258,6 @@ def openmm_metadynamics(
     logger.info("Use function  get_free_energy_from_biasfiles  to create free-energy surface")
     logger.info("and function metadynamics_plot_data to plot the data")
     logger.info("")
-    return
 
 
 def openmm_md_plumed(
@@ -349,14 +301,18 @@ def openmm_md_plumed(
     chkfile=None,
     statefile=None,
     plumed_input_string=None,
-    numcores=1,
 ) -> None:
     """Run MD with a PLUMED bias (requires the openmm-plumed plugin)."""
+    # Captured before any local is bound; the PLUMED-specific parameters are filtered out.
+    engine_kwargs = engine_kwargs_from(locals())
+
     logger.info(main_header("OpenMM metadynamics using OpenMM-Plumed interface"))
 
     logger.info("Using metadynamics via OpenMM Plumed plugin")
     try:
-        import openmmplumed
+        # Imported for the side effect: this registers the PLUMED plugin with OpenMM, so
+        # find_spec would report availability without actually making it available.
+        import openmmplumed  # noqa: F401
     except ModuleNotFoundError:
         raise MissingDependencyError(
             "openmmplumed module plugin not found. See https://github.com/openmm/openmm-plumed \nYou can install via "
@@ -364,85 +320,42 @@ def openmm_md_plumed(
         ) from None
 
     # Creating MDclass
-    md = MolecularDynamicsEngine(
-        fragment=fragment,
-        theory=theory,
-        charge=charge,
-        mult=mult,
-        timestep=timestep,
-        traj_frequency=traj_frequency,
-        temperature=temperature,
-        integrator=integrator,
-        constraints=constraints,
-        specialatoms=specialatoms,
-        specialtraj_frequency=specialtraj_frequency,
-        barostat=barostat,
-        pressure=pressure,
-        trajectory_file_option=trajectory_file_option,
-        coupling_frequency=coupling_frequency,
-        anderson_thermostat=anderson_thermostat,
-        enforcePeriodicBox=enforce_periodic_box,
-        special_wrapping=special_wrapping,
-        special_wrapping_updatepos=special_wrapping_updatepos,
-        wrapping_atoms=wrapping_atoms,
-        dummyatomrestraint=dummyatomrestraint,
-        center_on_atoms=center_on_atoms,
-        solute_indices=solute_indices,
-        datafilename=datafilename,
-        dummy_mm=dummy_mm,
-        platform=platform,
-        hydrogenmass=hydrogenmass,
-        add_centerforce=add_centerforce,
-        trajfilename=trajfilename,
-        centerforce_atoms=centerforce_atoms,
-        centerforce_constant=centerforce_constant,
-        chkfile=chkfile,
-        statefile=statefile,
-        centerforce_distance=centerforce_distance,
-        centerforce_center=centerforce_center,
-        barostat_frequency=barostat_frequency,
-    )
-
-    # Load OpenMM.app
+    md = MolecularDynamicsEngine(**engine_kwargs)
 
     logger.info("Setting up Plumed")
-    # OPTION to provide the full Plumed input as string instead
-    if plumed_input_string is not None:
-        logger.info(
-            "plumed_input_string provided. Will read all options from this string (make sure to provide atom indices "
-            "in 1-based indexing)"
-        )
-        writestringtofile(plumed_input_string, "plumedinput.in")
-        plumedinput = plumed_input_string
+    # The PLUMED input is the whole bias specification; there is nothing to fall back on.
+    if plumed_input_string is None:
+        raise InputError("plumed_input_string is required: it defines the PLUMED bias to apply.")
+    logger.info(
+        "plumed_input_string provided. Will read all options from this string (make sure to provide atom indices "
+        "in 1-based indexing)"
+    )
+    writestringtofile(plumed_input_string, "plumedinput.in")
 
     logger.info("Now starting metadynamics simulation")
     md.run(
         simulation_steps=simulation_steps,
         simulation_time=simulation_time,
         restraints=restraints,
-        plumedinput=plumedinput,
+        plumedinput=plumed_input_string,
     )
     logger.info("Metadynamics simulation done")
 
     # Finalizing simulation (writes and updates files)
     md.finalize_simulation()
 
-    os.path.dirname(os.path.dirname(os.path.dirname(openmmplumed.mm.pluginLoadedLibNames[0])))
     logger.info(
         "You can now analyze/plot the metadynamics data with plumed's own tools (requires presence of HILLS and COLVAR "
         "files in directory)"
     )
     logger.info("\n")
 
-    return
-
 
 def free_energy_from_bias_array(temperature, bias_factor, total_bias) -> np.ndarray:
     """Convert a metadynamics bias array to a free-energy surface."""
     deltaT = temperature * (bias_factor - 1)
     kjpermoleconversion = 1
-    free_energy = -((temperature + deltaT) / deltaT) * total_bias * kjpermoleconversion
-    return free_energy
+    return -((temperature + deltaT) / deltaT) * total_bias * kjpermoleconversion
 
 
 def get_free_energy_from_biasfiles(temperature, biasfactor, cv1_gridwidth, cv2_gridwidth, directory=".") -> tuple:
@@ -506,16 +419,16 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat="png", plot_xlim=N
     if numCVs == 2:
         cv1_conversionfactor = 1.0
         cv2_conversionfactor = 1.0
-        if cv1_type == "dihedral" or cv1_type == "torsion" or cv1_type == "angle":
+        if cv1_type in {"dihedral", "torsion", "angle"}:
             cv1_conversionfactor = 180 / np.pi
             CV1_unit_label = "°"
-        elif cv1_type == "bond" or cv1_type == "distance" or cv1_type == "rmsd":
+        elif cv1_type in {"bond", "distance", "rmsd"}:
             cv1_conversionfactor = 10.0
             CV1_unit_label = "Å"
-        if cv2_type == "dihedral" or cv2_type == "angle" or cv1_type == "torsion":
+        if cv2_type in {"dihedral", "angle"} or cv1_type == "torsion":
             cv2_conversionfactor = 180 / np.pi
             CV2_unit_label = "°"
-        elif cv2_type == "bond" or cv2_type == "distance" or cv2_type == "rmsd":
+        elif cv2_type in {"bond", "distance", "rmsd"}:
             cv2_conversionfactor = 10.0
             CV2_unit_label = "Å"
         else:
@@ -573,12 +486,12 @@ def metadynamics_plot_data(biasdir=None, dpi=200, imageformat="png", plot_xlim=N
         logger.info("Created file: MTD_CV1_CV2_.png")
         return
 
-    elif numCVs == 1:
+    if numCVs == 1:
         cv1_conversionfactor = 1.0
-        if cv1_type == "dihedral" or cv1_type == "torsion" or cv1_type == "angle":
+        if cv1_type in {"dihedral", "torsion", "angle"}:
             cv1_conversionfactor = 180 / np.pi
             CV1_unit_label = "°"
-        elif cv1_type == "bond" or cv1_type == "distance" or cv1_type == "rmsd":
+        elif cv1_type in {"bond", "distance", "rmsd"}:
             cv1_conversionfactor = 10.0
             CV1_unit_label = "Ang"
         else:

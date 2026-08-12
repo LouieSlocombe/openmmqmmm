@@ -31,8 +31,7 @@ def cell_params_to_vectors(parameters):
     cy = c * (np.cos(rad_a) - np.cos(rad_b) * np.cos(rad_g)) / np.sin(rad_g)
     cz = np.sqrt(c**2 - cx**2 - cy**2)
 
-    vectors = np.array([[ax, ay, az], [bx, by, bz], [cx, cy, cz]])
-    return vectors
+    return np.array([[ax, ay, az], [bx, by, bz], [cx, cy, cz]])
 
 
 def cell_vectors_to_params(vectors):
@@ -60,23 +59,21 @@ def cell_vectors_to_params(vectors):
 # Basic conversion of Cartesian coordinates to fractional coordinates and reverse
 def cart_coords_to_fract(cart_coords, cellvectors):
     M = np.array(cellvectors)
-    frac = np.dot(cart_coords, np.linalg.inv(M))
-    return frac
+    return np.dot(cart_coords, np.linalg.inv(M))
 
 
 def cell_volume(vectors):
     a = vectors[0, :]
     b = vectors[1, :]
     c = vectors[2, :]
-    V = abs(np.dot(a, np.cross(b, c)))
-    return V
+    return abs(np.dot(a, np.cross(b, c)))
 
 
 # Write Cartesian-based POSCAR files
 def write_poscar_file(coords, elems, cellvectors=None, celldimensions=None, filename="POSCAR"):
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
-    elif celldimensions is not None:
+    if celldimensions is not None:
         # converting
         cellvectors = cell_params_to_vectors(celldimensions)
 
@@ -109,7 +106,7 @@ def write_poscar_file(coords, elems, cellvectors=None, celldimensions=None, file
 def write_xsf_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.xsf"):
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
-    elif celldimensions is not None:
+    if celldimensions is not None:
         # Assuming your helper function handles the conversion
         cellvectors = cell_params_to_vectors(celldimensions)
 
@@ -139,7 +136,7 @@ def write_xsf_file(coords, elems, cellvectors=None, celldimensions=None, filenam
 def write_cif_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.cif"):
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
-    elif celldimensions is not None:
+    if celldimensions is not None:
         # Assuming your helper function handles the conversion
         cellvectors = cell_params_to_vectors(celldimensions)
     elif cellvectors is not None:

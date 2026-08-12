@@ -220,9 +220,8 @@ class Plot:
                         "or Numpy arrays) or a surfacedictionary (Python dict)\n{}\n{}"
                     ).format(f"x_list: {x_list}", f"y_list: {y_list}")
                 )
-            else:
-                x = list(x_list)
-                y = list(y_list)
+            x = list(x_list)
+            y = list(y_list)
 
         # Alernative dictionary option
         if surfacedictionary is not None:

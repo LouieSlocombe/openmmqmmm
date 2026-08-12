@@ -87,27 +87,26 @@ def single_point(
             result.write_to_disk(filename="results_singlepoint.json")
         return result
     # Run a single-point energy job without gradient (default)
-    else:
-        logger.info("")
-        logger.info(
-            f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
-        )
-        logger.info(f"Charge: {charge} Mult: {mult}")
-        # Run
-        energy = theory.run(current_coords=coords, elems=elems, charge=charge, mult=mult)
+    logger.info("")
+    logger.info(
+        f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
+    )
+    logger.info(f"Charge: {charge} Mult: {mult}")
+    # Run
+    energy = theory.run(current_coords=coords, elems=elems, charge=charge, mult=mult)
 
-        logger.info("Energy:  %s", energy)
-        # Now adding total energy to fragment
-        fragment.set_energy(energy)
-        log_time_since(module_init_time, "Singlepoint")
-        result = Results(label="Singlepoint", energy=energy, charge=charge, mult=mult)
-        if theory.theorytype == "QM/MM":
-            result.qmmm_energy = theory.QM_MM_energy
-            result.mm_energy = theory.MMenergy
-            result.qm_energy = theory.QMenergy
-        if result_write_to_disk:
-            result.write_to_disk(filename="results_singlepoint.json")
-        return result
+    logger.info("Energy:  %s", energy)
+    # Now adding total energy to fragment
+    fragment.set_energy(energy)
+    log_time_since(module_init_time, "Singlepoint")
+    result = Results(label="Singlepoint", energy=energy, charge=charge, mult=mult)
+    if theory.theorytype == "QM/MM":
+        result.qmmm_energy = theory.QM_MM_energy
+        result.mm_energy = theory.MMenergy
+        result.qm_energy = theory.QMenergy
+    if result_write_to_disk:
+        result.write_to_disk(filename="results_singlepoint.json")
+    return result
 
 
 # Single-point energy function that runs calculations on 1 fragment using multiple theories. Returns a list of energies.
@@ -433,8 +432,7 @@ class ZeroTheory:
         self.gradient = np.zeros((len(elems), 3))
         if not grad:
             return self.energy
-        else:
-            return self.energy, self.gradient
+        return self.energy, self.gradient
 
 
 # Simple way to create interfaces to programs

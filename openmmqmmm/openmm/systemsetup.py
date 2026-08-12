@@ -159,10 +159,10 @@ def openmm_minimize(
             def print_energy(self, args):
                 system_energy = args["system energy"] / openmmqmmm.constants.hartokj
                 restraint_energy = args["restraint energy"] / openmmqmmm.constants.hartokj
-                args["restraint strength"]
-                args["max constraint error"]
                 logger.info("System energy: %s", system_energy)
                 logger.info("Restraint energy: %s", restraint_energy)
+                logger.info("Restraint strength: %s", args["restraint strength"])
+                logger.info("Max constraint error: %s", args["max constraint error"])
 
             def get_forces(self, grad):
                 # Reshaping
@@ -326,7 +326,7 @@ def openmm_modeller(
     # Forcefield options
     if forcefield is not None:
         logger.info("Forcefield: %s", forcefield)
-        if forcefield == "Amber99" or forcefield == "Amber99sb":
+        if forcefield in {"Amber99", "Amber99sb"}:
             xmlfile = "amber99sb.xml"
         elif forcefield == "Amber99sb-ildn":
             xmlfile = "amber99sbildn.xml"
@@ -865,7 +865,7 @@ def solvate_small_molecule(
         logger.info("LJ_treatment: %s", lj_treatment)
 
     # Now selecting watermodel XML-file based on whether CHARMM, Amber etc.
-    if watermodel == "tip3p" or watermodel == "TIP3P":
+    if watermodel in {"tip3p", "TIP3P"}:
         logger.info("Using watermodel=TIP3P")
         if lj_treatment == "amber":
             waterxmlfile = "amber14/tip3p.xml"
@@ -1030,13 +1030,12 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
             logger.warning("\n Use higher-occupancy location opton was selected, so continuing.")
             writelisttofile(finalpdblines, "system_afteratlocfixes.pdb", separator="")
             return "system_afteratlocfixes.pdb"
-        else:
-            raise InputError(
-                "You should delete either the labelled A or B location of the residue-atom/atoms and then remove the "
-                "A/B label from column 17 in the file\nAlternatively, you can choose use_higher_occupancy=True keyword "
-                "in OpenMM_Modeller and openmmqmmm will keep the higher occupied form and go on \nMake sure that there "
-                "is always an A or B form present.\nExiting."
-            )
+        raise InputError(
+            "You should delete either the labelled A or B location of the residue-atom/atoms and then remove the "
+            "A/B label from column 17 in the file\nAlternatively, you can choose use_higher_occupancy=True keyword "
+            "in OpenMM_Modeller and openmmqmmm will keep the higher occupied form and go on \nMake sure that there "
+            "is always an A or B form present.\nExiting."
+        )
     # Returning original pdbfile if all OK
 
     return pdbfile

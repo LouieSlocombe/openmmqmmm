@@ -108,7 +108,6 @@ class OpenMMTheory:
     ):
         logger.info(main_header("OpenMM Theory"))
         module_init_time = time.time()
-        time.time()
 
         # CPU: Control either by provided numcores keyword, or by setting env variable:
         # $OPENMM_CPU_THREADS in shell
@@ -533,61 +532,45 @@ class OpenMMTheory:
                     logger.info("periodic_nonbonded_cutoff is now: %s", self.periodic_nonbonded_cutoff)
 
                 logger.info(f"Nonbonded cutoff is {self.periodic_nonbonded_cutoff} Angstrom.")
-                # Parameters here are based on OpenMM DHFR example
+                # Parameters here are based on OpenMM DHFR example. Shared by all four
+                # branches below, which differ only in what they add and what they pass
+                # positionally: CHARMM hands createSystem its parsed parameter set, the
+                # modeller/XML route hands it the topology, and GROMACS and Amber carry
+                # their own (the forcefield object already holds the PBC information).
+                pbc_system_kwargs = {
+                    "nonbondedMethod": nonb_method_PBC,
+                    "constraints": self.autoconstraints,
+                    "hydrogenMass": self.hydrogenmass,
+                    "rigidWater": self.rigidwater,
+                    "ewaldErrorTolerance": self.ewalderrortolerance,
+                    "nonbondedCutoff": self.periodic_nonbonded_cutoff * openmm.unit.angstroms,
+                }
                 if charmm_files is True:
                     logger.info("Using CHARMM files.")
                     self.system = self.forcefield.createSystem(
                         self.params,
-                        nonbondedMethod=nonb_method_PBC,
-                        constraints=self.autoconstraints,
-                        hydrogenMass=self.hydrogenmass,
-                        rigidWater=self.rigidwater,
-                        ewaldErrorTolerance=self.ewalderrortolerance,
-                        nonbondedCutoff=self.periodic_nonbonded_cutoff * openmm.unit.angstroms,
                         switchDistance=switching_function_distance * openmm.unit.angstroms,
+                        **pbc_system_kwargs,
                     )
                 elif gromacs_files is True:
                     # NOTE: Gromacs has read PBC info from Gro file already
                     logger.info("Ewald Error tolerance: %s", self.ewalderrortolerance)
-                    # Note: Turned off switchDistance. Not available for GROMACS?
-                    #
-                    self.system = self.forcefield.createSystem(
-                        nonbondedMethod=nonb_method_PBC,
-                        constraints=self.autoconstraints,
-                        hydrogenMass=self.hydrogenmass,
-                        rigidWater=self.rigidwater,
-                        ewaldErrorTolerance=self.ewalderrortolerance,
-                        nonbondedCutoff=self.periodic_nonbonded_cutoff * openmm.unit.angstroms,
-                    )
+                    # Note: no switchDistance. Not available for GROMACS?
+                    self.system = self.forcefield.createSystem(**pbc_system_kwargs)
                 elif amber_files is True:
                     # NOTE: PBC information should be in forcefield object already
-                    self.system = self.forcefield.createSystem(
-                        nonbondedMethod=nonb_method_PBC,
-                        constraints=self.autoconstraints,
-                        hydrogenMass=self.hydrogenmass,
-                        rigidWater=self.rigidwater,
-                        ewaldErrorTolerance=self.ewalderrortolerance,
-                        nonbondedCutoff=self.periodic_nonbonded_cutoff * openmm.unit.angstroms,
-                    )
-
+                    self.system = self.forcefield.createSystem(**pbc_system_kwargs)
                 else:
                     # Modeller and manual xmlfiles
                     self.system = self.forcefield.createSystem(
-                        self.topology,
-                        nonbondedMethod=nonb_method_PBC,
-                        constraints=self.autoconstraints,
-                        hydrogenMass=self.hydrogenmass,
-                        rigidWater=self.rigidwater,
-                        ewaldErrorTolerance=self.ewalderrortolerance,
-                        nonbondedCutoff=self.periodic_nonbonded_cutoff * openmm.unit.angstroms,
-                        residueTemplates=residueTemplates,
+                        self.topology, residueTemplates=residueTemplates, **pbc_system_kwargs
                     )
 
                 # Setting as periodic_cell_vectors
                 self.periodic_cell_vectors = np.array(
                     [[v._value * 10 for v in vec] for vec in self.system.getDefaultPeriodicBoxVectors()]
                 )
-                logger.info("Periodic_cell_vectors (Å) %s", periodic_cell_vectors)
+                logger.info("Periodic_cell_vectors (Å) %s", self.periodic_cell_vectors)
 
                 # Force modification here
                 logger.info(small_header("OpenMM Forces defined:"))
@@ -633,35 +616,24 @@ class OpenMMTheory:
 
                 logger.info("Nonbonded cutoff : %s Angstrom", self.nonbonded_cutoff_no_pbc)
 
+                # No Ewald tolerance here: without PBC there is no Ewald sum.
+                no_pbc_system_kwargs = {
+                    "nonbondedMethod": noPBC_nonbondedMethod,
+                    "constraints": self.autoconstraints,
+                    "rigidWater": self.rigidwater,
+                    "nonbondedCutoff": self.nonbonded_cutoff_no_pbc * openmm.unit.angstroms,
+                    "hydrogenMass": self.hydrogenmass,
+                }
                 if charmm_files is True:
-                    self.system = self.forcefield.createSystem(
-                        self.params,
-                        nonbondedMethod=noPBC_nonbondedMethod,
-                        constraints=self.autoconstraints,
-                        rigidWater=self.rigidwater,
-                        nonbondedCutoff=self.nonbonded_cutoff_no_pbc * openmm.unit.angstroms,
-                        hydrogenMass=self.hydrogenmass,
-                    )
+                    self.system = self.forcefield.createSystem(self.params, **no_pbc_system_kwargs)
                 elif amber_files is True:
-                    self.system = self.forcefield.createSystem(
-                        nonbondedMethod=noPBC_nonbondedMethod,
-                        constraints=self.autoconstraints,
-                        rigidWater=self.rigidwater,
-                        nonbondedCutoff=self.nonbonded_cutoff_no_pbc * openmm.unit.angstroms,
-                        hydrogenMass=self.hydrogenmass,
-                    )
+                    self.system = self.forcefield.createSystem(**no_pbc_system_kwargs)
                 # NOTE: might be unnecessary
                 elif dummysystem is True:
+                    # Dummy system: OpenMM's own defaults, no nonbonded settings applied
                     self.system = self.forcefield.createSystem(self.topology)
                 else:
-                    self.system = self.forcefield.createSystem(
-                        self.topology,
-                        nonbondedMethod=noPBC_nonbondedMethod,
-                        constraints=self.autoconstraints,
-                        rigidWater=self.rigidwater,
-                        nonbondedCutoff=self.nonbonded_cutoff_no_pbc * openmm.unit.angstroms,
-                        hydrogenMass=self.hydrogenmass,
-                    )
+                    self.system = self.forcefield.createSystem(self.topology, **no_pbc_system_kwargs)
                 logger.info(small_header("OpenMM system created."))
                 logger.info("OpenMM Forces defined: %s", self.system.getForces())
                 logger.info("")
@@ -673,34 +645,11 @@ class OpenMMTheory:
                 # CASE CUSTOMNONBONDED FORCE
                 # REPLACING REGULAR NONBONDED FORCE
                 if customnonbondedforce is True:
+                    # The implementation built a CustomNonbondedForce + CustomBondForce pair
+                    # with create_cnb(), swapped self.nonbonded_force to point at it and removed
+                    # the original NonbondedForce. It never handled frozen regions
+                    # (frozen-active and active-active interactions), so it is disabled.
                     raise InternalError("currently inactive")
-                    # Create CustomNonbonded force
-                    for i, force in enumerate(self.system.getForces()):
-                        if isinstance(force, openmm.NonbondedForce):
-                            custom_nonbonded_force, custom_bond_force = create_cnb(
-                                self.system.getForces()[i], self.system.getNumParticles()
-                            )
-                    logger.info("1custom_nonbonded_force: %s", custom_nonbonded_force)
-                    logger.info("num exclusions in customnonb: %s", custom_nonbonded_force.getNumExclusions())
-                    logger.info("num 14 exceptions in custom_bond_force: %s", custom_bond_force.getNumBonds())
-
-                    # TODO: Deal with frozen regions. NOT YET DONE
-                    # Frozen-Act interaction
-                    # Act-Act interaction
-
-                    # Pointing self.nonbonded_force to CustomNonBondedForce instead of Nonbonded force
-                    self.nonbonded_force = custom_nonbonded_force
-                    logger.debug("Nonbonded force: %s", self.nonbonded_force)
-                    self.custom_bondforce = custom_bond_force
-
-                    # Update system with new forces and delete old force
-                    self.system.addForce(self.nonbonded_force)
-                    self.system.addForce(self.custom_bondforce)
-
-                    # Remove oldNonbondedForce
-                    for i, force in enumerate(self.system.getForces()):
-                        if isinstance(force, openmm.NonbondedForce):
-                            self.system.removeForce(i)
 
         # Defining nonbonded force
         for force in self.system.getForces():
@@ -763,8 +712,7 @@ class OpenMMTheory:
                                 coordinates is required for constraint definition"
                         )
                         raise InputError("Constraint definition requires a fragment or a PDB file with coordinates")
-                    else:
-                        fragment = Fragment(pdbfile=pdbfile)
+                    fragment = Fragment(pdbfile=pdbfile)
                 # Cleaning up constraint list. Adding distance if missing
                 bondconstraints = clean_up_constraints_list(fragment=fragment, constraints=bondconstraints)
                 self.add_bondconstraints(constraints=bondconstraints)
@@ -806,7 +754,6 @@ class OpenMMTheory:
         if logger.isEnabledFor(logging.DEBUG):
             for i in range(self.system.getNumConstraints()):
                 logger.info("Defined constraints: %s", self.system.getConstraintParameters(i))
-        time.time()
 
         # Set simulation parameters (here just default options)
         self.set_simulation_parameters()
@@ -1491,17 +1438,13 @@ class OpenMMTheory:
         """
         cvforce_copy = copy.copy(cvforce)
         # TODO: periodic CV vs non-periodic
-        if cvtype == "dihedral" or cvtype == "torsion":
+        if cvtype in {"dihedral", "torsion"}:
             raise InputError("Adding CV restraints for dihedrals is not available!")
             # Not sure whether there is ever a need
-        elif cvtype == "angle":
+        if cvtype == "angle":
+            # Would need var_unit = openmm.unit.radian with the same flat-bottom expression
             raise InputError("Adding CV restraints for angles is not available!")
-            energy_expression = "(k/2)*max(0, var-var_max)^2"
-            logger.info("CV type: angle")
-            logger.info("Note: unit assumed to be in radians")
-            var_unit = openmm.unit.radian
-            var_unit_label = "radians"
-        elif cvtype == "bond" or cvtype == "distance" or cvtype == "rmsd":
+        if cvtype in {"bond", "distance", "rmsd"}:
             energy_expression = "(k/2)*max(0, var-var_max)^2"
             logger.info("CV type: bond/rmsd")
             logger.info("Note: unit assumed be in Angstrom")
@@ -1553,12 +1496,9 @@ class OpenMMTheory:
     # Remove all defined constraints in system
     def remove_all_constraints(self):
         """Remove every distance constraint from the system."""
-        todelete = []
-        # Looping over all defined system constraints
-        for i in range(self.system.getNumConstraints()):
-            todelete.append(i)
-        for d in reversed(todelete):
-            self.system.removeConstraint(d)
+        # Removing in reverse: each removal renumbers the constraints above it
+        for index in reversed(range(self.system.getNumConstraints())):
+            self.system.removeConstraint(index)
 
     # Remove specific constraints
     def remove_constraints(self, constraints):
@@ -1567,13 +1507,14 @@ class OpenMMTheory:
         Args:
             constraints: list of [i, j] atom pairs whose constraint is removed.
         """
-        todelete = []
         # Looping over all defined system constraints
-        for i in range(self.system.getNumConstraints()):
-            con = self.system.getConstraintParameters(i)
-            for usercon in constraints:
-                if all(elem in usercon for elem in [con[0], con[1]]):
-                    todelete.append(i)
+        todelete = [
+            i
+            for i in range(self.system.getNumConstraints())
+            for con in [self.system.getConstraintParameters(i)]
+            if any(all(elem in usercon for elem in [con[0], con[1]]) for usercon in constraints)
+        ]
+        # Removing in reverse: each removal renumbers the constraints above it
         for d in reversed(todelete):
             self.system.removeConstraint(d)
 
@@ -1821,17 +1762,16 @@ class OpenMMTheory:
                 openmm.Platform.getPlatformByName(self.platform_choice),
                 self.properties,
             )
-            return
-        else:
-            simulation = openmm.app.simulation.Simulation(
-                self.topology,
-                self.system,
-                self.integrator,
-                openmm.Platform.getPlatformByName(self.platform_choice),
-                self.properties,
-            )
-            log_time_since(timeA, "creating/updating simulation")
-            return simulation
+            return None
+        simulation = openmm.app.simulation.Simulation(
+            self.topology,
+            self.system,
+            self.integrator,
+            openmm.Platform.getPlatformByName(self.platform_choice),
+            self.properties,
+        )
+        log_time_since(timeA, "creating/updating simulation")
+        return simulation
 
     # Functions for energy decompositions
     def forcegroupify(self):
@@ -2132,8 +2072,7 @@ class OpenMMTheory:
         log_time_since(module_init_time, "OpenMM run")
         if grad is True:
             return self.energy, self.gradient
-        else:
-            return self.energy
+        return self.energy
 
     def getatomcharges(self):
         """Return the partial charge of every atom, in elementary charges."""

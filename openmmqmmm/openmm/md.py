@@ -1,6 +1,7 @@
 """Molecular dynamics: the simulation engine, MD drivers and box equilibration."""
 
 import contextlib
+import inspect
 import logging
 import os
 import time
@@ -41,6 +42,23 @@ from openmmqmmm.utils import (
 logger = logging.getLogger(__name__)
 
 
+def engine_kwargs_from(caller_locals, **overrides):
+    """Pick the MolecularDynamicsEngine arguments out of a wrapper's own arguments.
+
+    The MD entry points restate the engine's ~45 parameters in their own signatures and
+    used to restate them a second time in the constructor call. Keeping two hand-written
+    lists in step failed exactly as expected: for a release every one of them passed
+    ``enforcePeriodicBox`` to a class whose parameter is ``enforce_periodic_box``, so
+    every call raised TypeError.
+
+    Call this as the first statement of a wrapper, with ``locals()``, so that what it sees
+    is the bound arguments and nothing else. Parameters that belong to the wrapper rather
+    than the engine are left behind; ``overrides`` sets values the wrapper fixes itself.
+    """
+    engine_parameters = set(inspect.signature(MolecularDynamicsEngine.__init__).parameters) - {"self"}
+    return {name: value for name, value in caller_locals.items() if name in engine_parameters} | overrides
+
+
 def read_npt_statefile(npt_output):
     import csv
     from collections import defaultdict
@@ -58,8 +76,7 @@ def read_npt_statefile(npt_output):
     volume = np.array(columns["Box Volume (nm^3)"]).astype(float)
     density = np.array(columns["Density (g/mL)"]).astype(float)
 
-    resultdict = {"steps": steps, "volume": volume, "density": density}
-    return resultdict
+    return {"steps": steps, "volume": volume, "density": density}
 
 
 def openmm_md(
@@ -115,53 +132,10 @@ def openmm_md(
     Simulation length is set via simulation_steps or simulation_time (ps);
     thermostat/barostat, trajectory format and restraints are configurable.
     """
+    engine_kwargs = engine_kwargs_from(locals())
+
     logger.info(main_header("OpenMM MD wrapper function"))
-    md = MolecularDynamicsEngine(
-        fragment=fragment,
-        theory=theory,
-        charge=charge,
-        mult=mult,
-        timestep=timestep,
-        traj_frequency=traj_frequency,
-        restartfile_frequency=restartfile_frequency,
-        temperature=temperature,
-        integrator=integrator,
-        barostat=barostat,
-        pressure=pressure,
-        trajectory_file_option=trajectory_file_option,
-        specialtraj_frequency=specialtraj_frequency,
-        specialatoms=specialatoms,
-        energy_file_option=energy_file_option,
-        force_file_option=force_file_option,
-        atomic_units_force_reporter=atomic_units_force_reporter,
-        constraints=constraints,
-        restraints=restraints,
-        force_periodic=force_periodic,
-        periodic_cell_dimensions=periodic_cell_dimensions,
-        coupling_frequency=coupling_frequency,
-        anderson_thermostat=anderson_thermostat,
-        platform=platform,
-        enforcePeriodicBox=enforce_periodic_box,
-        special_wrapping=special_wrapping,
-        special_wrapping_updatepos=special_wrapping_updatepos,
-        wrapping_atoms=wrapping_atoms,
-        dummyatomrestraint=dummyatomrestraint,
-        center_on_atoms=center_on_atoms,
-        solute_indices=solute_indices,
-        datafilename=datafilename,
-        dummy_mm=dummy_mm,
-        hydrogenmass=hydrogenmass,
-        plumed_object=plumed_object,
-        add_centerforce=add_centerforce,
-        trajfilename=trajfilename,
-        centerforce_atoms=centerforce_atoms,
-        centerforce_constant=centerforce_constant,
-        centerforce_distance=centerforce_distance,
-        centerforce_center=centerforce_center,
-        barostat_frequency=barostat_frequency,
-        chkfile=chkfile,
-        statefile=statefile,
-    )
+    md = MolecularDynamicsEngine(**engine_kwargs)
     if simulation_steps is not None:
         md.run(simulation_steps=simulation_steps)
     elif simulation_time is not None:
@@ -173,7 +147,6 @@ def openmm_md(
     md.finalize_simulation()
 
     # TODO: Return a Results object here?
-    return
 
 
 class MolecularDynamicsEngine:
@@ -235,8 +208,7 @@ class MolecularDynamicsEngine:
 
         if fragment is None:
             raise InputError("No fragment object. Exiting.")
-        else:
-            self.fragment = fragment
+        self.fragment = fragment
 
         # Check charge/mult
         self.charge, self.mult = check_charge_mult(
@@ -517,7 +489,7 @@ class MolecularDynamicsEngine:
         else:
             # Deleting barostat and Andersen thermostat if present from previous sims
             for i, forcename in enumerate(forceclassnames):
-                if forcename == "MonteCarloBarostat" or forcename == "AndersenThermostat":
+                if forcename in {"MonteCarloBarostat", "AndersenThermostat"}:
                     logger.info("Removing old force: %s", forcename)
                     self.openmmobject.system.removeForce(i)
 
@@ -756,7 +728,6 @@ class MolecularDynamicsEngine:
                     f.write(f"{currtime} {current_cv[0] * cv1scaling}\n")
         log_time_since(checkpoint, "mtd colvar-flush")
         checkpoint = time.time()
-        return
 
     def write_state_and_chk_files(self, step):
         # Saving state and chkfile to disk
@@ -1383,8 +1354,6 @@ class MolecularDynamicsEngine:
         logger.info(small_header("OpenMM MD simulation finished!"))
         log_time_since(module_init_time, "OpenMM_MD run")
 
-        return
-
     def finalize_simulation(self):
         """Write the final structure and trajectory files and log the timing summary.
 
@@ -1524,6 +1493,10 @@ def openmm_box_equilibration(
     Returns:
         Fragment updated with the equilibrated coordinates and box vectors.
     """
+    # Captured before any local is bound, so this is the caller's arguments and nothing
+    # else. The integrator and barostat are fixed by what this function does: NPT cycles.
+    engine_kwargs = engine_kwargs_from(locals(), integrator="LangevinMiddleIntegrator", barostat="MonteCarloBarostat")
+
     logger.info(main_header("Periodic Box Size Equilibration"))
     module_init_time = time.time()
 
@@ -1561,24 +1534,7 @@ def openmm_box_equilibration(
     volume_std = 10
     density_std = 1
 
-    md = MolecularDynamicsEngine(
-        fragment=fragment,
-        theory=theory,
-        timestep=timestep,
-        traj_frequency=traj_frequency,
-        pressure=pressure,
-        temperature=temperature,
-        integrator="LangevinMiddleIntegrator",
-        enforcePeriodicBox=enforce_periodic_box,
-        coupling_frequency=coupling_frequency,
-        barostat="MonteCarloBarostat",
-        trajfilename=trajfilename,
-        datafilename=datafilename,
-        trajectory_file_option=trajectory_file_option,
-        dummyatomrestraint=dummyatomrestraint,
-        solute_indices=solute_indices,
-        barostat_frequency=barostat_frequency,
-    )
+    md = MolecularDynamicsEngine(**engine_kwargs)
     restart = False
     # while volume_std >= volume_threshold and density_std >= density_threshold:
     for i in range(max_npt_cycles):
@@ -1792,7 +1748,6 @@ def gentle_warmup_md(
 
     logger.info("Gentle_warm_up_MD finished successfully!")
     log_time_since(module_init_time, "Gentle_warm_up_MD")
-    return
 
 
 def create_cv_bias(
@@ -1816,7 +1771,7 @@ def create_cv_bias(
     if cv_range is None:
         logger.warning("No minx/max value range for CVchosen by user")
         logger.info("Will choose reasonable values based on CV type:")
-        if cv_type == "dihedral" or cv_type == "torsion":
+        if cv_type in {"dihedral", "torsion"}:
             CV_min_val = -np.pi
             CV_max_val = np.pi
             CV_unit = openmm.unit.radians
@@ -1830,7 +1785,7 @@ def create_cv_bias(
             CV_unit_label = "rad"
             biaswidth_cv_unit = openmm.unit.radians
             biaswidth_cv_unit_label = "rad"
-        elif cv_type == "distance" or cv_type == "bond" or cv_type == "rmsd":
+        elif cv_type in {"distance", "bond", "rmsd"}:
             CV_min_val = 0.0
             CV_max_val = 5.0
             CV_unit = openmm.unit.angstroms
@@ -1855,12 +1810,12 @@ def create_cv_bias(
         logger.info("CV range given.")
         CV_min_val = cv_range[0]
         CV_max_val = cv_range[1]
-        if cv_type == "dihedral" or cv_type == "torsion" or cv_type == "angle":
+        if cv_type in {"dihedral", "torsion", "angle"}:
             CV_unit = openmm.unit.radians
             CV_unit_label = "rad"
             biaswidth_cv_unit = openmm.unit.radians
             biaswidth_cv_unit_label = "rad"
-        elif cv_type == "distance" or cv_type == "bond" or cv_type == "rmsd":
+        elif cv_type in {"distance", "bond", "rmsd"}:
             CV_unit = openmm.unit.angstroms
             CV_unit_label = "Å"
             biaswidth_cv_unit = openmm.unit.angstroms
@@ -1878,7 +1833,7 @@ def create_cv_bias(
     logger.info(f"CV_min_val: {CV_min_val} and CV_max_val: {CV_max_val} {CV_unit_label}")
     logger.info(f"Biaswidth of CV: {biaswidth_cv} {biaswidth_cv_unit_label}")
     # Define collective variables for CV1 and CV2.
-    if cv_type == "dihedral" or cv_type == "torsion":
+    if cv_type in {"dihedral", "torsion"}:
         if len(cv_atoms) != 4:
             raise InputError("Error: CV_atoms list must contain 4 atom indices")
         cvforce = openmm.CustomTorsionForce("theta")
@@ -1894,7 +1849,7 @@ def create_cv_bias(
         CV_bias = openmm.app.BiasVariable(
             cvforce, CV_min_val * CV_unit, CV_max_val * CV_unit, biaswidth_cv * biaswidth_cv_unit, periodic=False
         )
-    elif cv_type == "distance" or cv_type == "bond":
+    elif cv_type in {"distance", "bond"}:
         if len(cv_atoms) != 2:
             raise InputError("Error: CV_atoms list must contain 2 atom indices")
         cvforce = openmm.CustomBondForce("r")

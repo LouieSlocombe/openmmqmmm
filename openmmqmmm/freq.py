@@ -147,8 +147,7 @@ def analytic_frequencies(
         result.write_to_disk(filename="results_anfreq.json")
         return result
 
-    else:
-        raise InputError("Analytical frequencies not available for theory. Exiting.")
+    raise InputError("Analytical frequencies not available for theory. Exiting.")
 
 
 # Numerical frequencies function
@@ -210,9 +209,8 @@ def numerical_frequencies(
                 "numerical frequencies you want the list of hessatoms to be the same atoms used to define the "
                 "\nactive-region in the optimization (or the QM-region)\nExiting now."
             )
-        else:
-            hessatoms = allatoms
-            projection = True
+        hessatoms = allatoms
+        projection = True
     elif len(hessatoms) == fragment.numatoms:
         logger.info("Hessatoms list provided but equal to number of fragment atoms. Rot+trans projection is on!")
         projection = True
@@ -714,54 +712,52 @@ def diagonalize_hessian(
         # Moder-order unchanged
         mode_order = list(range(len(nmodes)))
         return vfreqs, nmodes, evectors, mode_order
-    else:
-        logger.info("No projection of rotational and translational modes will be done!")
-        # Massweight Hessian
-        mwhessian, massmatrix = massweight(hessian, masses)
-        # Diagonalize mass-weighted Hessian
-        evalues, evectors = np.linalg.eigh(mwhessian)
-        evectors = np.transpose(evectors)
+    logger.info("No projection of rotational and translational modes will be done!")
+    # Massweight Hessian
+    mwhessian, massmatrix = massweight(hessian, masses)
+    # Diagonalize mass-weighted Hessian
+    evalues, evectors = np.linalg.eigh(mwhessian)
+    evectors = np.transpose(evectors)
 
-        # Unweight eigenvectors to get normal modes
-        nmodes = np.dot(evectors, massmatrix)
+    # Unweight eigenvectors to get normal modes
+    nmodes = np.dot(evectors, massmatrix)
 
-        # Calculate frequencies from eigenvalues
-        vfreqs = calcfreq(evalues)
+    # Calculate frequencies from eigenvalues
+    vfreqs = calcfreq(evalues)
 
-        # Clean up the complex frequencies before using further
-        vfreqs = clean_frequencies(vfreqs)
+    # Clean up the complex frequencies before using further
+    vfreqs = clean_frequencies(vfreqs)
 
-        logger.info("Calculated frequencies: %s", vfreqs)
-        # NOTE: Since no projection the first freqs and modes are either TRmodes or imaginary SP modes (unknown)
-        # How to deal with this properly
-        # For now: let's assume large imaginary freqs are proper modes and other small imag/pos modes are TRmodes.
-        # TRmodes are not set to zero though
-        logger.info("Identifying TRmodes and SPmodes")
-        TRmodes = []
-        SPmodes = []
-        for i, f in enumerate(vfreqs):
-            if f < 0.0:
-                if f < LargeImagFreqThreshold:
-                    logger.info("High negative freq found (< -100). Assumed to be SP-mode.")
-                    SPmodes.append(i)
-                else:
-                    TRmodes.append(i)
+    logger.info("Calculated frequencies: %s", vfreqs)
+    # NOTE: Since no projection the first freqs and modes are either TRmodes or imaginary SP modes (unknown)
+    # How to deal with this properly
+    # For now: let's assume large imaginary freqs are proper modes and other small imag/pos modes are TRmodes.
+    # TRmodes are not set to zero though
+    logger.info("Identifying TRmodes and SPmodes")
+    TRmodes = []
+    SPmodes = []
+    for i, f in enumerate(vfreqs):
+        if f < 0.0:
+            if f < LargeImagFreqThreshold:
+                logger.info("High negative freq found (< -100). Assumed to be SP-mode.")
+                SPmodes.append(i)
             else:
-                if len(TRmodes) < tr_modenum:
-                    logger.info("Not enough TRmodes found. Adding mode to TRmodes")
-                    TRmodes.append(i)
+                TRmodes.append(i)
+        elif len(TRmodes) < tr_modenum:
+            logger.info("Not enough TRmodes found. Adding mode to TRmodes")
+            TRmodes.append(i)
 
-        logger.info("TRmodes: %s", TRmodes)
-        logger.info("SPmodes: %s", SPmodes)
-        # Now reordering freqs, and evectors
-        # First TRmodes, then SPmodes then rest
-        logger.info("Reordering modes so that TRmodes come first, then SP modes, then rest")
-        neworder = TRmodes + SPmodes + listdiff(range(len(vfreqs)), TRmodes + SPmodes)
-        vfreqs = [vfreqs[i] for i in neworder]
-        evectors = evectors[neworder]
-        nmodes = nmodes[neworder]
+    logger.info("TRmodes: %s", TRmodes)
+    logger.info("SPmodes: %s", SPmodes)
+    # Now reordering freqs, and evectors
+    # First TRmodes, then SPmodes then rest
+    logger.info("Reordering modes so that TRmodes come first, then SP modes, then rest")
+    neworder = TRmodes + SPmodes + listdiff(range(len(vfreqs)), TRmodes + SPmodes)
+    vfreqs = [vfreqs[i] for i in neworder]
+    evectors = evectors[neworder]
+    nmodes = nmodes[neworder]
 
-        return vfreqs, nmodes, evectors, neworder
+    return vfreqs, nmodes, evectors, neworder
 
 
 # Calculate IR intensities from masses, (mass-weighted) eigenvectors and dipole derivative matrix
@@ -771,8 +767,7 @@ def calc_ir_intensities(hessmasses, evectors, dipole_derivs):
     inv_sqrt_mass_matrix = np.diag(1 / (mass_matrix**0.5))
     displacements = inv_sqrt_mass_matrix.dot(np.transpose(evectors))
     de_q = displacements.T @ dipole_derivs
-    IR_intens_values = intens_factor * np.einsum("qt, qt -> q", de_q, de_q)
-    return IR_intens_values
+    return intens_factor * np.einsum("qt, qt -> q", de_q, de_q)
 
 
 # Massweight Hessian
@@ -795,8 +790,7 @@ def calcfreq(evalues):
     pi = openmmqmmm.constants.pi
     evalues_si = [val * hartree2j / bohr2m / bohr2m / amu2kg for val in evalues]
     vfreq_hz = [1 / (2 * pi) * np.sqrt(np.complex128(val)) for val in evalues_si]
-    vfreq = [val / c for val in vfreq_hz]
-    return vfreq
+    return [val / c for val in vfreq_hz]
 
 
 def printfreqs(vfreq, numatoms, tr_modenum=6, intensities=None, raman_activities=None):
@@ -949,12 +943,11 @@ def thermochemcalc(
             E_rot = 0.0
         elif moltype == "linear":
             # Rotational temperatures (linear case)
-            rot_temps = []
-            for in_I in inertia_si:
-                if in_I != 0.0:
-                    rot_temps.append(
-                        float(openmmqmmm.constants.h_planck**2 / (8 * math.pi**2 * openmmqmmm.constants.k_b_jk * in_I))
-                    )
+            rot_temps = [
+                float(openmmqmmm.constants.h_planck**2 / (8 * math.pi**2 * openmmqmmm.constants.k_b_jk * in_I))
+                for in_I in inertia_si
+                if in_I != 0.0
+            ]
             logger.info(f"Rotational temperatures: {rot_temps} K")
             rot_temps_x = rot_temps[0]
             # Symmetry number
@@ -1012,20 +1005,19 @@ def thermochemcalc(
             if mode < tr_modenum:
                 logger.info("%s %s", f"skipping TR mode ({mode}) with freq:", clean_number(vfreq[mode]))
                 continue
+            vib = clean_number(vfreq[mode])
+            if np.iscomplex(vib):
+                logger.info(f"Mode {mode} with frequency {vib} is imaginary. Skipping in thermochemistry")
+            elif vib <= 0:
+                # A zero frequency is not a vibration (an unprojected translation or
+                # rotation, or a completely flat direction) and its harmonic entropy
+                # and thermal energy both diverge, so it is excluded like a negative one.
+                logger.info(f"Mode {mode} with frequency {vib} is not positive. Skipping in thermochemistry")
             else:
-                vib = clean_number(vfreq[mode])
-                if np.iscomplex(vib):
-                    logger.info(f"Mode {mode} with frequency {vib} is imaginary. Skipping in thermochemistry")
-                elif vib <= 0:
-                    # A zero frequency is not a vibration (an unprojected translation or
-                    # rotation, or a completely flat direction) and its harmonic entropy
-                    # and thermal energy both diverge, so it is excluded like a negative one.
-                    logger.info(f"Mode {mode} with frequency {vib} is not positive. Skipping in thermochemistry")
-                else:
-                    freqs.append(float(vib))
-                    freq_Hz = vib * openmmqmmm.constants.c
-                    vibtemp = (openmmqmmm.constants.h_planck_hartreeseconds * freq_Hz) / openmmqmmm.constants.R_gasconst
-                    vibtemps.append(vibtemp)
+                freqs.append(float(vib))
+                freq_Hz = vib * openmmqmmm.constants.c
+                vibtemp = (openmmqmmm.constants.h_planck_hartreeseconds * freq_Hz) / openmmqmmm.constants.R_gasconst
+                vibtemps.append(vibtemp)
 
         # Zero-point vibrational energy
         zpve = sum([i * openmmqmmm.constants.halfhcfactor for i in freqs])
@@ -1514,7 +1506,7 @@ def approximate_full_hessian_from_smaller(
     hessian_small = np.array(hessian_small)
     logger.info("hessian_small: %s", hessian_small)
     # Fill up hessian_large with model approximation from ORCA
-    if rest_hessian == "Almloef" or rest_hessian == "Lindh" or rest_hessian == "Schlegel" or rest_hessian == "Swart":
+    if rest_hessian in {"Almloef", "Lindh", "Schlegel", "Swart"}:
         logger.info("restHessian: %s", rest_hessian)
         if charge is None or mult is None:
             raise InputError(
@@ -1529,7 +1521,7 @@ def approximate_full_hessian_from_smaller(
             "'zero' instead."
         )
     # Or with unit matrix
-    elif rest_hessian == "unit" or rest_hessian == "identity":
+    elif rest_hessian in {"unit", "identity"}:
         logger.info("restHessian is unit/identity")
         fullhessian = np.identity(hess_size)
     # Keep matrix at zero
@@ -1599,8 +1591,6 @@ def normalmodecomp_all(mode, fragment, evectors, hessatoms=None):
     for n in range(numatoms):
         normcomp = normalmodecomp(evectors, mode, n)
         normcomplist.append(normcomp)
-    [f"{x:.6f}" for x in normcomplist]
-    # if silent is False:
 
     # Returning normcomplist, a list of atomic contributions for each atom
     return normcomplist
@@ -1738,8 +1728,7 @@ def write_hessian(hessian, hessfile="Hessian") -> None:
 def read_hessian(file) -> np.ndarray:
     """Read a Hessian matrix from a text file written by write_hessian."""
     logger.info(f"Reading Hessian from file: {file}")
-    hessian = np.loadtxt(file)
-    return hessian
+    return np.loadtxt(file)
 
 
 # Detect if geometry is linear, either via fragment or coords array
@@ -1763,9 +1752,8 @@ def detect_linear(fragment=None, coords=None, elems=None, threshold=1e-4):
     if any(abs(i) < threshold for i in rinertia) is True:
         logger.info("Molecule is linear")
         return True
-    else:
-        logger.info("Molecule is non-linear")
-        return False
+    logger.info("Molecule is non-linear")
+    return False
 
 
 # Simple function to get the relevant part (real or imaginary) part of a complex number
@@ -1774,8 +1762,7 @@ def detect_linear(fragment=None, coords=None, elems=None, threshold=1e-4):
 def get_relevant_part_of_complex(numb):
     if numb.real > numb.imag:
         return numb.real
-    else:
-        return numb.imag * -1
+    return numb.imag * -1
 
 
 def clean_frequencies(freqs):
@@ -1875,11 +1862,23 @@ def project_rot_and_trans(coords, mass, hessian, rotmode_threshold=1e-4):
     proj_vals, proj_vecs = np.linalg.eigh(proj_overlap)
     proj_vecs = proj_vecs.T
 
-    # Make sure number of vanishing eigenvalues is roughly equal to TR_DOF
-    np.sum(abs(proj_vals) < 1.0e-8)  # Liberal counting of zeros - should be more than TR_DOF
-    np.sum(abs(proj_vals) < 1.0e-12)  # Conservative counting of zeros - should be less than TR_DOF
+    # The projection should leave exactly TR_DOF vanishing eigenvalues. Counting them
+    # liberally and conservatively brackets the true number: the liberal count should be
+    # at least TR_DOF and the conservative one at most TR_DOF. Outside that bracket the
+    # translation/rotation projection did not separate cleanly and the frequencies below
+    # are unreliable.
+    n_zeros_liberal = int(np.sum(abs(proj_vals) < 1.0e-8))
+    n_zeros_conservative = int(np.sum(abs(proj_vals) < 1.0e-12))
+    if not (n_zeros_conservative <= TR_DOF <= n_zeros_liberal):
+        logger.warning(
+            "Translation/rotation projection is not clean: expected %d vanishing eigenvalues, "
+            "found between %d and %d. Frequencies may be unreliable.",
+            TR_DOF,
+            n_zeros_conservative,
+            n_zeros_liberal,
+        )
+
     # Construct eigenvectors of unit length in the space of Cartesian displacements
-    TotDOF - TR_DOF
     norm_vecs = proj_vecs[TR_DOF:] / np.sqrt(proj_vals[TR_DOF:, np.newaxis])
 
     # These are the orthonormal, TR-projected internal coordinates

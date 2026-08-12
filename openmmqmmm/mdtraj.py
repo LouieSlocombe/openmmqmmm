@@ -69,9 +69,7 @@ def mdtraj_rmsd(trajectory, pdbtopology, atom_indices=None, parallel=True) -> np
     traj = mdtraj.load(trajectory, top=pdbtopology)
 
     # RMSD
-    rmsds = mdtraj.rmsd(traj, traj, 0, atom_indices=atom_indices, parallel=parallel)
-
-    return rmsds
+    return mdtraj.rmsd(traj, traj, 0, atom_indices=atom_indices, parallel=parallel)
 
 
 # anchor_molecules. Use if automatic guess fails
@@ -129,9 +127,7 @@ def mdtraj_image_trajectory(
     logger.info("Saved reimaged PDB-file: %s", pdb_basename + "_imaged.pdb")
     # Return last frame as coords or fragment ?
     # Last frame coordinates as Angstrom
-    lastframe = imaged[-1]._xyz[-1] * 10
-
-    return lastframe
+    return imaged[-1]._xyz[-1] * 10
 
 
 # Slicing trajectory. Mostly to grab specific snapshot
@@ -158,7 +154,7 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None) -> str
             "grab first frame or frames=[0,3] to grab first 3 frames\nAlso possible to do: frames='first' or "
             "frames='last' to grab first or last"
         )
-    elif frames == "first":
+    if frames == "first":
         frames = [0, 1]
     elif frames == "last":
         frames = [traj.n_frames - 1, traj.n_frames]
@@ -191,11 +187,11 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None) -> str
         tslice.save(traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd")
         logger.info("Saved sliced trajectory: %s", traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd")
         return traj_basename + f"_frame{frames[0]}_{frames[1]}.dcd"
-    elif traj_format == "PDB":
+    if traj_format == "PDB":
         tslice.save(traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb")
         logger.info("Saved sliced trajectory: %s", traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb")
         return traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb"
-    elif traj_format == "XYZ":
+    if traj_format == "XYZ":
         # Looping over selection and writing XYZ since mdtraj does not give proper elements
         logger.warning(
             "Warning: the MDtraj_slice XYZ-writing requires guessing element names based on atomnames in the topology "
@@ -214,9 +210,8 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None) -> str
                 title="title",
             )
         return traj_basename + f"_frame{frames[0]}_{frames[1]}.xyz"
-    else:
-        logger.info("Unknown trajectory format.")
-    return
+    logger.info("Unknown trajectory format.")
+    return None
 
 
 # Function to get internal coordinates from trajectory fast

@@ -18,7 +18,18 @@ from openmmqmmm import (
     read_xyzfile,
     write_xyzfile,
 )
-from openmmqmmm.coords import angle, dihedral, distance, elemlisttoformula, get_centroid, nucchargelist, totmasslist
+from openmmqmmm.coords import (
+    _build_connectivity,
+    angle,
+    dihedral,
+    distance,
+    eldict_covrad,
+    elemlisttoformula,
+    get_centroid,
+    nucchargelist,
+    threshold_conn,
+    totmasslist,
+)
 
 # A unit square walked corner to corner, so every quantity below is exact.
 UNIT_SQUARE = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
@@ -114,3 +125,73 @@ def test_rmsd_detects_a_real_difference():
     distorted = Fragment(coords=distorted_coords, elems=["C", "C", "C", "C"], charge=0, mult=1)
 
     assert calculate_rmsd(original, distorted) > 0.1
+
+
+# The package has two connectivity implementations: calc_conn_py / get_connected_atoms_np
+# (used by Fragment.calc_connectivity) and _build_connectivity (used by the internal
+# coordinate table). They read their covalent radii from the same table now, but used to
+# read from two copies of it, and only one copy carried the overrides that stop ions and
+# TIP4P dummy sites bonding to everything nearby.
+
+
+def _neighbours_via_calc_conn(coords, elems):
+    """Connectivity as Fragment.calc_connectivity computes it, as a per-atom neighbour set."""
+    neighbours = [set() for _ in elems]
+    for i in range(len(elems)):
+        for j in range(i + 1, len(elems)):
+            if distance(coords[i], coords[j]) < threshold_conn(elems[i], elems[j], scale=1.0, tol=0.4):
+                neighbours[i].add(j)
+                neighbours[j].add(i)
+    return neighbours
+
+
+def test_ions_do_not_bond_in_either_connectivity_path():
+    """Na+ sitting in a water shell must stay unbonded in both implementations.
+
+    eldict_covrad deliberately sets the Na and K radii to ~0 so that a solvated ion is not
+    reported as covalently bonded to the waters around it. The second radii table did not
+    carry that override, so _build_connectivity bonded the ion to all three waters.
+    """
+    # Na+ at the origin with three oxygens at 2.4 A -- a typical first solvation shell,
+    # well inside the sum of the unmodified Alvarez radii for Na (1.66) and O (0.66).
+    coords = np.array([[0.0, 0.0, 0.0], [2.4, 0.0, 0.0], [0.0, 2.4, 0.0], [0.0, 0.0, 2.4]])
+    elems = ["Na", "O", "O", "O"]
+
+    assert _build_connectivity(coords, elems)[0] == set()
+    assert _neighbours_via_calc_conn(coords, elems)[0] == set()
+
+
+def test_both_paths_use_the_same_covalent_radii():
+    """The one radii table, overrides included, backs both implementations.
+
+    Asserted directly rather than through a geometry, because the two implementations
+    still differ in one respect that no radius can paper over: _build_connectivity ignores
+    pairs closer than 0.4 A, threshold_conn has no such floor. A TIP4P M-site 0.15 A from
+    its oxygen is therefore unbonded in the first and bonded in the second, whatever the
+    M radius is set to.
+    """
+    # The overrides that keep solvated ions and dummy sites from bonding
+    assert eldict_covrad["Na"] < 0.01
+    assert eldict_covrad["K"] < 0.01
+    assert eldict_covrad["M"] == 0.0
+
+    # A geometry that discriminates: two sodiums 2.5 A apart. Under the raw Alvarez radius
+    # (1.66) the threshold is 3.72 A and they bond; under the override it is 0.4 A and they
+    # do not. Both implementations must land on the same side.
+    two_sodiums = np.array([[0.0, 0.0, 0.0], [2.5, 0.0, 0.0]])
+    assert _build_connectivity(two_sodiums, ["Na", "Na"]) == [set(), set()]
+    assert _neighbours_via_calc_conn(two_sodiums, ["Na", "Na"]) == [set(), set()]
+
+    # And the lanthanides, which the second table omitted entirely, are present
+    for symbol in ("Gd", "Eu", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "U", "Po", "At", "Rn"):
+        assert symbol in eldict_covrad
+
+
+def test_both_connectivity_paths_agree_on_a_normal_molecule():
+    """Where no override is involved the two implementations must give the same answer."""
+    # Water, at its equilibrium geometry.
+    coords = np.array([[0.0, 0.0, 0.0], [0.96, 0.0, 0.0], [-0.24, 0.93, 0.0]])
+    elems = ["O", "H", "H"]
+
+    assert _build_connectivity(coords, elems) == _neighbours_via_calc_conn(coords, elems)
+    assert _build_connectivity(coords, elems) == [{1, 2}, {0}, {0}]

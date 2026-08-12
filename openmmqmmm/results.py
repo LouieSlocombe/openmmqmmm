@@ -120,9 +120,8 @@ class Results:
                     logger.info(f"{k} : {len(v)}")
                 else:
                     logger.info(f"{k} : too long to print")
-            else:
-                if v is not None:
-                    logger.info(f"{k} : {v}")
+            elif v is not None:
+                logger.info(f"{k} : {v}")
         # Dump new dict
         try:
             with open(filename, "w") as f:
@@ -148,5 +147,4 @@ def read_results_from_file(filename="results.json") -> "Results":
 
     # Ignore keys from files written by older versions with more fields
     known_fields = {f.name for f in fields(Results)}
-    r = Results(**{k: v for k, v in data.items() if k in known_fields})
-    return r
+    return Results(**{k: v for k, v in data.items() if k in known_fields})

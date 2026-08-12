@@ -32,9 +32,17 @@ useful for testing gradient parsers.
 | HF/def2-SVP gradient | `h2o_engrad.inp` | `h2o_engrad.out`, `h2o_engrad.engrad` | energy, gradient, Mulliken/Loewdin charges, dipole, SCF-convergence and timing parsers |
 | BP86/def2-SVP gradient in a point-charge field | `h2o_pc.inp`, `h2o_pc.pc` | `h2o_pc.out`, `h2o_pc.pcgrad` | point-charge gradient parser, and the `pc_gradient` / `rij_coulomb_gradient` / `xc_gradient` timings the QM/MM path reports |
 | HF/def2-SVP frequencies | `h2o_freq.inp` | `h2o_freq.out`, `h2o_freq.hess` | Hessian and IR-intensity parsers |
+| UHF/def2-SVP water cation | `h2o_cation_charges.inp` | `h2o_cation_charges.out` | every charge model the parsers support (Mulliken, Loewdin, CHELPG, Hirshfeld, CM5) and the Mulliken/Loewdin spin-population tables |
 
 The point-charge run needs `def2/J` for RI-J, and DFT rather than HF, or ORCA never
 prints the `RI-J Coulomb gradient` and `XC gradient` timings the tests look for.
+
+The charge-model run uses the water *cation* (charge 1, doublet) so that ORCA prints the
+"... AND SPIN POPULATIONS" variants of the Mulliken and Loewdin tables alongside the
+plain ones. The two headings share a prefix, and the charge parser has to take a
+different column in each — a case that a closed-shell run cannot exercise. CHELPG comes
+from the `! CHELPG` keyword and Hirshfeld from `%output Print[P_Hirshfeld] 1 end`; CM5 is
+computed by openmmqmmm from the Hirshfeld charges and the printed geometry.
 
 The two point charges are a neutral +/-0.417 pair in the yz-plane at hydrogen-bonding
 distance, standing in for a neighbouring MM water. Being in the yz-plane keeps the
@@ -48,14 +56,18 @@ From this directory, with ORCA 6.1.1 on PATH:
 orca h2o_engrad.inp > h2o_engrad.out
 orca h2o_pc.inp     > h2o_pc.out
 orca h2o_freq.inp   > h2o_freq.out
+orca h2o_cation_charges.inp > h2o_cation_charges.out
 ```
+
+The charge-model run leaves several scratch files behind (`.vpot`, `.pc_chelpg`,
+`.chelpg.xyz`, `.densitiesinfo`, `.property.txt`); only the `.out` is kept.
 
 Then trim each `.out` down to its `INPUT FILE` banner — everything above it is the ORCA
 logo and credits, and it carries the absolute working directory, which should not be
 committed:
 
 ```sh
-for f in h2o_engrad h2o_pc h2o_freq; do
+for f in h2o_engrad h2o_pc h2o_freq h2o_cation_charges; do
     n=$(grep -n '^ *INPUT FILE *$' "$f.out" | head -1 | cut -d: -f1)
     tail -n +$((n - 1)) "$f.out" > "$f.trimmed" && mv "$f.trimmed" "$f.out"
 done

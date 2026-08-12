@@ -200,16 +200,8 @@ def creating_displaced_geos(current_coords, elems, displacement, npoint, charge,
     # Also calclabels, currently used by runmode serial only
     all_disp_fragments = []
     for dispgeo, disp in zip(list_of_displaced_geos, list_of_displacements, strict=False):
-        # Original geo
-        if disp == "Originalgeo":
-            stringlabel = "Originalgeo"
-        # Displacements
-        else:
-            disp[0]
-            if disp[1] == 0 or disp[1] == 1 or disp[1] == 2:
-                pass
-            disp[2]
-            stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
+        # "Originalgeo" for the reference geometry, atom_axis_direction for a displacement
+        stringlabel = "Originalgeo" if disp == "Originalgeo" else f"{disp[0]}_{disp[1]}_{disp[2]}"
         # Create fragment
         frag = openmmqmmm.Fragment(coords=dispgeo, elems=elems, label=stringlabel, charge=charge, mult=mult)
         all_disp_fragments.append(frag)

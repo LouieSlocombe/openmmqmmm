@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import time
 
 import numpy as np
@@ -92,23 +93,19 @@ def basename(filename):
     return os.path.splitext(filename)[0]
 
 
-# Grep-style function to find a line in file and return a list of words
-# TODO: Make more advanced
 def pygrep(string, file, errors=None):
+    """Return the whitespace-split first line of file containing string, or None."""
     with open(file, errors=errors) as f:
         for line in f:
             if string in line:
-                stringlist = line.split()
-                return stringlist
+                return line.split()
+    return None
 
 
-# Multiple match version. Replace pygrep ?
 def pygrep2(string, file, print_output=False, errors=None):
-    matches = []
+    """Return every line of file containing string, unsplit and with line endings."""
     with open(file, errors=errors) as f:
-        for line in f:
-            if string in line:
-                matches.append(line)
+        matches = [line for line in f if string in line]
     if print_output is True:
         logger.info("%s", "".join(matches))
     return matches
@@ -158,10 +155,8 @@ def isint(s):
         return False
 
 
-# Search list of lists. Returns list-index if match
-
-
 def search_list_of_lists_for_index(i, list_of_lists):
+    """Return the index of the first sublist containing i, or None."""
     return next((c for c, f in enumerate(list_of_lists) if i in f), None)
 
 
@@ -206,26 +201,20 @@ def writelisttofile(pylist, file, separator=" "):
     logger.info("Wrote list to file: %s", file)
 
 
-# Natural (human) sorting of list
 def natural_sort(items):
-    import re
-
-    def convert(text):
-        return int(text) if text.isdigit() else text.lower()
+    """Sort strings the way a human reads them: atom10 after atom9, not after atom1."""
 
     def alphanum_key(key):
-        return [convert(c) for c in re.split("([0-9]+)", key)]
+        return [int(part) if part.isdigit() else part.lower() for part in re.split("([0-9]+)", key)]
 
     return sorted(items, key=alphanum_key)
 
 
-# Reverse read function.
-
-
 def clean_number(number):
+    """Drop a negligible imaginary part, e.g. from a diagonalization."""
     return np.real_if_close(number)
 
 
-# Extract column from matrix
 def column(matrix, i):
+    """Return column i of a list-of-lists matrix."""
     return [row[i] for row in matrix]

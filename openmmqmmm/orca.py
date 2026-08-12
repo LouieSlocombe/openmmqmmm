@@ -136,8 +136,7 @@ class ORCATheory:
         # Whether to save ORCA outputfile with given label
         if save_output_with_label is True and label is None:
             raise InputError("Error: save_output_with_label option requires a label keyword also")
-        else:
-            self.save_output_with_label = save_output_with_label
+        self.save_output_with_label = save_output_with_label
 
         # Print population_analysis in each run
         self.print_population_analysis = print_population_analysis
@@ -378,8 +377,7 @@ end
 
         if fragment is None:
             raise InputError("No fragment provided to Opt.")
-        else:
-            logger.info("Fragment provided to Opt")
+        logger.info("Fragment provided to Opt")
 
         current_coords = fragment.coords
         elems = fragment.elems
@@ -537,8 +535,7 @@ end
         if qm_elems is None:
             if elems is None:
                 raise InputError("No elems provided")
-            else:
-                qm_elems = elems
+            qm_elems = elems
 
         # If QM/MM then atomindices lists like extrabasisatoms, atomstoflip and fragment_indices have to be updated
         if len(self.qmatoms) != 0:
@@ -604,11 +601,10 @@ end"""
                 logger.info(f"File does not exist in current directory: {os.getcwd()}")
                 if os.path.isabs(self.moreadfile) is True:
                     raise FileFormatError("Error: Absolute path provided but file does not exists. Exiting")
-                else:
-                    logger.info("Checking if file exists in parentdir instead:")
-                    if os.path.isfile(f"../{self.moreadfile}") is True:
-                        logger.info("Yes. Copying file to current dir")
-                        shutil.copy(f"../{self.moreadfile}", f"./{self.moreadfile}")
+                logger.info("Checking if file exists in parentdir instead:")
+                if os.path.isfile(f"../{self.moreadfile}") is True:
+                    logger.info("Yes. Copying file to current dir")
+                    shutil.copy(f"../{self.moreadfile}", f"./{self.moreadfile}")
         else:
             logger.info("Moreadfile option not active")
             if os.path.isfile(f"{self.filename}.gbw") is False:
@@ -933,16 +929,14 @@ end"""
                 logger.info("------------ENDING ORCA-INTERFACE-------------")
                 log_time_since(module_init_time, "ORCA run")
                 return self.energy, self.grad, self.pcgrad
-            else:
-                logger.info("------------ENDING ORCA-INTERFACE-------------")
-                log_time_since(module_init_time, "ORCA run")
-                return self.energy, self.grad
-
-        else:
-            logger.info("Single-point ORCA energy: %s", self.energy)
             logger.info("------------ENDING ORCA-INTERFACE-------------")
             log_time_since(module_init_time, "ORCA run")
-            return self.energy
+            return self.energy, self.grad
+
+        logger.info("Single-point ORCA energy: %s", self.energy)
+        logger.info("------------ENDING ORCA-INTERFACE-------------")
+        log_time_since(module_init_time, "ORCA run")
+        return self.energy
 
 
 ###############################################
@@ -1073,72 +1067,69 @@ def run_orca_sp_parallel(
             if ignore_orca_error is True:
                 logger.info("ignore_ORCA_error here")
                 return
-            else:
-                raise ExternalProgramError(f"ORCA run failed - check the output file: {basename}.out") from e
+            raise ExternalProgramError(f"ORCA run failed - check the output file: {basename}.out") from e
+
+
+# Lines matching "warning" that carry no information: banner headings and notices ORCA
+# emits on every run of a given kind. Matched against the start of the line.
+_BENIGN_WARNING_PREFIXES = (
+    "                       Please study these wa",
+    "                                        WARNINGS",
+    "Warning: in a DFT calculation",
+    "WARNING: Old DensityContainer",
+    "WARNING: your system is open-shell",
+)
+
+# Lines matching "error" that are ordinary output: convergence tables report a DIIS error
+# and a truncation error per iteration, and TD-DFT announces finishing without one.
+_BENIGN_ERROR_PREFIXES = (
+    "   Iter.        energy            ||Error||_2",
+    " WARNING: the maximum gradient error",
+    "           *** ORCA-CIS/TD-DFT FINISHED WITHOUT ERROR",
+    "   Startup",
+    "   DIIS-Error",
+    " DIIS",
+    "sum of PNO error",
+    "  Last DIIS Error",
+    "    DIIS-Error",
+    " Sum of total truncation errors",
+    "  Sum of total UMP2 truncation",
+)
+
+
+def _report_matching_lines(filename, needles, benign_prefixes, headline):
+    """Log the lines of an ORCA output file containing any needle, minus the benign ones.
+
+    One case-insensitive pass over the file. This used to be one pass per capitalisation
+    ORCA might have used -- three for warnings, four for errors -- with the results
+    concatenated and de-duplicated afterwards.
+    """
+    with open(filename, errors="ignore") as f:
+        matches = [
+            line
+            for line in f
+            if any(needle in line.casefold() for needle in needles) and not line.startswith(benign_prefixes)
+        ]
+    if matches:
+        logger.info(headline)
+        logger.info("%s", "".join(matches))
 
 
 def grab_orca_warnings(filename):
-    warning_lines = []
-    # Error-words to search for
-    # TODO: Avoid searching though file multiple times.
-    # TODO: Write pygrep version that supports list of search-strings
-    warning_strings = ["WARNING", "warning", "Warning"]
-    for warnstring in warning_strings:
-        warn_l = pygrep2(warnstring, filename, errors="ignore")
-        warning_lines += warn_l
-
-    warnings = []
-    # Lines that are not useful warnings
-    ignore_lines = [
-        "                       Please study these wa",
-        "                                        WARNINGS",
-        "Warning: in a DFT calculation",
-        "WARNING: Old DensityContainer",
-        "WARNING: your system is open-shell",
-    ]
-    for warn in warning_lines:
-        false_positive = any(warn.startswith(ign) for ign in ignore_lines)
-        if false_positive is False:
-            warnings.append(warn)
-    if len(warnings):
-        logger.info("Found warning messages in ORCA outputfile:")
-        logger.info("%s", "".join(warnings))
+    """Log any warning messages found in an ORCA output file."""
+    _report_matching_lines(
+        filename, ("warning",), _BENIGN_WARNING_PREFIXES, "Found warning messages in ORCA outputfile:"
+    )
 
 
 def grab_orca_errors(filename):
-    error_lines = []
-    # Error-words to search for
-    # TODO: Avoid searching though file multiple times.
-    # TODO: Write pygrep version that supports list of search-strings
-    error_strings = ["error", "Error", "ERROR", "aborting"]
-    for errstring in error_strings:
-        error_l = pygrep2(errstring, filename, errors="ignore")
-        for e in error_l:
-            if e not in error_lines:
-                error_lines.append(e)
-
-    errors = []
-    # Lines that are not errors
-    ignore_lines = [
-        "   Iter.        energy            ||Error||_2",
-        " WARNING: the maximum gradient error",
-        "           *** ORCA-CIS/TD-DFT FINISHED WITHOUT ERROR",
-        "   Startup",
-        "   DIIS-Error",
-        " DIIS",
-        "sum of PNO error",
-        "  Last DIIS Error",
-        "    DIIS-Error",
-        " Sum of total truncation errors",
-        "  Sum of total UMP2 truncation",
-    ]
-    for err in error_lines:
-        false_positive = any(err.startswith(ign) for ign in ignore_lines)
-        if false_positive is False:
-            errors.append(err)
-    if len(errors):
-        logger.info("Found possible error messages in ORCA outputfile:")
-        logger.info("%s", "".join(errors))
+    """Log any error messages found in an ORCA output file."""
+    _report_matching_lines(
+        filename,
+        ("error", "aborting"),
+        _BENIGN_ERROR_PREFIXES,
+        "Found possible error messages in ORCA outputfile:",
+    )
 
 
 # Check if ORCA finished.
@@ -1174,9 +1165,8 @@ def grab_orca_final_energy(file, errors="ignore"):
             if "FINAL SINGLE POINT ENERGY" in line:
                 if "Wavefunction not fully converged!" in line:
                     raise ExternalProgramError("ORCA WF not fully converged!\nNot using energy. Modify ORCA settings")
-                else:
-                    # Changing: sometimes ORCA adds info to the right of energy
-                    Energy = float(line.split()[5]) if "(MM)" in line else float(line.split()[4])
+                # Changing: sometimes ORCA adds info to the right of energy
+                Energy = float(line.split()[5]) if "(MM)" in line else float(line.split()[4])
     if Energy is None:
         logger.error("Found no energy in file: %s", file)
         logger.error("Something went wrong with ORCA run. Check ORCA outputfile: %s", file)
@@ -1691,170 +1681,199 @@ def create_orca_pcfile(name, coords, listofcharges):
             pcfile.write(line + "\n")
 
 
-# Grabbing spin populations
-def grab_orca_spin_populations(chargemodel, outputfile):
-    grab = False
-    spinpops = []
-    BS = False  # if broken-symmetry job
-    numatoms = int(pygrep("Number of atoms                             ...", outputfile)[-1])
-    # if
-    if len(pygrep2("WARNING: Broken symmetry calculations", outputfile)):
-        BS = True
+# ORCA prints every population analysis as a table: a heading, a rule, one row per atom,
+# then a terminator. The models differ only in the heading, the column the number sits in,
+# and how the table ends -- so they are described here rather than written out nine times.
+#
+# column is the index into the row's whitespace-separated fields.
+# stop is checked before the row is parsed; a row is skipped when it holds no data.
+_CHARGE_TABLES = {
+    "NPA": {
+        "start": "Atom No    Charge        Core      Valence    Rydberg      Total",
+        "stop": lambda line: "=======" in line,
+        "column": 2,
+    },
+    "NBO": {
+        "start": "Atom No    Charge        Core      Valence    Rydberg      Total",
+        "stop": lambda line: "=======" in line,
+        "column": 2,
+    },
+    "CHELPG": {
+        "start": "CHELPG Charges",
+        "stop": lambda line: "Total charge: " in line,
+        "column": -1,
+        "row": lambda fields: len(fields) == 4,
+    },
+    "HIRSHFELD": {
+        "start": "  ATOM     CHARGE      SPIN",
+        "stop": lambda line: len(line) < 3,
+        "column": -2,
+        "row": lambda fields: len(fields) == 4,
+    },
+    "CM5": {
+        "start": "  ATOM     CHARGE      SPIN",
+        "stop": lambda line: len(line) < 3,
+        "column": -2,
+        "row": lambda fields: len(fields) == 4,
+    },
+    "MULLIKEN": {
+        "start": "MULLIKEN ATOMIC CHARGES",
+        "stop": lambda line: "Sum of atomic" in line,
+        # The heading is also the prefix of "MULLIKEN ATOMIC CHARGES AND SPIN POPULATIONS",
+        # where the charge is the second-to-last column and the last one is the spin.
+        "column": lambda heading: -2 if "SPIN POPULATIONS" in heading else -1,
+    },
+    "LOEWDIN": {
+        "start": "LOEWDIN ATOMIC CHARGES",
+        "stop": lambda line: "Sum of atomic" in line or len(line.replace(" ", "")) < 2,
+        "column": lambda heading: -2 if "SPIN POPULATIONS" in heading else -1,
+    },
+    "IAO": {
+        "start": "IAO PARTIAL CHARGES",
+        "stop": lambda line: "Sum of atomic" in line,
+        "skip": ("------", "Warning"),
+    },
+}
 
-    if chargemodel == "Mulliken":
-        with open(outputfile) as ofile:
-            for line in ofile:
-                if grab is True:
-                    if "Sum of atomic" in line:
-                        grab = False
-                    elif "------" not in line:
-                        spinpops.append(float(line.split()[-1]))
-                if "MULLIKEN ATOMIC CHARGES AND SPIN POPULATIONS" in line:
-                    grab = True
-    elif chargemodel == "Loewdin":
-        with open(outputfile) as ofile:
-            for line in ofile:
-                if grab is True:
-                    if "Sum of atomic" in line or len(line.replace(" ", "")) < 2:
-                        grab = False
-                    elif "------" not in line:
-                        spinpops.append(float(line.split()[-1]))
-                if "LOEWDIN ATOMIC CHARGES AND SPIN POPULATIONS" in line:
-                    grab = True
-    else:
-        raise FileFormatError("Unknown chargemodel. Exiting...")
-    # If BS then we have grabbed charges for both high-spin and BS solution
-    if BS is True:
-        logger.info("Broken-symmetry job detected. Only taking BS-state populations")
-        if len(spinpops) != numatoms:
-            spinpops = spinpops[-numatoms:]
-    # if len(spinpops) == 0:
-    return spinpops
+_SPIN_POPULATION_TABLES = {
+    "MULLIKEN": {
+        "start": "MULLIKEN ATOMIC CHARGES AND SPIN POPULATIONS",
+        "stop": lambda line: "Sum of atomic" in line,
+    },
+    "LOEWDIN": {
+        "start": "LOEWDIN ATOMIC CHARGES AND SPIN POPULATIONS",
+        "stop": lambda line: "Sum of atomic" in line or len(line.replace(" ", "")) < 2,
+    },
+}
+
+
+def _scan_orca_table(outputfile, spec):
+    """Read one column of an ORCA population-analysis table into a list of floats.
+
+    Restarts on every matching heading, so when ORCA prints the same table more than once
+    (it does, for instance before and after a CHELPG fit) the last one wins -- which is
+    the converged one.
+    """
+    start = spec["start"]
+    stop = spec["stop"]
+    column_spec = spec.get("column", -1)
+    row_is_data = spec.get("row")
+    skip = spec.get("skip", ("------",))
+
+    values = []
+    column = None
+    grabbing = False
+    with open(outputfile) as f:
+        for line in f:
+            if grabbing:
+                if stop(line):
+                    grabbing = False
+                elif not any(marker in line for marker in skip):
+                    fields = line.split()
+                    if row_is_data is None or row_is_data(fields):
+                        values.append(float(fields[column]))
+            if start in line:
+                # A second table of the same kind supersedes the first, and the column is
+                # re-read from this heading: the two Mulliken tables differ in width.
+                values = []
+                grabbing = True
+                column = column_spec(line) if callable(column_spec) else column_spec
+    return values
+
+
+def _trim_to_broken_symmetry_solution(values, outputfile, kind):
+    """Keep only the broken-symmetry values when both solutions were printed.
+
+    A broken-symmetry job prints the analysis twice, high-spin first. Only the second is
+    the state of interest.
+
+    The charge and spin-population paths used to disagree here -- one took values[numatoms:]
+    and the other values[-numatoms:]. They agree for exactly two solutions; the negative
+    slice is used because it yields numatoms values however many were collected.
+    """
+    if not pygrep2("WARNING: Broken symmetry calculations", outputfile):
+        return values
+    numatoms = int(pygrep("Number of atoms                             ...", outputfile)[-1])
+    if len(values) == numatoms:
+        return values
+    logger.info("Broken-symmetry job detected. Only taking BS-state %s", kind)
+    return values[-numatoms:]
+
+
+def grab_orca_spin_populations(chargemodel, outputfile):
+    """Read atomic spin populations from an ORCA output file.
+
+    Args:
+        chargemodel: "Mulliken" or "Loewdin" (case-insensitive).
+        outputfile: path to the ORCA output file.
+
+    Returns:
+        One spin population per atom, in input order.
+    """
+    spec = _SPIN_POPULATION_TABLES.get(chargemodel.upper())
+    if spec is None:
+        raise FileFormatError(
+            f"Unknown chargemodel '{chargemodel}' for spin populations. "
+            f"Expected one of: {', '.join(sorted(_SPIN_POPULATION_TABLES))}."
+        )
+    spinpops = _scan_orca_table(outputfile, spec)
+    return _trim_to_broken_symmetry_solution(spinpops, outputfile, "populations")
 
 
 def grab_orca_atom_charges(chargemodel, outputfile):
-    grab = False
-    coordgrab = False
-    charges = []
-    BS = False  # if broken-symmetry job
-    column = None
+    """Read atomic partial charges from an ORCA output file.
 
-    numatoms = int(pygrep("Number of atoms                             ...", outputfile)[-1])
+    Args:
+        chargemodel: one of Mulliken, Loewdin, CHELPG, Hirshfeld, CM5, IAO, NPA/NBO
+            (case-insensitive). CM5 charges are computed here from the Hirshfeld table.
+        outputfile: path to the ORCA output file.
 
-    # if
-    if len(pygrep2("WARNING: Broken symmetry calculations", outputfile)):
-        BS = True
-
-    if chargemodel == "NPA" or chargemodel == "NBO":
+    Returns:
+        One charge per atom, in input order.
+    """
+    model = chargemodel.upper()
+    spec = _CHARGE_TABLES.get(model)
+    if spec is None:
+        raise FileFormatError(
+            f"Unknown chargemodel '{chargemodel}'. Expected one of: {', '.join(sorted(_CHARGE_TABLES))}."
+        )
+    if model in ("NPA", "NBO"):
         logger.warning("NPA/NBO charge-option in ORCA requires setting environment variable NBOEXE:")
         logger.info("e.g. export NBOEXE=/path/to/nbo7.exe")
-        with open(outputfile) as ofile:
-            for line in ofile:
-                if grab:
-                    if "=======" in line:
-                        grab = False
-                    elif "------" not in line:
-                        charges.append(float(line.split()[2]))
-                if "Atom No    Charge        Core      Valence    Rydberg      Total" in line:
-                    grab = True
-    elif chargemodel.upper() == "CHELPG":
-        with open(outputfile) as ofile:
-            for line in ofile:
-                if grab:
-                    if "Total charge: " in line:
-                        grab = False
-                    if len(line.split()) == 4:
-                        charges.append(float(line.split()[-1]))
-                if "CHELPG Charges" in line:
-                    grab = True
-                    # Setting charges list to zero in case of multiple charge-tables. Means we grab second table
-                    charges = []
-    elif chargemodel.upper() == "HIRSHFELD":
-        with open(outputfile) as ofile:
-            for line in ofile:
-                if grab:
-                    if len(line) < 3:
-                        grab = False
-                    if len(line.split()) == 4:
-                        charges.append(float(line.split()[-2]))
-                if "  ATOM     CHARGE      SPIN" in line:
-                    grab = True
-                    # Setting charges list to zero in case of multiple charge-tables. Means we grab second table
-                    charges = []
-    elif chargemodel.upper() == "CM5":
-        elems = []
-        coords = []
-        with open(outputfile) as ofile:
-            for line in ofile:
-                # Getting coordinates as used in CM5 definition
-                if coordgrab is True and "----------------------" not in line:
-                    if len(line.split()) < 2:
-                        coordgrab = False
-                    else:
-                        elems.append(line.split()[0])
-                        coords_x = float(line.split()[1])
-                        coords_y = float(line.split()[2])
-                        coords_z = float(line.split()[3])
-                        coords.append([coords_x, coords_y, coords_z])
-                if "CARTESIAN COORDINATES (ANGSTROEM)" in line:
-                    coordgrab = True
-                if grab:
-                    if len(line) < 3:
-                        grab = False
-                    if len(line.split()) == 4:
-                        charges.append(float(line.split()[-2]))
-                if "  ATOM     CHARGE      SPIN" in line:
-                    # Setting charges list to zero in case of multiple charge-tables. Means we grab second table
-                    charges = []
-                    grab = True
+
+    charges = _scan_orca_table(outputfile, spec)
+
+    if model == "CM5":
+        # CM5 is a correction applied to the Hirshfeld charges, using the geometry ORCA
+        # used for them.
         logger.info("Hirshfeld charges : %s", charges)
+        elems, coords = _grab_orca_cartesian_coordinates(outputfile)
         atomicnumbers = openmmqmmm.coords.elemstonuccharges(elems)
-        charges = openmmqmmm.elstructure.calc_cm5(atomicnumbers, coords, charges)
-        logger.info("CM5 charges : %s", list(charges))
-    elif chargemodel.upper() == "MULLIKEN":
-        with open(outputfile) as ofile:
-            for line in ofile:
-                if grab:
-                    if "Sum of atomic" in line:
-                        grab = False
-                    elif "------" not in line:
-                        charges.append(float(line.split()[column]))
-                if "MULLIKEN ATOMIC CHARGES" in line:
-                    grab = True
-                    column = -2 if "SPIN POPULATIONS" in line else -1
+        charges = list(openmmqmmm.elstructure.calc_cm5(atomicnumbers, coords, charges))
+        logger.info("CM5 charges : %s", charges)
 
-    elif chargemodel.upper() == "LOEWDIN":
-        with open(outputfile) as ofile:
-            for line in ofile:
-                if grab:
-                    if "Sum of atomic" in line or len(line.replace(" ", "")) < 2:
-                        grab = False
-                    elif "------" not in line:
-                        charges.append(float(line.split()[column]))
-                if "LOEWDIN ATOMIC CHARGES" in line:
-                    grab = True
-                    column = -2 if "SPIN POPULATIONS" in line else -1
-    elif chargemodel.upper() == "IAO":
-        with open(outputfile) as ofile:
-            for line in ofile:
-                if grab:
-                    if "Sum of atomic" in line:
-                        grab = False
-                    elif "------" not in line and "Warning" not in line:
-                        logger.info("line: %s", line)
-                        charges.append(float(line.split()[-1]))
-                if "IAO PARTIAL CHARGES" in line:
-                    grab = True
-    else:
-        raise FileFormatError("Unknown chargemodel. Exiting...")
+    return _trim_to_broken_symmetry_solution(charges, outputfile, "charges")
 
-    # If BS then we have grabbed charges for both high-spin and BS solution
-    if BS is True:
-        logger.info("Broken-symmetry job detected. Only taking BS-state populations")
-        if len(charges) != numatoms:
-            charges = charges[numatoms:]
-        logger.info("charges: %s", charges)
-    return charges
+
+def _grab_orca_cartesian_coordinates(outputfile):
+    """Read the last Cartesian coordinate block ORCA printed, in Angstrom."""
+    elems = []
+    coords = []
+    grabbing = False
+    with open(outputfile) as f:
+        for line in f:
+            if grabbing and "----------------------" not in line:
+                fields = line.split()
+                if len(fields) < 2:
+                    grabbing = False
+                else:
+                    elems.append(fields[0])
+                    coords.append([float(fields[1]), float(fields[2]), float(fields[3])])
+            if "CARTESIAN COORDINATES (ANGSTROEM)" in line:
+                elems = []
+                coords = []
+                grabbing = True
+    return elems, coords
 
 
 # Wrapper around interactive orca_plot
@@ -2007,10 +2026,7 @@ def orca_external_optimizer(
         logger.info("Activeatoms list was provided. This means that we need to provide constraints to ORCA")
         frozenatoms = listdiff(fragment.allatoms, actatoms)
         logger.info("Freezing the non-active atoms: %s", frozenatoms)
-        cons = []
-        for f in frozenatoms:
-            cons.append(f"{{C {f} C}}\n")
-        consstring = "".join(cons)
+        consstring = "".join(f"{{C {f} C}}\n" for f in frozenatoms)
         constraintsblock = f"""%geom Constraints
 {consstring}end
 end

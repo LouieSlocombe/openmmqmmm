@@ -92,6 +92,11 @@ select = [
     # nothing to keep and stop the styles they forbid from creeping back in.
     "ICN", "TID", "PYI", "RSE", "FA", "PGH", "DTZ", "EXE", "INT", "ISC", "ERA",
     "PLR2044",
+    # Redundancy the formatter cannot see: `else` after `return`/`raise`, assign-then-
+    # return, `x == 0 or x == 1` chains, trailing bare `return`, manual list-building
+    # loops. Adopted after a de-duplication pass cleared the ~130 existing violations.
+    # (RUF047/RUF050 would belong here too but are preview-only in ruff 0.16.)
+    "RET", "PERF", "PLR1714", "PLR5501", "PLR1711", "PLC1802",
 ]
 ignore = [
     # f-strings in log calls are fine: the messages are the calculation record

@@ -36,7 +36,6 @@ def check_openmpi():
     logger.info("OpenMPI binary directory found: %s", openmpibindir)
     # Test that mpirun is executable and grab OpenMPI version number for printout
     verify_openmpi()
-    return
 
 
 def verify_openmpi():
@@ -206,8 +205,27 @@ def job_parallel(
     ##############################################################
     # Calling Pool for different fragment vs. theory scenarios
     ###############################################################
-    # Case: 1 theory, multiple fragments
     results = []
+
+    def submit(**job):
+        """Queue one worker_par call. The four cases below differ only in `job`."""
+        results.append(
+            pool.apply_async(
+                worker_par,
+                kwds={
+                    "mofilesdir": mofilesdir,
+                    "version": version,
+                    "event": event,
+                    "grad": grad,
+                    "copytheory": copytheory,
+                    "optimizer": optimizer,
+                    **job,
+                },
+                error_callback=terminate_pool_processes,
+            )
+        )
+
+    # Case: 1 theory, multiple fragments
     if len(theories) == 1:
         theory = theories[0]
         logger.info("Case: Multiple fragments but one theory")
@@ -239,91 +257,27 @@ def job_parallel(
             logger.info("fragments: %s", fragments)
             for fragment in fragments:
                 logger.info("fragment: %s", fragment)
-                results.append(
-                    pool.apply_async(
-                        worker_par,
-                        kwds={
-                            "theory": theory,
-                            "fragment": fragment,
-                            "label": fragment.label,
-                            "mofilesdir": mofilesdir,
-                            "version": version,
-                            "event": event,
-                            "grad": grad,
-                            "copytheory": copytheory,
-                            "optimizer": optimizer,
-                        },
-                        error_callback=terminate_pool_processes,
-                    )
-                )
+                submit(theory=theory, fragment=fragment, label=fragment.label)
         # Passing list of fragment files
         elif len(fragmentfiles) > 0:
             logger.info("Launching multiprocessing and passing list of fragment files")
             for fragmentfile in fragmentfiles:
                 logger.info("fragmentfile: %s", fragmentfile)
-                results.append(
-                    pool.apply_async(
-                        worker_par,
-                        kwds={
-                            "theory": theory,
-                            "fragmentfile": fragmentfile,
-                            "label": fragmentfile,
-                            "mofilesdir": mofilesdir,
-                            "version": version,
-                            "event": event,
-                            "grad": grad,
-                            "copytheory": copytheory,
-                            "optimizer": optimizer,
-                        },
-                        error_callback=terminate_pool_processes,
-                    )
-                )
+                submit(theory=theory, fragmentfile=fragmentfile, label=fragmentfile)
     # Case: Multiple theories, 1 fragment
     elif len(fragments) == 1:
         logger.info("Case: Multiple theories but one fragment")
         fragment = fragments[0]
         for theory in theories:
             logger.info("theory: %s", theory)
-            results.append(
-                pool.apply_async(
-                    worker_par,
-                    kwds={
-                        "theory": theory,
-                        "fragment": fragment,
-                        "label": fragment.label,
-                        "mofilesdir": mofilesdir,
-                        "version": version,
-                        "event": event,
-                        "grad": grad,
-                        "copytheory": copytheory,
-                        "optimizer": optimizer,
-                    },
-                    error_callback=terminate_pool_processes,
-                )
-            )
+            submit(theory=theory, fragment=fragment, label=fragment.label)
     # Case: Multiple theories, 1 fragmentfile
     elif len(fragmentfiles) == 1:
         logger.info("Case: Multiple theories but one fragmentfile")
         fragmentfile = fragmentfiles[0]
         for theory in theories:
             logger.info("theory: %s", theory)
-            results.append(
-                pool.apply_async(
-                    worker_par,
-                    kwds={
-                        "theory": theory,
-                        "fragmentfile": fragmentfile,
-                        "label": fragmentfile,
-                        "mofilesdir": mofilesdir,
-                        "version": version,
-                        "event": event,
-                        "grad": grad,
-                        "copytheory": copytheory,
-                        "optimizer": optimizer,
-                    },
-                    error_callback=terminate_pool_processes,
-                )
-            )
+            submit(theory=theory, fragmentfile=fragmentfile, label=fragmentfile)
     else:
         raise InputError("Multiple theories and multiple fragments provided.\nThis is not supported. Exiting...")
 
@@ -570,8 +524,7 @@ def worker_par(
     # Return label and energy or label, energy and gradient. Also worker_dirname
     if grad:
         return (label, energy, gradient, worker_dirname, properties)
-    else:
-        return (label, energy, worker_dirname, properties)
+    return (label, energy, worker_dirname, properties)
 
 
 # Simple parallel function for cases where no file handling is needed.

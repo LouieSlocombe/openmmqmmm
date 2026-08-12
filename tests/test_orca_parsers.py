@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from openmmqmmm import orca
+from openmmqmmm.exceptions import FileFormatError
 
 # Reference values are the ones ORCA itself printed in these outputs.
 ENGRAD_ENERGY = -75.960983986705
@@ -166,3 +167,86 @@ def test_clean_output_has_no_errors(orca_outputs, caplog):
     with caplog.at_level("INFO", logger="openmmqmmm.orca"):
         orca.grab_orca_errors(str(orca_outputs / "h2o_engrad.out"))
     assert "ORCA-error" not in caplog.text
+
+
+# The open-shell fixture (water cation, UHF/def2-SVP) carries all four charge tables the
+# parsers know how to read plus the "... AND SPIN POPULATIONS" variants, so the table
+# scanner behind grab_orca_atom_charges is covered for every model it claims to support.
+CATION_CHARGES = {
+    "Mulliken": [0.381621, 0.309190, 0.309190],
+    "Loewdin": [0.608679, 0.195660, 0.195660],
+    "CHELPG": [-0.011262, 0.505539, 0.505723],
+    "Hirshfeld": [0.336715, 0.331644, 0.331644],
+}
+CATION_SPIN_POPULATIONS = {
+    "Mulliken": [1.092995, -0.046497, -0.046497],
+    "Loewdin": [1.013492, -0.006746, -0.006746],
+}
+
+
+@pytest.fixture
+def cation_output(orca_outputs):
+    return str(orca_outputs / "h2o_cation_charges.out")
+
+
+@pytest.mark.parametrize(("chargemodel", "expected"), CATION_CHARGES.items())
+def test_grab_atom_charges_every_model(cation_output, chargemodel, expected):
+    charges = orca.grab_orca_atom_charges(chargemodel, cation_output)
+    assert charges == pytest.approx(expected)
+    # The cation carries a single positive charge.
+    assert sum(charges) == pytest.approx(1.0, abs=1e-5)
+
+
+@pytest.mark.parametrize("chargemodel", list(CATION_CHARGES))
+def test_chargemodel_name_is_case_insensitive(cation_output, chargemodel):
+    """Callers pass these straight through from user input, in whatever case they wrote."""
+    assert orca.grab_orca_atom_charges(chargemodel.upper(), cation_output) == pytest.approx(
+        orca.grab_orca_atom_charges(chargemodel.lower(), cation_output)
+    )
+
+
+def test_grab_atom_charges_rejects_unknown_model(cation_output):
+    with pytest.raises(FileFormatError):
+        orca.grab_orca_atom_charges("NotAChargeModel", cation_output)
+
+
+@pytest.mark.parametrize(("chargemodel", "expected"), CATION_SPIN_POPULATIONS.items())
+def test_grab_spin_populations(cation_output, chargemodel, expected):
+    spinpops = orca.grab_orca_spin_populations(chargemodel, cation_output)
+    assert spinpops == pytest.approx(expected)
+    # A doublet has one unpaired electron.
+    assert sum(spinpops) == pytest.approx(1.0, abs=1e-5)
+
+
+def test_charge_tables_are_not_confused_with_spin_tables(cation_output):
+    """The plain-charge and charge-plus-spin tables share a heading prefix.
+
+    "MULLIKEN ATOMIC CHARGES" is a prefix of "MULLIKEN ATOMIC CHARGES AND SPIN
+    POPULATIONS", so the charge parser matches the open-shell table too and has to take
+    the second-to-last column there rather than the last one. Getting that wrong returns
+    spin populations while claiming to return charges.
+    """
+    charges = orca.grab_orca_atom_charges("Mulliken", cation_output)
+    spinpops = orca.grab_orca_spin_populations("Mulliken", cation_output)
+    assert charges != pytest.approx(spinpops)
+    assert charges == pytest.approx(CATION_CHARGES["Mulliken"])
+
+
+def test_grab_spin_populations_rejects_unknown_model(cation_output):
+    with pytest.raises(FileFormatError):
+        orca.grab_orca_spin_populations("NotAChargeModel", cation_output)
+
+
+def test_grab_cm5_charges(cation_output):
+    """CM5 is derived from the Hirshfeld charges plus the geometry ORCA used for them.
+
+    It is the one charge model that needs a second block out of the output file, and it
+    had no coverage at all.
+    """
+    cm5 = orca.grab_orca_atom_charges("CM5", cation_output)
+    assert len(cm5) == 3
+    assert sum(cm5) == pytest.approx(1.0, abs=1e-4), "The cation carries one positive charge"
+    # CM5 shifts charge from hydrogen towards oxygen relative to Hirshfeld.
+    hirshfeld = orca.grab_orca_atom_charges("Hirshfeld", cation_output)
+    assert cm5[0] < hirshfeld[0]
+    assert cm5[1] > hirshfeld[1]

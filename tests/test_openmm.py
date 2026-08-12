@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from openmmqmmm import Fragment, OpenMMTheory, openmm_modeller, single_point
+import numpy as np
+import pytest
+
+from openmmqmmm import Fragment, OpenMMTheory, openmm_md, openmm_modeller, single_point
+from openmmqmmm.exceptions import InputError
 
 TEST_DIR = Path(__file__).parent
 
@@ -43,3 +47,49 @@ def test_openmm_modeller():
     assert fragment.numatoms > 1079, "Modeller should add hydrogens, water and ions"
     assert len(fragment.elems) == fragment.numatoms
     assert "H" in fragment.elems, "Hydrogens should have been added"
+
+
+def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):
+    """openmm_md end to end, on a system small enough to run in a test.
+
+    This entry point had no execution coverage at all, and spent a release raising
+    TypeError on every call: it passed ``enforcePeriodicBox`` to MolecularDynamicsEngine,
+    whose parameter is ``enforce_periodic_box``. A static check on the call sites lives in
+    test_internal_call_signatures.py; this one actually turns the crank.
+
+    The MeOH...H2O force field here has no bonded terms, so the dynamics are not
+    physically meaningful and nothing below asserts on energies — only that the run
+    completes, advances the coordinates and writes its output files.
+    """
+    monkeypatch.chdir(tmp_path)
+    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
+    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
+    theory = OpenMMTheory(
+        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
+        pdbfile="h2o_MeOH.pdb",
+        autoconstraints=None,
+        rigidwater=False,
+    )
+
+    starting_coords = fragment.coords.copy()
+    openmm_md(
+        fragment=fragment,
+        theory=theory,
+        timestep=0.0005,
+        simulation_steps=20,
+        traj_frequency=10,
+        temperature=300,
+        integrator="LangevinMiddleIntegrator",
+    )
+
+    assert (tmp_path / "trajectory.dcd").exists(), "The DCD trajectory should have been written"
+    assert (tmp_path / "trajectory_lastframe.pdb").exists(), "finalize_simulation writes the last frame"
+    assert fragment.coords.shape == starting_coords.shape
+    assert not np.allclose(fragment.coords, starting_coords), "MD must advance the coordinates"
+    assert np.all(np.isfinite(fragment.coords))
+
+
+def test_openmm_md_requires_a_run_length():
+    """Neither simulation_steps nor simulation_time is an error, not a zero-length run."""
+    with pytest.raises(InputError):
+        openmm_md(fragment=None, theory=None)
