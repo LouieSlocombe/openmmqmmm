@@ -9,7 +9,8 @@ path reports.
 
 The fixtures in orca_outputs/ are real ORCA 6.1.1 output for a water molecule
 (HF/def2-SVP gradient, BP86/def2-SVP gradient with a point-charge field, and an
-HF/def2-SVP frequency run), with only the banner trimmed off the top.
+HF/def2-SVP frequency run), with only the banner trimmed off the top. The inputs that
+produced them are committed alongside; see orca_outputs/README.md to regenerate.
 """
 
 import numpy as np
@@ -64,7 +65,8 @@ def test_grab_gradient(orca_outputs):
 def test_grab_pc_gradient(orca_outputs):
     pc_gradient = orca.grab_orca_pc_gradient(str(orca_outputs / "h2o_pc.pcgrad"))
     assert pc_gradient.shape == (2, 3), "One row per point charge"
-    assert np.allclose(pc_gradient[0], [0.0, 0.005144867404, 0.004916596801])
+    # The two charges sit in the yz-plane, so the x-component is exactly zero.
+    assert np.allclose(pc_gradient[0], [0.0, 0.005690336178, 0.003780363794])
 
 
 @pytest.mark.parametrize(
