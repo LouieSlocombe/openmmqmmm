@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, modernize]
+    branches: [main]
   pull_request:
 
 concurrency:
@@ -16,11 +16,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
         with:
-          version: "0.16.1"  # keep in sync with the version used locally
+          version: "0.16.2"  # keep in sync with the version used locally
           args: "check ."
       - uses: astral-sh/ruff-action@v3
         with:
-          version: "0.16.1"
+          version: "0.16.2"
           args: "format --check ."
 
   tests:
@@ -42,5 +42,37 @@ jobs:
           cache-environment: true
       - run: pip install -e . --no-deps
       - run: python -c "import openmmqmmm"
-      # The two ORCA QM/MM tests skip automatically: no orca binary exists in CI
-      - run: pytest
+      # The ORCA input-writing and output-parsing paths are covered without a real
+      # binary (fake-ORCA fixture + committed reference outputs); the two end-to-end
+      # QM/MM tests skip automatically since no orca binary exists in CI.
+      # Floor is set against the no-ORCA number (36%); a checkout with ORCA available
+      # reaches 43%. Raise this as coverage improves — it only ratchets one way.
+      - name: Run tests with coverage
+        run: pytest --cov --cov-report=term --cov-report=xml --cov-fail-under=35
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-py${{ matrix.python }}
+          path: coverage.xml
+
+  # A wheel that imports is not the same as an editable checkout that imports: this
+  # catches packaging mistakes such as a missing package-data entry.
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+      - run: python -m build
+      - name: Install the built wheel and import it
+        run: |
+          pip install --force-reinstall --no-deps dist/*.whl
+          cd "$(mktemp -d)"  # import from outside the source tree
+          python -c "import openmmqmmm; print(openmmqmmm.__version__)"
+          python -c "import importlib.resources as r; assert r.files('openmmqmmm').joinpath('log.ini').is_file()"
+          python -c "import importlib.resources as r; assert r.files('openmmqmmm').joinpath('py.typed').is_file()"

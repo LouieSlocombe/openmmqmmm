@@ -36,7 +36,7 @@ class Plot:
         tight_layout=True,
         padding=None,
     ):
-        logger.info(main_header("ASH_energy_plot"))
+        logger.info(main_header("Energy plot"))
         import matplotlib.pyplot as plt
 
         self.working = True
@@ -60,7 +60,7 @@ class Plot:
 
         if self.num_subplots > 1:
             logger.warning(
-                "Note: For multiple subplots use:\n ASH_plot(x_axislabels=['X1','X2','X3], y_axislabels=['Y1','Y2','Y3'], subplot_titles='Title1,'Title2','Title3']"
+                "Note: For multiple subplots use:\n Plot(x_axislabels=['X1','X2','X3'], y_axislabels=['Y1','Y2','Y3'], subplot_titles=['Title1','Title2','Title3'])"
             )
         else:
             logger.info("X-axis label: %s", x_axislabel)
@@ -131,9 +131,11 @@ class Plot:
         self.addplotcount = 0
 
     def invert_x_axis(self, subplot):
+        """Reverse the x-axis direction of the given subplot index."""
         self.axs[subplot].invert_xaxis()
 
     def invert_y_axis(self, subplot):
+        """Reverse the y-axis direction of the given subplot index."""
         self.axs[subplot].invert_yaxis()
 
     def addseries(
@@ -163,9 +165,33 @@ class Plot:
         colormap="viridis",
         linestyle="-",
     ):
+        """Add a data series to one subplot.
+
+        Data may be given either as a {x: y} dictionary or as separate x and y lists.
+
+        Args:
+            subplot: index of the subplot to draw into.
+            surfacedictionary: {x: y} mapping, an alternative to x_list/y_list.
+            x_list: x values.
+            y_list: y values.
+            x_labels: tick labels used in place of the numeric x values.
+            label: series name shown in the legend.
+            color: line and marker colour.
+            pointsize: scatter marker size.
+            scatter: draw markers.
+            line: draw a connecting line.
+            bar: draw the series as bars instead.
+            scatter_linewidth: marker edge width.
+            line_linewidth: line width.
+            barwidth: bar width when bar=True.
+            barcolors: per-bar colours when bar=True.
+            marker: matplotlib marker style.
+            legend: include this series in the legend.
+            x_scaling: factor applied to every x value.
+        """
         import matplotlib.pyplot as plt
 
-        logger.info("Adding new series to ASH_plot object")
+        logger.info("Adding new series to Plot object")
 
         if bar is True and (scatter is True or line is True):
             raise InputError("Error: you can not add a bar together with scatter and line at the same time")
@@ -254,12 +280,20 @@ class Plot:
             curraxes.legend(shadow=True, fontsize="small")  # Add a legend.
 
     def showplot(self):
+        """Display the figure interactively (needs a GUI matplotlib backend)."""
         # Requires GUI backend
         import matplotlib.pyplot as plt
 
         plt.show()
 
     def savefig(self, filename, imageformat=None, dpi=None):
+        """Write the figure to an image file.
+
+        Args:
+            filename: output name, without extension.
+            imageformat: image format, e.g. "png" or "svg"; defaults to the object's format.
+            dpi: resolution in dots per inch; defaults to the object's dpi.
+        """
         import matplotlib.pyplot as plt
 
         # Change legend position

@@ -6,6 +6,8 @@ from the closest builtin exception (ValueError, ImportError, RuntimeError) so
 generic handlers keep working.
 """
 
+from types import ModuleType
+
 
 class OpenMMQMMMError(Exception):
     """Base class for all openmmqmmm errors."""
@@ -34,7 +36,7 @@ class InternalError(OpenMMQMMMError, RuntimeError):
     """An internal consistency check failed ("should never happen")."""
 
 
-def require(module_name, hint=None, feature=None):
+def require(module_name, hint=None, feature=None) -> ModuleType:
     """Import and return an optional dependency, or raise MissingDependencyError.
 
     Args:

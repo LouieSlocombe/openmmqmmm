@@ -10,18 +10,19 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
+# Coverage output (pytest --cov)
+.coverage
+coverage.xml
+htmlcov/
+
 # Editors / OS
 .idea/
 .vscode/
 .DS_Store
 
-# Local configuration
-ash_user_settings.ini
-
-# Scratch output from manual runs in the repo root (test output is handled
-# by openmmqmmm/tests/.gitignore and cleaned by conftest.py)
+# Scratch output from manual runs in the repo root (test output is handled by
+# openmmqmmm/tests/.gitignore; the tests themselves run in temporary directories)
 *_OPTtraj.tmp/
 
-# Job output scattered by manual runs in the repo root
-*.result
-results.json
+# Results files written by the job functions during manual runs in the repo root
+results_*.json

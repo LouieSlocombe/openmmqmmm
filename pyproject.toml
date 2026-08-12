@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openmmqmmm"
-version = "1.0.0"
+version = "1.0.1"
 description = "ORCA + OpenMM QM/MM for biomolecular calculations (derived from ASH)"
 readme = "README.md"
 license = "MIT"
@@ -28,7 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 md = ["mdtraj"]
 extras = ["matplotlib", "scipy", "parmed"]
-test = ["pytest"]
+test = ["pytest", "pytest-cov"]
 
 [project.urls]
 Upstream = "https://github.com/RagnarB83/ash"
@@ -47,6 +47,18 @@ openmmqmmm = ["log.ini", "py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["openmmqmmm/tests"]
 addopts = "-ra"
+
+# Coverage is measured with `pytest --cov`; the config lives here so local runs and CI
+# report the same numbers. Test data and the tests themselves are not part of the total.
+[tool.coverage.run]
+source = ["openmmqmmm"]
+omit = ["openmmqmmm/tests/*"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
 
 # Lint rules are being adopted in stages during the modernization effort; the
 # temporary ignores below shrink as each phase lands.
@@ -68,8 +80,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests may print
+# Tests and the runnable examples may print
 "openmmqmmm/tests/*" = ["T20"]
+"examples/*" = ["T20"]
 # __all__ is grouped semantically, not alphabetically
 "openmmqmmm/__init__.py" = ["RUF022"]
 # Mathematical/physics argument notation (A, B, C, T, Qcoord, Lgrad, ...)

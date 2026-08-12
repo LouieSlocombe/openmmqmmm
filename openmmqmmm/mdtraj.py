@@ -25,7 +25,9 @@ def mdtraj_load():
     return mdtraj
 
 
-def mdtraj_rmsf(trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True):
+def mdtraj_rmsf(
+    trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True
+) -> list[int]:
     """Compute per-atom root-mean-square fluctuations of a trajectory via mdtraj."""
     logger.info("Inside MDtraj_RMSF")
     # Import mdtraj library
@@ -55,7 +57,7 @@ def mdtraj_rmsf(trajectory, pdbtopology, print_largest_values=True, threshold=0.
     return large_rmsf_indices
 
 
-def mdtraj_rmsd(trajectory, pdbtopology, atom_indices=None, parallel=True):
+def mdtraj_rmsd(trajectory, pdbtopology, atom_indices=None, parallel=True) -> np.ndarray:
     """Compute the RMSD along a trajectory via mdtraj."""
     logger.info("Inside MDtraj_RMSD")
     # Import mdtraj library
@@ -74,7 +76,7 @@ def mdtraj_rmsd(trajectory, pdbtopology, atom_indices=None, parallel=True):
 # anchor_molecules. Use if automatic guess fails
 def mdtraj_image_trajectory(
     trajectory, pdbtopology, traj_format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
-):
+) -> str:
     # Trajectory basename
     """Re-image (wrap) a periodic trajectory so molecules stay whole, via mdtraj."""
     traj_basename = os.path.splitext(trajectory)[0]
@@ -133,7 +135,7 @@ def mdtraj_image_trajectory(
 
 # Slicing trajectory. Mostly to grab specific snapshot
 # TODO: allow option to grab by ps? Requires information about timestep and traj-frequency
-def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
+def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None) -> str | None:
     # Trajectory basename
     """Extract selected frames from a trajectory into a new file via mdtraj."""
     traj_basename = os.path.basename(os.path.splitext(trajectory)[0])
@@ -189,7 +191,7 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
         return traj_basename + f"_frame{frames[0]}_{frames[1]}.pdb"
     elif traj_format == "XYZ":
         # Looping over selection and writing XYZ since mdtraj does not give proper elements
-        logger.info(
+        logger.warning(
             "Warning: the MDtraj_slice XYZ-writing requires guessing element names based on atomnames in the topology PDB-file."
         )
         logger.info("This is not always successful (might require manual change of the atomnames in PDB-file)")
@@ -212,7 +214,7 @@ def mdtraj_slice(trajectory, pdbtopology, traj_format="PDB", frames=None):
 
 # Function to get internal coordinates from trajectory fast
 # Give trajectory file
-def mdtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=None):
+def mdtraj_coord_analyze(trajectory, pdbtopology=None, periodic=True, indices=None) -> list:
     """Analyze internal coordinates (distances/angles/dihedrals) along a trajectory via mdtraj."""
     logger.info("Inside MDtraj_coord_analyze")
     if indices is None:

@@ -28,7 +28,7 @@ def test_openmm_modeller():
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki.pdb"
 
     # Setting up new system, adding hydrogens, solvent, ions and defining forcefield, topology
-    _openmmobject, _ashfragment = openmm_modeller(
+    openmmobject, fragment = openmm_modeller(
         pdbfile=pdbfile,
         forcefield="CHARMM36",
         watermodel="tip3p",
@@ -37,3 +37,9 @@ def test_openmm_modeller():
         ionicstrength=0.1,
         platform="CPU",
     )
+
+    assert openmmobject is not None, "openmm_modeller should return an OpenMMTheory object"
+    # The input 1aki.pdb has 1079 atoms; hydrogens, solvent and ions are added on top
+    assert fragment.numatoms > 1079, "Modeller should add hydrogens, water and ions"
+    assert len(fragment.elems) == fragment.numatoms
+    assert "H" in fragment.elems, "Hydrogens should have been added"

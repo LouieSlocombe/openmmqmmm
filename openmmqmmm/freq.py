@@ -41,10 +41,10 @@ def analytic_frequencies(
     scaling_factor=1.0,
     symmetry_number=None,
     rotmode_threshold=1e-4,
-):
+) -> "Results":
     """Compute vibrational frequencies from an analytical Hessian provided by the theory."""
     module_init_time = time.time()
-    logger.warning("------------ANALYTICAL FREQUENCIES-------------")
+    logger.info("------------ANALYTICAL FREQUENCIES-------------")
 
     if fragment is None or theory is None:
         raise InputError("AnFreq requires a fragment and a theory object")
@@ -133,7 +133,7 @@ def analytic_frequencies(
         logger.info("Wrote dummy ORCA outputfile with frequencies and normal modes: orcahessfile.hess_dummy.out")
         logger.info("Can be used for visualization")
 
-        logger.warning("------------ANALYTICAL FREQUENCIES END-------------")
+        logger.info("------------ANALYTICAL FREQUENCIES END-------------")
         log_time_since(module_init_time, "AnFreq")
 
         result = Results(
@@ -144,7 +144,7 @@ def analytic_frequencies(
             normal_modes=nmodes,
             thermochemistry=thermodict,
         )
-        result.write_to_disk(filename="ASH_AnFreq.result")
+        result.write_to_disk(filename="results_anfreq.json")
         return result
 
     else:
@@ -175,14 +175,14 @@ def numerical_frequencies(
     scaling_factor=1.0,
     symmetry_number=None,
     force_projection=None,
-):
+) -> "Results":
     """Compute vibrational frequencies from numerical differentiation of gradients.
 
     Supports partial Hessians (hessatoms), 1- or 2-point differences (npoint) and
     serial or parallel displacement calculations (runmode).
     """
     module_init_time = time.time()
-    logger.warning("------------NUMERICAL FREQUENCIES-------------")
+    logger.info("------------NUMERICAL FREQUENCIES-------------")
     ################
     # Basic checks
     ################
@@ -218,7 +218,7 @@ def numerical_frequencies(
         projection = False
 
     if force_projection is not None:
-        logger.info("Warning: force_projection keyword in use!")
+        logger.warning("Option force_projection is in use")
         if force_projection is True:
             logger.info("force_projection set to True. Turning projection on")
             projection = True
@@ -397,10 +397,10 @@ def numerical_frequencies(
                     displacement_pol = theory.get_polarizability_tensor()
                     # Checking if array is all zero (i.e. no polarizability information was found)
                     if not np.any(displacement_pol):
-                        logger.info("Warning: no polarizability information found")
+                        logger.warning("No polarizability information found")
                     displacement_polarizability_dictionary[stringlabel] = displacement_pol
                 except Exception:  # noqa: BLE001 - best-effort polarizability grab
-                    logger.info("Warning: Problem getting polarizability tensor from theory interface. Skipping")
+                    logger.warning("Problem getting polarizability tensor from theory interface. Skipping")
 
     # TODO: Dipole moment/polarizability grab for parallel mode
     elif runmode == "parallel":
@@ -548,7 +548,7 @@ def numerical_frequencies(
     if hessatoms_masses is None:
         logger.info("allatoms: %s", allatoms)
         logger.info("hessatoms: %s", hessatoms)
-        logger.info("fragment.list_of_masses: %s", fragment.list_of_masses)
+        logger.debug("Atomic masses: %s", fragment.list_of_masses)
         hessmasses = openmmqmmm.coords.get_partial_list(allatoms, hessatoms, fragment.list_of_masses)
     else:
         hessmasses = hessatoms_masses
@@ -642,7 +642,7 @@ def numerical_frequencies(
     print_dummy_orca_file(hesselems, hesscoords, frequencies, evectors, nmodes, "orcahessfile.hess")
     logger.info("Wrote dummy ORCA outputfile with frequencies and normal modes: orcahessfile.hess_dummy.out")
     logger.info("Can be used for visualization\n")
-    logger.warning("------------NUMERICAL FREQUENCIES END-------------")
+    logger.info("------------NUMERICAL FREQUENCIES END-------------")
 
     # Add things to fragment
     fragment.hessian = hessian  # Hessian
@@ -671,7 +671,7 @@ def numerical_frequencies(
         freq_raman=Raman,
         freq_polarizability_derivs=polarizability_derivs,
     )
-    result.write_to_disk(filename="ASH_NumFreq.result")
+    result.write_to_disk(filename="results_numfreq.json")
     return result
 
 
@@ -864,7 +864,9 @@ def thermochemcalc(
     """Compute thermochemistry via the rigid-rotor harmonic-oscillator approximation.
 
     Args:
-        vfreq: vibrational frequencies in cm**-1.
+        vfreq: all 3N frequencies in cm**-1, translations and rotations included —
+            the first `tr_modenum` (6 for a non-linear molecule, 5 for a linear one)
+            are skipped, not the first entries of a vibration-only list.
         atoms: active atoms (those contributing to the Hessian).
         fragment: Fragment object (geometry and masses).
         multiplicity: spin multiplicity (electronic degeneracy).
@@ -1001,8 +1003,11 @@ def thermochemcalc(
                 vib = clean_number(vfreq[mode])
                 if np.iscomplex(vib):
                     logger.info(f"Mode {mode} with frequency {vib} is imaginary. Skipping in thermochemistry")
-                elif vib < 0:
-                    logger.info(f"Mode {mode} with frequency {vib} is negative. Skipping in thermochemistry")
+                elif vib <= 0:
+                    # A zero frequency is not a vibration (an unprojected translation or
+                    # rotation, or a completely flat direction) and its harmonic entropy
+                    # and thermal energy both diverge, so it is excluded like a negative one.
+                    logger.info(f"Mode {mode} with frequency {vib} is not positive. Skipping in thermochemistry")
                 else:
                     freqs.append(float(vib))
                     freq_Hz = vib * openmmqmmm.constants.c
@@ -1012,10 +1017,13 @@ def thermochemcalc(
         # Zero-point vibrational energy
         zpve = sum([i * openmmqmmm.constants.halfhcfactor for i in freqs])
 
-        # Thermal vibrational energy
+        # Thermal vibrational energy: R * sum over modes of theta*(1/2 + 1/(exp(theta/T) - 1)),
+        # the harmonic-oscillator internal energy. The Bose-Einstein factor is
+        # 1/(exp(x) - 1); writing it as 1/exp(x - 1) overestimates the thermal
+        # correction (2.7x for water) and does not reach the classical RT limit.
         sumb = 0.0
         for v in vibtemps:
-            sumb = sumb + v * (0.5 + (1 / (np.exp((v / temp) - 1))))
+            sumb = sumb + v * (0.5 + (1 / (np.exp(v / temp) - 1)))
         E_vib = sumb * openmmqmmm.constants.R_gasconst
         vibenergycorr = E_vib - zpve
         # Vibrational entropy via RRHO.
@@ -1335,11 +1343,12 @@ def inertia(elems, coords, center):
         Ixz += mass * x * z
         Iyz += mass * y * z
 
-    inertia_tensor = np.matrix([[Ixx, -Ixy, -Ixz], [-Ixy, Iyy, -Iyz], [-Ixz, -Iyz, Izz]])
+    # np.array, not np.matrix: the matrix subclass is pending deprecation in numpy
+    inertia_tensor = np.array([[Ixx, -Ixy, -Ixz], [-Ixy, Iyy, -Iyz], [-Ixz, -Iyz, Izz]])
     return np.linalg.eigvals(inertia_tensor)
 
 
-def calc_rotational_constants(frag):
+def calc_rotational_constants(frag) -> list[float]:
     """Calculate rotational constants (GHz and cm**-1) for a fragment."""
     coords = frag.coords
     elems = frag.elems
@@ -1434,7 +1443,7 @@ def approximate_full_hessian_from_smaller(
     projection=False,
     charge=None,
     mult=None,
-):
+) -> np.ndarray:
     """Build an approximate full-system Hessian by combining a small computed Hessian with a model Hessian."""
     logger.info("approximate_full_Hessian_from_smaller")
     logger.info("")
@@ -1614,7 +1623,7 @@ def s_vib(freqs, T):
 
 
 def s_vib_qrrho_truhlar(freqs, T, lowfreq_thresh=100):
-    logger.info("Warning: Quasi-RRHO by Truhlar approximation active.")
+    logger.warning("Quasi-RRHO by Truhlar approximation active.")
     logger.info(
         "This means that the vibrational entropy is calculated according to Truhlar-approach of raising low-energy vibrations to 100 cm-1"
     )
@@ -1624,7 +1633,7 @@ def s_vib_qrrho_truhlar(freqs, T, lowfreq_thresh=100):
     # Looping over frequencies
     for f in freqs:
         if f < 100.0:
-            logger.info(
+            logger.warning(
                 f"Warning: Frequency ({f}) is below low-freq threshold ({lowfreq_thresh}) cm-1. Setting to {lowfreq_thresh} cm-1"
             )
             f = 100.0
@@ -1645,7 +1654,7 @@ def s_vib_qrrho_truhlar(freqs, T, lowfreq_thresh=100):
 
 # Vibrational entropy by quasi-RRHO (Grimme)
 def s_vib_qrrho_grimme(freqs, T, omega_0=100, i_av=None):
-    logger.info("Warning: Quasi-RRHO approximation by Grimme active.")
+    logger.warning("Quasi-RRHO approximation by Grimme active.")
     logger.info("This means that the vibrational entropy uses the Grimme-type interpolation formula")
     logger.info("Cite: S. Grimme, Chem. Eur. J. 2012, 18, 9955-9964.")
     # Vibrational entropy via quasi-RRHO
@@ -1693,14 +1702,14 @@ def s_vib_qrrho_grimme(freqs, T, omega_0=100, i_av=None):
     return TS_vib_final
 
 
-def write_hessian(hessian, hessfile="Hessian"):
+def write_hessian(hessian, hessfile="Hessian") -> None:
     """Write a Hessian matrix to a text file."""
     np.savetxt(hessfile, hessian)
     logger.info(f"Wrote Hessian to file: {hessfile}")
 
 
 # Read Hessian from file
-def read_hessian(file):
+def read_hessian(file) -> np.ndarray:
     """Read a Hessian matrix from a text file written by write_hessian."""
     logger.info(f"Reading Hessian from file: {file}")
     hessian = np.loadtxt(file)

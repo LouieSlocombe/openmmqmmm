@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 timings_logger = logging.getLogger("openmmqmmm.timings")
 
 
-def configure_logging(level="INFO", file=None, fmt="%(message)s"):
+def configure_logging(level="INFO", file=None, fmt="%(message)s") -> logging.Logger:
     """Configure output for openmmqmmm calculations.
 
     The package logs the calculation record through the standard logging

@@ -6,6 +6,7 @@ import numpy as np
 
 import openmmqmmm
 from openmmqmmm.coords import print_coords_all
+from openmmqmmm.exceptions import InputError
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,11 @@ class NumGrad:
 
     def __init__(self, theory, npoint=2, displacement=0.00264589, runmode="serial", numcores=1):
         logger.info("Creating NumGrad wrapper object")
+        # Only the 1- and 2-point stencils are implemented. Without this check any other
+        # value skips gradient assembly entirely and returns a zero gradient, which an
+        # optimizer happily reads as a converged structure.
+        if npoint not in (1, 2):
+            raise InputError(f"NumGrad npoint must be 1 (forward difference) or 2 (central difference), not {npoint}")
         self.theory = theory
         self.theorytype = "QM"
         self.theorynamelabel = "NumGrad"
@@ -27,9 +33,11 @@ class NumGrad:
         self.numcores = numcores
 
     def set_numcores(self, numcores):
+        """Set the number of cores used for parallel displacement runs."""
         self.numcores = numcores
 
     def cleanup(self):
+        """No-op: NumGrad leaves cleanup of scratch files to the wrapped theory."""
         logger.info("Cleanup method called but not yet implemented for Numgrad")
 
     def run(
@@ -48,7 +56,26 @@ class NumGrad:
         charge=None,
         mult=None,
     ):
+        """Compute the energy and a finite-difference gradient of the wrapped theory.
 
+        Args:
+            current_coords: coordinates in Angstrom, one row per atom.
+            current_mm_coords: point-charge coordinates, passed through to the wrapped theory.
+            mm_charges: point-charge values, passed through to the wrapped theory.
+            qm_elems: QM-region element symbols.
+            elems: element symbols of the whole system.
+            grad: return the gradient alongside the energy.
+            hessian: unused; NumGrad differentiates energies, not gradients.
+            pc: unused; embedding is handled by the wrapped theory.
+            numcores: cores used for parallel displacement runs.
+            restart: unused; present for signature compatibility.
+            label: label used for scratch-file naming in parallel runs.
+            charge: total charge, passed to the wrapped theory.
+            mult: spin multiplicity, passed to the wrapped theory.
+
+        Returns:
+            The energy in hartree, or (energy, gradient in Eh/Bohr) when grad=True.
+        """
         logger.info(f"------------RUNNING {self.theorynamelabel} WRAPPER -------------")
 
         numatoms = len(current_coords)
@@ -125,7 +152,10 @@ class NumGrad:
         self.energy = orig_energy
         self.gradient = gradient
 
-        return self.energy, self.gradient
+        # Match the theory-object contract: energy alone unless a gradient was asked for
+        if grad:
+            return self.energy, self.gradient
+        return self.energy
 
 
 def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult):

@@ -7,8 +7,8 @@ Electrostatically embedded QM/MM for biomolecular systems, combining the
 ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 
 > **Compatibility note:** version 1.0 renamed the public API (snake_case functions, no import-time
-> side effects, logging instead of print). Scripts written for upstream ASH or for the 0.x
-> `openmmqmmm` releases need the [migration table](#migrating-from-ash--0x) below.
+> side effects, logging instead of print). Scripts written for the 0.x releases need updating; see
+> the 1.0.0 entry in [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 ## What is included
 
@@ -92,7 +92,8 @@ script:
 
 ```py
 import openmmqmmm
-openmmqmmm.configure_logging()                      # INFO to console
+
+openmmqmmm.configure_logging()  # INFO to console
 # openmmqmmm.configure_logging(level="DEBUG", file="calc.log")
 ```
 
@@ -112,8 +113,7 @@ F 0.0 0.0 1.0
 """
 hf_frag = Fragment(coordsstring=coords, charge=0, mult=1)
 
-orca_calc = ORCATheory(orcasimpleinput="! r2SCAN def2-SVP def2/J tightscf",
-                       orcablocks="%scf maxiter 200 end")
+orca_calc = ORCATheory(orcasimpleinput="! r2SCAN def2-SVP def2/J tightscf", orcablocks="%scf maxiter 200 end")
 
 single_point(theory=orca_calc, fragment=hf_frag)
 optimize_geometry(theory=orca_calc, fragment=hf_frag)
@@ -130,12 +130,12 @@ configure_logging()
 fragment = Fragment(pdbfile="system.pdb")
 
 qm_orca = ORCATheory(orcasimpleinput="! r2SCAN-3c tightscf", numcores=8)
-omm = OpenMMTheory(xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"],
-                   pdbfile="system.pdb", periodic=True)
+omm = OpenMMTheory(
+    xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"], pdbfile="system.pdb", periodic=True
+)
 
 qmatoms = [93, 94, 95, 96, 97, 133, 134, 135, 2001, 2002]
-qm_mm = QMMMTheory(qm_theory=qm_orca, mm_theory=omm, fragment=fragment,
-                   qm_charge=-1, qm_mult=6, qmatoms=qmatoms)
+qm_mm = QMMMTheory(qm_theory=qm_orca, mm_theory=omm, fragment=fragment, qm_charge=-1, qm_mult=6, qmatoms=qmatoms)
 
 # Geometry optimization of the QM region
 optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
@@ -150,38 +150,24 @@ All package errors derive from `openmmqmmm.OpenMMQMMMError`, with specific subcl
 `InternalError` (each also inherits the closest builtin, so `except ValueError` etc. keep
 working).
 
-## Migrating from ASH / 0.x
+## Conventions
 
-Module-level behavior: importing the package is silent and side-effect free — no banner, no
-`~/ash_user_settings.ini` reading (use `OPENMMQMMM_ORCADIR` or `orcadir=`), no `printlevel`
-keywords (use `configure_logging(level=...)` / per-module logger levels), and errors raise
-exceptions instead of exiting the interpreter. Fragment files use the `.frag` extension (was
-`.ygg`) and results are written to `results.json` (was `ASH.result`).
+Importing the package is silent and side-effect free, and errors raise exceptions rather than
+exiting the interpreter. Job functions are snake_case (`single_point`, `optimize_geometry`,
+`numerical_frequencies`, `openmm_md`), classes are CapWords (`ORCATheory`, `OpenMMTheory`,
+`QMMMTheory`, `Fragment`, `Results`), and keyword arguments are snake_case (`grad=`,
+`active_region=`, `num_grad=`). Fragment files use the `.frag` extension, and each job function
+writes its `Results` object to a `results_*.json` file — for example `results_singlepoint.json`,
+`results_optimizer.json`, `results_numfreq.json`.
 
-| ASH / 0.x name | New name |
-|---|---|
-| `Singlepoint` (+`_fragments`, `_theories`, ...) | `single_point` (+`single_point_fragments`, ...) |
-| `geomeTRICOptimizer` / `Optimizer` / `Opt` | `optimize_geometry` |
-| `NumFreq` / `AnFreq` | `numerical_frequencies` / `analytic_frequencies` |
-| `OpenMM_MD` / `MolecularDynamics` | `openmm_md` |
-| `OpenMM_Opt` | `openmm_minimize` |
-| `OpenMM_Modeller` | `openmm_modeller` |
-| `OpenMM_metadynamics` / `MetaDynamics` | `openmm_metadynamics` |
-| `OpenMM_box_equilibration`, `Gentle_warm_up_MD` | `openmm_box_equilibration`, `gentle_warmup_md` |
-| `Job_parallel` / `Simple_parallel` | `job_parallel` / `simple_parallel` |
-| `ReactionEnergy` | `reaction_energy` |
-| `ASH_Results` / `ASH_plot` | `Results` / `Plot` |
-| `OpenMM_MDclass` / `NumGradclass` | `MolecularDynamicsEngine` / `NumGrad` |
-| `MDtraj_imagetraj`, `MDtraj_RMSD`, ... | `mdtraj_image_trajectory`, `mdtraj_rmsd`, ... |
-| `actregiondefine` | `define_active_region` |
-| `QMregionfragexpand` / `QMPC_fragexpand` | `expand_qm_region` / `expand_qm_pc_region` |
-| `ORCA_External_Optimizer` | `orca_external_optimizer` |
-| kwargs `Grad=`, `Hessian=`, `PC=`, `MMcharges=` | `grad=`, `hessian=`, `pc=`, `mm_charges=` |
-| kwargs `ActiveRegion=`, `NumGrad=`, `TruncatedPC=` | `active_region=`, `num_grad=`, `truncated_pc=` |
-| kwargs `TDDFT=`, `HSmult=`, `QRRHO=`, `pH=` | `tddft=`, `hs_mult=`, `qrrho=`, `ph=` |
+## Examples
 
-Class names that were already CapWords (`ORCATheory`, `OpenMMTheory`, `QMMMTheory`, `Fragment`,
-`Reaction`, `ZeroTheory`) are unchanged.
+Runnable versions of the two examples above live in [examples/](examples/):
+
+```sh
+python examples/gasphase_hf.py
+python examples/qmmm_optimization.py system.pdb
+```
 
 ## Testing
 
@@ -189,10 +175,14 @@ Class names that were already CapWords (`ORCATheory`, `OpenMMTheory`, `QMMMTheor
 pytest
 ```
 
-from the repository root. The fragment/OpenMM/optimizer tests run without ORCA; the QM/MM tests
-are skipped automatically when no ORCA installation is found. Tests run in isolated temporary
-directories, so no output files are left behind. The test data (~2 MB) lives in the source
-repository and is not shipped in wheels.
+from the repository root, which takes about four minutes. The fragment/OpenMM/optimizer tests
+run without ORCA, and so do the ORCA input-writing and output-parsing tests (they use a fake
+ORCA installation and committed reference output); the two end-to-end QM/MM tests are skipped
+automatically when no ORCA installation is found. Set `OPENMMQMMM_ORCADIR` to run those too.
+
+Coverage is measured with `pytest --cov` (needs the `test` extra: `pip install -e ".[test]"`).
+Tests run in isolated temporary directories, so no output files are left behind. The test data
+(~2.5 MB) lives in the source repository and is not shipped in wheels.
 
 ## Building distributions
 

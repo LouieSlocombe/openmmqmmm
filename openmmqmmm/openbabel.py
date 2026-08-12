@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 # Function to convert Mol file to PDB-file via OpenBabel
-def mol_to_pdb(file):
+def mol_to_pdb(file) -> str:
     # OpenBabel
     """Convert a MOL/MOL2 file to PDB via OpenBabel."""
     try:
@@ -31,7 +31,7 @@ def mol_to_pdb(file):
 
 
 # Function to convert SDF file to PDB-file via OpenBabel
-def sdf_to_pdb(file):
+def sdf_to_pdb(file) -> str:
     # OpenBabel
     """Convert an SDF file to PDB via OpenBabel."""
     try:
@@ -66,7 +66,7 @@ def sdf_to_pdb(file):
 
 # Function to read in PDB-file and write new one with CONECT lines (geometry needs to be sensible)
 # NOTE: Requires OpenBabel which seems unnecessary, probably better to use OpenMM functionality instead
-def write_pdb_with_connectivity(file):
+def write_pdb_with_connectivity(file) -> str:
     # OpenBabel
     """Write a PDB file with CONECT records derived by OpenBabel."""
     try:
@@ -82,7 +82,7 @@ def write_pdb_with_connectivity(file):
 
 
 # Function to read in XYZ-file (small molecule) and create PDB-file with CONECT lines (geometry needs to be sensible)
-def xyz_to_pdb_with_connectivity(file, resname="UNL"):
+def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
     """Convert an XYZ file to a PDB file with CONECT records via OpenBabel."""
     logger.info("xyz_to_pdb_with_connectivity function:")
     # OpenBabel

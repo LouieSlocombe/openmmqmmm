@@ -67,12 +67,21 @@ class Results:
     def print_defined(
         self,
     ):
+        """Log every attribute that has been filled in, skipping the unset ones."""
         logger.info("\nPrinting defined attributes of Results dataclass")
         for k, v in self.__dict__.items():
             if v is not None:
                 logger.info(f"{k}: {v}")
 
     def write_to_disk(self, filename="results.json"):
+        """Write the defined attributes to a JSON file.
+
+        Numpy arrays are converted to nested lists; openmmqmmm objects (fragments,
+        theories) are skipped since they are not JSON-serialisable.
+
+        Args:
+            filename: path of the JSON file to write.
+        """
         import json
 
         logger.info("\nWriting to disk defined attributes of Results dataclass")
@@ -84,7 +93,7 @@ class Results:
             if isinstance(v, np.ndarray):
                 # Check for nans in array
                 if np.any(np.isnan(v)):
-                    logger.info(f"Warning: nan in array {k}")
+                    logger.warning(f"NaN found in array {k}")
                     logger.info("Skipping writing to disk")
                 else:
                     newv = v.tolist()
@@ -100,7 +109,7 @@ class Results:
                 else:
                     newdict[k] = v
             elif isinstance(v, Fragment):
-                logger.info("Warning: Fragment objects are not included in the results file on disk")
+                logger.warning("Fragment objects are not included in the results file on disk")
             else:
                 newdict[k] = v
 
@@ -119,13 +128,13 @@ class Results:
             with open(filename, "w") as f:
                 f.write(json.dumps(newdict, allow_nan=True))
         except TypeError as e:
-            logger.info(f"Error writing Results to disk: {e}")
+            logger.error(f"Failed to write Results to disk: {e}")
             logger.info("Skipping writing to disk")
             return
 
 
 # Read Results data from disk
-def read_results_from_file(filename="results.json"):
+def read_results_from_file(filename="results.json") -> "Results":
     """Read a Results object from a JSON file written by Results.write_to_disk."""
     import json
     from dataclasses import fields
