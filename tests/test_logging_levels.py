@@ -11,10 +11,14 @@ import pathlib
 
 import pytest
 
-PACKAGE_DIR = pathlib.Path(__file__).resolve().parent.parent
+import openmmqmmm
+
+# Located through the import rather than by walking up from this file: the tests live
+# outside the package, so they are no longer at a fixed depth below it.
+PACKAGE_DIR = pathlib.Path(openmmqmmm.__file__).resolve().parent
 # rglob, not glob: the openmm interface is a subpackage and its submodules carry most of
 # the logging in the project.
-MODULES = sorted(p for p in PACKAGE_DIR.rglob("*.py") if "tests" not in p.parts)
+MODULES = sorted(PACKAGE_DIR.rglob("*.py"))
 
 # Bare markers left over from interactive debugging.
 DEBUG_MARKERS = {"here", "here1", "here2", "grab true", "test", "ok"}

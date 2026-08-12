@@ -36,23 +36,22 @@ Upstream = "https://github.com/RagnarB83/ash"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["openmmqmmm*"]
-exclude = ["openmmqmmm.tests*"]
 
 # Non-Python files shipped in wheels: the geomeTRIC logging config and the
-# PEP 561 typing marker. Test data (~2 MB under openmmqmmm/tests) stays in
+# PEP 561 typing marker. Test data (~2.5 MB under tests/) stays in
 # the source repository — run the test suite from a checkout.
 [tool.setuptools.package-data]
 openmmqmmm = ["log.ini", "py.typed"]
 
 [tool.pytest.ini_options]
-testpaths = ["openmmqmmm/tests"]
+testpaths = ["tests"]
 addopts = "-ra"
 
 # Coverage is measured with `pytest --cov`; the config lives here so local runs and CI
-# report the same numbers. Test data and the tests themselves are not part of the total.
+# report the same numbers. The tests live outside the package, so they fall outside
+# `source` and need no explicit omit.
 [tool.coverage.run]
 source = ["openmmqmmm"]
-omit = ["openmmqmmm/tests/*"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -81,7 +80,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Tests and the runnable examples may print
-"openmmqmmm/tests/*" = ["T20"]
+"tests/*" = ["T20"]
 "examples/*" = ["T20"]
 # __all__ is grouped semantically, not alphabetically
 "openmmqmmm/__init__.py" = ["RUF022"]
