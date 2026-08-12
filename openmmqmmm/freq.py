@@ -1636,10 +1636,23 @@ def s_vib(freqs, T):
 
 
 def s_vib_qrrho_truhlar(freqs, T, lowfreq_thresh=100):
+    """Vibrational entropy with Truhlar's quasi-harmonic treatment of low-frequency modes.
+
+    Every frequency below lowfreq_thresh is raised to it before the harmonic-oscillator
+    entropy is evaluated, which removes the divergence as a frequency approaches zero.
+
+    Args:
+        freqs: vibrational frequencies in cm**-1.
+        T: temperature in K.
+        lowfreq_thresh: cut-off in cm**-1. 100 is the value used in the paper below.
+
+    Returns:
+        T*S_vib in hartree.
+    """
     logger.warning("Quasi-RRHO by Truhlar approximation active.")
     logger.info(
         "This means that the vibrational entropy is calculated according to Truhlar-approach of raising low-energy "
-        "vibrations to 100 cm-1"
+        f"vibrations to {lowfreq_thresh} cm-1"
     )
     logger.info("Cite: R. F. Riberio et al. J. Phys. Chem. B, 115, 14556 (2011) ")
     # Vibrational entropy via quasi-RRHO
@@ -1647,12 +1660,12 @@ def s_vib_qrrho_truhlar(freqs, T, lowfreq_thresh=100):
     # Looping over frequencies
     for f in freqs:
         freq_value = f
-        if f < 100.0:
+        if f < lowfreq_thresh:
             logger.warning(
                 f"Warning: Frequency ({f}) is below low-freq threshold ({lowfreq_thresh}) cm-1. "
                 f"Setting to {lowfreq_thresh} cm-1"
             )
-            freq_value = 100.0
+            freq_value = lowfreq_thresh
         # Vib. temp and TS_vib for freq f
         vibtemp = (
             freq_value * openmmqmmm.constants.c * openmmqmmm.constants.h_planck_hartreeseconds

@@ -6,17 +6,20 @@ independent physics rather than recorded output: the Sackur-Tetrode equation for
 translational entropy, the harmonic ZPVE sum, and G = H - TS.
 """
 
+import inspect
 import math
 
 import numpy as np
 import pytest
 
-from openmmqmmm import Fragment, ZeroTheory, numerical_frequencies
+from openmmqmmm import Fragment, ZeroTheory, constants, numerical_frequencies
 from openmmqmmm.freq import (
     approximate_full_hessian_from_smaller,
     calc_rotational_constants,
     detect_linear,
     read_hessian,
+    s_vib_qrrho_grimme,
+    s_vib_qrrho_truhlar,
     thermochemcalc,
     write_hessian,
 )
@@ -204,3 +207,74 @@ def test_numerical_frequencies_on_a_flat_surface():
     assert np.allclose(result.frequencies, 0.0, atol=1e-6), "A flat surface has no curvature"
     assert result.hessian.shape == (9, 9)
     assert np.allclose(result.hessian, 0.0, atol=1e-10)
+
+
+# Quasi-RRHO vibrational entropy. Both methods take a cut-off frequency, threaded from
+# the numerical_frequencies(qrrho_omega_0=...) argument. The Truhlar implementation
+# accepted that cut-off and then compared against, and raised to, a hardcoded 100 cm-1:
+# the log reported the requested value while the arithmetic used 100.
+
+LOW_MODE_FREQUENCIES = [30.0, 75.0, 150.0, 1600.0, 3700.0]
+ROOM_TEMPERATURE = 298.15
+
+
+def _harmonic_ts_vib(freqs, temperature):
+    """T*S_vib for a set of harmonic oscillators, straight from the standard expression."""
+    total = 0.0
+    for freq in freqs:
+        vibtemp = (freq * constants.c * constants.h_planck_hartreeseconds) / constants.R_gasconst
+        total += temperature * (
+            constants.R_gasconst * (vibtemp / temperature) / (math.exp(vibtemp / temperature) - 1)
+            - constants.R_gasconst * math.log(1 - math.exp(-vibtemp / temperature))
+        )
+    return total
+
+
+def test_truhlar_cutoff_below_every_mode_is_plain_harmonic():
+    """With nothing to raise, the quasi-harmonic result must be the harmonic one."""
+    result = s_vib_qrrho_truhlar(LOW_MODE_FREQUENCIES, ROOM_TEMPERATURE, lowfreq_thresh=1.0)
+    assert result == pytest.approx(_harmonic_ts_vib(LOW_MODE_FREQUENCIES, ROOM_TEMPERATURE), rel=1e-12)
+
+
+@pytest.mark.parametrize("cutoff", [50.0, 100.0, 200.0])
+def test_truhlar_raises_low_modes_to_the_requested_cutoff(cutoff):
+    """The cut-off argument must be the one used, not a hardcoded 100 cm-1."""
+    result = s_vib_qrrho_truhlar(LOW_MODE_FREQUENCIES, ROOM_TEMPERATURE, lowfreq_thresh=cutoff)
+    raised = [max(freq, cutoff) for freq in LOW_MODE_FREQUENCIES]
+
+    assert result == pytest.approx(_harmonic_ts_vib(raised, ROOM_TEMPERATURE), rel=1e-12)
+
+
+def test_truhlar_entropy_decreases_as_the_cutoff_rises():
+    """A stiffer mode carries less entropy, and only modes under the cut-off are touched.
+
+    This is what fails when the cut-off is ignored: every value below comes out identical.
+    """
+    entropies = [s_vib_qrrho_truhlar(LOW_MODE_FREQUENCIES, ROOM_TEMPERATURE, lowfreq_thresh=c) for c in (50, 100, 200)]
+
+    assert entropies[0] > entropies[1] > entropies[2]
+
+
+def test_truhlar_default_cutoff_is_the_published_one():
+    """Riberio et al. use 100 cm-1; the default must not drift away from the citation."""
+    assert inspect.signature(s_vib_qrrho_truhlar).parameters["lowfreq_thresh"].default == 100
+
+
+def test_grimme_cutoff_changes_the_interpolation():
+    """Grimme's omega_0 is the midpoint of the vibration/rotation weighting, not a floor.
+
+    Checked alongside Truhlar's because both are reached through the same
+    qrrho_omega_0 argument, and only one of them was honouring it.
+    """
+    # Moment of inertia for the free-rotor limit, in SI; any positive value serves here.
+    inertia = 1e-44
+    entropies = [
+        s_vib_qrrho_grimme(LOW_MODE_FREQUENCIES, ROOM_TEMPERATURE, omega_0=c, i_av=inertia) for c in (50, 100, 200)
+    ]
+
+    assert len(set(entropies)) == 3, "Each cut-off must give a different interpolation"
+    # Per mode the result is a linear blend of a vibrational and a free-rotor entropy with
+    # weight w = 1/(1+(omega_0/f)^4), monotonic in omega_0, so the total is monotonic too.
+    # Which way it runs is set by which of the two terms is larger, and that depends on the
+    # moment of inertia rather than on the cut-off, so only monotonicity is asserted.
+    assert entropies == sorted(entropies) or entropies == sorted(entropies, reverse=True)
