@@ -437,29 +437,7 @@ def openmm_modeller(
         ),
     )
     logger.info("%s", "-" * 100)
-    current_chainindex = 0
-    # Also using loop to get residue_states list that we pass on to modeller.addHydrogens
-    residue_states = []
-    for each_residue in modeller_residues:
-        if each_residue.chain.index != current_chainindex:
-            logger.info("%s", "--" * 30)
-        resid = each_residue.index
-        resid_in_chain = int(each_residue.id)
-        resname = each_residue.name
-        chain = each_residue.chain
-        current_chainindex = each_residue.chain.index
-        if chain.id in residue_variants:
-            if resid_in_chain in residue_variants[chain.id]:
-                residue_states.append(residue_variants[chain.id][resid_in_chain])
-                FLAGLABEL = f"-- This residue will be changed to: {residue_variants[chain.id][resid_in_chain]} --"
-            else:
-                residue_states.append(None)  # Note: we add None since we don't want to influence addHydrogens
-                FLAGLABEL = ""
-        else:
-            residue_states.append(None)  # Note: we add None since we don't want to influence addHydrogens
-            FLAGLABEL = ""
-
-        logger.info(f"  {resid:<12}{resname:<13}{chain.index:<13}{chain.id:<13}{resid_in_chain:<13}       {FLAGLABEL}")
+    residue_states = _log_residue_table(modeller_residues, residue_variants)
 
     with open("system_afterfixes2.pdb", "w") as pdbfh:
         openmm_app.PDBFile.writeFile(modeller.topology, modeller.positions, pdbfh)
@@ -527,82 +505,25 @@ def openmm_modeller(
         for resname, choice in residuetemplate_choice.items():
             residueTemplates = {res: choice for res in modeller.topology.residues() if res.name == resname}
 
-    if implicit is True:
-        periodic = False
-        logger.info("We are doing implicit solvation")
-        logger.info("Setting periodic to False")
-        logger.info("Available implicit solvent models:")
-        logger.info(
-            "implicit/gbn2.xml, implicit/hct.xml, implicit/obc1.xml, implicit/obc2.xml, implicit/gbn.xml, "
-            "implicit/gbn2.xml"
-        )
-        fragment = Fragment(pdbfile="system_afterH.pdb")
-        if implicit_solvent_xmlfile is None:
-            logger.info("No XMLfile for implicit water selected (implicit_solvent_xmlfile keyword)")
-            logger.info("Choosing : implicit/obc2.xml")
-            implicit_solvent_xmlfile = "implicit/obc2.xml"
-            waterxmlfile = implicit_solvent_xmlfile
-    elif membrane is True:
-        logger.info("We are doing membrane-addition and solvation")
-        logger.info("Setting periodic to True")
-        periodic = True
-        logger.info("Adding membrane-lipid type (membrane_lipidtype keyword): %s", membrane_lipidtype)
-        logger.info("Adding solvent, modeller_solvent_name: %s", modeller_solvent_name)
-        logger.info("Actual solvent name: %s", watermodel)
-        logger.info("Actual solvent file: %s", waterxmlfile)
-        modeller.addMembrane(
-            forcefield_obj,
-            lipidType=membrane_lipidtype,
-            positiveIon=pos_iontype,
-            negativeIon=neg_iontype,
-            ionicStrength=ionicstrength * openmm_unit.molar,
-            neutralize=True,
-            membraneCenterZ=membrane_center_z * openmm_unit.angstrom,
-            minimumPadding=membrane_padding * openmm_unit.angstrom,
-        )
-
-        write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
-        # NOTE: Had to remove separate ion-add step due to OpenMM 8.1 change
-        print_systemsize(modeller)
-        fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
-    else:
-        logger.info("We are doing explicit solvation")
-        logger.info("Setting periodic to True")
-        periodic = True
-        logger.info("Adding solvent, modeller_solvent_name: %s", modeller_solvent_name)
-        logger.info("Actual solvent name: %s", watermodel)
-        logger.info("Actual solvent file: %s", waterxmlfile)
-        if solvent_boxdims is not None:
-            logger.info(f"Solvent boxdimension provided: {solvent_boxdims} Å")
-            logger.info(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
-            modeller.addSolvent(
-                forcefield_obj,
-                boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm_unit.angstrom,
-                neutralize=True,
-                positiveIon=pos_iontype,
-                negativeIon=neg_iontype,
-                ionicStrength=ionicstrength * openmm_unit.molar,
-                residueTemplates=residueTemplates,
-            )
-        else:
-            logger.info(f"Using solvent padding (solvent_padding=X keyword): {solvent_padding} Å")
-            logger.info(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
-            logger.info("residueTemplates: %s", residueTemplates)
-            modeller.addSolvent(
-                forcefield_obj,
-                padding=solvent_padding * openmm_unit.angstrom,
-                model=modeller_solvent_name,
-                neutralize=True,
-                positiveIon=pos_iontype,
-                negativeIon=neg_iontype,
-                ionicStrength=ionicstrength * openmm_unit.molar,
-                residueTemplates=residueTemplates,
-            )
-        write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
-
-        # NOTE: Had to remove separate ion-add step due to OpenMM 8.1 change
-        print_systemsize(modeller)
-        fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
+    periodic, fragment, waterxmlfile = _add_solvent_or_membrane(
+        modeller,
+        forcefield_obj=forcefield_obj,
+        implicit=implicit,
+        implicit_solvent_xmlfile=implicit_solvent_xmlfile,
+        membrane=membrane,
+        membrane_lipidtype=membrane_lipidtype,
+        membrane_padding=membrane_padding,
+        membrane_center_z=membrane_center_z,
+        modeller_solvent_name=modeller_solvent_name,
+        watermodel=watermodel,
+        waterxmlfile=waterxmlfile,
+        solvent_boxdims=solvent_boxdims,
+        solvent_padding=solvent_padding,
+        ionicstrength=ionicstrength,
+        pos_iontype=pos_iontype,
+        neg_iontype=neg_iontype,
+        residue_templates=residueTemplates,
+    )
 
     write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "finalsystem.pdb")
     write_pdbxfile_openmm_topology(modeller.topology, modeller.positions, "finalsystem.cif")
@@ -633,61 +554,14 @@ def openmm_modeller(
     with open(systemxmlfile, "w") as f:
         f.write(serialized_system)
 
-    logger.info("\n\nFiles written to disk:")
-    logger.info("system_afteratlocfixes.pdb")
-    logger.info("system_afterfixes.pdb")
-    logger.info("system_afterfixes2.pdb")
-    logger.info("system_afterH.pdb")
-    logger.info("system_aftersolvent.pdb")
-    logger.info("system_afterions.pdb and finalsystem.pdb (same)")
-    logger.info("\nFinal files:")
-    logger.info("finalsystem.pdb  (PDB file)")
-    logger.info("finalsystem.cif  (PDBx/mmCIF file)")
-    logger.info("finalsystem.frag  (fragment file)")
-    logger.info("finalsystem.xyz   (XYZ coordinate file)")
-    logger.info(f"{systemxmlfile}   (System XML file)")
-    logger.info("\n\n OpenMM_Modeller done! System has been fully set up!\n")
-    logger.warning("Strongly recommended: Check finalsystem.pdb carefully for correctness!")
-    logger.info("\nTo use this system setup to define a future OpenMMTheory object you can either do:\n")
-
-    logger.info("1. Define using separate forcefield XML files and PDB-file (for topology):")
-    if extraxmlfile is None:
-        logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
-            f"periodic={periodic})"
-        )
-    else:
-        logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], '
-            f'pdbfile="finalsystem.pdb", periodic={periodic})'
-        )
-    logger.info("2. Define using separate forcefield XML files and PDBx/mmCIF file (instead of PDB):")
-    if extraxmlfile is None:
-        logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbxfile="finalsystem.cif", '
-            f"periodic={periodic})"
-        )
-    else:
-        logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], '
-            f'pdbxfile="finalsystem.cif", periodic={periodic})'
-        )
-    logger.info(
-        "3. Use forcefield object file :\n %s",
-        f'omm = OpenMMTheory(topoforce=True, forcefield=forcefield_object, pdbfile="finalsystem.pdb", '
-        f"topology=modeller.topology, periodic={periodic})",
+    _log_output_files_and_usage(
+        systemxmlfile=systemxmlfile,
+        xmlfile=xmlfile,
+        waterxmlfile=waterxmlfile,
+        extraxmlfile=extraxmlfile,
+        residuetemplate_choice=residuetemplate_choice,
+        periodic=periodic,
     )
-    logger.info("")
-    logger.info("")
-    if residuetemplate_choice is not None:
-        logger.warning(
-            "Warning: A residuetemplate_choice option was provided to OpenMM_Modeller. This means that you will have "
-            "to provide this also when defining an OpenMMTheory object."
-        )
-        logger.info(
-            f'E.g. like this: omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
-            f"periodic={periodic}, residuetemplate_choice={residuetemplate_choice})"
-        )
     logger.info("\nNow running single-point MM job to check for bad contacts")
     # Setting sensible periodic cutoff to avoid error
     omm = OpenMMTheory(
@@ -1255,3 +1129,189 @@ def write_xmlfile_parmed(topology, system, xmlfilename):
     ww.residues.update(parmed.modeller.ResidueTemplateContainer.from_structure(st).to_library())
     ww.write(xmlfilename)
     logger.info("Wrote XML-file: %s", xmlfilename)
+
+
+def _log_residue_table(modeller_residues, residue_variants):
+    current_chainindex = 0
+    # Also using loop to get residue_states list that we pass on to modeller.addHydrogens
+    residue_states = []
+    for each_residue in modeller_residues:
+        if each_residue.chain.index != current_chainindex:
+            logger.info("%s", "--" * 30)
+        resid = each_residue.index
+        resid_in_chain = int(each_residue.id)
+        resname = each_residue.name
+        chain = each_residue.chain
+        current_chainindex = each_residue.chain.index
+        if chain.id in residue_variants:
+            if resid_in_chain in residue_variants[chain.id]:
+                residue_states.append(residue_variants[chain.id][resid_in_chain])
+                FLAGLABEL = f"-- This residue will be changed to: {residue_variants[chain.id][resid_in_chain]} --"
+            else:
+                residue_states.append(None)  # Note: we add None since we don't want to influence addHydrogens
+                FLAGLABEL = ""
+        else:
+            residue_states.append(None)  # Note: we add None since we don't want to influence addHydrogens
+            FLAGLABEL = ""
+
+        logger.info(f"  {resid:<12}{resname:<13}{chain.index:<13}{chain.id:<13}{resid_in_chain:<13}       {FLAGLABEL}")
+    return residue_states
+
+
+def _add_solvent_or_membrane(
+    modeller,
+    *,
+    forcefield_obj,
+    implicit,
+    implicit_solvent_xmlfile,
+    membrane,
+    membrane_lipidtype,
+    membrane_padding,
+    membrane_center_z,
+    modeller_solvent_name,
+    watermodel,
+    waterxmlfile,
+    solvent_boxdims,
+    solvent_padding,
+    ionicstrength,
+    pos_iontype,
+    neg_iontype,
+    residue_templates,
+):
+    if implicit is True:
+        periodic = False
+        logger.info("We are doing implicit solvation")
+        logger.info("Setting periodic to False")
+        logger.info("Available implicit solvent models:")
+        logger.info(
+            "implicit/gbn2.xml, implicit/hct.xml, implicit/obc1.xml, implicit/obc2.xml, implicit/gbn.xml, "
+            "implicit/gbn2.xml"
+        )
+        fragment = Fragment(pdbfile="system_afterH.pdb")
+        if implicit_solvent_xmlfile is None:
+            logger.info("No XMLfile for implicit water selected (implicit_solvent_xmlfile keyword)")
+            logger.info("Choosing : implicit/obc2.xml")
+            implicit_solvent_xmlfile = "implicit/obc2.xml"
+            waterxmlfile = implicit_solvent_xmlfile
+    elif membrane is True:
+        logger.info("We are doing membrane-addition and solvation")
+        logger.info("Setting periodic to True")
+        periodic = True
+        logger.info("Adding membrane-lipid type (membrane_lipidtype keyword): %s", membrane_lipidtype)
+        logger.info("Adding solvent, modeller_solvent_name: %s", modeller_solvent_name)
+        logger.info("Actual solvent name: %s", watermodel)
+        logger.info("Actual solvent file: %s", waterxmlfile)
+        modeller.addMembrane(
+            forcefield_obj,
+            lipidType=membrane_lipidtype,
+            positiveIon=pos_iontype,
+            negativeIon=neg_iontype,
+            ionicStrength=ionicstrength * openmm_unit.molar,
+            neutralize=True,
+            membraneCenterZ=membrane_center_z * openmm_unit.angstrom,
+            minimumPadding=membrane_padding * openmm_unit.angstrom,
+        )
+
+        write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
+        # NOTE: Had to remove separate ion-add step due to OpenMM 8.1 change
+        print_systemsize(modeller)
+        fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
+    else:
+        logger.info("We are doing explicit solvation")
+        logger.info("Setting periodic to True")
+        periodic = True
+        logger.info("Adding solvent, modeller_solvent_name: %s", modeller_solvent_name)
+        logger.info("Actual solvent name: %s", watermodel)
+        logger.info("Actual solvent file: %s", waterxmlfile)
+        if solvent_boxdims is not None:
+            logger.info(f"Solvent boxdimension provided: {solvent_boxdims} Å")
+            logger.info(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
+            modeller.addSolvent(
+                forcefield_obj,
+                boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm_unit.angstrom,
+                neutralize=True,
+                positiveIon=pos_iontype,
+                negativeIon=neg_iontype,
+                ionicStrength=ionicstrength * openmm_unit.molar,
+                residueTemplates=residue_templates,
+            )
+        else:
+            logger.info(f"Using solvent padding (solvent_padding=X keyword): {solvent_padding} Å")
+            logger.info(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
+            logger.info("residueTemplates: %s", residue_templates)
+            modeller.addSolvent(
+                forcefield_obj,
+                padding=solvent_padding * openmm_unit.angstrom,
+                model=modeller_solvent_name,
+                neutralize=True,
+                positiveIon=pos_iontype,
+                negativeIon=neg_iontype,
+                ionicStrength=ionicstrength * openmm_unit.molar,
+                residueTemplates=residue_templates,
+            )
+        write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
+
+        # NOTE: Had to remove separate ion-add step due to OpenMM 8.1 change
+        print_systemsize(modeller)
+        fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
+    return periodic, fragment, waterxmlfile
+
+
+def _log_output_files_and_usage(
+    *, systemxmlfile, xmlfile, waterxmlfile, extraxmlfile, residuetemplate_choice, periodic
+):
+    logger.info("\n\nFiles written to disk:")
+    logger.info("system_afteratlocfixes.pdb")
+    logger.info("system_afterfixes.pdb")
+    logger.info("system_afterfixes2.pdb")
+    logger.info("system_afterH.pdb")
+    logger.info("system_aftersolvent.pdb")
+    logger.info("system_afterions.pdb and finalsystem.pdb (same)")
+    logger.info("\nFinal files:")
+    logger.info("finalsystem.pdb  (PDB file)")
+    logger.info("finalsystem.cif  (PDBx/mmCIF file)")
+    logger.info("finalsystem.frag  (fragment file)")
+    logger.info("finalsystem.xyz   (XYZ coordinate file)")
+    logger.info(f"{systemxmlfile}   (System XML file)")
+    logger.info("\n\n OpenMM_Modeller done! System has been fully set up!\n")
+    logger.warning("Strongly recommended: Check finalsystem.pdb carefully for correctness!")
+    logger.info("\nTo use this system setup to define a future OpenMMTheory object you can either do:\n")
+
+    logger.info("1. Define using separate forcefield XML files and PDB-file (for topology):")
+    if extraxmlfile is None:
+        logger.info(
+            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
+            f"periodic={periodic})"
+        )
+    else:
+        logger.info(
+            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], '
+            f'pdbfile="finalsystem.pdb", periodic={periodic})'
+        )
+    logger.info("2. Define using separate forcefield XML files and PDBx/mmCIF file (instead of PDB):")
+    if extraxmlfile is None:
+        logger.info(
+            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbxfile="finalsystem.cif", '
+            f"periodic={periodic})"
+        )
+    else:
+        logger.info(
+            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], '
+            f'pdbxfile="finalsystem.cif", periodic={periodic})'
+        )
+    logger.info(
+        "3. Use forcefield object file :\n %s",
+        f'omm = OpenMMTheory(topoforce=True, forcefield=forcefield_object, pdbfile="finalsystem.pdb", '
+        f"topology=modeller.topology, periodic={periodic})",
+    )
+    logger.info("")
+    logger.info("")
+    if residuetemplate_choice is not None:
+        logger.warning(
+            "Warning: A residuetemplate_choice option was provided to OpenMM_Modeller. This means that you will have "
+            "to provide this also when defining an OpenMMTheory object."
+        )
+        logger.info(
+            f'E.g. like this: omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
+            f"periodic={periodic}, residuetemplate_choice={residuetemplate_choice})"
+        )
