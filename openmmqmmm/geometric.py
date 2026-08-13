@@ -85,6 +85,7 @@ class Constraints:
 
 
 def optimize_geometry(
+    *,
     theory=None,
     fragment=None,
     charge=None,
@@ -172,6 +173,7 @@ class GeometricOptimizer:
 
     def __init__(
         self,
+        *,
         theory=None,
         charge=None,
         mult=None,
@@ -795,6 +797,7 @@ class GeometricArgs:
         self,
         eng,
         constraintsfile,
+        *,
         coordsys,
         maxiter,
         conv_criteria,
@@ -846,6 +849,7 @@ class GeometricEngine:
         self,
         geometric_molf,
         theory,
+        *,
         active_region=False,
         actatoms=None,
         print_atoms_list=None,

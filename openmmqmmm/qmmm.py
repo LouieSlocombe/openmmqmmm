@@ -23,6 +23,7 @@ class QMMMTheory:
 
     def __init__(
         self,
+        *,
         qm_theory=None,
         qmatoms=None,
         fragment=None,
@@ -583,6 +584,7 @@ class QMMMTheory:
 
     def run(
         self,
+        *,
         current_coords=None,
         elems=None,
         grad=False,

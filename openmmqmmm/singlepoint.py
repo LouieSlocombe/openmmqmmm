@@ -335,6 +335,7 @@ class ZeroTheory:
 
     def run(
         self,
+        *,
         current_coords=None,
         elems=None,
         grad=False,

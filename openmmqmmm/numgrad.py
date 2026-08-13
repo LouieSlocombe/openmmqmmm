@@ -37,6 +37,7 @@ class NumGrad:
 
     def run(
         self,
+        *,
         current_coords=None,
         current_mm_coords=None,
         mm_charges=None,

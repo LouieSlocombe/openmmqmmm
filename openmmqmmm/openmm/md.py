@@ -60,6 +60,7 @@ def read_npt_statefile(npt_output):
 
 
 def openmm_md(
+    *,
     fragment=None,
     theory=None,
     timestep=0.001,
@@ -126,6 +127,7 @@ class MolecularDynamicsEngine:
 
     def __init__(
         self,
+        *,
         fragment=None,
         theory=None,
         charge=None,
@@ -979,6 +981,7 @@ class MolecularDynamicsEngine:
 
 
 def openmm_box_equilibration(
+    *,
     fragment=None,
     theory=None,
     datafilename="nptsim.csv",
@@ -1134,6 +1137,7 @@ def print_current_step_info(step, state, openmmobject, qm_energy=None):
 
 
 def gentle_warmup_md(
+    *,
     theory=None,
     fragment=None,
     time_steps=None,

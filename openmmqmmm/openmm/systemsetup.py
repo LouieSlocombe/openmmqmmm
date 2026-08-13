@@ -232,6 +232,7 @@ def openmm_minimize(
 
 
 def openmm_modeller(
+    *,
     pdbfile=None,
     forcefield_object=None,
     forcefield=None,
@@ -954,6 +955,7 @@ def merge_pdb_files(pdbfile_1, pdbfile_2, outputname="merged.pdb") -> str:
 
 
 def small_molecule_parameterizer(
+    *,
     charge=None,
     xyzfile=None,
     pdbfile=None,

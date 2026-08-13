@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def openmm_md_plumed(
+    *,
     fragment=None,
     theory=None,
     timestep=0.001,

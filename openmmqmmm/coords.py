@@ -97,6 +97,7 @@ class Fragment:
 
     def __init__(
         self,
+        *,
         fragments=None,
         coordsstring=None,
         fragfile=None,
@@ -1541,6 +1542,7 @@ def read_ambercoordinates(prmtopfile=None, inpcrdfile=None) -> tuple[list[str], 
 
 def write_pdbfile(
     fragment,
+    *,
     outputname="fragment",
     openmmobject=None,
     atomnames=None,
@@ -2361,6 +2363,7 @@ def combine_and_place_fragments(ref_frag, trans_frag):
 # Use tolerance (tol) e.g. to control how many solvent molecules around get deleted
 # Currently using 0.4 as default based on threonine in acetonitrile example
 def insert_solute_into_solvent(
+    *,
     solute=None,
     solute2=None,
     solvent=None,

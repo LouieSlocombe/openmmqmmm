@@ -36,6 +36,7 @@ class ORCATheory:
 
     def __init__(
         self,
+        *,
         orcadir=None,
         orcasimpleinput="",
         basis_per_element=None,
@@ -400,6 +401,7 @@ end
 
     def run(
         self,
+        *,
         current_coords=None,
         charge=None,
         mult=None,
@@ -1308,6 +1310,7 @@ def _create_orca_input(
     orcablockinput,
     charge,
     mult,
+    *,
     pcfile=None,
     grad=False,
     hessian=False,

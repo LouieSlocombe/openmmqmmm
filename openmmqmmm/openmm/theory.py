@@ -45,6 +45,7 @@ class OpenMMTheory:
 
     def __init__(
         self,
+        *,
         platform="CPU",
         numcores=1,
         topoforce=False,
@@ -1317,6 +1318,7 @@ class OpenMMTheory:
     # NOTE: Adding charge/mult/PC here to  be consistent with QM_theories. Not used
     def run(
         self,
+        *,
         current_coords=None,
         elems=None,
         grad=False,
@@ -1702,6 +1704,7 @@ def clean_up_constraints_list(fragment=None, constraints=None):
 
 
 def write_xmlfile_nonbonded(
+    *,
     resnames=None,
     atomnames_per_res=None,
     atomtypes_per_res=None,

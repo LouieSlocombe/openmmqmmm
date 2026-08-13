@@ -73,6 +73,7 @@ def import_mp(version="multiprocessing"):
 
 
 def job_parallel(
+    *,
     fragments=None,
     fragmentfiles=None,
     theories=None,
@@ -282,6 +283,7 @@ def job_parallel(
 
 # NOTE: Version intended for apply_async
 def worker_par(
+    *,
     fragment=None,
     fragmentfile=None,
     theory=None,

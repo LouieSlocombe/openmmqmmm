@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # Analytical frequencies function. Only for theories with this option added (e.g. ORCATheory and CFourTheory)
 # Checked by analytic_hessian attribute True
 def analytic_frequencies(
+    *,
     fragment=None,
     theory=None,
     charge=None,
@@ -140,6 +141,7 @@ def analytic_frequencies(
 
 # ORCA uses 0.005 Bohr = 0.0026458861 Ang, CHemshell uses 0.01 Bohr = 0.00529 Ang
 def numerical_frequencies(
+    *,
     fragment=None,
     theory=None,
     charge=None,
@@ -723,6 +725,7 @@ def thermochemcalc(
     atoms,
     fragment,
     multiplicity,
+    *,
     temp=298.15,
     pressure=1.0,
     qrrho=True,
