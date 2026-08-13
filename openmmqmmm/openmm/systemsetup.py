@@ -38,6 +38,21 @@ from openmmqmmm.utils import (
 
 logger = logging.getLogger(__name__)
 
+# Forcefield shorthands accepted by openmm_modeller, mapped to the XML file OpenMM ships.
+FORCEFIELD_XMLFILES = {
+    "Amber99": "amber99sb.xml",
+    "Amber99sb": "amber99sb.xml",
+    "Amber99sb-ildn": "amber99sbildn.xml",
+    "Amber96": "amber96.xml",
+    "Amber03": "amber03.xml",
+    "Amber10": "amber10.xml",
+    "Amber14": "amber14-all.xml",
+    "CHARMM36": "charmm36.xml",
+    "CHARMM2013": "charmm_polar_2013.xml",
+    "Amoeba2013": "amoeba2013.xml",
+    "Amoeba2009": "amoeba2009.xml",
+}
+
 
 def print_systemsize(modeller):
     logger.info(f"System size: {len(modeller.getPositions())} atoms\n")
@@ -283,28 +298,10 @@ def openmm_modeller(
 
     if forcefield is not None:
         logger.info("Forcefield: %s", forcefield)
-        if forcefield in {"Amber99", "Amber99sb"}:
-            xmlfile = "amber99sb.xml"
-        elif forcefield == "Amber99sb-ildn":
-            xmlfile = "amber99sbildn.xml"
-        elif forcefield == "Amber96":
-            xmlfile = "amber96.xml"
-        elif forcefield == "Amber03":
-            xmlfile = "amber03.xml"
-        elif forcefield == "Amber10":
-            xmlfile = "amber10.xml"
-        elif forcefield == "Amber14":
-            xmlfile = "amber14-all.xml"
-        elif forcefield == "CHARMM36":
-            xmlfile = "charmm36.xml"
-        elif forcefield == "CHARMM2013":
-            xmlfile = "charmm_polar_2013.xml"
-        elif forcefield == "Amoeba2013":
-            xmlfile = "amoeba2013.xml"
-        elif forcefield == "Amoeba2009":
-            xmlfile = "amoeba2009.xml"
-        else:
-            raise InputError("Unknown forcefield")
+        try:
+            xmlfile = FORCEFIELD_XMLFILES[forcefield]
+        except (KeyError, TypeError):
+            raise InputError("Unknown forcefield") from None
 
         if "CHARMM" in forcefield:
             # Using specific CHARMM36 version of TIP3P

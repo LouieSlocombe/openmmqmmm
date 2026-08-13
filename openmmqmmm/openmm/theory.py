@@ -39,6 +39,25 @@ from openmmqmmm.utils import (
 
 logger = logging.getLogger(__name__)
 
+# Bonds constrained automatically at system creation, with the log line each choice prints.
+AUTOCONSTRAINTS = {
+    "HBonds": (openmm.app.HBonds, "HBonds option: X-H bond lengths will automatically be constrained"),
+    "AllBonds": (openmm.app.AllBonds, "AllBonds option: All bond lengths will automatically be constrained"),
+    "HAngles": (
+        openmm.app.HAngles,
+        "HAngles option: All bond lengths and H-X-H and H-O-X angles will automatically be constrained",
+    ),
+    None: (None, "No automatic constraints"),
+}
+
+# Long-range electrostatics treatments accepted for periodic systems.
+NONBONDED_METHODS_PBC = {
+    "PME": openmm.app.PME,
+    "Ewald": openmm.app.Ewald,
+    "LJPME": openmm.app.LJPME,
+    "CutoffPeriodic": openmm.app.CutoffPeriodic,
+}
+
 
 class OpenMMTheory:
     """Interface to the OpenMM molecular-mechanics library."""
@@ -127,21 +146,13 @@ class OpenMMTheory:
         # Degrees of freedom of system (accounts for frozen atoms and constraints)
         self.dof = None
 
-        # Autoconstraints when creating MM system: Default: None,  Options: Hbonds, AllBonds, HAng
-        if autoconstraints == "HBonds":
-            logger.info("HBonds option: X-H bond lengths will automatically be constrained")
-            self.autoconstraints = openmm.app.HBonds
-        elif autoconstraints == "AllBonds":
-            logger.info("AllBonds option: All bond lengths will automatically be constrained")
-            self.autoconstraints = openmm.app.AllBonds
-        elif autoconstraints == "HAngles":
-            logger.info("HAngles option: All bond lengths and H-X-H and H-O-X angles will automatically be constrained")
-            self.autoconstraints = openmm.app.HAngles
-        elif autoconstraints is None or autoconstraints == "None":
-            logger.info("No automatic constraints")
-            self.autoconstraints = None
-        else:
-            raise InputError("Unknown autoconstraints option")
+        if autoconstraints == "None":
+            autoconstraints = None
+        try:
+            self.autoconstraints, description = AUTOCONSTRAINTS[autoconstraints]
+        except (KeyError, TypeError):
+            raise InputError("Unknown autoconstraints option") from None
+        logger.info(description)
         logger.info("AutoConstraint setting: %s", self.autoconstraints)
 
         self.user_frozen_atoms = []
@@ -414,16 +425,10 @@ class OpenMMTheory:
                     use_parmed,
                 )
 
-                if self.nonbonded_method_pbc == "PME":
-                    nonb_method_PBC = openmm.app.PME
-                elif self.nonbonded_method_pbc == "Ewald":
-                    nonb_method_PBC = openmm.app.Ewald
-                elif self.nonbonded_method_pbc == "LJPME":
-                    nonb_method_PBC = openmm.app.LJPME
-                elif self.nonbonded_method_pbc == "CutoffPeriodic":
-                    nonb_method_PBC = openmm.app.CutoffPeriodic
-                else:
-                    raise InputError("Unknown nonbonded method")
+                try:
+                    nonb_method_PBC = NONBONDED_METHODS_PBC[self.nonbonded_method_pbc]
+                except (KeyError, TypeError):
+                    raise InputError("Unknown nonbonded method") from None
 
                 logger.info("Nonbonded PBC method selected: %s", nonb_method_PBC)
 
