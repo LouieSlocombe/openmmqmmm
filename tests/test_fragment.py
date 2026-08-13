@@ -8,7 +8,6 @@ TEST_DIR = Path(__file__).parent
 
 
 def test_fragread():
-
     fragcoords = """
     H 0.0 0.0 0.0
     F 0.0 0.0 1.0
@@ -37,7 +36,6 @@ def test_fragread():
 
 
 def test_fragread_files():
-
     fragcoords = """
     H 0.0 0.0 0.0
     F 0.0 0.0 1.0

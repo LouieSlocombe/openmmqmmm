@@ -125,7 +125,6 @@ class Fragment:
         label=None,
         readchargemult=False,
     ):
-
         self.charge = None
         self.mult = None
 
@@ -169,7 +168,6 @@ class Fragment:
             if connectivity is not None:
                 conncalc = False
                 self.connectivity = connectivity
-
         elif fragments is not None:
             logger.info("Creating fragments by combining input fragments")
             self.elems = []
@@ -188,7 +186,6 @@ class Fragment:
                     mult = int(2 * spin + 1)
                 except TypeError:
                     logger.info("Charges/multiplicities not found in inputfragments.")
-
         elif atom is not None:
             logger.info("Creating Atom Fragment")
             self.elems = [atom]
@@ -1068,7 +1065,6 @@ def _write_coords_lines(f, coords, elems, indices, labels, labels2, description)
                 f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
                 for i in range(len(elems))
             )
-
         elif labels2 is None:
             f.writelines(
                 f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}\n"
@@ -1789,7 +1785,6 @@ def flexible_align(
             logger.info("Will align using each list of indices for each fragment")
             subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset[0])
             subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset[1])
-
         else:
             logger.info("Subset is a list of indices")
             logger.info(
@@ -1804,7 +1799,6 @@ def flexible_align(
 
         logger.info("subsetB_elems: %s", subsetB_elems)
         logger.info("subsetB_coords: %s", subsetB_coords)
-
     else:
         subsetA_coords = fragment_a.coords
         subsetB_coords = fragment_b.coords
@@ -1882,7 +1876,6 @@ def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, wr
             logger.info("Will align using each list of indices for each fragment")
             subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset[0])
             subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset[1])
-
         else:
             logger.info("Subset is a list of indices")
             logger.info(
@@ -1899,7 +1892,6 @@ def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, wr
     elif heavyatomsonly is True:
         subsetA_coords = fragment_a.coords[fragment_a.get_non_h_atomindices()]
         subsetB_coords = fragment_b.coords[fragment_b.get_non_h_atomindices()]
-
     else:
         subsetA_coords = fragment_a.coords
         subsetB_coords = fragment_b.coords
@@ -1976,7 +1968,6 @@ def expand_qm_region(fragment=None, initial_atoms=None, radius=None) -> list[int
                         wholemol = get_molecule_members_loop_np2(
                             fragment.coords, fragment.elems, 99, scale, tol, atomindex=index
                         )
-
                     else:
                         for q in fragment.connectivity:
                             if index in q:

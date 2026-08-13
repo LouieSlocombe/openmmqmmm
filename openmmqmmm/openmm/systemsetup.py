@@ -262,7 +262,6 @@ def openmm_modeller(
     logger.info(main_header("OpenMM Modeller"))
     try:
         logger.info("Imported OpenMM library version: %s", openmm.__version__)
-
     except ImportError:
         raise ImportError(
             "OpenMM requires installing the OpenMM package. Try: 'conda install -c conda-forge openmm'  \
@@ -356,14 +355,12 @@ def openmm_modeller(
             forcefield_obj = openmm_app.forcefield.ForceField(xmlfile, waterxmlfile)
         elif extraxmlfile is not None and waterxmlfile is not None:
             forcefield_obj = openmm_app.forcefield.ForceField(xmlfile, extraxmlfile, waterxmlfile)
-
     elif forcefield_object is not None:
         logger.info("Using forcefield object provided")
         forcefield_obj = forcefield_object
 
         if watermodel is not None or waterxmlfile is not None:
             logger.warning("Ignoring watermodel/waterxmlfile: a forcefield_object was supplied")
-
     else:
         raise InputError("You must provide a forcefield name, forcefieldobject or xmlfile keywords!")
 
@@ -715,7 +712,6 @@ def openmm_modeller(
 
 
 def write_pdbfile_openmm_topology(topology, positions, filename, connectivity_dict=None):
-
     if connectivity_dict is not None:
         logger.info("Connectivity passed to write_pdbfile_openMM")
         openmm_add_bonds_to_topology(topology, connectivity_dict)
@@ -726,7 +722,6 @@ def write_pdbfile_openmm_topology(topology, positions, filename, connectivity_di
 
 
 def write_pdbxfile_openmm_topology(topology, positions, filename, connectivity_dict=None):
-
     if connectivity_dict is not None:
         logger.info("Connectivity passed to write_pdbxfile_openMM")
         openmm_add_bonds_to_topology(topology, connectivity_dict)
@@ -1046,7 +1041,6 @@ def small_molecule_parameterizer(
         smiles_string = Chem.MolToSmiles(mol)
         logger.info("RDKit-determined Smiles_string is: %s", smiles_string)
         molecule = Molecule.from_rdkit(mol)
-
     elif pdbfile:
         logger.info("PDB-file provided: %s", pdbfile)
         logger.info("Will use RDKit to convert PDB file to an RDKit Mol object and then to OpenFF Molecule object")
@@ -1059,7 +1053,6 @@ def small_molecule_parameterizer(
         smiles_string = Chem.MolToSmiles(mol)
         logger.info("RDKit-determined Smiles_string is: %s", smiles_string)
         molecule = Molecule.from_rdkit(mol)
-
     else:
         raise InputError("No inputfile provided. Exiting")
 
@@ -1093,7 +1086,6 @@ def small_molecule_parameterizer(
 
         final_xmlfilename = f"gaff_{resname}.xml"
         write_xmlfile_parmed(topology, system, final_xmlfilename)
-
     elif forcefield_option == "OpenFF":
         import openff
         from openmmforcefields.generators import SMIRNOFFTemplateGenerator
@@ -1191,7 +1183,6 @@ file that was used in this function."
 def create_sys_and_check_14_scaling_nonbonding(
     topology=None, xml_file=None, expected_coul14=0.833333, expected_lj14=0.5
 ):
-
     logger.info("Creating system from XML-file and topology")
     if topology is None:
         raise InputError("Error: topology is required if system is not provided")
@@ -1232,7 +1223,6 @@ def create_sys_and_check_14_scaling_nonbonding(
 
 
 def calc_nonbonding_energy_exceptions(system=None):
-
     for force in system.getForces():
         if isinstance(force, openmm.NonbondedForce):
             break

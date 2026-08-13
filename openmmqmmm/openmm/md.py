@@ -834,7 +834,6 @@ class MolecularDynamicsEngine:
                 self.simulation.step(1)
                 log_time_since(checkpoint, "openmmobject sim step")
                 log_time_since(checkpoint_begin_step, "Total sim step")
-
         elif self.theory_runtype == "QM":
             logger.info("External QM with OpenMM option")
             for step in range(simulation_steps):
@@ -905,7 +904,6 @@ class MolecularDynamicsEngine:
                 self.simulation.step(1)
                 log_time_since(checkpoint, "OpenMM sim step")
                 log_time_since(checkpoint_begin_step, "Total sim step")
-
         elif self.theory_runtype == "MM":
             logger.info("Regular classical OpenMM MD option chosen.")
             self.simulation.step(simulation_steps)
@@ -1110,7 +1108,6 @@ def openmm_box_equilibration(
 
 
 def print_current_step_info(step, state, openmmobject, qm_energy=None):
-
     kinetic_energy = state.getKineticEnergy()
     kinetic_energy_eh = kinetic_energy.value_in_unit(openmm.unit.kilojoules_per_mole) / 2625.5002
 

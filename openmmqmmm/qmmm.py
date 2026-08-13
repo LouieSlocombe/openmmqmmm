@@ -48,7 +48,6 @@ class QMMMTheory:
         linkatom_type="H",
         update_qm_region_charges=False,
     ):
-
         module_init_time = time.time()
         logger.info(main_header("QM/MM Theory"))
 
@@ -929,7 +928,6 @@ class QMMMTheory:
 
                 logger.info("Number of pointcharges defined for whole system:  %s", len(self.pointcharges))
                 logger.info("Number of pointcharges defined for MM region:  %s", len(self.pointcharges))
-
         else:
             self.num_linkatoms = 0
             self.current_qmelems = self.qmelems
@@ -1012,7 +1010,6 @@ class QMMMTheory:
             # (mech_run does the same). A flat (3,) array breaks make_qm_pc_gradient.
             PCgradient = np.zeros((len(self.pointchargecoords), 3))
             QMgradient = np.zeros((len(used_qmcoords), 3))
-
         elif grad is True:
             if self.pc is True:
                 QMenergy, QMgradient, PCgradient = self.qm_theory.run(
@@ -1106,7 +1103,6 @@ class QMMMTheory:
                     )
                     log_time_since(CheckpointTime, "truncPC_gradient update ")
                     log_time_since(truncfullCheckpointTime, "trunc-full-step pcgrad update")
-
                 else:
                     CheckpointTime = time.time()
                     self.QMenergy = QMenergy + self.truncPC_E_correction

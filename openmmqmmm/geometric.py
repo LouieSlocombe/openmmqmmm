@@ -448,7 +448,6 @@ class GeometricOptimizer:
             write_hessian(self.hessian, hessfile=hessianfile)
             self.hessian = "file:" + hessianfile
             logger.info("Hessian option to be used by geometric: %s", self.hessian)
-
         elif isinstance(self.hessian, str):
             logger.info("Hessian option provided is a string")
             if self.hessian == "xtb":
@@ -567,7 +566,6 @@ class GeometricOptimizer:
                             f"system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
                         )
                     )
-
         elif self.hessian is None:
             logger.info("No Hessian option provided.")
         else:

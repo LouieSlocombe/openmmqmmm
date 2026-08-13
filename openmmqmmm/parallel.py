@@ -254,7 +254,6 @@ def job_parallel(
         final_result.properties = property_dict
         final_result.displacement_dipole_dictionary = dipole_dict
         final_result.displacement_polarizability_dictionary = polarizability_dict
-
     else:
         for _i, r in enumerate(results):
             if r.ready() is True:
@@ -334,7 +333,6 @@ def worker_par(
                 )
             else:
                 moreadfile_path = mofilesdir + "/" + theory.filename + "_" + "RC1_" + str(label[0])
-
     elif isinstance(label, (float, int)):
         logger.info("Label is float or int")
         labelstring = str(label).replace(".", "_")
@@ -389,7 +387,6 @@ def worker_par(
                 properties = {"polarizability": polarizability}
             except Exception:  # noqa: BLE001 - best-effort property grab
                 pass
-
         else:
             energy = theory.run(
                 current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult

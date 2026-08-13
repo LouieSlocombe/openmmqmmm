@@ -220,7 +220,6 @@ def numerical_frequencies(
             if isinstance(theory, openmmqmmm.orca.ORCATheory):
                 logger.info("Copying GBW file into Numfreq_dir")
                 shutil.copy("../" + theory.filename + ".gbw", "./" + theory.filename + ".gbw")
-
         elif theory.theorytype == "QM/MM" and isinstance(theory.qm_theory, openmmqmmm.orca.ORCATheory):
             logger.info("Copying GBW file into Numfreq_dir")
             shutil.copy("../" + theory.qm_theory.filename + ".gbw", "./" + theory.qm_theory.filename + ".gbw")
@@ -348,7 +347,6 @@ def numerical_frequencies(
                     displacement_polarizability_dictionary[stringlabel] = displacement_pol
                 except Exception:  # noqa: BLE001 - best-effort polarizability grab
                     logger.warning("Problem getting polarizability tensor from theory interface. Skipping")
-
     elif runmode == "parallel":
         if isinstance(theory, openmmqmmm.QMMMTheory):
             logger.info("Numfreq in runmode='parallel' with QM/MM is quite experimental")
@@ -417,7 +415,6 @@ def numerical_frequencies(
                     pz_deriv = (disp_polarizability - original_polarizability) / displacement_bohr
                     polarizability_derivs.append(pz_deriv)
                 hessindex += 1
-
     elif npoint == 2:
         logger.info("Assembling the two-point Hessian")
         hessindex = 0

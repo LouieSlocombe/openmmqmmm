@@ -228,7 +228,6 @@ class OpenMMTheory:
                 self.segmentnames = [self.psf.atoms[i].residue.segid for i in range(len(self.psf.atoms))]
                 self.atomtypes = [i.type for i in self.psf.atoms]
                 self.atomnames = [self.psf.atoms[i].name for i in range(len(self.psf.atoms))]
-
             else:
                 self.psf = openmm.app.CharmmPsfFile(psffile)
                 self.params = openmm.app.CharmmParameterSet(charmmtopfile, charmmprmfile, permissive=True)
@@ -241,7 +240,6 @@ class OpenMMTheory:
 
             self.topology = self.psf.topology
             self.forcefield = self.psf
-
         elif gromacs_files is True:
             logger.info("Reading Gromacs files.")
             if use_parmed is True:
@@ -261,7 +259,6 @@ class OpenMMTheory:
 
                 self.topology = gmx_top.topology
                 self.forcefield = gmx_top
-
             else:
                 logger.info("Using built-in OpenMM routines to read GROMACS topology.")
                 logger.warning("May fail if virtual sites present (e.g. TIP4P residues).")
@@ -335,7 +332,6 @@ class OpenMMTheory:
                 pdb_pbc_vectors = pdb.topology.getPeriodicBoxVectors()
             self.forcefield = forcefield
             self.define_mm_elements(self.topology)
-
         elif xmlsystemfile is not None:
             logger.info("Reading system XML file: %s", xmlsystemfile)
             with open(xmlsystemfile) as xmlfh:
@@ -370,7 +366,6 @@ class OpenMMTheory:
             )
             self.forcefield = openmm.app.ForceField(xmlfile)
             self.define_mm_elements(self.topology)
-
         else:
             logger.info("Reading OpenMM XML forcefield files and PDB (or PDBx) file")
             logger.info("xmlfiles: %s", str(xmlfiles).strip("[]"))
@@ -510,7 +505,6 @@ class OpenMMTheory:
                         logger.info("   PME Parameters: %s", force.getPMEParameters())
                         logger.info("   Ewald error tolerance: %s", force.getEwaldErrorTolerance())
                 logger.info(small_header("OpenMM system created."))
-
             else:
                 if self.nonbonded_method_no_pbc == "NoCutoff":
                     noPBC_nonbondedMethod = openmm.app.NoCutoff
@@ -1643,7 +1637,6 @@ class OpenMMTheory:
                         logger.debug("presence: %s", presence)
                         logger.debug("Found CMAP torsion partner in QM-region")
                         logger.debug("Not deleting. To be revisited...")
-
             elif isinstance(force, openmm.CustomBondForce):
                 logger.debug("CustomBondForce")
                 logger.debug(f"There are {force.getNumBonds()} force terms defined.")
@@ -1683,7 +1676,6 @@ class ForceReporter:
         return (steps, False, False, True, False, None)
 
     def report(self, simulation, state):
-
         energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
         forces = state.getForces().value_in_unit(openmm.unit.kilojoules / openmm.unit.mole / openmm.unit.nanometer)
         if self.atomic_units:

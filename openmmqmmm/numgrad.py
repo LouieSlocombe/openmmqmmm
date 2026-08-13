@@ -79,7 +79,6 @@ class NumGrad:
                     current_coords=dispgeo, elems=elems, grad=False, label=label, charge=charge, mult=mult
                 )
                 dispdict[(disp)] = energy
-
         elif self.runmode == "parallel":
             logger.info("Numgrad: runmode is parallel")
             origfrag = openmmqmmm.Fragment(coords=current_coords, elems=elems, label="orig", charge=charge, mult=mult)

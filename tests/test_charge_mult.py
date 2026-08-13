@@ -2,7 +2,6 @@ from openmmqmmm import Fragment
 
 
 def test_chargemult():
-
     fragcoords = """
     H 0.0 0.0 0.0
     F 0.0 0.0 1.0
