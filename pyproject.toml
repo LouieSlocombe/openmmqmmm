@@ -27,7 +27,7 @@ dependencies = [
 
 [project.optional-dependencies]
 md = ["mdtraj"]
-extras = ["matplotlib", "scipy", "parmed"]
+extras = ["scipy", "parmed"]
 test = ["pytest", "pytest-cov"]
 # Pinned, not floating: ruff's formatter output can shift between releases, so the
 # version here must match .pre-commit-config.yaml and .github/workflows/ci.yml or

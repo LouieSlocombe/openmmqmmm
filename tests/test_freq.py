@@ -12,7 +12,7 @@ import math
 import numpy as np
 import pytest
 
-from openmmqmmm import Fragment, ZeroTheory, constants, numerical_frequencies
+from openmmqmmm import Fragment, ZeroTheory, analytic_frequencies, constants, numerical_frequencies
 from openmmqmmm.freq import (
     approximate_full_hessian_from_smaller,
     calc_rotational_constants,
@@ -278,3 +278,52 @@ def test_grimme_cutoff_changes_the_interpolation():
     # Which way it runs is set by which of the two terms is larger, and that depends on the
     # moment of inertia rather than on the cut-off, so only monotonicity is asserted.
     assert entropies == sorted(entropies) or entropies == sorted(entropies, reverse=True)
+
+
+# The two entry points must agree on which quasi-RRHO scheme runs. numerical_frequencies
+# forwarded qrrho_method to thermochemcalc and analytic_frequencies did not, so
+# analytic_frequencies(qrrho_method="Truhlar") silently produced Grimme numbers.
+
+
+class SoftModeHessianTheory:
+    """A theory that hands back a fixed Hessian, so analytic_frequencies runs offline.
+
+    The Hessian is scaled to put a mode below the quasi-RRHO cut-off; without one
+    there is nothing for Grimme and Truhlar to disagree about.
+    """
+
+    def __init__(self, hessian):
+        self.theorytype = "QM"
+        self.theorynamelabel = "SoftModeHessian"
+        self.analytic_hessian = True
+        self.numcores = 1
+        self.hessian = hessian
+
+    def set_numcores(self, numcores):
+        self.numcores = numcores
+
+    def run(self, current_coords=None, elems=None, charge=None, mult=None, hessian=False, **kwargs):
+        return 0.0
+
+
+@pytest.fixture
+def soft_mode_theory(water):
+    """A water Hessian softened until its lowest real mode falls under 100 cm-1."""
+    numfreq = numerical_frequencies(theory=ZeroTheory(), fragment=water, charge=0, mult=1)
+    # ZeroTheory gives a zero Hessian; add a small diagonal so the modes are real but soft.
+    return SoftModeHessianTheory(np.eye(numfreq.hessian.shape[0]) * 1e-5)
+
+
+def test_analytic_frequencies_forwards_the_qrrho_method(water, soft_mode_theory):
+    """qrrho_method must reach thermochemcalc, not be dropped on the way."""
+    grimme = analytic_frequencies(
+        fragment=water, theory=soft_mode_theory, charge=0, mult=1, qrrho_method="Grimme"
+    ).thermochemistry
+    truhlar = analytic_frequencies(
+        fragment=water, theory=soft_mode_theory, charge=0, mult=1, qrrho_method="Truhlar"
+    ).thermochemistry
+
+    assert grimme["TS_vib"] != pytest.approx(truhlar["TS_vib"]), (
+        "Truhlar and Grimme must give different vibrational entropies for a sub-cut-off mode; "
+        "equal values mean qrrho_method never reached thermochemcalc"
+    )

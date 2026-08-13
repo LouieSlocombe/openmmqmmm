@@ -161,7 +161,6 @@ class Fragment:
         mult=None,
         label=None,
         readchargemult=False,
-        use_atomnames_as_elements=False,
     ):
 
         # Defining initial charge/mult attributes. Will be redefined
@@ -468,14 +467,6 @@ class Fragment:
         """Return the indices of all atoms that are not hydrogen."""
         return [index for index, el in enumerate(self.elems) if el != "H"]
 
-    def get_atomindices_for_element(self, element):
-        """Return the indices of every atom of a given element.
-
-        Args:
-            element: element symbol, e.g. "Fe".
-        """
-        return [index for index, el in enumerate(self.elems) if el == element]
-
     def delete_atom(self, atomindex):
         """Remove one atom and refresh the derived attributes.
 
@@ -712,10 +703,6 @@ class Fragment:
             tol = CONNECTIVITY_TOL
         logger.info(f"Using scale: {scale} and tol: {tol} ")
 
-        # Setting scale and tol as part of object for future usage (e.g. QM/MM link atoms)
-        self.scale = scale
-        self.tol = tol
-
         # Calculate connectivity by looping over all atoms
         timestampA = time.time()
         fraglist = calc_conn_py(self.coords, self.elems, conndepth, scale, tol)
@@ -730,7 +717,6 @@ class Fragment:
                 f"Connectivity problem\nself.connectivity: {self.connectivity}\nconn_number_sum: "
                 f"{conn_number_sum}\nself numatoms {self.numatoms}"
             )
-        self.connected_atoms_number = conn_number_sum
 
     # Centroid
     def get_centroid(self):
@@ -1758,7 +1744,7 @@ def read_xyzfile(filename) -> tuple[list[str], np.ndarray]:
 
 # Read all XYZ-files from directory
 # Return fragment list
-def read_xyzfiles(xyzdir, readchargemult=False, label_from_filename=True) -> list:
+def read_xyzfiles(xyzdir, readchargemult=False) -> list:
     """Create a Fragment for every XYZ file in a directory.
 
     Files are processed in natural (human) sort order.
@@ -1766,7 +1752,6 @@ def read_xyzfiles(xyzdir, readchargemult=False, label_from_filename=True) -> lis
     Args:
         xyzdir: directory to scan for *.xyz files.
         readchargemult: read charge and multiplicity from each XYZ title line.
-        label_from_filename: unused; the filename is always used as the label.
 
     Returns:
         List of Fragment objects, one per file.
@@ -1927,94 +1912,6 @@ def conv_atomtypes_elems(atomtype):
                     "coordinate file you're reading in."
                 ).format(f"Atomtype: '{atomtype}' not recognized either as valid atomtype or element. Exiting.")
             ) from None
-
-
-# READ PDBfile
-def read_pdbfile(filename, use_atomnames_as_elements=False):
-    residuelist = []
-    # If elemcolumn found
-    elemcol = []
-    # Not atomtype but atomname
-    residname = []
-
-    coords = []
-    try:
-        with open(filename) as f:
-            for line in f:
-                # if 'ATOM ' in line or 'HETATM' in line:
-                if line.startswith(("ATOM", "HETATM")):
-                    atom_name = line[12:16].replace(" ", "")
-                    residname.append(line[17:20].replace(" ", ""))
-                    residuelist.append(line[22:26].replace(" ", ""))
-                    coords_x = float(line[30:38].replace(" ", ""))
-                    coords_y = float(line[38:46].replace(" ", ""))
-                    coords_z = float(line[46:54].replace(" ", ""))
-                    coords.append([coords_x, coords_y, coords_z])
-                    elem = line[76:78].replace(" ", "").replace("\n", "")
-                    # Option to use atomnamecolumn for element information instead of element-column
-                    if use_atomnames_as_elements is True:
-                        elem_name = openmmqmmm.elements.atomtypes_dict[atom_name]
-                        elemcol.append(elem_name)
-                    elif len(elem) != 0:
-                        if len(elem) == 2:
-                            # Making sure second elem letter is lowercase
-                            elemcol.append(reformat_element(elem))
-                        else:
-                            elemcol.append(reformat_element(elem))
-                    else:
-                        logger.info("While reading line:")
-                        raise FileFormatError(
-                            f"{line}\nNo element found in element-column of PDB-file\nEither fix element-column "
-                            f"(columns 77-78) or try to use to read element-information from atomname-column:\n "
-                            f"Fragment(pdbfile='X', use_atomnames_as_elements=True)"
-                        )
-                # if 'HETATM' in line:
-    except FileNotFoundError:
-        raise FileFormatError(f"File '{filename}' does not exist!") from None
-    # Create numpy array
-    coords_np = reformat_list_to_array(coords)
-
-    if len(elemcol) != len(coords):
-        raise FileFormatError(
-            f"len coords {len(coords)}\nlen elemcol {len(elemcol)}\ndid not find same number of elements as "
-            f"coordinates\nNeed to define elements in some other way"
-        )
-    elems = elemcol
-    return elems, coords_np
-
-
-def read_pdbfile_info(filename, use_atomnames_as_elements=False):
-    atomnames = []
-    chainlabels = []
-    residnames = []
-    residlabels = []
-    conect_lines = []
-    try:
-        with open(filename) as f:
-            for line in f:
-                if line.startswith(("ATOM", "HETATM")):
-                    atomnames.append(line[12:16].replace(" ", ""))
-                    residnames.append(line[17:20].replace(" ", ""))
-                    chainlabels.append(line[21:22].replace(" ", ""))
-                    # Resid grab
-                    # Note: Resids are integer up to 9999 but after that many programs (VMD, OpenMM) switch to a hex
-                    # notation
-                    # Here grabbing resid as string instead of integer in general
-                    residlabel_temp = line[22:26].replace(" ", "")
-                    if residlabel_temp == "A000":
-                        logger.warning(
-                            "Warning: read_pdbfile_info encountered a hexadecimal notation (A000) for resid (likely "
-                            "due to resids > 9999). Hopefully things will be fine"
-                        )
-                        logger.info(f"PDB-file: {filename}. Line: {line}")
-                    residlabel = str(residlabel_temp)
-                    residlabels.append(residlabel)
-                if line.startswith("CONECT"):
-                    conect_lines.append(line)
-    except FileNotFoundError:
-        raise FileFormatError(f"File '{filename}' does not exist!") from None
-
-    return atomnames, residnames, residlabels, chainlabels, conect_lines
 
 
 # Read GROMACS Gro coordinate file and box info
@@ -2864,7 +2761,6 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
 # Using linkatom distance of 1.09 Å for now as default. Makes sense for C-H link atoms.
 def get_linkatom_positions(
     qm_mm_boundary_dict,
-    qmatoms,
     coords,
     elems,
     linkatom_method="simple",
@@ -3449,7 +3345,7 @@ def nuc_nuc_repulsion(coords, charges) -> float:
 
 
 # Very simple dummy topology (no connectivity or bonds)
-def define_dummy_topology(elems, scale=1.0, tol=0.1, resname="MOL"):
+def define_dummy_topology(elems, resname="MOL"):
     try:
         import openmm.app
     except ImportError:

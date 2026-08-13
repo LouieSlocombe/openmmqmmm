@@ -44,7 +44,6 @@ from openmmqmmm.openmm.theory import (
     ForceReporter,
     OpenMMTheory,
     clean_up_constraints_list,
-    create_cnb,
     write_xmlfile_nonbonded,
 )
 
@@ -55,7 +54,6 @@ __all__ = [
     "calc_nonbonding_energy_exceptions",
     "check_gradient_for_bad_atoms",
     "clean_up_constraints_list",
-    "create_cnb",
     "create_sys_and_check_14_scaling_nonbonding",
     "diff_wrap_box_coords",
     "find_alternate_locations_residues",

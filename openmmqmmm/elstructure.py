@@ -151,7 +151,7 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
 
 
 # Get electron correlation energy as a function of occupation numbers, sigma and the chosen distribution
-def get_ec_entropy(occ, sigma, method="fermi", alpha=0.6):
+def get_ec_entropy(occ, sigma, method="fermi"):
     from scipy.special import erfinv
 
     f = occ / 2.0

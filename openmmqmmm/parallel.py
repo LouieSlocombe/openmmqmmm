@@ -392,8 +392,6 @@ def worker_par(
     # NOTE: Alternatively add if-statement inside orca.run
     if copytheory:
         theory = copy.deepcopy(theory)
-    else:
-        pass
 
     # Optional fragment-creation from disk
     if fragmentfile is not None:

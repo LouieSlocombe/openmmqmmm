@@ -609,10 +609,7 @@ class QMMMTheory:
                 self.dipole_coords.append(pos_d2)
         log_time_since(checkpoint, "SetDipoleCharges")
 
-    # Reasonably efficient version (this dominates QM/MM gradient prepare)
-    # def make_QM_PC_gradient_old(self):
-
-    # Faster version. Also, uses precalculated mask.
+    # Uses a precalculated mask; this dominates QM/MM gradient prepare.
     def make_qm_pc_gradient(self):
         """Assemble the full-system gradient from the QM and point-charge gradients.
 
@@ -1162,7 +1159,6 @@ class QMMMTheory:
         # Get linkatom coordinates
         self.linkatoms_dict = openmmqmmm.coords.get_linkatom_positions(
             self.boundaryatoms,
-            self.qmatoms,
             current_coords,
             self.elems,
             linkatom_method=self.linkatom_method,
@@ -1832,7 +1828,7 @@ def linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad):
     return gradQM, gradMM
 
 
-# simplistic, unused
+# Simplistic; selected with linkatom_forceproj_method="chain"
 def linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad):
     # QM1-L and QM1-MM1 distances
     QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ang2bohr

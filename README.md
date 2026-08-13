@@ -7,8 +7,8 @@ Electrostatically embedded QM/MM for biomolecular systems, combining the
 ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 
 > **Compatibility note:** version 1.0 renamed the public API (snake_case functions, no import-time
-> side effects, logging instead of print). Scripts written for the 0.x releases need updating; see
-> the 1.0.0 entry in [CHANGELOG.md](CHANGELOG.md) for what changed.
+> side effects, logging instead of print). Scripts written for the 0.x releases need updating; the
+> Conventions section below describes the naming now in force.
 
 ## What is included
 
@@ -25,8 +25,8 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 - `numerical_frequencies` / `analytic_frequencies` — frequencies with partial Hessians and
   thermochemistry
 - `Fragment` — coordinates/topology handling incl. XYZ, PDB, Amber and GROMACS file reading
-- Helper interfaces: mdtraj (trajectory processing), OpenBabel (ligand conversion) and a simple
-  matplotlib plotting object (`Plot`)
+- Helper interfaces: mdtraj (`mdtraj_image_trajectory`, `mdtraj_rmsf`, used by the MD drivers to
+  re-image trajectories and flag high-RMSF atoms)
 
 ## Installation
 
@@ -64,10 +64,9 @@ pip install .
 
 | Package | Needed for |
 |---|---|
-| `matplotlib` | `Plot` |
 | `scipy` | electronic-entropy analysis in `ORCATheory` |
 | `parmed` | Amber/GROMACS file handling in `OpenMMTheory` |
-| `openbabel` | ligand format conversion (`mol_to_pdb`, `small_molecule_parameterizer`, ...) |
+| `openbabel` | `Fragment(smiles=...)` and `small_molecule_parameterizer` |
 | `openmmforcefields`, `openff-toolkit`, `rdkit` | `small_molecule_parameterizer` |
 | `openmm-plumed` | `openmm_md_plumed` (PLUMED-biased MD) |
 | `multiprocess` | alternative multiprocessing backend for `job_parallel` |

@@ -40,8 +40,8 @@ def require(module_name, hint=None, feature=None) -> ModuleType:
     """Import and return an optional dependency, or raise MissingDependencyError.
 
     Args:
-        module_name: importable module name, e.g. "matplotlib" or "openff.toolkit".
-        hint: install command suggestion, e.g. "conda install -c conda-forge matplotlib".
+        module_name: importable module name, e.g. "parmed" or "openff.toolkit".
+        hint: install command suggestion, e.g. "conda install -c conda-forge parmed".
         feature: short description of what needs the dependency, for the error message.
 
     Returns:

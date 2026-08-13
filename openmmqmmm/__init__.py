@@ -60,17 +60,10 @@ from .freq import (
 # MDtraj
 # geomeTRIC interface
 from .geometric import GeometricOptimizer, optimize_geometry
-from .mdtraj import mdtraj_coord_analyze, mdtraj_image_trajectory, mdtraj_rmsd, mdtraj_rmsf, mdtraj_slice
+from .mdtraj import mdtraj_image_trajectory, mdtraj_rmsf
 
 # Numerical gradient
 from .numgrad import NumGrad
-from .openbabel import (
-    mol_to_pdb,
-    pdb_to_smiles,
-    sdf_to_pdb,
-    write_pdb_with_connectivity,
-    xyz_to_pdb_with_connectivity,
-)
 from .openmm import (
     MolecularDynamicsEngine,
     OpenMMTheory,
@@ -93,9 +86,6 @@ from .orca import ORCATheory, orca_external_optimizer
 # Results dataclass
 # Parallel
 from .parallel import job_parallel
-
-# Plotting
-from .plotting import Plot
 
 # QM/MM
 from .qmmm import QMMMTheory, compute_decomposed_qm_mm_energy, define_active_region, read_charges_from_psf
@@ -135,7 +125,6 @@ __all__ = [
     "NumGrad",
     "ORCATheory",
     "OpenMMTheory",
-    "Plot",
     "QMMMTheory",
     "Reaction",
     "Results",
@@ -208,16 +197,7 @@ __all__ = [
     "write_hessian",
     # Results I/O
     "read_results_from_file",
-    # Trajectory analysis (mdtraj)
-    "mdtraj_coord_analyze",
+    # Trajectory processing (mdtraj)
     "mdtraj_image_trajectory",
-    "mdtraj_rmsd",
     "mdtraj_rmsf",
-    "mdtraj_slice",
-    # Ligand conversion (openbabel)
-    "mol_to_pdb",
-    "pdb_to_smiles",
-    "sdf_to_pdb",
-    "write_pdb_with_connectivity",
-    "xyz_to_pdb_with_connectivity",
 ]

@@ -556,7 +556,13 @@ class GeometricOptimizer:
             if self.hessian == "1point":
                 logger.info("Requested Hessian from Numfreq 1-point approximation (running in serial)")
                 result_freq = openmmqmmm.numerical_frequencies(
-                    theory=theory, fragment=fragment, npoint=1, runmode="serial", numcores=theory.numcores
+                    theory=theory,
+                    fragment=fragment,
+                    charge=charge,
+                    mult=mult,
+                    npoint=1,
+                    runmode="serial",
+                    numcores=theory.numcores,
                 )
                 hessianfile = "Hessian_from_theory"
                 shutil.copyfile("Numfreq_dir/Hessian", hessianfile)
@@ -564,7 +570,13 @@ class GeometricOptimizer:
             elif self.hessian == "2point":
                 logger.info("Requested Hessian from Numfreq 2-point approximation (running in serial)")
                 result_freq = openmmqmmm.numerical_frequencies(
-                    theory=theory, fragment=fragment, npoint=2, runmode="serial", numcores=theory.numcores
+                    theory=theory,
+                    fragment=fragment,
+                    charge=charge,
+                    mult=mult,
+                    npoint=2,
+                    runmode="serial",
+                    numcores=theory.numcores,
                 )
                 hessianfile = "Hessian_from_theory"
                 shutil.copyfile("Numfreq_dir/Hessian", hessianfile)
@@ -582,6 +594,8 @@ class GeometricOptimizer:
                 result_freq = openmmqmmm.numerical_frequencies(
                     theory=theory,
                     fragment=fragment,
+                    charge=charge,
+                    mult=mult,
                     npoint=1,
                     hessatoms=self.partial_hessian_atoms,
                     runmode="serial",
@@ -615,6 +629,8 @@ class GeometricOptimizer:
                 result_freq = openmmqmmm.numerical_frequencies(
                     theory=theory,
                     fragment=fragment,
+                    charge=charge,
+                    mult=mult,
                     npoint=2,
                     hessatoms=self.partial_hessian_atoms,
                     runmode="serial",
@@ -1027,8 +1043,6 @@ class GeometricEngine:
         self.active_region = active_region
         # Defining current_coords for full system (not only act region)
         self.full_current_coords = []
-        # E+G count
-        self.EG_count = 0
         # Proper iteration count
         self.iteration_count = 0
 
@@ -1109,8 +1123,6 @@ class GeometricEngine:
 
             return self.BOmatrix
         logger.info("No BO option implemented")
-        return None
-
         return None
 
     # TODO: geometric will regularly do ClearCalcs in an optimization
@@ -1273,7 +1285,6 @@ class GeometricEngine:
         if len(step_lines) > 0:
             iteration = int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
             self.iteration_count = int(iteration)
-        self.EG_count += 1
 
         return {"energy": E, "gradient": Grad_act.flatten()}
 
@@ -1296,7 +1307,6 @@ class GeometricEngine:
         if len(step_lines) > 0:
             iteration = int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
             self.iteration_count = int(iteration)
-        self.EG_count += 1
         self.energy = E
         return {"energy": E, "gradient": grad.flatten()}
 
@@ -1338,7 +1348,6 @@ class GeometricEngine:
         E, grad_phys = self.theory.run(
             current_coords=R_phys, elems=self.elems_phys, charge=self.charge, mult=self.mult, grad=True
         )
-        self.EG_count += 1
         self.energy = E
 
         # Read last line of geometric_OPTtraj.log to get step

@@ -119,6 +119,7 @@ def analytic_frequencies(
             temp=temp,
             pressure=pressure,
             qrrho=qrrho,
+            qrrho_method=qrrho_method,
             qrrho_omega_0=qrrho_omega_0,
             symmetry_number=symmetry_number,
             rotmode_threshold=rotmode_threshold,
@@ -129,7 +130,7 @@ def analytic_frequencies(
         write_hessian(hessian, hessfile="Hessian")
 
         # Create dummy-ORCA file with frequencies and normal modes
-        print_dummy_orca_file(fragment.elems, fragment.coords, frequencies, evectors, nmodes, "orcahessfile.hess")
+        print_dummy_orca_file(fragment.elems, fragment.coords, frequencies, nmodes, "orcahessfile.hess")
         logger.info("Wrote dummy ORCA outputfile with frequencies and normal modes: orcahessfile.hess_dummy.out")
         logger.info("Can be used for visualization")
 
@@ -637,10 +638,10 @@ def numerical_frequencies(
 
     # Write ORCA-style Hessian file. Hardcoded filename here. Change?
     # Note: Passing hesscords here instead of coords. Change?
-    openmmqmmm.orca.write_orca_hessfile(hessian, hesscoords, hesselems, hessmasses, hessatoms, "orcahessfile.hess")
+    openmmqmmm.orca.write_orca_hessfile(hessian, hesscoords, hesselems, hessmasses, "orcahessfile.hess")
 
     # Create dummy-ORCA file with frequencies and normal modes
-    print_dummy_orca_file(hesselems, hesscoords, frequencies, evectors, nmodes, "orcahessfile.hess")
+    print_dummy_orca_file(hesselems, hesscoords, frequencies, nmodes, "orcahessfile.hess")
     logger.info("Wrote dummy ORCA outputfile with frequencies and normal modes: orcahessfile.hess_dummy.out")
     logger.info("Can be used for visualization\n")
     logger.info("------------NUMERICAL FREQUENCIES END-------------")
@@ -825,9 +826,7 @@ def printfreqs_and_nm_elem_comps(vfreq, fragment, evectors, hessatoms=None, tr_m
         logger.info("%s", "{:>6}{:>16}  {:<18}".format("Mode", "Freq(cm**-1)", "Elemental composition factors"))
         for mode in range(3 * numatoms):
             # Get elemental normalmode comps
-            normmodecompelemsdict = normalmodecomp_permode_by_elems(
-                mode, fragment, vfreq, evectors, hessatoms=hessatoms
-            )
+            normmodecompelemsdict = normalmodecomp_permode_by_elems(mode, fragment, evectors, hessatoms=hessatoms)
             normmodecompelemsdict_list = [f"{k}: {v:.{numdigits}f}" for k, v in normmodecompelemsdict.items()]
             normmodecompelemsdict_string = "   ".join(normmodecompelemsdict_list)
             vib = vfreq[mode]
@@ -1146,7 +1145,7 @@ def thermochemcalc(
 
 # From Hess-tool.py: Copied 13 May 2020
 # Print dummy ORCA outputfile using coordinates and normal modes. Used for visualization of modes in Chemcraft
-def print_dummy_orca_file(elems, coords, vfreq, evectors, nmodes, hessfile, rotmode_threshold=1e-4):
+def print_dummy_orca_file(elems, coords, vfreq, nmodes, hessfile):
     orca_header = """                                 *****************
                                  * O   R   C   A *
                                  *****************
@@ -1596,7 +1595,7 @@ def normalmodecomp_all(mode, fragment, evectors, hessatoms=None):
     return normcomplist
 
 
-def normalmodecomp_permode_by_elems(mode, fragment, vfreq, evectors, silent=False, hessatoms=None):
+def normalmodecomp_permode_by_elems(mode, fragment, evectors, hessatoms=None):
     normcomplist = normalmodecomp_all(mode, fragment, evectors, hessatoms=hessatoms)
     elementnormcomplist = []
 

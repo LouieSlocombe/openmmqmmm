@@ -209,9 +209,6 @@ class MolecularDynamicsEngine:
             charge, mult, theory.theorytype, fragment, "OpenMM_MD", theory=theory
         )
 
-        # External QM option off by default
-        self.externalqm = False
-
         # Trajectory filename. Used for trajs in DCD, PDB etc. format, also single PDB snapshots
         self.trajfilename = trajfilename
 
@@ -229,9 +226,6 @@ class MolecularDynamicsEngine:
         self.dummy_mm = dummy_mm
 
         # Printlevel
-
-        # Determine centroid of original fragment coordinates
-        self.centroid_system = get_centroid(fragment.coords)
 
         # Theory_runtype
         self.theory_runtype = None
@@ -268,7 +262,6 @@ class MolecularDynamicsEngine:
             logger.info("Unrecognized theory.")
             logger.info("Will assume to be QM theory and will continue")
             logger.info("QM-program forces will be added as a custom external force to OpenMM")
-            self.externalqm = True
             logger.info("Now creating OpenMMTheory object")
             logger.info("OpenMM platform: %s", platform)
             # Creating dummy OpenMMTheory (basic topology, particle masses, no forces except CMMRemoval)
@@ -543,8 +536,6 @@ class MolecularDynamicsEngine:
                 # Get geometric center of system (Angstrom)
                 centerforce_center = self.fragment.get_coordinate_center()
                 logger.info("centerforce_center: %s", centerforce_center)
-            # An alternative is add_flatbottom_centerforce(mol_a_indices=centerforce_atoms,
-            # mol_b_indices=rest_system, ...), but it runs into PBC wrapping issues.
             self.openmmobject.add_centerforce(
                 center_coords=centerforce_center,
                 atomindices=centerforce_atoms,

@@ -522,9 +522,7 @@ end
         logger.info("Object-label: %s", self.label)
         logger.info("Run-label: %s", label)
         # Coords provided to run
-        if current_coords is not None:
-            pass
-        else:
+        if current_coords is None:
             raise InputError("Error:no current_coords")
 
         # Checking if charge and mult has been provided
@@ -894,7 +892,6 @@ end"""
 
         # Initializing zero gradient array
         self.grad = np.zeros((len(qm_elems), 3))
-        self.dipole_moment = None
 
         # XDM option: WFX file should have been created.
         if self.xdm:
@@ -1378,7 +1375,7 @@ def grab_ir_intensities(filename):
 # Function to write ORCA-style Hessian file
 
 
-def write_orca_hessfile(hessian, coords, elems, masses, hessatoms, outputname):
+def write_orca_hessfile(hessian, coords, elems, masses, outputname):
     hessdim = hessian.shape[0]
     with open(outputname, "w") as orcahessfile:
         orcahessfile.write("$orca_hessian_file\n")

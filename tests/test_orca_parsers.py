@@ -133,7 +133,7 @@ def test_hessian_write_read_roundtrip(orca_outputs, tmp_path):
     masses = [15.999, 1.008, 1.008]
 
     outputname = str(tmp_path / "roundtrip.hess")
-    orca.write_orca_hessfile(hessian, coords, elems, masses, list(range(3)), outputname)
+    orca.write_orca_hessfile(hessian, coords, elems, masses, outputname)
 
     assert np.allclose(orca.grab_hessian(outputname), hessian)
 

@@ -19,7 +19,6 @@ from packaging import version
 
 import openmmqmmm.constants
 import openmmqmmm.parallel
-import openmmqmmm.plotting
 from openmmqmmm.coords import (
     Fragment,
     check_charge_mult,
@@ -139,7 +138,7 @@ def openmm_minimize(
                     logger.info(f"Micro Iteration {iteration}")
                     self.print_energy(args)
                     self.print_forces()
-                    self.write_traj(x, iteration)
+                    self.write_traj(x)
                 # Once maxiter reached
                 if iteration == maxiter - 1:
                     logger.info("Max iterations reached. Now modifying restraints and restarting")
@@ -147,7 +146,7 @@ def openmm_minimize(
 
                 return False
 
-            def write_traj(self, x, iteration):
+            def write_traj(self, x):
                 if self.totaliter % traj_frequency == 0:
                     logger.info("%s", "-" * 40)
                     logger.info("Now writing to trajectory file")
@@ -176,12 +175,6 @@ def openmm_minimize(
                 logger.info(f"RMS force (w restraints): {self.rms_force} Eh/Bohr")
                 logger.info(f"Max force (w restraints): {self.max_force} Eh/Bohr")
                 logger.info("")
-
-            def get_state(self):
-                logger.info("")
-                self.state = simulation.context.getState(
-                    getEnergy=True, getForces=True, enforcePeriodicBox=enforce_periodic_box
-                )
 
         reporter = Reporter()
 
@@ -1323,7 +1316,7 @@ file that was used in this function."
 
 
 def create_sys_and_check_14_scaling_nonbonding(
-    topology=None, xml_file=None, system=None, expected_coul14=0.833333, expected_lj14=0.5
+    topology=None, xml_file=None, expected_coul14=0.833333, expected_lj14=0.5
 ):
 
     logger.info("Creating system from XML-file and topology")

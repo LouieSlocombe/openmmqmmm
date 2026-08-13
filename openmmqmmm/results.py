@@ -63,16 +63,6 @@ class Results:
     displacement_dipole_dictionary: dict | None = None
     displacement_polarizability_dictionary: dict | None = None
 
-    # Print only defined attributes
-    def print_defined(
-        self,
-    ):
-        """Log every attribute that has been filled in, skipping the unset ones."""
-        logger.info("\nPrinting defined attributes of Results dataclass")
-        for k, v in self.__dict__.items():
-            if v is not None:
-                logger.info(f"{k}: {v}")
-
     def write_to_disk(self, filename="results.json"):
         """Write the defined attributes to a JSON file.
 

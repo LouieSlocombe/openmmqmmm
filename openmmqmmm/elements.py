@@ -178,8 +178,8 @@ cm5_dz = np.array([row[6] for row in _ELEMENT_TABLE[1:]])
 
 
 # Atom types and atom names, grouped by the element they denote. Used by
-# coords.conv_atomtypes_elems and read_gromacsfile, and by read_pdbfile when its
-# use_atomnames_as_elements option is active. MW is the M-site atom type.
+# coords.conv_atomtypes_elems, which read_gromacsfile and read_ambercoordinates
+# call to name elements they only know an atom type for. MW is the M-site atom type.
 # fmt: off
 _ATOM_TYPES_BY_ELEMENT = {
     "H": (
