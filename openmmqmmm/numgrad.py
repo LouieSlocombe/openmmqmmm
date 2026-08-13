@@ -3,16 +3,20 @@ import logging
 import numpy as np
 
 import openmmqmmm
+import openmmqmmm.constants
 from openmmqmmm.coords import print_coords_all
 from openmmqmmm.exceptions import InputError
 
 logger = logging.getLogger(__name__)
 
+# ORCA's step of 0.005 Bohr, in Angstrom: displacements are given in Angstrom here.
+DEFAULT_DISPLACEMENT = 0.005 * openmmqmmm.constants.BOHR_TO_ANG
+
 
 class NumGrad:
     """Wrapper theory computing gradients numerically by finite differences of energies."""
 
-    def __init__(self, theory, npoint=2, displacement=0.00264589, runmode="serial", numcores=1):
+    def __init__(self, theory, npoint=2, displacement=DEFAULT_DISPLACEMENT, runmode="serial", numcores=1):
         logger.info("Creating NumGrad wrapper object")
         # Only the 1- and 2-point stencils are implemented. Without this check any other
         # value skips gradient assembly entirely and returns a zero gradient, which an
@@ -56,7 +60,7 @@ class NumGrad:
         logger.info(f"------------RUNNING {self.theorynamelabel} WRAPPER -------------")
 
         numatoms = len(current_coords)
-        displacement_bohr = self.displacement * 1.88972612546
+        displacement_bohr = self.displacement * openmmqmmm.constants.ANG_TO_BOHR
 
         list_of_displaced_geos, list_of_displacements, all_disp_fragments = creating_displaced_geos(
             current_coords, elems, self.displacement, self.npoint, charge, mult
@@ -125,7 +129,7 @@ class NumGrad:
 
 
 def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult):
-    displacement_bohr = displacement * 1.88972612546
+    displacement_bohr = displacement * openmmqmmm.constants.ANG_TO_BOHR
     logger.info(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
     logger.info("Starting geometry:")
     logger.info("")

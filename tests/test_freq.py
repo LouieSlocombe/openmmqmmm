@@ -189,11 +189,12 @@ ROOM_TEMPERATURE = 298.15
 def _harmonic_ts_vib(freqs, temperature):
     """T*S_vib for a set of harmonic oscillators, straight from the standard expression."""
     total = 0.0
+    R = constants.GAS_CONSTANT_HARTREE_PER_K
     for freq in freqs:
-        vibtemp = (freq * constants.c * constants.h_planck_hartreeseconds) / constants.R_gasconst
+        vibtemp = (freq * constants.LIGHT_SPEED_CM_PER_S * constants.PLANCK_HARTREE_S) / R
         total += temperature * (
-            constants.R_gasconst * (vibtemp / temperature) / (math.exp(vibtemp / temperature) - 1)
-            - constants.R_gasconst * math.log(1 - math.exp(-vibtemp / temperature))
+            R * (vibtemp / temperature) / (math.exp(vibtemp / temperature) - 1)
+            - R * math.log(1 - math.exp(-vibtemp / temperature))
         )
     return total
 

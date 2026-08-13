@@ -1068,10 +1068,7 @@ class OpenMMTheory:
     def update_custom_external_force(self, customforce, gradient, simulation):
         """Push a new gradient into the QM/MM external force."""
         logger.info("Updating custom external force")
-        # Convert Eh/Bohr gradient to force in kj/mol nm
-        # NOTE: default conversion factor (49614.752589207) assumes input gradient in Eh/Bohr and converting to kJ/mol
-        # nm
-        forces = -gradient * 49614.752589207
+        forces = -gradient * openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
         for i, f in enumerate(forces):
             customforce.setParticleParameters(i, i, f)
         customforce.updateParametersInContext(simulation.context)
@@ -1331,11 +1328,12 @@ class OpenMMTheory:
                 f"{openmm_energy[name] / openmm.unit.kilocalorie_per_mole:>15.2f}"
             )
         logger.info("%s", "-" * 56)
-        logger.info(f"{'Sumcomponents':<20} | {sumofallcomponents:>15.2f} | {sumofallcomponents / 4.184:>15.2f}")
+        sum_kcal = sumofallcomponents / openmmqmmm.constants.KCAL_TO_KJ
+        logger.info(f"{'Sumcomponents':<20} | {sumofallcomponents:>15.2f} | {sum_kcal:>15.2f}")
         logger.info("")
         logger.info(
-            f"{'Total':<20} | {self.energy * openmmqmmm.constants.hartokj:>15.2f} | "
-            f"{self.energy * openmmqmmm.constants.harkcal:>15.2f}"
+            f"{'Total':<20} | {self.energy * openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL:>15.2f} | "
+            f"{self.energy * openmmqmmm.constants.HARTREE_TO_KCAL_PER_MOL:>15.2f}"
         )
         logger.info("")
         openmm_energy["Sum"] = sumofallcomponents
@@ -1360,9 +1358,8 @@ class OpenMMTheory:
 
     def compute_cell_gradient_fd(self, context, eps=1e-4):
         """Compute the gradient with respect to the cell vectors by finite differences."""
-        NM_TO_BOHR = 18.89726124  # 1 nm = 18.897... Bohr
-        KJMOL_TO_EH = 1.0 / 2625.4996  # 1 kJ/mol = 1/2625.5 Hartree
-        eps_nm = eps / NM_TO_BOHR  # convert eps to nm for OpenMM
+        KJMOL_TO_EH = 1.0 / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
+        eps_nm = eps * openmmqmmm.constants.BOHR_TO_NM
 
         state = context.getState(getEnergy=True, getPositions=True)
         E0 = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole) * KJMOL_TO_EH
@@ -1481,7 +1478,7 @@ class OpenMMTheory:
 
         log_time_since(timeA, "OpenMMTheory.run: const-check")
         current_coords = np.array(current_coords)
-        factor = -49614.752589207
+        factor = -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
         logger.info("Updating coordinates.")
         timeA = time.time()
 
@@ -1511,19 +1508,21 @@ class OpenMMTheory:
         if grad is True:
             state = simulation.context.getState(getEnergy=True, getForces=True)
             self.energy = (
-                state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole) / openmmqmmm.constants.hartokj
+                state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
+                / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
             )
             self.gradient = np.array(state.getForces(asNumpy=True) / factor)
         else:
             state = simulation.context.getState(getEnergy=True, getForces=False)
             self.energy = (
-                state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole) / openmmqmmm.constants.hartokj
+                state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
+                / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
             )
 
         log_time_since(timeA, "OpenMM getState")
 
         logger.info("OpenMM Energy: %s Eh", self.energy)
-        logger.info("OpenMM Energy: %s kcal/mol", self.energy * openmmqmmm.constants.harkcal)
+        logger.info("OpenMM Energy: %s kcal/mol", self.energy * openmmqmmm.constants.HARTREE_TO_KCAL_PER_MOL)
 
         # Do energy components or not. Can be turned off for e.g. MM MD simulation
         if self.do_energy_decomposition is True:
@@ -1759,7 +1758,7 @@ class ForceReporter:
         energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
         forces = state.getForces().value_in_unit(openmm.unit.kilojoules / openmm.unit.mole / openmm.unit.nanometer)
         if self.atomic_units:
-            forces = np.array(forces) / -49614.752589207
+            forces = np.array(forces) / -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
 
         self._out.write(f"{len(forces):g}\n{energy:g}\n")
         for f in forces:

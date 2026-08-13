@@ -11,6 +11,7 @@ import openmm.app
 import openmm.unit
 
 import openmmqmmm
+import openmmqmmm.constants
 from openmmqmmm.coords import (
     change_origin_to_centroid,
     check_charge_mult,
@@ -881,7 +882,7 @@ class MolecularDynamicsEngine:
                 )
 
                 # Calculate energy associated with external force so that we can subtract it later
-                extforce_energy = 3 * np.mean(sum(gradient * current_coords * 1.88972612546))
+                extforce_energy = 3 * np.mean(sum(gradient * current_coords * openmmqmmm.constants.ANG_TO_BOHR))
                 logger.info("extforce_energy: %s", extforce_energy)
 
                 if step % self.traj_frequency == 0:
@@ -1112,7 +1113,9 @@ def openmm_box_equilibration(
 
 def print_current_step_info(step, state, openmmobject, qm_energy=None):
     kinetic_energy = state.getKineticEnergy()
-    kinetic_energy_eh = kinetic_energy.value_in_unit(openmm.unit.kilojoules_per_mole) / 2625.5002
+    kinetic_energy_eh = (
+        kinetic_energy.value_in_unit(openmm.unit.kilojoules_per_mole) / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
+    )
 
     # Potential energy from the theory level instead
     if qm_energy is not None:

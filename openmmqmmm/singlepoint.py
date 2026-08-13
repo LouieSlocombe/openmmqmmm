@@ -6,6 +6,7 @@ import time
 import numpy as np
 
 import openmmqmmm
+import openmmqmmm.constants
 from openmmqmmm.coords import check_charge_mult
 from openmmqmmm.exceptions import (
     InputError,
@@ -185,18 +186,7 @@ def single_point_fragments(
     if relative_energies is True:
         logger.info("")
         logger.info("relative_energies option is True!")
-        conversionfactor = {
-            "kcal/mol": 627.50946900,
-            "kcalpermol": 627.50946900,
-            "kJ/mol": 2625.499638,
-            "kJpermol": 2625.499638,
-            "eV": 27.211386245988,
-            "cm-1": 219474.6313702,
-            "Eh": 1.0,
-            "mEh": 1000,
-            "meV": 27211.386245988,
-        }
-        convfactor = conversionfactor[unit]
+        convfactor = openmmqmmm.constants.ENERGY_UNIT_FROM_HARTREE[unit]
         relenergies = [(i - min(energies)) * convfactor for i in energies]
         print_fragments_table(fragments, relenergies, unit=unit)
         result.relative_energies = relenergies
@@ -367,19 +357,9 @@ def reaction_energy(
     correction=0.0,
 ) -> tuple[float, float | None]:
     """Calculate a reaction energy from energies (or fragments with energies) and stoichiometry."""
-    conversionfactor = {
-        "kcal/mol": 627.50946900,
-        "kcalpermol": 627.50946900,
-        "kJ/mol": 2625.499638,
-        "kJpermol": 2625.499638,
-        "eV": 27.211386245988,
-        "cm-1": 219474.6313702,
-        "Eh": 1.0,
-        "mEh": 1000,
-        "meV": 27211.386245988,
-    }
     if label is None:
         label = ""
+    convfactor = openmmqmmm.constants.ENERGY_UNIT_FROM_HARTREE[unit]
     reactant_energy = 0.0  # hartree
     product_energy = 0.0  # hartree
     if stoichiometry is None:
@@ -388,7 +368,7 @@ def reaction_energy(
     if correction != 0.0:
         logger.info("User-correction was added. ")
         logger.info(f"Correction to reaction energy in {correction} Eh ")
-        correction_in_unit = correction * conversionfactor[unit]
+        correction_in_unit = correction * convfactor
         logger.info(f"correction_in_unit in {correction_in_unit} {unit}")
     else:
         correction_in_unit = 0.0
@@ -402,7 +382,7 @@ def reaction_energy(
                 reactant_energy = reactant_energy + list_of_energies[i] * abs(stoich)
             if stoich > 0:
                 product_energy = product_energy + list_of_energies[i] * abs(stoich)
-        reaction_energy = (product_energy - reactant_energy) * conversionfactor[unit] + correction_in_unit
+        reaction_energy = (product_energy - reactant_energy) * convfactor + correction_in_unit
         if reference is None:
             error = None
             if silent is False:
@@ -419,7 +399,7 @@ def reaction_energy(
                 reactant_energy = reactant_energy + list_of_fragments[i].energy * abs(stoich)
             if stoich > 0:
                 product_energy = product_energy + list_of_fragments[i].energy * abs(stoich)
-        reaction_energy = (product_energy - reactant_energy) * conversionfactor[unit] + correction_in_unit
+        reaction_energy = (product_energy - reactant_energy) * convfactor + correction_in_unit
         if reference is None:
             error = None
             if silent is False:

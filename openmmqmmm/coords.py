@@ -1419,7 +1419,7 @@ def read_chemshellfragfile_xyz(fragfile):
             if "block = connectivity" in line:
                 grabcoords = False
             if grabcoords is True:
-                coords.append([float(i) * openmmqmmm.constants.bohr2ang for i in line.split()[1:]])
+                coords.append([float(i) * openmmqmmm.constants.BOHR_TO_ANG for i in line.split()[1:]])
                 el = reformat_element(line.split()[0])
                 elems.append(el)
             if "block = coordinates records " in line:
@@ -2501,7 +2501,7 @@ def insert_solute_into_solvent(
 def nuc_nuc_repulsion(coords, charges) -> float:
     """Return the classical nucleus-nucleus repulsion energy of a set of point charges."""
     charges = np.array(charges)  # Ensure charges is a numpy array
-    coords_b = coords * 1.88972612546
+    coords_b = coords * openmmqmmm.constants.ANG_TO_BOHR
     diff = coords_b[:, None, :] - coords_b[None, :, :]
     distances = np.linalg.norm(diff, axis=2)
     np.fill_diagonal(distances, np.inf)

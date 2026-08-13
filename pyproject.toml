@@ -19,6 +19,8 @@ requires-python = ">= 3.10"
 dependencies = [
     "numpy",
     "packaging",
+    # openmmqmmm.constants derives every physical constant from scipy.constants (CODATA)
+    "scipy",
     "geometric >= 1.0.1",
     # Required at import time. conda-forge is the recommended route: pdbfixer is conda-only.
     "openmm >= 8",
@@ -26,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 md = ["mdtraj"]
-extras = ["scipy", "parmed"]
+extras = ["parmed"]
 test = ["pytest", "pytest-cov"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts
 # between releases, so a skew lets a locally-clean tree fail the CI format gate.
