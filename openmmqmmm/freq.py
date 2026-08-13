@@ -1,5 +1,3 @@
-"""Vibrational frequencies (analytic and numerical), normal-mode analysis and thermochemistry."""
-
 import copy
 import logging
 import math
@@ -176,11 +174,7 @@ def numerical_frequencies(
     symmetry_number=None,
     force_projection=None,
 ) -> "Results":
-    """Compute vibrational frequencies from numerical differentiation of gradients.
-
-    Supports partial Hessians (hessatoms), 1- or 2-point differences (npoint) and
-    serial or parallel displacement calculations (runmode).
-    """
+    """Compute vibrational frequencies from numerical differentiation of gradients."""
     module_init_time = time.time()
     logger.info("------------NUMERICAL FREQUENCIES-------------")
     ################
@@ -857,33 +851,6 @@ def thermochemcalc(
     symmetry_number=None,
     rotmode_threshold=1e-4,
 ):
-    """Compute thermochemistry via the rigid-rotor harmonic-oscillator approximation.
-
-    Args:
-        vfreq: all 3N frequencies in cm**-1, translations and rotations included —
-            the first `tr_modenum` (6 for a non-linear molecule, 5 for a linear one)
-            are skipped, not the first entries of a vibration-only list.
-        atoms: active atoms (those contributing to the Hessian).
-        fragment: Fragment object (geometry and masses).
-        multiplicity: spin multiplicity (electronic degeneracy).
-        temp: temperature in K.
-        pressure: pressure in atm.
-        qrrho: apply a quasi-RRHO treatment for low-frequency modes.
-        qrrho_method: "Grimme" (interpolation) or "Truhlar" (raising of low modes).
-        qrrho_omega_0: cut-off frequency in cm**-1 for the quasi-RRHO treatment —
-            omega_0 for the Grimme interpolation, the low-frequency threshold for
-            Truhlar.
-        use_full_geo_in_rotational_analysis: run the rotational analysis on the whole
-            fragment geometry. When False only the Hessian atoms are used.
-        symmetry_number: rotational symmetry number sigma_r. Defaults to 1.0, which is
-            correct for the C1, Ci and Cs point groups only — set it explicitly for any
-            more symmetric molecule.
-        rotmode_threshold: threshold used to decide whether the structure is linear,
-            which fixes the number of translational and rotational modes.
-
-    Returns:
-        dict of thermochemistry properties (ZPVE, enthalpy, entropy terms, Gibbs energy, ...).
-    """
     module_init_time = time.time()
     logger.info("")
     logger.info(main_header("Thermochemistry via rigid-rotor harmonic oscillator approximation"))
@@ -1635,19 +1602,6 @@ def s_vib(freqs, T):
 
 
 def s_vib_qrrho_truhlar(freqs, T, lowfreq_thresh=100):
-    """Vibrational entropy with Truhlar's quasi-harmonic treatment of low-frequency modes.
-
-    Every frequency below lowfreq_thresh is raised to it before the harmonic-oscillator
-    entropy is evaluated, which removes the divergence as a frequency approaches zero.
-
-    Args:
-        freqs: vibrational frequencies in cm**-1.
-        T: temperature in K.
-        lowfreq_thresh: cut-off in cm**-1. 100 is the value used in the paper below.
-
-    Returns:
-        T*S_vib in hartree.
-    """
     logger.warning("Quasi-RRHO by Truhlar approximation active.")
     logger.info(
         "This means that the vibrational entropy is calculated according to Truhlar-approach of raising low-energy "

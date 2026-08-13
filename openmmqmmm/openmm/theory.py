@@ -1,5 +1,3 @@
-"""OpenMMTheory: the OpenMM system, its forces, and MM energies and gradients."""
-
 import logging
 import os
 import time
@@ -43,12 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenMMTheory:
-    """Interface to the OpenMM molecular-mechanics library.
-
-    The system is defined from forcefield XML files plus a PDB file
-    (xmlfiles=/pdbfile=), an OpenMM XML system file (xmlsystemfile=), or
-    Amber/GROMACS/CHARMM files. Periodic and non-periodic systems supported.
-    """
+    """Interface to the OpenMM molecular-mechanics library."""
 
     def __init__(
         self,
@@ -751,11 +744,7 @@ class OpenMMTheory:
         log_time_since(module_init_time, "OpenMM object creation")
 
     def define_mm_elements(self, topology):
-        """Extract the element symbol of every atom from an OpenMM topology.
-
-        Args:
-            topology: OpenMM Topology object.
-        """
+        """Extract the element symbol of every atom from an OpenMM topology."""
         try:
             self.mm_elements = [i.element.symbol for i in topology.atoms()]
         except AttributeError:
@@ -766,18 +755,7 @@ class OpenMMTheory:
 
     # Function to write PDB-file if everything is available
     def write_pdbfile(self, positions=None, outputname="system"):
-        """Write a PDB file of the system using the stored OpenMM topology.
-
-        Coordinates are taken from the positions argument if given, otherwise from the
-        object's own positions, otherwise from the referenced fragment.
-
-        Args:
-            positions: OpenMM positions to write; takes precedence over the stored ones.
-            outputname: output name, without the .pdb extension.
-
-        Raises:
-            InputError: if no positions are available from any source.
-        """
+        """Write a PDB file of the system using the stored OpenMM topology."""
         logger.info("Writing PDB-file using OpenMMTheory object")
         logger.info("Will be using defined topology.")
         logger.debug("Internal positions: %s", self.positions)
@@ -807,19 +785,7 @@ class OpenMMTheory:
     def set_periodics_before_system_creation(
         self, periodic_cell_vectors, pdb_pbc_vectors, periodic_cell_dimensions, charmm_files, amber_files, use_parmed
     ):
-        """Resolve the periodic box from the various possible sources.
-
-        The cell can come from an explicit argument, the PDB CRYST1 record, or the
-        forcefield input files; this settles which one wins before the OpenMM System is built.
-
-        Args:
-            periodic_cell_vectors: explicit 3x3 cell vectors.
-            pdb_pbc_vectors: cell vectors read from the PDB file.
-            periodic_cell_dimensions: [a, b, c, alpha, beta, gamma] cell parameters.
-            charmm_files: whether the system came from CHARMM input files.
-            amber_files: whether the system came from an Amber prmtop.
-            use_parmed: whether ParmEd was used to read the input files.
-        """
+        """Resolve the periodic box from the various possible sources."""
         logger.info("Inspecting periodicity input before system creation")
         logger.info("periodic_cell_vectors: %s", periodic_cell_vectors)
         logger.info("periodic_cell_dimensions: %s", periodic_cell_dimensions)
@@ -948,11 +914,7 @@ class OpenMMTheory:
 
     # Set numcores method: currently inactive. Included for completeness
     def set_numcores(self, numcores):
-        """Set the number of CPU threads OpenMM uses.
-
-        Args:
-            numcores: thread count for the CPU platform.
-        """
+        """Set the number of CPU threads OpenMM uses."""
         self.numcores = numcores
 
     # Set numcores method
@@ -965,12 +927,7 @@ class OpenMMTheory:
 
     # To set positions in OpenMMobject (in nm) from np-array (Angstrom)
     def set_positions(self, coords, simulation):
-        """Load coordinates into a simulation context.
-
-        Args:
-            coords: coordinates in Angstrom, one row per atom.
-            simulation: OpenMM Simulation whose context is updated.
-        """
+        """Load coordinates into a simulation context."""
         logger.info("Setting coordinates of OpenMM object")
         coords_nm = coords * 0.1  # converting from Angstrom to nm
         pos = [
@@ -982,12 +939,7 @@ class OpenMMTheory:
     # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
     # This method is called by Periodic optimizers
     def update_cell(self, periodic_cell_vectors=None, periodic_cell_dimensions=None):
-        """Change the periodic box of the existing system.
-
-        Args:
-            periodic_cell_vectors: new 3x3 cell vectors in Angstrom.
-            periodic_cell_dimensions: new [a, b, c, alpha, beta, gamma] parameters.
-        """
+        """Change the periodic box of the existing system."""
         logger.info("Updating cell vectors")
         logger.info("New periodic_cell_vectors are: %s", periodic_cell_vectors)
         if periodic_cell_vectors is not None:
@@ -1042,14 +994,7 @@ class OpenMMTheory:
     # Add dummy atom for each solute atom?
     # Or enought to add like a centroid atom and then bind each solute atom via restraint?
     def add_dummy_atom_to_restrain_solute(self, atomindices=None, forceconstant=100):
-        """Add a massless dummy atom, harmonically tethered to a group of atoms.
-
-        Used to keep a solute near the centre of the box during long simulations.
-
-        Args:
-            atomindices: atoms the dummy atom is tethered to.
-            forceconstant: restraint force constant in kcal/mol/Angstrom**2.
-        """
+        """Add a massless dummy atom, harmonically tethered to a group of atoms."""
         logger.info("num particles %s", self.system.getNumParticles())
         # Adding dummy atom with mass 0
         self.system.addParticle(0)
@@ -1077,25 +1022,14 @@ class OpenMMTheory:
         #        for i in atomindices:
 
     def remove_force(self, forceindex):
-        """Remove a force by its index in the system.
-
-        Args:
-            forceindex: position of the force in system.getForces().
-        """
+        """Remove a force by its index in the system."""
         logger.info(f"Removing force-index {forceindex}: {self.system.getForces()[forceindex].getName()}")
         self.system.removeForce(forceindex)
 
     # Bond restraint force, e.g. for umbrella sampling
     # TODO : unit check
     def add_custom_bond_force(self, i, j, value, forceconstant):
-        """Restrain the distance between two atoms harmonically.
-
-        Args:
-            i: first atom index.
-            j: second atom index.
-            value: target distance in Angstrom.
-            forceconstant: force constant in kcal/mol/Angstrom**2.
-        """
+        """Restrain the distance between two atoms harmonically."""
         logger.info(
             f"Adding custom bond force between atom index i={i} and j={j} with value: {value} Angstrom, "
             f"forceconstant={forceconstant} kcal/mol/Angstrom^2"
@@ -1110,15 +1044,7 @@ class OpenMMTheory:
     # For umbrella sampling e.g
     # TODO: unit check
     def add_custom_angle_force(self, i, j, k, value, forceconstant):
-        """Restrain the i-j-k angle harmonically.
-
-        Args:
-            i: first atom index.
-            j: central atom index.
-            k: third atom index.
-            value: target angle in degrees.
-            forceconstant: force constant in kcal/mol/rad**2.
-        """
+        """Restrain the i-j-k angle harmonically."""
         logger.info(
             f"Adding custom angle force for atoms: {i}, {j}, {k}  with value: {value} radians with "
             f"forceconstant={forceconstant}"
@@ -1133,16 +1059,7 @@ class OpenMMTheory:
     # Harmonic torsion bias for umbrella sampling e.g
     # TODO: unit check
     def add_custom_torsion_force(self, i, j, k, l, value, forceconstant):  # noqa: E741 - torsion atoms i-j-k-l
-        """Restrain the i-j-k-l dihedral harmonically.
-
-        Args:
-            i: first atom index.
-            j: second atom index.
-            k: third atom index.
-            l: fourth atom index.
-            value: target dihedral in degrees.
-            forceconstant: force constant in kcal/mol/rad**2.
-        """
+        """Restrain the i-j-k-l dihedral harmonically."""
         import math
 
         logger.info(f"Adding custom torsion force for atoms: {i}, {j}, {k}, {l}  with forceconstant={forceconstant}")
@@ -1161,14 +1078,7 @@ class OpenMMTheory:
     # This is custom external force that restrains group of atoms to center of system
     # Note: has flatbottom properties
     def add_centerforce(self, center_coords=None, atomindices=None, forceconstant=1.0, distance=5.0):
-        """Tether atoms to a fixed point in space beyond a given distance.
-
-        Args:
-            center_coords: the centre the atoms are pulled towards, in Angstrom.
-            atomindices: atoms the force applies to.
-            forceconstant: force constant in kcal/mol/Angstrom**2.
-            distance: radius inside which no force acts.
-        """
+        """Tether atoms to a fixed point in space beyond a given distance."""
         logger.info("add_centerforce:")
         logger.info("Center coordinates: %s", center_coords)
         logger.info("Force acting on atomindices: %s", atomindices)
@@ -1197,14 +1107,7 @@ class OpenMMTheory:
         return centerforce
 
     def add_custom_external_force(self):
-        """Add the per-atom external force that carries the QM/MM gradient.
-
-        QM/MM MD applies the QM contribution to the MM system through this force, updated
-        each step by update_custom_external_force.
-
-        Returns:
-            The CustomExternalForce object that was added.
-        """
+        """Add the per-atom external force that carries the QM/MM gradient."""
         customforce = openmm.CustomExternalForce("-x*fx -y*fy -z*fz")
         customforce.addPerParticleParameter("fx")
         customforce.addPerParticleParameter("fy")
@@ -1219,13 +1122,7 @@ class OpenMMTheory:
 
     # NOTE: This setParticleParameters takes some time but not sure we can make this faster
     def update_custom_external_force(self, customforce, gradient, simulation):
-        """Push a new gradient into the QM/MM external force.
-
-        Args:
-            customforce: the CustomExternalForce created by add_custom_external_force.
-            gradient: gradient in Eh/Bohr, one row per atom.
-            simulation: simulation whose context the parameters are updated in.
-        """
+        """Push a new gradient into the QM/MM external force."""
         logger.info("Updating custom external force")
         # Convert Eh/Bohr gradient to force in kj/mol nm
         # *49614.501681716106452
@@ -1238,11 +1135,7 @@ class OpenMMTheory:
 
     # Function to add restraints to system before MD
     def add_bondrestraints(self, restraints=None):
-        """Add harmonic distance restraints between atom pairs.
-
-        Args:
-            restraints: list of [i, j, distance, forceconstant] entries.
-        """
+        """Add harmonic distance restraints between atom pairs."""
         logger.info("Adding restraints: %s", restraints)
 
         new_restraints = openmm.HarmonicBondForce()
@@ -1258,11 +1151,7 @@ class OpenMMTheory:
 
     # Function to add bond constraints to system before MD
     def add_bondconstraints(self, constraints=None):
-        """Constrain bond lengths rigidly (not harmonically).
-
-        Args:
-            constraints: list of [i, j, distance] entries; distance in Angstrom.
-        """
+        """Constrain bond lengths rigidly (not harmonically)."""
         for i, j, d in constraints:
             logger.info(f"Adding bond constraint between atoms {i} and {j}. Distance value: {d:.4f} Å")
             self.system.addConstraint(i, j, d * openmm.unit.angstroms)
@@ -1276,13 +1165,7 @@ class OpenMMTheory:
 
     # Remove constraints for selected atoms. For example: QM atoms in QM/MM MD
     def remove_constraints_for_atoms(self, atoms):
-        """Remove every constraint involving any of the given atoms.
-
-        Used to free the QM region, whose internal geometry the QM code must control.
-
-        Args:
-            atoms: atom indices whose constraints are removed.
-        """
+        """Remove every constraint involving any of the given atoms."""
         logger.info("Removing constraints in OpenMM object for atoms: %s", atoms)
         todelete = []
         # Looping over all defined system constraints
@@ -1296,13 +1179,7 @@ class OpenMMTheory:
     # Function to freeze atoms during OpenMM MD simulation. Sets masses to zero. Does not modify potential
     # energy-function.
     def freeze_atoms(self, frozen_atoms=None):
-        """Freeze atoms by setting their mass to zero.
-
-        The original masses are stored so unfreeze_atoms can restore them.
-
-        Args:
-            frozen_atoms: atom indices to freeze.
-        """
+        """Freeze atoms by setting their mass to zero."""
         logger.info(f"Freezing {len(frozen_atoms)} atoms by setting particles masses to zero.")
 
         # Modify particle masses in system object. For freezing atoms
@@ -1319,11 +1196,7 @@ class OpenMMTheory:
 
     # Changed masses according to user input dictionary
     def modify_masses(self, changed_masses=None):
-        """Set new masses for selected atoms, e.g. for hydrogen-mass repartitioning.
-
-        Args:
-            changed_masses: dict of atom index to new mass in amu.
-        """
+        """Set new masses for selected atoms, e.g. for hydrogen-mass repartitioning."""
         logger.info("Modify masses according:  %s", changed_masses)
         # Preserve original masses
         # Modify particle masses in system object.
@@ -1338,13 +1211,7 @@ class OpenMMTheory:
     # This removes interactions between particles in a region (e.g. QM-QM or frozen-frozen pairs)
     # Give list of atom indices for which we will remove all pairs
     def addexceptions(self, atomlist):
-        """Exclude the listed atoms from all nonbonded interactions with each other.
-
-        This is how the QM-QM nonbonded terms are removed in QM/MM.
-
-        Args:
-            atomlist: atom indices whose mutual nonbonded interactions are switched off.
-        """
+        """Exclude the listed atoms from all nonbonded interactions with each other."""
         timeA = time.time()
         logger.info("Add exceptions/exclusions. Removing i-j interactions for list: %s atoms", len(atomlist))
 
@@ -1396,14 +1263,7 @@ class OpenMMTheory:
     def set_simulation_parameters(
         self, timestep=0.001, coupling_frequency=1, temperature=300, integrator="VerletIntegrator"
     ):
-        """Set the integrator and thermostat parameters used by create_simulation.
-
-        Args:
-            timestep: MD timestep in ps.
-            coupling_frequency: thermostat coupling frequency in 1/ps.
-            temperature: target temperature in K.
-            integrator: OpenMM integrator name, e.g. "VerletIntegrator" or "LangevinMiddleIntegrator".
-        """
+        """Set the integrator and thermostat parameters used by create_simulation."""
         self.timestep = timestep
         self.coupling_frequency = coupling_frequency
         self.temperature = temperature
@@ -1415,10 +1275,7 @@ class OpenMMTheory:
         # for each updated simulation
         # Integrators: LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VerletIntegrator,
         # BrownianIntegrator, VariableLangevinIntegrator, VariableVerletIntegrator
-        """Create the OpenMM integrator from the stored simulation parameters.
-
-        Made fresh each time: an integrator may only be bound to one context.
-        """
+        """Create the OpenMM integrator from the stored simulation parameters."""
         if self.integrator_name == "VerletIntegrator":
             self.integrator = openmm.VerletIntegrator(self.timestep * openmm.unit.picoseconds)
         elif self.integrator_name == "VariableVerletIntegrator":
@@ -1477,12 +1334,7 @@ class OpenMMTheory:
 
     # Create simulation object (now not part of OpenMMTheory)
     def create_simulation(self, internal=False):
-        """Build the OpenMM Simulation from the current system, topology and integrator.
-
-        Args:
-            internal: build the simulation for internal energy/gradient evaluation rather
-                than for an MD run.
-        """
+        """Build the OpenMM Simulation from the current system, topology and integrator."""
         timeA = time.time()
 
         logger.info(sub_header("Creating/updating OpenMM simulation object"))
@@ -1521,10 +1373,7 @@ class OpenMMTheory:
 
     # Functions for energy decompositions
     def forcegroupify(self):
-        """Assign each force its own force group so their energies can be separated.
-
-        Required before get_energy_decomposition.
-        """
+        """Assign each force its own force group so their energies can be separated."""
         self.forcegroups = {}
         logger.info("inside forcegroupify")
         logger.debug("System forces: %s", self.system.getForces())
@@ -1535,27 +1384,14 @@ class OpenMMTheory:
             self.forcegroups[force] = i
 
     def get_energy_decomposition(self, context):
-        """Return the potential energy of each force group.
-
-        Call forcegroupify first.
-
-        Args:
-            context: OpenMM Context to evaluate in.
-
-        Returns:
-            dict of force object to its potential energy.
-        """
+        """Return the potential energy of each force group."""
         energies = {}
         for f, i in self.forcegroups.items():
             energies[f] = context.getState(getEnergy=True, groups=2**i).getPotentialEnergy()
         return energies
 
     def print_energy_decomposition(self, simulation):
-        """Log the per-force energy breakdown of the current state.
-
-        Args:
-            simulation: simulation whose context is evaluated.
-        """
+        """Log the per-force energy breakdown of the current state."""
         timeA = time.time()
         # Energy decomposition
         # NOTE: Calling this is expensive (seconds)as the energy has to be recalculated.
@@ -1612,15 +1448,7 @@ class OpenMMTheory:
     # Compute cell gradient numerically
     def compute_cell_gradient_fd(self, context, eps=1e-4):
         # Conversion factors
-        """Compute the gradient with respect to the cell vectors by finite differences.
-
-        Args:
-            context: OpenMM Context to evaluate in.
-            eps: relative strain step used for the finite difference.
-
-        Returns:
-            The 3x3 cell gradient.
-        """
+        """Compute the gradient with respect to the cell vectors by finite differences."""
         NM_TO_BOHR = 18.89726124  # 1 nm = 18.897... Bohr
         KJMOL_TO_EH = 1.0 / 2625.4996  # 1 kJ/mol = 1/2625.5 Hartree
         eps_nm = eps / NM_TO_BOHR  # convert eps to nm for OpenMM
@@ -1673,26 +1501,7 @@ class OpenMMTheory:
         qm_elems=None,
         numcores=1,
     ):
-        """Compute the MM energy (and gradient) of a geometry.
-
-        Args:
-            current_coords: coordinates in Angstrom, one row per atom.
-            elems: element symbols; unused, the topology defines the system.
-            grad: also compute the gradient.
-            fragment: fragment used for QM/MM bookkeeping.
-            qmatoms: QM-region indices, for the QM/MM subtraction terms.
-            label: unused; present for signature compatibility with the QM theories.
-            charge: unused; MM charges come from the forcefield.
-            mult: unused; MM has no spin state.
-            pc: unused; MM does not take an external point-charge field.
-            current_mm_coords: unused; present for signature compatibility.
-            mm_charges: unused; present for signature compatibility.
-            qm_elems: unused; present for signature compatibility.
-            numcores: unused; the thread count is fixed when the theory is constructed.
-
-        Returns:
-            The energy in hartree, or (energy, gradient in Eh/Bohr) when grad=True.
-        """
+        """Compute the MM energy (and gradient) of a geometry."""
         module_init_time = time.time()
         timeA = time.time()
 
@@ -1835,11 +1644,7 @@ class OpenMMTheory:
     # Delete selected exceptions. Only for Coulomb.
     # Used to delete Coulomb interactions involving QM-QM and QM-MM atoms
     def delete_exceptions(self, atomlist):
-        """Remove the nonbonded exceptions previously added for the listed atoms.
-
-        Args:
-            atomlist: atom indices whose exceptions are deleted.
-        """
+        """Remove the nonbonded exceptions previously added for the listed atoms."""
         timeA = time.time()
         logger.info("Deleting Coulombexceptions for atomlist: %s", atomlist)
         for force in self.system.getForces():
@@ -1854,14 +1659,7 @@ class OpenMMTheory:
     # Updating LJ interactions in OpenMM object. Used to set LJ sites to zero e.g. so that they do not contribute
     # Can be used to get QM-MM LJ interaction energy
     def update_lj_epsilons(self, atomlist, epsilons):
-        """Set new Lennard-Jones epsilon values for selected atoms.
-
-        Zeroing these removes the QM region's LJ interactions in QM/MM.
-
-        Args:
-            atomlist: atom indices to update.
-            epsilons: new epsilon values, one per atom in atomlist.
-        """
+        """Set new Lennard-Jones epsilon values for selected atoms."""
         timeA = time.time()
         logger.info("Updating LJ interaction strengths in OpenMM object.")
         if len(atomlist) != len(epsilons):
@@ -1881,14 +1679,7 @@ class OpenMMTheory:
     # Taking list of atom-indices and list of charges (usually zero) and setting new charge
     # Note: Exceptions also needs to be dealt with (see delete_exceptions)
     def update_charges(self, atomlist, atomcharges):
-        """Set new partial charges for selected atoms.
-
-        QM/MM zeroes the QM-region charges this way before building the point-charge field.
-
-        Args:
-            atomlist: atom indices to update.
-            atomcharges: new charges, one per atom in atomlist.
-        """
+        """Set new partial charges for selected atoms."""
         timeA = time.time()
         logger.info("Updating charges in OpenMM object.")
         if len(atomlist) != len(atomcharges):
@@ -1911,14 +1702,7 @@ class OpenMMTheory:
         log_time_since(timeA, "update_charges")
 
     def modify_bonded_forces(self, atomlist):
-        """Zero the bonded terms that lie entirely inside the given atom set.
-
-        Removes the MM description of the QM region's internal geometry, which the QM code
-        provides instead.
-
-        Args:
-            atomlist: atom indices treated quantum-mechanically.
-        """
+        """Zero the bonded terms that lie entirely inside the given atom set."""
         timeA = time.time()
         logger.info("Modifying bonded forces.")
         logger.info("")

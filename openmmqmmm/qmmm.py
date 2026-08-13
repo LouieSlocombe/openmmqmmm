@@ -1,5 +1,3 @@
-"""Electrostatically embedded QM/MM (QMMMTheory) with link atoms and charge-shifting."""
-
 import copy
 import logging
 import math
@@ -22,11 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class QMMMTheory:
-    """Electrostatically embedded QM/MM combining a QM theory with an MM theory.
-
-    The QM region is defined by qmatoms (0-based indices into the fragment);
-    link atoms and charge-shifting handle covalent QM-MM boundaries.
-    """
+    """Electrostatically embedded QM/MM combining a QM theory with an MM theory."""
 
     def __init__(
         self,
@@ -377,16 +371,7 @@ class QMMMTheory:
 
     # From QM1:MM1 boundary dict, get MM1:MMx boundary dict (atoms connected to MM1)
     def get_mm_boundary(self, scale, tol):
-        """Find the QM-MM covalent boundary and the MM atoms bonded across it.
-
-        Args:
-            scale: covalent-radius scaling used to detect bonds.
-            tol: covalent-radius tolerance added to the scaled radii.
-
-        Returns:
-            (boundaryatoms, MMboundarydict, MMboundary_indices, MMboundary_counts) describing
-            the QM1-MM1 bonds and, for each MM1 atom, the MM2 atoms its charge is shifted to.
-        """
+        """Find the QM-MM covalent boundary and the MM atoms bonded across it."""
         timeA = time.time()
         # if boundarydict is not empty we need to zero MM1 charge and distribute charge from MM1 atom to MM2,MM3,MM4
         # Creating dictionary for each MM1 atom and its connected atoms: MM2-4
@@ -435,14 +420,7 @@ class QMMMTheory:
         log_time_since(timeA, "ZeroQMCharges")
 
     def rcd_shifting_prep(self, charges_qmregionzeroed):
-        """Set up redistributed-charge-and-dipole (RCD) charge shifting.
-
-        Args:
-            charges_qmregionzeroed: MM charges with the QM region already zeroed.
-
-        Returns:
-            The per-MM1 charge fractions redistributed onto the MM2 atoms.
-        """
+        """Set up redistributed-charge-and-dipole (RCD) charge shifting."""
         timeA = time.time()
         logger.info("Shifting MM charges at QM/MM boundary by RCD.")
         # Convert lists to NumPy arrays for faster computations
@@ -477,15 +455,7 @@ class QMMMTheory:
         return pointcharges, RCD_additional_charges
 
     def rcd_shifting_update(self, used_mmcoords, fullcoords):
-        """Rebuild the RCD point-charge positions for the current geometry.
-
-        Args:
-            used_mmcoords: coordinates of the MM atoms in the point-charge field.
-            fullcoords: coordinates of the whole system.
-
-        Returns:
-            Point-charge coordinates including the RCD sites, matching self.pointcharges.
-        """
+        """Rebuild the RCD point-charge positions for the current geometry."""
         timeA = time.time()
         logger.info("Adding updated RCD charges at QM/MM boundary by RCD.")
 
@@ -504,11 +474,7 @@ class QMMMTheory:
         return pointchargecoords
 
     def shift_mm_charges(self):
-        """Shift the MM1 boundary charges onto their MM2 neighbours.
-
-        Prevents overpolarization of the QM region by the charge sitting on the atom
-        directly bonded across the QM-MM boundary.
-        """
+        """Shift the MM1 boundary charges onto their MM2 neighbours."""
         if self.chargeshifting_done is False:
             self._shift_mm_charges_impl()
         else:
@@ -544,18 +510,7 @@ class QMMMTheory:
         # oldMM_distance = openmmqmmm.coords.distance_between_atoms(fragment=self.fragment,
         #                                                               atoms=[mm1index, mm2index])
         # Coordinates and distance
-        """Return the two charges and positions of a dipole placed on an MM1-MM2 bond.
-
-        Args:
-            delq: charge magnitude of the dipole.
-            direction: +1 or -1, which end of the bond the positive charge sits on.
-            mm1index: index of the boundary MM1 atom.
-            mm2index: index of the neighbouring MM2 atom.
-            current_coords: coordinates of the whole system.
-
-        Returns:
-            (charges, coordinates) of the two dipole point charges.
-        """
+        """Return the two charges and positions of a dipole placed on an MM1-MM2 bond."""
         mm1coords = np.array(current_coords[mm1index])
         mm2coords = np.array(current_coords[mm2index])
         MM_distance = openmmqmmm.coords.distance(mm1coords, mm2coords)  # Distance between MM1 and MM2
@@ -583,11 +538,7 @@ class QMMMTheory:
         return -q0 * direction, list(pos)
 
     def set_dipole_charges(self, current_coords):
-        """Rebuild the dipole-correction point charges for the current geometry.
-
-        Args:
-            current_coords: coordinates of the whole system.
-        """
+        """Rebuild the dipole-correction point charges for the current geometry."""
         checkpoint = time.time()
         logger.info("Adding extra charges to preserve dipole moment for charge-shifting")
         logger.info("MMboundarydict: %s", self.MMboundarydict)
@@ -611,20 +562,13 @@ class QMMMTheory:
 
     # Uses a precalculated mask; this dominates QM/MM gradient prepare.
     def make_qm_pc_gradient(self):
-        """Assemble the full-system gradient from the QM and point-charge gradients.
-
-        Writes into self.QM_PC_gradient, using the QM-atom mask to place each block.
-        """
+        """Assemble the full-system gradient from the QM and point-charge gradients."""
         self.QM_PC_gradient[self.xatom_mask] = self.QMgradient_wo_linkatoms
         self.QM_PC_gradient[~self.xatom_mask] = self.PCgradient[: self.num_allatoms - self.sum_xatom_mask]
 
     # TruncatedPCfunction control flow for pointcharge field passed to QM program
     def truncated_pc_function(self, used_qmcoords):
-        """Reduce the point-charge field to the atoms near the QM region.
-
-        Args:
-            used_qmcoords: current QM-region coordinates, used as the centre of the sphere.
-        """
+        """Reduce the point-charge field to the atoms near the QM region."""
         self.truncated_pc_calls += 1
         logger.info("TruncatedPC approximation!")
         if self.truncated_pc_calls == 1 or self.truncated_pc_calls % self.truncated_pc_recalc_iter == 0:
@@ -660,11 +604,7 @@ class QMMMTheory:
     # Determine truncated PC field indices based on initial coordinates
     # Coordinates and charges for each Opt cycle defined later.
     def determine_truncated_pc_indices(self, origincoords):
-        """Select the point charges within truncated_pc_radius of the QM region.
-
-        Args:
-            origincoords: reference coordinates the radius is measured from.
-        """
+        """Select the point charges within truncated_pc_radius of the QM region."""
         region_indices = []
         for index, allc in enumerate(self.pointchargecoords):
             dist = openmmqmmm.coords.distance(origincoords, allc)
@@ -679,17 +619,7 @@ class QMMMTheory:
         self, QMgradient_full, PCgradient_full, QMgradient_trunc, PCgradient_trunc
     ):
         # QM part
-        """Compute the correction between full and truncated point-charge gradients.
-
-        Stored and reapplied on later steps so the cheap truncated field keeps the accuracy
-        of the full one.
-
-        Args:
-            QMgradient_full: QM gradient from the full point-charge field.
-            PCgradient_full: point-charge gradient from the full field.
-            QMgradient_trunc: QM gradient from the truncated field.
-            PCgradient_trunc: point-charge gradient from the truncated field.
-        """
+        """Compute the correction between full and truncated point-charge gradients."""
         qm_difference = (
             QMgradient_full[: len(QMgradient_full) - self.num_linkatoms]
             - QMgradient_trunc[: len(QMgradient_full) - self.num_linkatoms]
@@ -705,15 +635,7 @@ class QMMMTheory:
         self.original_PCcorrection_gradient = pc_difference
 
     def truncated_pc_gradient_update(self, QMgradient_wo_linkatoms, PCgradient):
-        """Apply the stored truncation correction to this step's gradients.
-
-        Args:
-            QMgradient_wo_linkatoms: QM gradient with link-atom contributions already projected out.
-            PCgradient: point-charge gradient from the truncated field.
-
-        Returns:
-            The corrected (QM gradient, point-charge gradient).
-        """
+        """Apply the stored truncation correction to this step's gradients."""
         newQMgradient_wo_linkatoms = QMgradient_wo_linkatoms + self.original_QMcorrection_gradient
 
         new_full_PC_gradient = np.copy(self.original_PCcorrection_gradient)
@@ -722,11 +644,7 @@ class QMMMTheory:
         return newQMgradient_wo_linkatoms, new_full_PC_gradient
 
     def set_numcores(self, numcores):
-        """Set the core count used by both the QM and MM theories.
-
-        Args:
-            numcores: number of cores.
-        """
+        """Set the core count used by both the QM and MM theories."""
         logger.info(f"Setting new numcores {numcores}for QMtheory and MMtheory")
         self.qm_theory.set_numcores(numcores)
         self.mm_theory.set_numcores(numcores)
@@ -769,28 +687,7 @@ class QMMMTheory:
         qm_elems=None,
         pc=None,
     ):
-        """Run a QM/MM energy (and gradient) calculation.
-
-        Dispatches to elstat_run or mech_run depending on the embedding set on the object.
-
-        Args:
-            current_coords: coordinates of the whole system in Angstrom.
-            elems: element symbols of the whole system.
-            grad: also compute the gradient.
-            numcores: cores for this run; defaults to the object's setting.
-            exit_after_customexternalforce_update: return early after updating the OpenMM
-                external force, used by the OpenMM-driven QM/MM MD loop.
-            label: label used for scratch-file naming in parallel runs.
-            charge: QM-region charge; defaults to qm_charge.
-            mult: QM-region multiplicity; defaults to qm_mult.
-            current_mm_coords: unused; QM/MM builds its own point-charge field.
-            mm_charges: unused; QM/MM builds its own point-charge field.
-            qm_elems: unused; the QM region is defined by qmatoms.
-            pc: unused; embedding is set on the object.
-
-        Returns:
-            The QM/MM energy in hartree, or (energy, gradient) when grad=True.
-        """
+        """Run a QM/MM energy (and gradient) calculation."""
         logger.info("------------RUNNING QM/MM MODULE-------------")
         logger.info("QM Module: %s", self.qm_theory_name)
         logger.info("MM Module: %s", self.mm_theory_name)
@@ -839,19 +736,6 @@ class QMMMTheory:
         )
 
     def _prepare_run(self, current_coords, embedding_label):
-        """Do the per-step setup both embeddings share, and split the coordinates.
-
-        On the first call this runs runprep, which builds the QM element list, the link
-        atoms and (for electrostatic embedding) the point charges. Thereafter it only
-        refreshes the link-atom positions for the new geometry.
-
-        Args:
-            current_coords: coordinates of the whole system in Angstrom.
-            embedding_label: name of the embedding, for the log.
-
-        Returns:
-            (mm_coords, qm_coords), the latter with link-atom coordinates appended.
-        """
         logger.info("Embedding: %s", embedding_label)
 
         #############################################
@@ -881,20 +765,6 @@ class QMMMTheory:
         return used_mmcoords, used_qmcoords
 
     def _add_linkatom_force_projection(self, gradient, used_qmcoords, current_coords):
-        """Redistribute each link atom's gradient onto the QM1 and MM1 atoms it sits between.
-
-        A link atom is not a degree of freedom of the real system: it caps a QM-MM bond,
-        so the force on it belongs to the two atoms of that bond. Both embeddings project
-        it identically; they differ only in which gradient array they are accumulating
-        into (for mechanical embedding the two are the same array).
-
-        Consumes self.linkatom_indices, which is rebuilt by create_linkatoms each step.
-
-        Args:
-            gradient: full-system gradient array, modified in place.
-            used_qmcoords: QM-region coordinates including link atoms.
-            current_coords: coordinates of the whole system.
-        """
         for pair in sorted(self.linkatoms_dict.keys()):
             # Grabbing linkatom data
             linkatomindex = self.linkatom_indices.pop(0)
@@ -936,21 +806,7 @@ class QMMMTheory:
         charge=None,
         mult=None,
     ):
-        """Run mechanical embedding: QM and MM energies added with no electrostatic coupling.
-
-        Args:
-            current_coords: coordinates of the whole system in Angstrom.
-            elems: element symbols of the whole system.
-            grad: also compute the gradient.
-            numcores: cores for this run.
-            exit_after_customexternalforce_update: return early after updating the OpenMM external force.
-            label: label used for scratch-file naming in parallel runs.
-            charge: QM-region charge.
-            mult: QM-region multiplicity.
-
-        Returns:
-            The QM/MM energy in hartree, or (energy, gradient) when grad=True.
-        """
+        """Run mechanical embedding: QM and MM energies added with no electrostatic coupling."""
         module_init_time = time.time()
         CheckpointTime = time.time()
         #########################################################################################
@@ -1146,15 +1002,7 @@ class QMMMTheory:
         return self.QM_MM_energy
 
     def create_linkatoms(self, current_coords):
-        """Place hydrogen link atoms along each QM1-MM1 bond.
-
-        Args:
-            current_coords: coordinates of the whole system.
-
-        Returns:
-            The link-atom coordinates, appended to the QM region in the order of
-            sorted(self.linkatoms_dict).
-        """
+        """Place hydrogen link atoms along each QM1-MM1 bond."""
         checkpoint = time.time()
         # Get linkatom coordinates
         self.linkatoms_dict = openmmqmmm.coords.get_linkatom_positions(
@@ -1178,11 +1026,7 @@ class QMMMTheory:
     # Run-preparation (for both electrostatic and mechanical)
     # Things that only have to be done in the first QM/MM run
     def runprep(self, current_coords):
-        """Do the one-off setup the first run needs: link atoms, boundary and charges.
-
-        Args:
-            current_coords: coordinates of the whole system, used to find the QM-MM boundary.
-        """
+        """Do the one-off setup the first run needs: link atoms, boundary and charges."""
         logger.info("Inside QMMMTheory runprep")
         init_time_runprep = time.time()
 
@@ -1272,21 +1116,7 @@ class QMMMTheory:
         charge=None,
         mult=None,
     ):
-        """Run electrostatic embedding: the QM region sees the MM charges as point charges.
-
-        Args:
-            current_coords: coordinates of the whole system in Angstrom.
-            elems: element symbols of the whole system.
-            grad: also compute the gradient.
-            numcores: cores for this run.
-            exit_after_customexternalforce_update: return early after updating the OpenMM external force.
-            label: label used for scratch-file naming in parallel runs.
-            charge: QM-region charge.
-            mult: QM-region multiplicity.
-
-        Returns:
-            The QM/MM energy in hartree, or (energy, gradient) when grad=True.
-        """
+        """Run electrostatic embedding: the QM region sees the MM charges as point charges."""
         module_init_time = time.time()
         CheckpointTime = time.time()
 
@@ -1699,10 +1529,7 @@ def read_charges_from_psf(file) -> list[float]:
 def define_active_region(
     pdbfile=None, mmtheory=None, psffile=None, fragment=None, radius=None, originatom=None
 ) -> list[int]:
-    """Define an active region as all whole residues within a distance of a central atom.
-
-    Writes the indices to active_atoms and a highlighted PDB file for inspection.
-    """
+    """Define an active region as all whole residues within a distance of a central atom."""
     logger.info(main_header("ActregionDefine"))
 
     # Checking if proper information has been provided

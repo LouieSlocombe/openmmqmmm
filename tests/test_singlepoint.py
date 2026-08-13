@@ -1,11 +1,3 @@
-"""Tests for the single-point job functions.
-
-These are the package's main entry points and were only covered incidentally, at 20%
-of statements. ZeroTheory makes every path here runnable with no QM program: what is
-checked is the bookkeeping — which energies land in which Results field, how labels
-and stoichiometry are handled, and which bad inputs raise.
-"""
-
 import numpy as np
 import pytest
 
@@ -62,7 +54,6 @@ def test_single_point_requires_a_theory(hydrogen_fluoride):
 
 
 def test_single_point_theories(hydrogen_fluoride):
-    """One fragment through several theories gives one energy per theory."""
     theories = [ZeroTheory(), ZeroTheory()]
 
     result = single_point_theories(theories=theories, fragment=hydrogen_fluoride)
@@ -72,10 +63,6 @@ def test_single_point_theories(hydrogen_fluoride):
 
 
 def test_single_point_theories_with_explicit_charge_and_mult():
-    """Charge and multiplicity may come as arguments rather than from the fragment.
-
-    Printing the summary table used to raise TypeError on this path.
-    """
     fragment = Fragment(coordsstring=HF_COORDS)
 
     result = single_point_theories(theories=[ZeroTheory()], fragment=fragment, charge=0, mult=1)
@@ -114,7 +101,6 @@ def test_reaction_energy_of_a_null_reaction():
 
 
 def test_reaction_energy_applies_stoichiometry():
-    """reaction_energy weights each fragment energy by its coefficient."""
     energy, _unit = reaction_energy(list_of_energies=[-1.0, -2.0], stoichiometry=[-1, 1], unit="Eh", silent=True)
 
     assert energy == pytest.approx(-1.0)

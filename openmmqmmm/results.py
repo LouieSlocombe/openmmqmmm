@@ -1,5 +1,3 @@
-"""The Results dataclass returned by job functions, plus JSON (de)serialization."""
-
 import logging
 from dataclasses import dataclass
 
@@ -64,14 +62,7 @@ class Results:
     displacement_polarizability_dictionary: dict | None = None
 
     def write_to_disk(self, filename="results.json"):
-        """Write the defined attributes to a JSON file.
-
-        Numpy arrays are converted to nested lists; openmmqmmm objects (fragments,
-        theories) are skipped since they are not JSON-serialisable.
-
-        Args:
-            filename: path of the JSON file to write.
-        """
+        """Write the defined attributes to a JSON file."""
         import json
 
         logger.info("\nWriting to disk defined attributes of Results dataclass")

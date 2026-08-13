@@ -1,10 +1,3 @@
-"""PLUMED-biased molecular dynamics via the openmm-plumed plugin.
-
-PLUMED owns the collective variables, the bias and the analysis: the bias
-specification is the PLUMED input string, and the HILLS/COLVAR files it writes are
-read back with PLUMED's own tools (``plumed sum_hills`` for a free-energy surface).
-"""
-
 import logging
 
 from openmmqmmm.exceptions import (

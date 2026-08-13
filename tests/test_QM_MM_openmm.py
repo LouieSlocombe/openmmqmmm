@@ -105,7 +105,6 @@ def test_qm_mm_orca_openmm_lysozyme():
 
 
 def _meoh_water_qmmm(qmatoms, embedding, tag, unusualboundary=False):
-    """Build the MeOH...H2O QM/MM system with a given QM region and embedding."""
     fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
     fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
 
@@ -128,12 +127,7 @@ def _meoh_water_qmmm(qmatoms, embedding, tag, unusualboundary=False):
 
 
 def test_qm_mm_mechanical_embedding():
-    """Mechanical embedding: QM and MM energies simply added, no point-charge field.
-
-    Determined 12 Aug 2026 with ORCA 6.1.1 (PBE/def2-SVP NORI tightscf) and OpenMM 8.4.
-    ORCA is not bit-reproducible between runs; repeated runs of this system spread by
-    ~1e-10 Eh in the energy and ~1e-6 Eh/bohr in the gradient, which sets the tolerances.
-    """
+    """Mechanical embedding: QM and MM energies simply added, no point-charge field."""
     qmmm, fragment = _meoh_water_qmmm([3, 4, 5, 6, 7, 8], "Mech", "mech")
     result = single_point(theory=qmmm, fragment=fragment, charge=0, mult=1, grad=True)
 
@@ -146,17 +140,7 @@ def test_qm_mm_mechanical_embedding():
 
 
 def test_qm_mm_link_atom_force_projection():
-    """A QM region that cuts a covalent bond gets a link atom, whose force is projected.
-
-    The QM region here is the methanol hydroxyl (O2, H6), which cuts the C1-O2 bond. A
-    link atom caps it. A link atom is not a degree of freedom of the real system, so its
-    gradient has to be redistributed onto the two atoms of the bond it caps — if that
-    projection is dropped the link atom's force vanishes from the total and the geometry
-    optimizer walks the QM/MM boundary apart.
-
-    unusualboundary is set because the cut bond is C-O rather than the usual C-C; the
-    check exists to catch accidental QM regions, and here the region is deliberate.
-    """
+    """A QM region that cuts a covalent bond gets a link atom, whose force is projected."""
     qm1, mm1 = 7, 3  # O2 (QM side of the cut bond) and C1 (MM side)
     qmmm, fragment = _meoh_water_qmmm([7, 8], "Elstat", "linkatom", unusualboundary=True)
     result = single_point(theory=qmmm, fragment=fragment, charge=0, mult=1, grad=True)

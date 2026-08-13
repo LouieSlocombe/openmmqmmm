@@ -1,12 +1,3 @@
-"""Checks on the single per-element table and the views derived from it.
-
-The per-element data used to live in eight hand-maintained parallel tables across three
-modules. They drifted: two copies of the Alvarez covalent radii disagreed about Na, K and
-the M dummy site, and the connectivity code read the copy without the overrides. The
-tables are now columns of one row each, so the tests here check the derived views agree
-with the table and that the table itself is complete and ordered.
-"""
-
 import numpy as np
 import pytest
 
@@ -80,12 +71,7 @@ def test_cm5_parameters_cover_every_real_element():
 
 
 def test_ion_and_dummy_radius_overrides_are_present():
-    """These three are deliberately not their Alvarez values, and losing them is silent.
-
-    Alvarez gives Na 1.66 and K 2.03. At those radii a solvated ion is reported as
-    covalently bonded to its whole first solvation shell, and every fragment containing
-    one becomes a single connected molecule.
-    """
+    """These three are deliberately not their Alvarez values, and losing them is silent."""
     assert eldict_covrad["Na"] == 0.0001
     assert eldict_covrad["K"] == 0.0001
     assert eldict_covrad["M"] == 0.0
@@ -100,7 +86,6 @@ def test_atomtypes_map_to_known_elements():
 
 
 def test_masses_are_used_end_to_end():
-    """A Fragment computes its mass through the table; water is about 18 amu."""
     water = Fragment(
         coords=np.array([[0.0, 0.0, 0.117], [0.0, 0.757, -0.469], [0.0, -0.757, -0.469]]),
         elems=["O", "H", "H"],

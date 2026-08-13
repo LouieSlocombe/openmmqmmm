@@ -1,5 +1,3 @@
-"""OpenBabel-backed conversions used internally: XYZ to PDB with connectivity, SMILES to coordinates."""
-
 import logging
 import os
 
@@ -16,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 # Function to read in XYZ-file (small molecule) and create PDB-file with CONECT lines (geometry needs to be sensible)
 def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
-    """Convert an XYZ file to a PDB file with CONECT records via OpenBabel."""
     logger.info("xyz_to_pdb_with_connectivity function:")
     # OpenBabel
     try:

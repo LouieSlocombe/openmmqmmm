@@ -1,10 +1,3 @@
-"""Tests for the small file/string/list utilities and logging setup.
-
-utils.py is used by every other module — the ORCA input rewriting in
-run_orca_sp_parallel goes through insert_line_into_file, and the output parsers go
-through pygrep — but it was only half covered and none of it deliberately.
-"""
-
 import logging
 
 import pytest
@@ -30,11 +23,7 @@ from openmmqmmm.utils import (
 
 
 def test_basename_strips_the_extension_not_the_directory():
-    """Unlike os.path.basename this drops the suffix and keeps the path.
-
-    It is used to turn "orca.inp" into the "orca" stem shared by the .out/.gbw/.engrad
-    files of the same calculation.
-    """
+    """Unlike os.path.basename this drops the suffix and keeps the path."""
     assert basename("calc.inp") == "calc"
     assert basename("/path/to/calc.out") == "/path/to/calc"
 

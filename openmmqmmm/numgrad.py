@@ -1,5 +1,3 @@
-"""Numerical-gradient wrapper theory (finite differences of energies)."""
-
 import logging
 
 import numpy as np
@@ -56,26 +54,7 @@ class NumGrad:
         charge=None,
         mult=None,
     ):
-        """Compute the energy and a finite-difference gradient of the wrapped theory.
-
-        Args:
-            current_coords: coordinates in Angstrom, one row per atom.
-            current_mm_coords: point-charge coordinates, passed through to the wrapped theory.
-            mm_charges: point-charge values, passed through to the wrapped theory.
-            qm_elems: QM-region element symbols.
-            elems: element symbols of the whole system.
-            grad: return the gradient alongside the energy.
-            hessian: unused; NumGrad differentiates energies, not gradients.
-            pc: unused; embedding is handled by the wrapped theory.
-            numcores: cores used for parallel displacement runs.
-            restart: unused; present for signature compatibility.
-            label: label used for scratch-file naming in parallel runs.
-            charge: total charge, passed to the wrapped theory.
-            mult: spin multiplicity, passed to the wrapped theory.
-
-        Returns:
-            The energy in hartree, or (energy, gradient in Eh/Bohr) when grad=True.
-        """
+        """Compute the energy and a finite-difference gradient of the wrapped theory."""
         logger.info(f"------------RUNNING {self.theorynamelabel} WRAPPER -------------")
 
         numatoms = len(current_coords)

@@ -1,14 +1,3 @@
-"""Tests for OpenMMTheory's system setup and force manipulation.
-
-openmm.py is by far the largest module and the least covered, and it is the half of
-the QM/MM stack that runs without ORCA — so most of it is testable here. These cover
-the paths QMMMTheory depends on: charges, freezing and constraints, force
-add/remove, cell handling, and the energy/gradient contract of run().
-
-Only the small solvated lysozyme PDB already in the repository is used, and every
-test builds its own OpenMMTheory, so nothing is shared between them.
-"""
-
 from pathlib import Path
 
 import numpy as np
@@ -54,11 +43,6 @@ def test_run_returns_energy_and_gradient(solvated_fragment):
 
 
 def test_energy_is_translationally_invariant(solvated_fragment):
-    """Rigidly shifting the whole system must not change the MM energy.
-
-    Only to PME's grid accuracy: the reciprocal-space sum is evaluated on a fixed
-    grid, so a shift moves the atoms relative to it.
-    """
     theory = _make_theory()
 
     energy = theory.run(current_coords=solvated_fragment.coords, elems=solvated_fragment.elems)
@@ -90,7 +74,6 @@ def test_update_charges_zeroes_the_qm_region():
 
 
 def test_freezing_atoms_sets_their_mass_to_zero():
-    """Frozen atoms are implemented as zero-mass particles; unfreezing restores them."""
     theory = _make_theory()
     frozen = [0, 1, 2]
     original_masses = [theory.system.getParticleMass(i)._value for i in frozen]
@@ -134,7 +117,6 @@ def test_periodic_cell_vectors_are_available():
 
 
 def test_energy_decomposition_covers_the_total(solvated_fragment):
-    """The per-force contributions must add up to the total energy."""
     theory = _make_theory()
     total = theory.run(current_coords=solvated_fragment.coords, elems=solvated_fragment.elems)
 
@@ -149,11 +131,7 @@ def test_energy_decomposition_covers_the_total(solvated_fragment):
 
 
 def test_write_pdbfile_uses_the_positions_it_is_given(tmp_path, solvated_fragment):
-    """An explicit positions argument must win over the object's own coordinates.
-
-    It was checked last, so passing updated coordinates silently wrote the original
-    ones instead.
-    """
+    """An explicit positions argument must win over the object's own coordinates."""
     import openmm
 
     theory = _make_theory()
@@ -191,7 +169,6 @@ def test_openmm_minimize_rejects_a_non_openmm_theory():
 
 
 def test_single_point_through_the_job_function(solvated_fragment):
-    """The user-facing entry point must fill in energy and gradient."""
     theory = _make_theory()
 
     result = single_point(theory=theory, fragment=solvated_fragment, grad=True)

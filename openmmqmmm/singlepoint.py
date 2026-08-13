@@ -1,10 +1,3 @@
-"""Single-point energy and gradient jobs.
-
-Provides the single_point job function and its variants over multiple theories,
-fragments and reactions, plus ZeroTheory — a null theory that returns zero energy
-and gradient.
-"""
-
 import contextlib
 import logging
 import shutil
@@ -24,12 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 def _cleanup_theory(theory):
-    """Clean up a theory's scratch files if it defines a cleanup method.
-
-    cleanup() is optional: the theory contract these job functions accept is "any
-    theory object", and calling it unconditionally raised AttributeError for theories
-    that have nothing to clean up (ZeroTheory among them).
-    """
     cleanup = getattr(theory, "cleanup", None)
     if callable(cleanup):
         cleanup()
@@ -44,19 +31,7 @@ def single_point(
     mult: int | None = None,
     result_write_to_disk: bool = True,
 ) -> "Results":
-    """Run a single-point energy (and optionally gradient) calculation.
-
-    Args:
-        fragment: Fragment holding the coordinates.
-        theory: any theory object (ORCATheory, OpenMMTheory, QMMMTheory, ...).
-        grad: also compute the gradient.
-        charge: total charge; overrides the fragment charge if given.
-        mult: spin multiplicity; overrides the fragment multiplicity if given.
-        result_write_to_disk: write the Results object to results_singlepoint.json.
-
-    Returns:
-        Results with energy (and gradient when grad=True) filled in.
-    """
+    """Run a single-point energy (and optionally gradient) calculation."""
     logger.info(main_header("Singlepoint function"))
     module_init_time = time.time()
     if fragment is None or theory is None:
@@ -419,14 +394,7 @@ class ZeroTheory:
         mm_charges=None,
         qm_elems=None,
     ):
-        """Return zero energy and, if requested, a zero gradient.
-
-        Accepts the same arguments as a real theory's run method so it can stand in for
-        one in workflow tests.
-
-        Returns:
-            0.0, or (0.0, zeros((natoms, 3))) when grad=True.
-        """
+        """Return zero energy and, if requested, a zero gradient."""
         self.energy = 0.0
         # Gradient as np array
         self.gradient = np.zeros((len(elems), 3))
@@ -448,21 +416,7 @@ def reaction_energy(
     silent=False,
     correction=0.0,
 ) -> tuple[float, float | None]:
-    """Calculate a reaction energy from energies (or fragments with energies) and stoichiometry.
-
-    Args:
-        list_of_energies: total energies in hartree (alternative to list_of_fragments).
-        stoichiometry: signed integers per species, e.g. [-1, -1, 1, 1].
-        list_of_fragments: fragments carrying .energy attributes.
-        unit: output unit ("kcal/mol", "kJ/mol", "eV", "cm-1", "Eh", ...).
-        label: label used when logging the result.
-        reference: reference value; if given, the deviation is also computed.
-        silent: suppress logging of the result line.
-        correction: additive correction applied to the reaction energy.
-
-    Returns:
-        (reaction_energy, error) in the chosen unit; error is None without a reference.
-    """
+    """Calculate a reaction energy from energies (or fragments with energies) and stoichiometry."""
     conversionfactor = {
         "kcal/mol": 627.50946900,
         "kcalpermol": 627.50946900,

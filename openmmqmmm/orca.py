@@ -1,5 +1,3 @@
-"""ORCA interface: ORCATheory, ORCA installation discovery, input generation and output parsing."""
-
 import contextlib
 import glob
 import logging
@@ -35,13 +33,7 @@ logger = logging.getLogger(__name__)
 
 # ORCA Theory object.
 class ORCATheory:
-    """Interface to the ORCA quantum chemistry program.
-
-    The ORCA installation is located via the orcadir argument, the
-    OPENMMQMMM_ORCADIR environment variable, or a validated orca binary in PATH.
-    Input is defined through orcasimpleinput (the "!" line) and orcablocks
-    ("%block ... end" sections).
-    """
+    """Interface to the ORCA quantum chemistry program."""
 
     def __init__(
         self,
@@ -317,11 +309,7 @@ end
 
     # Set numcores method
     def set_numcores(self, numcores):
-        """Set how many cores ORCA is launched with.
-
-        Args:
-            numcores: number of cores passed to ORCA's %pal block.
-        """
+        """Set how many cores ORCA is launched with."""
         self.numcores = numcores
 
     # Cleanup after run.
@@ -351,25 +339,7 @@ end
     # Do an ORCA-optimization instead of geomeTRIC optimization. Useful for gas-phase chemistry when ORCA-optimizer is
     # better than geomeTRIC
     def opt(self, fragment=None, grad=None, hessian=None, numcores=None, charge=None, mult=None):
-        """Optimize the geometry with ORCA's own optimizer rather than geomeTRIC.
-
-        Useful for gas-phase chemistry where ORCA's internal optimizer converges better.
-        Updates the fragment's coordinates in place on success.
-
-        Args:
-            fragment: Fragment to optimize; its coordinates are replaced by the optimized ones.
-            grad: unused; ORCA's optimizer computes its own gradients.
-            hessian: unused; kept for signature compatibility with run().
-            numcores: cores for the ORCA run; defaults to the object's setting.
-            charge: total charge; defaults to the fragment's.
-            mult: spin multiplicity; defaults to the fragment's.
-
-        Returns:
-            The optimized energy in hartree.
-
-        Raises:
-            ExternalProgramError: if ORCA fails or the optimization does not converge.
-        """
+        """Optimize the geometry with ORCA's own optimizer rather than geomeTRIC."""
         module_init_time = time.time()
         logger.info("------------RUNNING INTERNAL ORCA OPTIMIZATION-------------")
         # Coords provided to run or else taken from initialization.
@@ -460,21 +430,13 @@ end
 
     # Method to grab dipole moment from an ORCA outputfile (assumes run has been executed)
     def get_dipole_moment(self):
-        """Read the dipole moment from the last ORCA output file.
-
-        Returns:
-            The dipole moment vector in atomic units.
-        """
+        """Read the dipole moment from the last ORCA output file."""
         dm = grab_dipole_moment(self.filename + ".out")
         logger.info("Dipole moment: %s", dm)
         return dm
 
     def get_polarizability_tensor(self):
-        """Read the static polarizability tensor from the last ORCA output file.
-
-        Returns:
-            The 3x3 polarizability tensor in atomic units.
-        """
+        """Read the static polarizability tensor from the last ORCA output file."""
         logger.debug("Reading polarizability from: %s", self.filename + ".out")
         polarizability, _diag_pz = grab_polarizability_tensor(self.filename + ".out")
         logger.info("polarizability: %s", polarizability)
@@ -496,26 +458,7 @@ end
         numcores=None,
         label=None,
     ):
-        """Run an ORCA calculation and return the energy (and gradient).
-
-        Args:
-            current_coords: QM-region coordinates in Angstrom.
-            charge: total charge of the QM region.
-            mult: spin multiplicity of the QM region.
-            current_mm_coords: point-charge coordinates for electrostatic embedding.
-            mm_charges: point-charge values for electrostatic embedding.
-            qm_elems: element symbols of the QM region (falls back to elems).
-            elems: element symbols of the whole system.
-            grad: also compute the gradient.
-            hessian: also compute an analytic Hessian.
-            pc: embed the calculation in the supplied point-charge field.
-            numcores: cores for this run; defaults to the object's setting.
-            label: label used for scratch-file naming in parallel runs.
-
-        Returns:
-            The energy in hartree, or (energy, gradient) when grad=True. Electrostatic
-            embedding additionally returns the point-charge gradient.
-        """
+        """Run an ORCA calculation and return the energy (and gradient)."""
         module_init_time = time.time()
         self.runcalls += 1
         logger.info("------------RUNNING ORCA INTERFACE-------------")
@@ -966,21 +909,6 @@ def _orca_binary_runs(directory):
 
 
 def find_orca(orcadir=None, required=True):
-    """Locate a working ORCA installation directory.
-
-    Search order: the explicit orcadir argument, the OPENMMQMMM_ORCADIR
-    environment variable, then the directory containing an orca binary found
-    in PATH. Every candidate is validated (orca_* helper binaries present and
-    the orca binary executes) before being accepted.
-
-    An invalid explicit location (argument or environment variable) is an
-    error: failing loudly beats silently falling back to a different
-    installation. An invalid PATH hit is merely skipped, since it is the
-    incidental-collision case.
-
-    Returns the installation directory, or None if nothing was found and
-    required=False.
-    """
     for source, directory in (
         ("orcadir argument", orcadir),
         ("OPENMMQMMM_ORCADIR environment variable", os.environ.get("OPENMMQMMM_ORCADIR")),
@@ -1095,12 +1023,6 @@ _BENIGN_ERROR_PREFIXES = (
 
 
 def _report_matching_lines(filename, needles, benign_prefixes, headline):
-    """Log the lines of an ORCA output file containing any needle, minus the benign ones.
-
-    One case-insensitive pass over the file. This used to be one pass per capitalisation
-    ORCA might have used -- three for warnings, four for errors -- with the results
-    concatenated and de-duplicated afterwards.
-    """
     with open(filename, errors="ignore") as f:
         matches = [
             line
@@ -1113,14 +1035,12 @@ def _report_matching_lines(filename, needles, benign_prefixes, headline):
 
 
 def grab_orca_warnings(filename):
-    """Log any warning messages found in an ORCA output file."""
     _report_matching_lines(
         filename, ("warning",), _BENIGN_WARNING_PREFIXES, "Found warning messages in ORCA outputfile:"
     )
 
 
 def grab_orca_errors(filename):
-    """Log any error messages found in an ORCA output file."""
     _report_matching_lines(
         filename,
         ("error", "aborting"),
@@ -1190,11 +1110,6 @@ ORCA_TIMING_LABELS = {
 
 
 def _seconds_from_timing_line(line):
-    """Extract the value in seconds from an ORCA timing line, or None.
-
-    Handles both layouts ORCA uses: `label  ....  0.032 sec  ( 34.1%)` and
-    `label  ... done (  0.0 sec)`.
-    """
     fields = line.split()
     for index, field in enumerate(fields):
         if field.startswith("sec") and index:
@@ -1206,15 +1121,6 @@ def _seconds_from_timing_line(line):
 
 
 def grab_orca_timings(file):
-    """Collect the per-module timings ORCA reports, in seconds.
-
-    Args:
-        file: path to an ORCA output file.
-
-    Returns:
-        dict of timing name (see ORCA_TIMING_LABELS) to seconds. Labels ORCA did not
-        report are simply absent; an unreadable file gives an empty dict.
-    """
     timings = {}  # in seconds
     try:
         with open(file, errors="ignore") as f:
@@ -1445,14 +1351,6 @@ def write_orca_hessfile(hessian, coords, elems, masses, outputname):
 
 # Function to grab Hessian from ORCA-Hessian file
 def grab_hessian(hessfile):
-    """Read a Hessian matrix from an ORCA-style .hess file.
-
-    Args:
-        hessfile: path to a file containing a `$hessian` block.
-
-    Returns:
-        The (3N, 3N) Hessian as a numpy array.
-    """
     hesstake = False
     j = 0
     orcacoldim = 5
@@ -1499,18 +1397,6 @@ def grab_hessian(hessfile):
 
 
 def _write_input_block(orcafile, text):
-    """Write a block of ORCA input, guaranteeing it ends with exactly one newline.
-
-    ORCA input is line-oriented: a `!` keyword line or a `%block ... end` that runs
-    into whatever is written next is a syntax error. These blocks come from
-    free-form user strings (`orcasimpleinput`, `orcablocks`, `extraline`) that may
-    or may not carry their own trailing newline, so the separator is enforced here
-    rather than trusted to the caller.
-
-    Args:
-        orcafile: open file object for the ORCA input file.
-        text: block of input text; nothing is written if it is empty or None.
-    """
     if text:
         orcafile.write(text.rstrip("\n") + "\n")
 
@@ -1540,39 +1426,6 @@ def _create_orca_input(
     rohf_uhf_swap=False,
     delta_scf_block=None,
 ):
-    """Write an ORCA input file, with or without an external point-charge field.
-
-    This is the single implementation behind `create_orca_input_pc` (electrostatic
-    embedding, used by QM/MM) and `create_orca_input_plain` (everything else). The
-    two differ only by the `%pointcharges` line.
-
-    Args:
-        name: basename of the input file; `<name>.inp` is written.
-        elems: element symbols, one per atom.
-        coords: coordinates in Angstrom, one (x, y, z) row per atom.
-        orcasimpleinput: the `!` keyword line, e.g. "! r2SCAN def2-SVP".
-        orcablockinput: `%block ... end` input, may span multiple lines.
-        charge: total charge of the system.
-        mult: spin multiplicity.
-        pcfile: point-charge file to reference from a `%pointcharges` line.
-            None (the default) writes no point-charge field.
-        grad: request an analytic gradient (`! Engrad`).
-        hessian: request an analytic Hessian (`! Freq`).
-        extraline: extra `!` keyword or block line written after orcasimpleinput.
-        hs_mult: high-spin multiplicity, used for the `*xyz` line in broken-symmetry runs.
-        atomstoflip: atom indices whose spin is flipped (broken symmetry).
-        extrabasis: basis set assigned to the atoms in extrabasisatoms.
-        extrabasisatoms: atom indices that receive extrabasis.
-        atom_specific_basis_dict: {(element, index): basis lines} for per-atom basis sets.
-        moreadfile: GBW file to read starting orbitals from (`! MOREAD`).
-        propertyblock: extra property-block input appended after the coordinates.
-        ghostatoms: atom indices written as ghost atoms (`El:`).
-        dummyatoms: atom indices written as dummy atoms (`DA`).
-        fragment_indices: list of index lists defining fragments; matching atoms are
-            tagged `El(n)`. Atoms in no fragment (e.g. link atoms) are written plain.
-        rohf_uhf_swap: append a `$new_job` block repeating the calculation as UHF noiter.
-        delta_scf_block: DeltaSCF input block written before the coordinates.
-    """
     if extrabasisatoms is None:
         extrabasisatoms = []
     if ghostatoms is None:
@@ -1650,21 +1503,12 @@ def _create_orca_input(
 
 
 def create_orca_input_pc(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, **kwargs):
-    """Write an ORCA input file with an electrostatic-embedding point-charge field.
-
-    Thin wrapper around `_create_orca_input` that points the `%pointcharges` line at
-    `<name>.pc`; see that function for the keyword arguments.
-    """
     _create_orca_input(
         name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, pcfile=name + ".pc", **kwargs
     )
 
 
 def create_orca_input_plain(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, **kwargs):
-    """Write an ORCA input file with no point-charge field.
-
-    Thin wrapper around `_create_orca_input`; see that function for the keyword arguments.
-    """
     _create_orca_input(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, pcfile=None, **kwargs)
 
 
@@ -1745,12 +1589,6 @@ _SPIN_POPULATION_TABLES = {
 
 
 def _scan_orca_table(outputfile, spec):
-    """Read one column of an ORCA population-analysis table into a list of floats.
-
-    Restarts on every matching heading, so when ORCA prints the same table more than once
-    (it does, for instance before and after a CHELPG fit) the last one wins -- which is
-    the converged one.
-    """
     start = spec["start"]
     stop = spec["stop"]
     column_spec = spec.get("column", -1)
@@ -1779,15 +1617,6 @@ def _scan_orca_table(outputfile, spec):
 
 
 def _trim_to_broken_symmetry_solution(values, outputfile, kind):
-    """Keep only the broken-symmetry values when both solutions were printed.
-
-    A broken-symmetry job prints the analysis twice, high-spin first. Only the second is
-    the state of interest.
-
-    The charge and spin-population paths used to disagree here -- one took values[numatoms:]
-    and the other values[-numatoms:]. They agree for exactly two solutions; the negative
-    slice is used because it yields numatoms values however many were collected.
-    """
     if not pygrep2("WARNING: Broken symmetry calculations", outputfile):
         return values
     numatoms = int(pygrep("Number of atoms                             ...", outputfile)[-1])
@@ -1798,15 +1627,6 @@ def _trim_to_broken_symmetry_solution(values, outputfile, kind):
 
 
 def grab_orca_spin_populations(chargemodel, outputfile):
-    """Read atomic spin populations from an ORCA output file.
-
-    Args:
-        chargemodel: "Mulliken" or "Loewdin" (case-insensitive).
-        outputfile: path to the ORCA output file.
-
-    Returns:
-        One spin population per atom, in input order.
-    """
     spec = _SPIN_POPULATION_TABLES.get(chargemodel.upper())
     if spec is None:
         raise FileFormatError(
@@ -1818,16 +1638,6 @@ def grab_orca_spin_populations(chargemodel, outputfile):
 
 
 def grab_orca_atom_charges(chargemodel, outputfile):
-    """Read atomic partial charges from an ORCA output file.
-
-    Args:
-        chargemodel: one of Mulliken, Loewdin, CHELPG, Hirshfeld, CM5, IAO, NPA/NBO
-            (case-insensitive). CM5 charges are computed here from the Hirshfeld table.
-        outputfile: path to the ORCA output file.
-
-    Returns:
-        One charge per atom, in input order.
-    """
     model = chargemodel.upper()
     spec = _CHARGE_TABLES.get(model)
     if spec is None:
@@ -1853,7 +1663,6 @@ def grab_orca_atom_charges(chargemodel, outputfile):
 
 
 def _grab_orca_cartesian_coordinates(outputfile):
-    """Read the last Cartesian coordinate block ORCA printed, in Angstrom."""
     elems = []
     coords = []
     grabbing = False
@@ -1967,10 +1776,7 @@ def orca_external_optimizer(
     orca_blockinput="",
     actatoms=None,
 ) -> float:
-    """Optimize a geometry using ORCA's optimizer while openmmqmmm provides energies+gradients.
-
-    Works for any picklable theory: ORCA calls back into a generated otool_external script.
-    """
+    """Optimize a geometry using ORCA's optimizer while openmmqmmm provides energies+gradients."""
     logger.info(main_header("ORCA_External_Optimizer"))
     if fragment is None or theory is None:
         raise InputError("ORCA_External_Optimizer requires fragment and theory keywords")

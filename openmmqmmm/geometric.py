@@ -1,5 +1,3 @@
-"""Geometry optimization through the geomeTRIC library (minimization, TS, constraints, active regions)."""
-
 import contextlib
 import logging
 import os
@@ -74,16 +72,6 @@ CONVERGENCE_PRESETS = {
 
 @dataclass
 class Constraints:
-    """The constraint lists geomeTRIC understands, parsed out of a user constraints dict.
-
-    Kept as one object rather than the ten-tuple this used to be: the tuple was unpacked
-    at the call site and passed straight back into write_constraintsfile as eleven
-    positional arguments, in a different order from the one it was built in.
-
-    Atom indices are zero-based here and converted to geomeTRIC's 1-based indexing on
-    write. bond/angle/dihedral entries may carry a target value as a final element.
-    """
-
     bond: list | None = None
     angle: list | None = None
     dihedral: list | None = None
@@ -190,12 +178,7 @@ def optimize_geometry(
 
 # Class for optimization.
 class GeometricOptimizer:
-    """Geometry optimizer wrapping the geomeTRIC library.
-
-    Supports minimizations and TS optimizations, constraints, frozen atoms and
-    active-region optimizations of large systems. Usually invoked through
-    optimize_geometry.
-    """
+    """Geometry optimizer wrapping the geomeTRIC library."""
 
     def __init__(
         self,
@@ -328,15 +311,7 @@ class GeometricOptimizer:
     def print_atoms_output_setting(self, theory, fragment):
         # What atoms to print in outputfile in each opt-step. Example choice: QM-region only
         # If not specified then active-region or all-atoms
-        """Decide which atoms are printed in each optimization step's output.
-
-        Defaults to the QM region for QM/MM, the active region if one is set, and otherwise
-        all atoms.
-
-        Args:
-            theory: the theory being optimized, used to find the QM region.
-            fragment: the fragment being optimized.
-        """
+        """Decide which atoms are printed in each optimization step's output."""
         if self.print_atoms_list is None:
             # Print-atoms list not specified. What to do:
             if self.active_region is True:
@@ -355,13 +330,7 @@ class GeometricOptimizer:
                 self.print_atoms_list = fragment.allatoms
 
     def convergence_criteria(self, convergence_setting, userconv):
-        """Resolve the geomeTRIC convergence thresholds to use.
-
-        Args:
-            convergence_setting: named preset from CONVERGENCE_PRESETS, e.g. "ORCA",
-                "Chemshell", "ORCA_TIGHT", "GAU". None selects the ORCA criteria.
-            userconv: dict of individual thresholds overriding the preset.
-        """
+        """Resolve the geomeTRIC convergence thresholds to use."""
         if convergence_setting is None:
             if userconv is None:
                 logger.info("No convergence settings by user. Using default criteria (same as ORCA)")
@@ -379,15 +348,7 @@ class GeometricOptimizer:
 
     # Parse the constraints into bond, angle, dihedral
     def define_constraints(self, constraints):
-        """Translate the user constraints dict into geomeTRIC's constraint lists.
-
-        Args:
-            constraints: dict keyed by constraint type ("bond", "angle", "dihedral",
-                "frozenatoms", "x", "y", "z", ...) with atom-index lists as values.
-
-        Returns:
-            A Constraints holding one list per constraint type.
-        """
+        """Translate the user constraints dict into geomeTRIC's constraint lists."""
         logger.info("Inside define_constraints")
         logger.info("Constraints: %s", constraints)
         ########################################
@@ -419,14 +380,7 @@ class GeometricOptimizer:
         )
 
     def write_constraintsfile(self, frozenatoms, constraints, constrainvalue):
-        """Write the geomeTRIC constraints.txt file.
-
-        Args:
-            frozenatoms: atom indices held fixed in all three Cartesian directions.
-            constraints: Constraints holding the internal and Cartesian constraint lists.
-            constrainvalue: whether the internal-coordinate lists carry a target value as
-                their final element. Cartesian freezes never do.
-        """
+        """Write the geomeTRIC constraints.txt file."""
         logger.info("Inside write_constraintsfile")
 
         # Delete possible old constraintsfile
@@ -508,19 +462,7 @@ class GeometricOptimizer:
 
     def hessian_option(self, fragment, actatoms, theory, charge, mult, modelhessian):
         # If actatoms is empty list then we must be using all atoms so defining this
-        """Provide the starting Hessian geomeTRIC was asked for.
-
-        Computes a numerical or model Hessian as required and writes it where geomeTRIC
-        expects to find it.
-
-        Args:
-            fragment: the fragment being optimized.
-            actatoms: active-region atom indices; empty means all atoms.
-            theory: theory used for a numerical Hessian.
-            charge: total charge.
-            mult: spin multiplicity.
-            modelhessian: model-Hessian name, e.g. "Almloef", "Lindh" or "Schlegel".
-        """
+        """Provide the starting Hessian geomeTRIC was asked for."""
         atomsused = fragment.allatoms if len(actatoms) == 0 else actatoms
 
         if isinstance(self.hessian, np.ndarray):
@@ -676,14 +618,7 @@ class GeometricOptimizer:
 
     # If using Active region then we write only those coordinates to disk (initialxyzfiletric)
     def setup_active_region_geometry(self, fragment):
-        """Build the reduced geometry and topology for an active-region optimization.
-
-        Only the active atoms enter the optimizer's coordinate system; the rest are frozen
-        and reinstated afterwards.
-
-        Args:
-            fragment: the full-system fragment.
-        """
+        """Build the reduced geometry and topology for an active-region optimization."""
         if len(self.actatoms) == 0:
             raise InputError("Error: List of active atoms (actatoms) provided is empty. This is not allowed.")
         # Sorting list, otherwise trouble
@@ -709,21 +644,7 @@ class GeometricOptimizer:
 
     # Running geomeTRIC object
     def run(self, theory=None, fragment=None, charge=None, mult=None, constraints=None, constrainvalue=False):
-        """Optimize a geometry with geomeTRIC.
-
-        Updates the fragment's coordinates in place and writes results_optimizer.json.
-
-        Args:
-            theory: theory providing energies and gradients.
-            fragment: fragment to optimize.
-            charge: total charge; defaults to the fragment's.
-            mult: spin multiplicity; defaults to the fragment's.
-            constraints: constraints dict, see define_constraints.
-            constrainvalue: whether the constraint entries carry target values.
-
-        Returns:
-            The optimized energy in hartree.
-        """
+        """Optimize a geometry with geomeTRIC."""
         logger.info("")
         logger.info(sub_header("Running geomeTRIC object"))
         logger.info(
@@ -953,12 +874,6 @@ class GeometricOptimizer:
 
 
 class GeometricArgs:
-    """Argument container passed to geometric.optimize.run_optimizer.
-
-    Attribute names mirror the geomeTRIC keyword arguments exactly (including
-    logIni) - do not rename them.
-    """
-
     def __init__(
         self,
         eng,
@@ -1012,13 +927,6 @@ class GeometricArgs:
 
 # Engine class used to communicate with geomeTRIC
 class GeometricEngine:
-    """Custom geomeTRIC engine that evaluates energies/gradients with a theory object.
-
-    Method names (calc, load_guess_files, save_guess_files, detect_dft,
-    calc_bondorder, clearCalcs) and the attribute M are the geomeTRIC engine
-    protocol - do not rename them.
-    """
-
     def __init__(
         self,
         geometric_molf,

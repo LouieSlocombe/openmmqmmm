@@ -1,10 +1,3 @@
-"""Tests for the numerical-gradient wrapper.
-
-NumGrad had no coverage, including the 1.0.1 fix that made `run` honour `grad=`.
-A theory with an analytic energy makes the finite-difference result checkable
-against the exact derivative, with no external program involved.
-"""
-
 import numpy as np
 import pytest
 
@@ -13,12 +6,7 @@ from openmmqmmm.exceptions import InputError
 
 
 class HarmonicPairTheory:
-    """A toy theory: two atoms on a spring, E = 0.5*k*(r - r0)**2.
-
-    Its analytic gradient is known exactly, so it pins the finite-difference
-    machinery — displacement in bohr, the stencil, and the assembly of the
-    (natoms, 3) array — rather than just its shape.
-    """
+    """A toy theory: two atoms on a spring, E = 0.5*k*(r - r0)**2."""
 
     def __init__(self, force_constant=0.5, equilibrium=1.0):
         self.theorytype = "QM"
@@ -51,7 +39,6 @@ STRETCHED_PAIR = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.3]])
 
 
 def test_numerical_gradient_matches_the_analytic_one():
-    """Finite differences must reproduce the exact derivative of a known potential."""
     theory = HarmonicPairTheory()
     numgrad = NumGrad(theory=theory)
 
@@ -73,11 +60,6 @@ def test_gradient_sums_to_zero():
 
 
 def test_run_honours_the_grad_flag():
-    """grad=False returns the energy alone.
-
-    NumGrad.run used to ignore grad= and always return a tuple, so callers expecting
-    a scalar energy silently got one.
-    """
     numgrad = NumGrad(theory=HarmonicPairTheory())
 
     energy = numgrad.run(current_coords=STRETCHED_PAIR, elems=["H", "H"], charge=0, mult=1, grad=False)
@@ -101,11 +83,6 @@ def test_both_stencils_reach_their_expected_accuracy(npoint, tolerance):
 
 
 def test_rejects_unknown_npoint():
-    """An unsupported stencil must fail loudly.
-
-    It used to skip gradient assembly and return an all-zero gradient, which an
-    optimizer reads as an already-converged structure.
-    """
     with pytest.raises(InputError):
         NumGrad(theory=ZeroTheory(), npoint=3)
 

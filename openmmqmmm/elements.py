@@ -1,18 +1,3 @@
-"""Per-element reference data.
-
-Everything the package knows about an element lives in one row of ``_ELEMENT_TABLE``, and
-every lookup below is derived from it. The data used to be spread over eight parallel
-tables in three modules -- atomic numbers, masses and covalent radii in coords.py, names
-and symbols here, CM5 parameters in elstructure.py -- each written one entry per line and
-each maintained by hand. They drifted: two copies of the Alvarez covalent radii disagreed
-about Na, K and the M dummy site, and the connectivity code read a different copy from
-everything else. Columns of one row cannot drift.
-
-Covalent radii are Alvarez, in Angstrom, with the three overrides noted below. Masses are
-standard atomic weights and stop at Lr (Z=103). The CM5 radii and Dz parameters are from
-the CM5 paper and cover Z=1-118.
-"""
-
 from dataclasses import dataclass
 
 import numpy as np
@@ -20,8 +5,6 @@ import numpy as np
 
 @dataclass(frozen=True)
 class Element:
-    """Name, symbol and atomic number of one element."""
-
     name: str
     symbol: str
     atomnumber: int

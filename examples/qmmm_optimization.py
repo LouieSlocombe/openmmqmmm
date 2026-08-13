@@ -1,11 +1,4 @@
-"""Electrostatically embedded QM/MM: optimize a QM region inside an MM protein.
-
-Run with:
-    python examples/qmmm_optimization.py system.pdb
-
-Requires an ORCA installation and a solvated, parameterized PDB file. The QM-region
-indices below are placeholders — replace them with the atoms of your own active site.
-"""
+"""Electrostatically embedded QM/MM: optimize a QM region inside an MM protein."""
 
 import sys
 

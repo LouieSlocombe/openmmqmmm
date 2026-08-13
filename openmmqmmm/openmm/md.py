@@ -1,5 +1,3 @@
-"""Molecular dynamics: the simulation engine, MD drivers and box equilibration."""
-
 import contextlib
 import inspect
 import logging
@@ -39,18 +37,6 @@ logger = logging.getLogger(__name__)
 
 
 def engine_kwargs_from(caller_locals, **overrides):
-    """Pick the MolecularDynamicsEngine arguments out of a wrapper's own arguments.
-
-    The MD entry points restate the engine's ~45 parameters in their own signatures and
-    used to restate them a second time in the constructor call. Keeping two hand-written
-    lists in step failed exactly as expected: for a release every one of them passed
-    ``enforcePeriodicBox`` to a class whose parameter is ``enforce_periodic_box``, so
-    every call raised TypeError.
-
-    Call this as the first statement of a wrapper, with ``locals()``, so that what it sees
-    is the bound arguments and nothing else. Parameters that belong to the wrapper rather
-    than the engine are left behind; ``overrides`` sets values the wrapper fixes itself.
-    """
     engine_parameters = set(inspect.signature(MolecularDynamicsEngine.__init__).parameters) - {"self"}
     return {name: value for name, value in caller_locals.items() if name in engine_parameters} | overrides
 
@@ -122,11 +108,7 @@ def openmm_md(
     chkfile=None,
     statefile=None,
 ) -> None:
-    """Run molecular dynamics of a fragment with OpenMM (also drives QM/MM MD).
-
-    Simulation length is set via simulation_steps or simulation_time (ps);
-    thermostat/barostat, trajectory format and restraints are configurable.
-    """
+    """Run molecular dynamics of a fragment with OpenMM (also drives QM/MM MD)."""
     engine_kwargs = engine_kwargs_from(locals())
 
     logger.info(main_header("OpenMM MD wrapper function"))
@@ -145,10 +127,7 @@ def openmm_md(
 
 
 class MolecularDynamicsEngine:
-    """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD).
-
-    Usually created via the openmm_md / openmm_md_plumed functions.
-    """
+    """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD)."""
 
     def __init__(
         self,
@@ -671,22 +650,7 @@ class MolecularDynamicsEngine:
         chkfile=None,
         statefile=None,
     ):
-        """Run the molecular dynamics simulation.
-
-        Args:
-            simulation_steps: number of steps to run; overrides simulation_time.
-            simulation_time: simulation length in ps, converted using the timestep.
-            plumedinput: Plumed input as a string, defining the bias to apply.
-            restraints: bond restraints to add to the system before running.
-            restart: reuse the already-defined simulation object and append to the
-                existing reporter files instead of starting fresh.
-            chkfile: OpenMM checkpoint file to restore positions and velocities from.
-            statefile: OpenMM state XML file to restore positions and velocities from.
-                Used when chkfile is not given.
-
-        Returns:
-            The final Results object for the trajectory.
-        """
+        """Run the molecular dynamics simulation."""
         module_init_time = time.time()
         logger.info(main_header("OpenMM Molecular Dynamics Run"))
 
@@ -1073,10 +1037,7 @@ class MolecularDynamicsEngine:
         log_time_since(module_init_time, "OpenMM_MD run")
 
     def finalize_simulation(self):
-        """Write the final structure and trajectory files and log the timing summary.
-
-        Called once the requested number of steps has been taken.
-        """
+        """Write the final structure and trajectory files and log the timing summary."""
         logger.info("Finalizing simulation data")
 
         #######################
@@ -1176,37 +1137,7 @@ def openmm_box_equilibration(
     solute_indices=None,
     barostat_frequency=25,
 ) -> list:
-    """Run NPT simulations in cycles until box volume and density stop changing.
-
-    Args:
-        fragment: Fragment with the periodic system.
-        theory: OpenMMTheory object (periodic).
-        datafilename: CSV file for per-cycle state data.
-        numsteps_per_npt: MD steps per NPT cycle.
-        max_npt_cycles: maximum number of cycles.
-        pressure: barostat pressure in bar.
-        volume_threshold: convergence threshold for the box-volume change.
-        density_threshold: convergence threshold for the density change.
-        temperature: thermostat temperature in K.
-        timestep: MD timestep in ps.
-        traj_frequency: trajectory write interval in steps.
-        trajfilename: base name of the trajectory file; the extension comes from
-            trajectory_file_option.
-        trajectory_file_option: trajectory format ("DCD", ...).
-        coupling_frequency: thermostat coupling frequency in ps^-1.
-        enforce_periodic_box: wrap coordinates into the primary box.
-        use_mdtraj: after the run, reimage the trajectory with mdtraj and write
-            <trajfilename>_lastframe.pdb. Skipped silently if mdtraj is unavailable.
-        dummyatomrestraint: add a dummy atom to the topology and restrain the solute to
-            it, keeping the solute centred as the box changes size. Requires
-            solute_indices.
-        solute_indices: atom indices of the solute; required when dummyatomrestraint
-            is True.
-        barostat_frequency: barostat attempt interval in timesteps.
-
-    Returns:
-        Fragment updated with the equilibrated coordinates and box vectors.
-    """
+    """Run NPT simulations in cycles until box volume and density stop changing."""
     # Captured before any local is bound, so this is the caller's arguments and nothing
     # else. The integrator and barostat are fixed by what this function does: NPT cycles.
     engine_kwargs = engine_kwargs_from(locals(), integrator="LangevinMiddleIntegrator", barostat="MonteCarloBarostat")

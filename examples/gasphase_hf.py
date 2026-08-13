@@ -1,10 +1,4 @@
-"""Gas-phase ORCA calculation: energy, geometry optimization and frequencies.
-
-Run with:
-    python examples/gasphase_hf.py
-
-Requires an ORCA installation (see README.md for how it is located).
-"""
+"""Gas-phase ORCA calculation: energy, geometry optimization and frequencies."""
 
 from openmmqmmm import (
     Fragment,

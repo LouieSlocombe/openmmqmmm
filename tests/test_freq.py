@@ -1,11 +1,3 @@
-"""Tests for the frequency and thermochemistry engine.
-
-freq.py is the largest untested module in the package (1099 statements, 4% covered),
-even though it produces the numbers that end up in papers. The checks here are against
-independent physics rather than recorded output: the Sackur-Tetrode equation for the
-translational entropy, the harmonic ZPVE sum, and G = H - TS.
-"""
-
 import inspect
 import math
 
@@ -40,11 +32,7 @@ def water():
 
 
 def test_translational_entropy_matches_sackur_tetrode():
-    """A lone argon atom has only translational entropy, known in closed form.
-
-    This pins the whole translational branch — masses, units and the Eh conversion —
-    against physics rather than against a previously recorded number.
-    """
+    """A lone argon atom has only translational entropy, known in closed form."""
     argon = Fragment(coordsstring="Ar 0.0 0.0 0.0\n", charge=0, mult=1)
     result = thermochemcalc(vfreq=[], atoms=[0], fragment=argon, multiplicity=1)
 
@@ -70,13 +58,6 @@ def test_zpve_is_the_harmonic_sum(water):
 
 
 def test_thermal_corrections_match_orca(water):
-    """Cross-check the thermochemistry against ORCA for the same molecule and modes.
-
-    Reference values are the ones ORCA 6.1.1 printed for this HF/def2-SVP frequency
-    run (see orca_outputs/h2o_freq.out). The thermal vibrational correction caught a
-    real error: the Bose-Einstein factor was written 1/exp(x-1) instead of
-    1/(exp(x)-1), which made this term 2.7x too large.
-    """
     # Water is C2v, so sigma = 2. openmmqmmm does not detect point groups and defaults
     # to 1; ORCA used 2, so it has to be supplied here for the comparison to be like for like.
     result = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, symmetry_number=2)
@@ -88,11 +69,7 @@ def test_thermal_corrections_match_orca(water):
 
 
 def test_symmetry_number_lowers_rotational_entropy(water):
-    """Sigma defaults to 1 and must be supplied for symmetric molecules.
-
-    Getting this wrong is a silent RT*ln(sigma) error in every reaction free energy,
-    so the default is pinned here deliberately rather than assumed.
-    """
+    """Sigma defaults to 1 and must be supplied for symmetric molecules."""
     gas_constant_hartree_per_kelvin = 3.166811563e-6
     default = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
     c2v = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, symmetry_number=2)
@@ -103,11 +80,7 @@ def test_symmetry_number_lowers_rotational_entropy(water):
 
 
 def test_thermal_vibrational_energy_reaches_the_classical_limit(water):
-    """As h*nu/kT -> 0 each mode must approach the classical RT of energy.
-
-    The previous formula went to zero instead, so low-frequency modes — the ones
-    that dominate the entropy of floppy biomolecular systems — were badly wrong.
-    """
+    """As h*nu/kT -> 0 each mode must approach the classical RT of energy."""
     gas_constant_hartree_per_kelvin = 3.166811563e-6
     temperature = 298.15
     # 1 cm-1 corresponds to a vibrational temperature of ~1.44 K, far below 298 K
@@ -179,7 +152,6 @@ def test_hessian_write_read_roundtrip(tmp_path):
 
 
 def test_approximate_full_hessian_embeds_the_small_one():
-    """The computed block must survive into the full Hessian unchanged."""
     fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
     hessatoms = [0, 1, 2]
     rng = np.random.default_rng(1)
@@ -194,11 +166,7 @@ def test_approximate_full_hessian_embeds_the_small_one():
 
 
 def test_numerical_frequencies_on_a_flat_surface():
-    """A zero potential gives a zero Hessian and therefore zero frequencies.
-
-    This exercises the whole displacement/assembly path — geometry displacement,
-    gradient collection and mass weighting — without needing a QM program.
-    """
+    """A zero potential gives a zero Hessian and therefore zero frequencies."""
     fragment = Fragment(coordsstring=WATER_COORDS, charge=0, mult=1)
 
     result = numerical_frequencies(fragment=fragment, theory=ZeroTheory())
@@ -246,10 +214,7 @@ def test_truhlar_raises_low_modes_to_the_requested_cutoff(cutoff):
 
 
 def test_truhlar_entropy_decreases_as_the_cutoff_rises():
-    """A stiffer mode carries less entropy, and only modes under the cut-off are touched.
-
-    This is what fails when the cut-off is ignored: every value below comes out identical.
-    """
+    """A stiffer mode carries less entropy, and only modes under the cut-off are touched."""
     entropies = [s_vib_qrrho_truhlar(LOW_MODE_FREQUENCIES, ROOM_TEMPERATURE, lowfreq_thresh=c) for c in (50, 100, 200)]
 
     assert entropies[0] > entropies[1] > entropies[2]
@@ -261,11 +226,7 @@ def test_truhlar_default_cutoff_is_the_published_one():
 
 
 def test_grimme_cutoff_changes_the_interpolation():
-    """Grimme's omega_0 is the midpoint of the vibration/rotation weighting, not a floor.
-
-    Checked alongside Truhlar's because both are reached through the same
-    qrrho_omega_0 argument, and only one of them was honouring it.
-    """
+    """Grimme's omega_0 is the midpoint of the vibration/rotation weighting, not a floor."""
     # Moment of inertia for the free-rotor limit, in SI; any positive value serves here.
     inertia = 1e-44
     entropies = [
@@ -286,11 +247,7 @@ def test_grimme_cutoff_changes_the_interpolation():
 
 
 class SoftModeHessianTheory:
-    """A theory that hands back a fixed Hessian, so analytic_frequencies runs offline.
-
-    The Hessian is scaled to put a mode below the quasi-RRHO cut-off; without one
-    there is nothing for Grimme and Truhlar to disagree about.
-    """
+    """A theory that hands back a fixed Hessian, so analytic_frequencies runs offline."""
 
     def __init__(self, hessian):
         self.theorytype = "QM"

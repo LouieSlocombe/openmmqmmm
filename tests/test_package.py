@@ -39,11 +39,7 @@ def test_find_orca_env_var(tmp_path, monkeypatch, make_fake_orca_install):
 
 
 def test_find_orca_rejects_impostor_in_path(tmp_path, monkeypatch, make_fake_orca_install):
-    """A lone orca binary in PATH must not be mistaken for the QC program.
-
-    Without its orca_* helper siblings it is something else entirely — the GNOME
-    screen reader, for instance.
-    """
+    """A lone orca binary in PATH must not be mistaken for the QC program."""
     impostor_dir = make_fake_orca_install(tmp_path / "usr_bin", with_helpers=False, output="not the qc program")
     monkeypatch.delenv("OPENMMQMMM_ORCADIR", raising=False)
     monkeypatch.setenv("PATH", str(impostor_dir))

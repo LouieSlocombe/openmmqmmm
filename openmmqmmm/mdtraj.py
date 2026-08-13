@@ -1,5 +1,3 @@
-"""Trajectory processing via the mdtraj library (PBC imaging and RMSF)."""
-
 import logging
 import os
 

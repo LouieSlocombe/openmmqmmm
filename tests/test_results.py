@@ -1,5 +1,3 @@
-"""Tests for the Results dataclass and its JSON serialization."""
-
 import json
 
 import numpy as np
@@ -8,7 +6,6 @@ from openmmqmmm import Results, read_results_from_file
 
 
 def test_results_roundtrip():
-    """Write a Results object to disk and read it back unchanged."""
     gradient = np.array([[0.1, 0.2, 0.3], [-0.1, -0.2, -0.3]])
     result = Results(label="Singlepoint", energy=-100.5, charge=0, mult=1, gradient=gradient)
 

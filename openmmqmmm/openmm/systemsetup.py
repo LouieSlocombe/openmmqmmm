@@ -1,9 +1,3 @@
-"""Building and preparing OpenMM systems.
-
-Covers the modeller, solvation, minimization, ligand parameterization and PDB
-writing helpers.
-"""
-
 import contextlib
 import logging
 import os
@@ -280,14 +274,7 @@ def openmm_modeller(
     membrane_center_z=0.0,
     residuetemplate_choice=None,
 ) -> tuple:
-    """Prepare a protein system from a raw PDB file using pdbfixer.
-
-    Fixes residues and atoms, adds hydrogens for the chosen pH, solvates, adds ions
-    and writes forcefield-ready files.
-
-    Returns:
-        (OpenMMTheory, Fragment) for the prepared, solvated system.
-    """
+    """Prepare a protein system from a raw PDB file using pdbfixer."""
     module_init_time = time.time()
     logger.info(main_header("OpenMM Modeller"))
     try:
@@ -1068,10 +1055,7 @@ def small_molecule_parameterizer(
     expected_lj14=0.5,
     allow_undefined_stereo=None,
 ) -> tuple:
-    """Generate an OpenMM forcefield XML for a small molecule with GAFF or OpenFF.
-
-    Requires openmmforcefields, openff-toolkit and rdkit.
-    """
+    """Generate an OpenMM forcefield XML for a small molecule with GAFF or OpenFF."""
     logger.info(main_header("SmallMolecule Parameterizor"))
     logger.info("Input options: xyzfile, pdbfile, molfile, sdffile, smiles_string")
     logger.info("Forcefield options: GAFF, OpenFF")

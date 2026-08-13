@@ -1,10 +1,3 @@
-"""Regression tests for the parallel-execution path.
-
-job_parallel had no test coverage at all, which is how a renamed keyword argument
-(Grad -> grad) shipped in 1.0.0 and made every worker raise TypeError. These tests use
-ZeroTheory so they run everywhere, with no ORCA or OpenMM setup required.
-"""
-
 import numpy as np
 import pytest
 
@@ -18,7 +11,6 @@ F 0.0 0.0 {bondlength}
 
 
 def _make_fragments(n=4):
-    """A few labelled two-atom fragments, differing only in bond length."""
     return [
         Fragment(coordsstring=FRAGCOORDS.format(bondlength=0.9 + 0.1 * i), charge=0, mult=1, label=f"frag{i}")
         for i in range(n)

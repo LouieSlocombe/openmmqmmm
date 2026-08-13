@@ -50,17 +50,6 @@ def test_openmm_modeller():
 
 
 def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):
-    """openmm_md end to end, on a system small enough to run in a test.
-
-    This entry point had no execution coverage at all, and spent a release raising
-    TypeError on every call: it passed ``enforcePeriodicBox`` to MolecularDynamicsEngine,
-    whose parameter is ``enforce_periodic_box``. A static check on the call sites lives in
-    test_internal_call_signatures.py; this one actually turns the crank.
-
-    The MeOH...H2O force field here has no bonded terms, so the dynamics are not
-    physically meaningful and nothing below asserts on energies — only that the run
-    completes, advances the coordinates and writes its output files.
-    """
     monkeypatch.chdir(tmp_path)
     fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
     fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)

@@ -1,5 +1,3 @@
-"""Parallel execution of independent calculations with multiprocessing."""
-
 import copy
 import logging
 import os
@@ -103,35 +101,7 @@ def job_parallel(
     opt=False,
     optimizer=None,
 ) -> "Results":
-    """Carry out multiple single-point or optimization calculations in parallel.
-
-    Runs over fragments or fragmentfiles, over theories, or over both.
-
-    Args:
-        fragments: list of Fragment objects to run.
-        fragmentfiles: list of fragment filenames (strings) to read from disk instead.
-        theories: list of theory objects. A single theory is applied to every fragment.
-        numcores: number of jobs to run simultaneously (the worker pool size). Required.
-        mofilesdir: directory holding MO files (GBW files for ORCA), used with the
-            multiple-fragment option.
-        allow_theory_parallelization: when False (the default) each theory's own
-            numcores is forced to 1, so at most numcores cores are busy. When True each
-            job may use theory.numcores, so up to numcores * theory.numcores cores run
-            at once — make sure that many slots are actually available.
-        grad: also compute the gradient.
-        copytheory: experimental. Deep-copy the theory for each job so that first-run-only
-            features (brokensym, for one) are not deactivated by a preceding run.
-        version: which library to parallelize with — "multiprocessing" (standard library)
-            or "multiprocess" (a fork using dill, more reliable for objects that pickle
-            badly).
-        opt: run geometry optimizations rather than single points.
-        optimizer: optimizer object to use when opt is True. A default GeometricOptimizer
-            is created if none is given.
-
-    Returns:
-        Results labelled "Job_parallel", holding one energy per job (and one gradient
-        per job when grad=True).
-    """
+    """Carry out multiple single-point or optimization calculations in parallel."""
     logger.info("")
     logger.info(sub_header("Job_parallel function"))
 
@@ -207,7 +177,6 @@ def job_parallel(
     results = []
 
     def submit(**job):
-        """Queue one worker_par call. The four cases below differ only in `job`."""
         results.append(
             pool.apply_async(
                 worker_par,

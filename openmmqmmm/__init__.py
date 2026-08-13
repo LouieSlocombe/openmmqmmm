@@ -1,8 +1,3 @@
-"""openmmqmmm: ORCA + OpenMM QM/MM for biomolecular calculations.
-
-Derived from the ASH multiscale modelling program by R. Bjornsson.
-"""
-
 import logging as _logging
 from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
 from importlib.metadata import version as _get_version

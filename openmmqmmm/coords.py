@@ -1,8 +1,3 @@
-"""Fragment and Reaction classes plus coordinate and topology utilities.
-
-Covers XYZ/PDB/Amber/GROMACS I/O, connectivity, alignment and QM-region tools.
-"""
-
 import copy
 import logging
 import math
@@ -88,12 +83,7 @@ class Reaction:
         self.reaction_energy = None
 
     def check_fragments(self):
-        """Validate the reaction definition.
-
-        Raises:
-            InputError: if a fragment is missing charge/multiplicity, or if there is
-                not exactly one stoichiometry coefficient per fragment.
-        """
+        """Validate the reaction definition."""
         for frag in self.fragments:
             if frag.charge is None or frag.mult is None:
                 raise InputError(f"Error: Missing charge/mult information in fragment: {frag.formula}")
@@ -106,11 +96,7 @@ class Reaction:
             )
 
     def calculate_reaction_energy(self):
-        """Combine the stored fragment energies into the reaction energy.
-
-        Sets self.reaction_energy, in self.unit. Logs a warning and does nothing if
-        energies are missing for some fragments.
-        """
+        """Combine the stored fragment energies into the reaction energy."""
         if len(self.energies) == len(self.fragments):
             self.reaction_energy = openmmqmmm.reaction_energy(
                 list_of_energies=self.energies,
@@ -125,12 +111,7 @@ class Reaction:
 
 # Fragment class
 class Fragment:
-    """Molecular system: elements, coordinates, charge/multiplicity, connectivity and topology.
-
-    Create from a coordinate string (coordsstring=), lists (elems=/coords=), an XYZ file
-    (xyzfile=), a PDB file (pdbfile=), Amber/GROMACS/chemshell files, or a fragment file
-    written by print_system (fragfile=).
-    """
+    """Molecular system: elements, coordinates, charge/multiplicity, connectivity and topology."""
 
     def __init__(
         self,
@@ -349,11 +330,7 @@ class Fragment:
         logger.info("%s", self.__dict__)
 
     def update_attributes(self):
-        """Recompute the derived attributes after the coordinates or elements change.
-
-        Refreshes atom count, masses, nuclear charges, the molecular formula and the
-        element list. Called by every method that replaces coordinates.
-        """
+        """Recompute the derived attributes after the coordinates or elements change."""
         logger.info("Creating/Updating fragment attributes...")
         if len(self.coords) == 0:
             raise InputError("No coordinates in fragment. Something went wrong. Exiting.")
@@ -402,14 +379,7 @@ class Fragment:
 
     # Add coordinates from geometry string. Will replace.
     def add_coords_from_string(self, coordsstring, scale=None, tol=None, conncalc=False):
-        """Append atoms parsed from a multi-line "El x y z" coordinate string.
-
-        Args:
-            coordsstring: coordinates, one "element x y z" line per atom.
-            scale: covalent-radius scaling used for connectivity (defaults to the module setting).
-            tol: covalent-radius tolerance used for connectivity.
-            conncalc: recompute connectivity after adding the atoms.
-        """
+        """Append atoms parsed from a multi-line "El x y z" coordinate string."""
         logger.info("Getting coordinates from string: %s", coordsstring)
         if len(self.coords) > 0:
             logger.info("Fragment already contains coordinates")
@@ -428,11 +398,7 @@ class Fragment:
         # if conncalc is True:
 
     def create_coords_from_smiles(self, smiles):
-        """Generate 3D coordinates from a SMILES string (requires OpenBabel).
-
-        Args:
-            smiles: SMILES representation of the molecule.
-        """
+        """Generate 3D coordinates from a SMILES string (requires OpenBabel)."""
         logger.info("Creating coordinates from SMILES string: %s", smiles)
         from openmmqmmm.openbabel import smiles_to_coords
 
@@ -443,17 +409,7 @@ class Fragment:
 
     # Replace coordinates by providing elems and coords lists. Optional: recalculate connectivity
     def replace_coords(self, elems, coords, conn=False, scale=None, tol=None):
-        """Replace the elements and coordinates with a new set.
-
-        Used by the optimizers to install an updated geometry.
-
-        Args:
-            elems: element symbols, one per atom.
-            coords: coordinates in Angstrom, one row per atom.
-            conn: recompute connectivity afterwards.
-            scale: covalent-radius scaling used for connectivity.
-            tol: covalent-radius tolerance used for connectivity.
-        """
+        """Replace the elements and coordinates with a new set."""
         logger.info("Replacing coordinates in fragment.")
 
         self.elems = elems
@@ -468,11 +424,7 @@ class Fragment:
         return [index for index, el in enumerate(self.elems) if el != "H"]
 
     def delete_atom(self, atomindex):
-        """Remove one atom and refresh the derived attributes.
-
-        Args:
-            atomindex: index of the atom to delete.
-        """
+        """Remove one atom and refresh the derived attributes."""
         self.coords = np.delete(self.coords, atomindex, axis=0)
         # Deleting from lists
         self.elems.pop(atomindex)
@@ -491,23 +443,12 @@ class Fragment:
             logger.info("%s", line)
 
     def print_coords_for_atoms(self, members, labels=None):
-        """Log the coordinates of selected atoms.
-
-        Args:
-            members: atom indices to print.
-            labels: optional per-atom labels shown alongside the coordinates.
-        """
+        """Log the coordinates of selected atoms."""
         print_coords_for_atoms(self.coords, self.elems, members, labels=labels)
 
     # Read Amber coordinate file? Needs to read both INPCRD and PRMTOP file. Bit messy
     def read_amberfile(self, inpcrdfile=None, prmtopfile=None, conncalc=False):
-        """Read coordinates and topology from Amber inpcrd/prmtop files.
-
-        Args:
-            inpcrdfile: Amber coordinate file.
-            prmtopfile: Amber topology file (supplies elements and masses).
-            conncalc: compute connectivity after reading.
-        """
+        """Read coordinates and topology from Amber inpcrd/prmtop files."""
         logger.info(
             f"Reading coordinates from Amber INPCRD file: '{inpcrdfile}' and PRMTOP file: '{prmtopfile}' into fragment."
         )
@@ -522,14 +463,7 @@ class Fragment:
 
     # Read GROMACS coordinates file
     def read_grofile(self, filename, conncalc=False, scale=None, tol=None):
-        """Read coordinates from a GROMACS .gro file.
-
-        Args:
-            filename: path to the .gro file.
-            conncalc: compute connectivity after reading.
-            scale: covalent-radius scaling used for connectivity.
-            tol: covalent-radius tolerance used for connectivity.
-        """
+        """Read coordinates from a GROMACS .gro file."""
         logger.info(f"Reading coordinates from Gromacs GRO file '{filename}' into fragment")
         try:
             elems, coords, _boxdims = read_gromacsfile(filename)
@@ -542,14 +476,7 @@ class Fragment:
 
     # Read Chemshell fragment file (.c ending)
     def read_chemshellfile(self, filename, conncalc=False, scale=None, tol=None):
-        """Read coordinates from a ChemShell fragment file (Bohr units).
-
-        Args:
-            filename: path to the ChemShell .c file.
-            conncalc: compute connectivity after reading.
-            scale: covalent-radius scaling used for connectivity.
-            tol: covalent-radius tolerance used for connectivity.
-        """
+        """Read coordinates from a ChemShell fragment file (Bohr units)."""
         logger.info(f"Reading coordinates from Chemshell file '{filename}' into fragment.")
         try:
             elems, coords = read_chemshellfragfile_xyz(filename)
@@ -561,11 +488,7 @@ class Fragment:
         #    # Read connectivity list
 
     def read_pdbfile_openmm(self, filename):
-        """Read a PDB file using OpenMM's parser, keeping the full topology.
-
-        Args:
-            filename: path to the PDB file.
-        """
+        """Read a PDB file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbfile_openmm: Reading coordinates from PDB file '{filename}' into fragment.")
         try:
             import openmm.app
@@ -591,11 +514,7 @@ class Fragment:
 
     # Reading PDBx/mmCIF file using OpenMM
     def read_pdbxfile(self, filename):
-        """Read a PDBx/mmCIF file using OpenMM's parser, keeping the full topology.
-
-        Args:
-            filename: path to the PDBx/mmCIF file.
-        """
+        """Read a PDBx/mmCIF file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbxfile: Reading coordinates from PDBX file '{filename}' into fragment.")
         try:
             import openmm.app
@@ -611,15 +530,7 @@ class Fragment:
         self.pdb_topology = pdb.topology
 
     def read_xyzfile(self, filename, scale=None, tol=None, readchargemult=False, conncalc=True):
-        """Read coordinates from an XYZ file.
-
-        Args:
-            filename: path to the XYZ file.
-            scale: covalent-radius scaling used for connectivity.
-            tol: covalent-radius tolerance used for connectivity.
-            readchargemult: read charge and multiplicity from the title line.
-            conncalc: compute connectivity after reading.
-        """
+        """Read coordinates from an XYZ file."""
         logger.info(f"Reading coordinates from XYZ file '{filename}' into fragment.")
         coords = []
         with open(filename) as f:
@@ -656,11 +567,7 @@ class Fragment:
             raise FileFormatError("Number of atoms in header not equal to number of coordinate-lines. Check XYZ file!")
 
     def set_energy(self, energy):
-        """Store a total energy on the fragment.
-
-        Args:
-            energy: total energy in hartree.
-        """
+        """Store a total energy on the fragment."""
         self.energy = float(energy)
 
     def get_coordinate_center(self):
@@ -673,27 +580,14 @@ class Fragment:
     # Get coordinates for specific atoms (from list of atom indices)
     # NOTE: This also returns elements, bit silly
     def get_coords_for_atoms(self, atoms):
-        """Return the coordinates and elements of a subset of atoms.
-
-        Args:
-            atoms: atom indices to extract.
-
-        Returns:
-            (subset_coords, subset_elems).
-        """
+        """Return the coordinates and elements of a subset of atoms."""
         subcoords = np.take(self.coords, atoms, axis=0)
         subelems = [self.elems[i] for i in atoms]
         return subcoords, subelems
 
     # Calculate connectivity (list of lists) of coords
     def calc_connectivity(self, conndepth=99, scale=None, tol=None):
-        """Compute the connectivity table and store it on the fragment.
-
-        Args:
-            conndepth: how many bonds outwards to follow when grouping atoms into molecules.
-            scale: covalent-radius scaling used to decide whether two atoms are bonded.
-            tol: covalent-radius tolerance added to the scaled radii.
-        """
+        """Compute the connectivity table and store it on the fragment."""
         logger.info("Calculating connectivity.")
         if len(self.coords) > 10000:
             logger.info("Atom number > 10K. Connectivity calculation could take a while")
@@ -725,13 +619,7 @@ class Fragment:
 
     # Write PDB-file
     def write_pdbfile(self, filename="Fragment"):
-        """Write a PDB file using the fragment's own stored PDB information.
-
-        Requires the fragment to have been created from a PDB file.
-
-        Args:
-            filename: output name, without the .pdb extension.
-        """
+        """Write a PDB file using the fragment's own stored PDB information."""
         logger.info("Fragment.write_pdbfile method called")
         filename = filename.replace(".pdb", "")
         # Write PDB-file if information is available
@@ -757,13 +645,7 @@ class Fragment:
 
     # Create new topology from scratch if none is defined (defined automatically when reading PDB-files by OpenMM)
     def define_topology(self, scale=1.0, tol=0.1, resname="MOL"):
-        """Build an OpenMM topology for the fragment from its connectivity.
-
-        Args:
-            scale: covalent-radius scaling used to detect bonds.
-            tol: covalent-radius tolerance added to the scaled radii.
-            resname: residue name given to every atom.
-        """
+        """Build an OpenMM topology for the fragment from its connectivity."""
         try:
             import openmm.app
         except ImportError:
@@ -809,15 +691,7 @@ class Fragment:
     def write_pdbfile_openmm(
         self, filename="Fragment", calc_connectivity=False, pdb_topology=None, skip_connectivity=False, resname="MOL"
     ):
-        """Write a PDB file via OpenMM, building a topology if none is defined.
-
-        Args:
-            filename: output name, without the .pdb extension.
-            calc_connectivity: recompute connectivity before writing.
-            pdb_topology: existing OpenMM topology to use instead of the fragment's.
-            skip_connectivity: write without CONECT records.
-            resname: residue name used when a topology has to be created.
-        """
+        """Write a PDB file via OpenMM, building a topology if none is defined."""
         logger.info("write_pdbfile_openmm\n")
         try:
             import openmm.app
@@ -863,14 +737,7 @@ class Fragment:
     def write_xyzfile(
         self, xyzfilename="Fragment-xyzfile.xyz", writemode="w", write_chargemult=True, write_energy=True
     ):
-        """Write the coordinates to an XYZ file.
-
-        Args:
-            xyzfilename: output file name.
-            writemode: "w" to overwrite or "a" to append (for trajectories).
-            write_chargemult: include charge and multiplicity in the title line.
-            write_energy: include the stored energy in the title line.
-        """
+        """Write the coordinates to an XYZ file."""
         with open(xyzfilename, writemode) as ofile:
             ofile.write(str(len(self.elems)) + "\n")
             # Title line
@@ -888,12 +755,7 @@ class Fragment:
         return xyzfilename
 
     def write_xyz_for_atoms(self, xyzfilename="Fragment-subset.xyz", atoms=None):
-        """Write an XYZ file containing only the selected atoms.
-
-        Args:
-            xyzfilename: output file name.
-            atoms: atom indices to write.
-        """
+        """Write an XYZ file containing only the selected atoms."""
         subset_elems = [self.elems[i] for i in atoms]
         subset_coords = np.take(self.coords, atoms, axis=0)
         with open(xyzfilename, "w") as ofile:
@@ -905,11 +767,7 @@ class Fragment:
 
     # Print system-fragment information to file
     def print_system(self, filename="fragment.frag"):
-        """Write the full fragment (coordinates, charge, mult, connectivity) to a .frag file.
-
-        Args:
-            filename: output file name.
-        """
+        """Write the full fragment (coordinates, charge, mult, connectivity) to a .frag file."""
         logger.info("Printing fragment to disk:  %s", filename)
         logger.debug("len(self.atomlist):  %s", len(self.atomlist))
         logger.debug("len(self.elems):  %s", len(self.elems))
@@ -979,11 +837,7 @@ class Fragment:
 
     # Reading fragment from file. File created from Fragment.print_system
     def read_fragment_from_file(self, fragfile):
-        """Load a fragment previously written by print_system.
-
-        Args:
-            fragfile: path to the .frag file.
-        """
+        """Load a fragment previously written by print_system."""
         logger.info("Reading fragment from file: %s", fragfile)
         coordgrab = False
         coords = []
@@ -1051,11 +905,6 @@ class Fragment:
 
 
 def reformat_list_to_array(data):
-    """Return coordinates as an (N, 3) array, accepting an array or a list of lists.
-
-    Anything else is rejected rather than returned as None: this feeds Fragment.coords,
-    and a None there surfaces much later as an unrelated error.
-    """
     # If np array already
     if isinstance(data, np.ndarray):
         return data
@@ -1135,24 +984,16 @@ def _build_connectivity(coords, elems, atom_indices=None):
 
 
 def _print_internal_coordinate_table(fragment, actatoms=None):
-    """Print a tabulated view of internal coordinates for the active atoms.
-
-    The table is built from the fragment's connectivity.
-    """
-
     def _measure_bond(coords, i, j):
-        """Bond length in Angstrom between atoms i and j."""
         return float(np.linalg.norm(coords[i] - coords[j]))
 
     def _measure_angle(coords, i, j, k):
-        """Angle i-j-k in degrees (j is the vertex)."""
         v1 = coords[i] - coords[j]
         v2 = coords[k] - coords[j]
         cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
         return float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
 
     def _measure_dihedral(coords, i, j, k, l):  # noqa: E741 - dihedral atoms i-j-k-l
-        """Dihedral angle i-j-k-l in degrees (range -180 to 180)."""
         b1 = coords[j] - coords[i]
         b2 = coords[k] - coords[j]
         b3 = coords[l] - coords[k]
@@ -1228,12 +1069,7 @@ def _print_internal_coordinate_table(fragment, actatoms=None):
 
 # OLD FUNCTION.
 def print_internal_coordinate_table(fragment, actatoms=None) -> None:
-    """Log a table of bonds, angles and dihedrals for a fragment.
-
-    Args:
-        fragment: Fragment to analyze. Connectivity is recalculated as needed.
-        actatoms: optional list of atom indices to restrict the table to.
-    """
+    """Log a table of bonds, angles and dihedrals for a fragment."""
     timeA = time.time()
     logger.info("\nPrinting internal coordinate table")
     if actatoms is not None:
@@ -1455,41 +1291,17 @@ def dihedral(A, B, C, D):
 # User-functions
 # atoms is a list of atom indices,
 def distance_between_atoms(fragment=None, atoms=None) -> float:
-    """Return the distance between two atoms of a fragment.
-
-    Args:
-        fragment: Fragment holding the coordinates.
-        atoms: list of 2 atom indices (0-based).
-
-    Returns:
-        Distance in Angstrom.
-    """
+    """Return the distance between two atoms of a fragment."""
     return distance(fragment.coords[atoms[0]], fragment.coords[atoms[1]])
 
 
 def angle_between_atoms(fragment=None, atoms=None) -> float:
-    """Return the A-B-C angle spanned by three atoms of a fragment.
-
-    Args:
-        fragment: Fragment holding the coordinates.
-        atoms: list of 3 atom indices (0-based); the middle one is the vertex.
-
-    Returns:
-        Angle in degrees.
-    """
+    """Return the A-B-C angle spanned by three atoms of a fragment."""
     return angle(fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]])
 
 
 def dihedral_between_atoms(fragment=None, atoms=None) -> float:
-    """Return the A-B-C-D dihedral angle spanned by four atoms of a fragment.
-
-    Args:
-        fragment: Fragment holding the coordinates.
-        atoms: list of 4 atom indices (0-based), in bonding order.
-
-    Returns:
-        Signed dihedral angle in degrees.
-    """
+    """Return the A-B-C-D dihedral angle spanned by four atoms of a fragment."""
     return dihedral(
         fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]], fragment.coords[atoms[3]]
     )
@@ -1635,19 +1447,6 @@ def get_molecule_members_loop_np2(coords, elems, loopnumber, scale, tol, atomind
 
 # Takes list of elements and gives formula
 def elemlisttoformula(elems):
-    """Build a molecular formula string from a list of element symbols.
-
-    Uses Hill notation — carbon first, then hydrogen, then the remaining elements
-    alphabetically — so the same system always gives the same string. Iterating a set
-    instead made the formula differ between processes (Python randomises string
-    hashing), and the formula is part of the calculation labels in singlepoint.py.
-
-    Args:
-        elems: element symbols, one per atom.
-
-    Returns:
-        Formula string, e.g. "H2O1" for water and "C2H6O1" for ethanol.
-    """
     # Counting once per unique element rather than per atom: elems can be very long
     counts = Counter(elems)
     ordered = []
@@ -1697,22 +1496,7 @@ def molformulatolist(formulastring):
 
 # Read XYZ file
 def read_xyzfile(filename) -> tuple[list[str], np.ndarray]:
-    """Read elements and coordinates from an XYZ file.
-
-    The element column may hold either element symbols or atomic numbers.
-
-    Args:
-        filename: path to the XYZ file.
-
-    Returns:
-        Tuple (elems, coords): list of element symbols and a list of
-        [x, y, z] coordinate triples in Angstrom.
-
-    Raises:
-        FileFormatError: if the atom count in the header does not match the
-            number of coordinate lines, or the elements and coordinates
-            disagree in length.
-    """
+    """Read elements and coordinates from an XYZ file."""
     # Will accept atom-numbers as well as symbols
     logger.info(f"Reading coordinates from XYZ file '{filename}'.")
     coords = []
@@ -1745,17 +1529,7 @@ def read_xyzfile(filename) -> tuple[list[str], np.ndarray]:
 # Read all XYZ-files from directory
 # Return fragment list
 def read_xyzfiles(xyzdir, readchargemult=False) -> list:
-    """Create a Fragment for every XYZ file in a directory.
-
-    Files are processed in natural (human) sort order.
-
-    Args:
-        xyzdir: directory to scan for *.xyz files.
-        readchargemult: read charge and multiplicity from each XYZ title line.
-
-    Returns:
-        List of Fragment objects, one per file.
-    """
+    """Create a Fragment for every XYZ file in a directory."""
     logger.info("read_xyzfiles function")
     logger.info("Note: will read XYZ-files in directory using natural sorting")
     import glob
@@ -1775,15 +1549,7 @@ def read_xyzfiles(xyzdir, readchargemult=False) -> list:
 # Write XYZfile provided list of elements and list of list of coords and filename
 # Fast version. Note: list comprehension is bottleneck, unclear how to make this faster though
 def write_xyzfile(elems, coords, name, writemode="w", title="title") -> None:
-    """Write elements and coordinates to an XYZ file.
-
-    Args:
-        elems: list of element symbols.
-        coords: sequence of [x, y, z] coordinate triples in Angstrom.
-        name: output basename; ".xyz" is appended.
-        writemode: file mode, "w" to overwrite or "a" to append a frame.
-        title: text for the XYZ title (second) line.
-    """
+    """Write elements and coordinates to an XYZ file."""
     # Adding headerlines to list
     header = [f"{len(elems)}\n", f"{title}\n"]
     atomlines = [f"{el:4} {c[0]:16.12f} {c[1]:16.12f} {c[2]:16.12f}\n" for el, c in zip(elems, coords, strict=False)]
@@ -1797,18 +1563,7 @@ def write_xyzfile(elems, coords, name, writemode="w", title="title") -> None:
 # Created for splitting crest_conformers.xyz but may also be used for MD traj.
 # Also grabs last word in title line. Typically an energy (has to be converted to float outside)
 def split_multimolxyzfile(file, writexyz=False, skipindex=1, return_fragments=False) -> list | tuple[list, list, list]:
-    """Split a multi-molecule XYZ file (trajectory, conformer set) into its frames.
-
-    Args:
-        file: path to the multi-molecule XYZ file.
-        writexyz: also write each frame to its own molecule<N>.xyz file.
-        skipindex: keep only every Nth frame.
-        return_fragments: return Fragment objects instead of raw arrays.
-
-    Returns:
-        A list of Fragment objects if return_fragments is True, otherwise the
-        tuple (all_elems, all_coords, all_titles) with one entry per frame.
-    """
+    """Split a multi-molecule XYZ file (trajectory, conformer set) into its frames."""
     all_coords = []
     all_elems = []
     all_titles = []
@@ -1888,17 +1643,6 @@ def read_chemshellfragfile_xyz(fragfile):
 
 
 def conv_atomtypes_elems(atomtype):
-    """Convert a forcefield atomtype string to an element symbol.
-
-    Falls back to treating the atomtype as an element symbol (with case
-    normalization) when it is not in the atomtype dictionary.
-
-    Args:
-        atomtype: forcefield atomtype or element string, e.g. "HA" or "FE".
-
-    Returns:
-        Element symbol, e.g. "H" or "Fe".
-    """
     try:
         return openmmqmmm.elements.atomtypes_dict[atomtype]
     except KeyError:
@@ -1918,20 +1662,7 @@ def conv_atomtypes_elems(atomtype):
 # Read AMBERCRD file and coords and box info
 # Not part of Fragment class because we don't have element information here
 def read_gromacsfile(grofile) -> tuple[list[str], np.ndarray, list]:
-    """Read a GROMACS .gro coordinate file.
-
-    Args:
-        grofile: path to the .gro file.
-
-    Returns:
-        Tuple (elems, coords, box_dims): element symbols guessed from the atom
-        names, an (natoms, 3) numpy array of coordinates converted from nm to
-        Angstrom, and [a, b, c, 90.0, 90.0, 90.0] cell parameters in Angstrom
-        (the cell is assumed orthorhombic) or None if the file had no box line.
-
-    Raises:
-        FileFormatError: if the parsed elements and coordinates disagree in length.
-    """
+    """Read a GROMACS .gro coordinate file."""
     elems = []
     coords = []
     # TODO: Change coords to numpy array instead
@@ -1983,17 +1714,7 @@ def read_gromacsfile(grofile) -> tuple[list[str], np.ndarray, list]:
 # Read AMBERCRD file and coords and box info
 # Not part of Fragment class because we don't have element information here
 def read_ambercoordinates(prmtopfile=None, inpcrdfile=None) -> tuple[list[str], np.ndarray, list]:
-    """Read an Amber inpcrd/rst coordinate file, taking elements from the prmtop.
-
-    Args:
-        prmtopfile: Amber topology file, used for the element list.
-        inpcrdfile: Amber coordinate file (inpcrd or restart).
-
-    Returns:
-        Tuple (elems, coords, box_dims): element symbols, an (natoms, 3) numpy
-        array of coordinates in Angstrom, and the cell parameters from the
-        final line (empty list if the file had no box line).
-    """
+    """Read an Amber inpcrd/rst coordinate file, taking elements from the prmtop."""
     elems = []
     coords = []
     # TODO: Change coords to numpy array instead
@@ -2065,28 +1786,7 @@ def write_pdbfile(
     charges_column=None,
     conect_lines=None,
 ) -> str:
-    """Write a fragment to a PDB file.
-
-    Per-atom PDB columns are taken from an OpenMMTheory topology when
-    openmmobject is given, otherwise from the explicit *labels arguments, and
-    otherwise filled with generic defaults.
-
-    Args:
-        fragment: Fragment holding elements and coordinates.
-        outputname: output basename; ".pdb" is appended.
-        openmmobject: OpenMMTheory whose topology supplies atom/residue/chain labels.
-        atomnames: per-atom names, overriding the topology.
-        resnames: per-atom residue names, overriding the topology.
-        residlabels: per-atom residue numbers, overriding the topology.
-        chainlabels: per-atom chain identifiers, overriding the topology.
-        segmentlabels: per-atom segment identifiers, overriding the topology.
-        dummyname: residue name used for dummy atoms.
-        charges_column: optional per-atom values written into the occupancy column.
-        conect_lines: optional pre-built CONECT records to append.
-
-    Returns:
-        The name of the written file.
-    """
+    """Write a fragment to a PDB file."""
     logger.info("Writing PDB-file...")
     # Using fragment
     elems = fragment.elems
@@ -2283,20 +1983,7 @@ def list_of_masses(ellist):
 def flexible_align_xyz(
     xyzfile_a, xyzfile_b, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
 ) -> None:
-    """Align the molecule in one XYZ file onto the molecule in another.
-
-    Writes the aligned structure to <xyzfile_a stem>_aligned.xyz.
-
-    Args:
-        xyzfile_a: XYZ file to move.
-        xyzfile_b: XYZ file to align onto (stays fixed).
-        rotate_only: apply only the rotation, not the translation.
-        translate_only: apply only the translation, not the rotation.
-        reordering: reorder the atoms of A to match B before aligning.
-        reorder_method: reordering algorithm, e.g. "brute" or "hungarian".
-        subset: atom indices to align on; a list of two lists gives separate
-            indices for A and B.
-    """
+    """Align the molecule in one XYZ file onto the molecule in another."""
     logger.info(f"Will align molecule in file {xyzfile_a} onto molecule in file {xyzfile_b}")
     fragment_a = Fragment(xyzfile=xyzfile_a)
     fragment_b = Fragment(xyzfile=xyzfile_b)
@@ -2319,21 +2006,7 @@ def flexible_align_xyz(
 def flexible_align_pdb(
     pdbfileA, pdbfileB, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
 ) -> None:
-    """Align the molecule in one PDB file onto the molecule in another.
-
-    Writes the aligned structure to <pdbfileA stem>_aligned.pdb, preserving the
-    PDB metadata read from pdbfileA.
-
-    Args:
-        pdbfileA: PDB file to move.
-        pdbfileB: PDB file to align onto (stays fixed).
-        rotate_only: apply only the rotation, not the translation.
-        translate_only: apply only the translation, not the rotation.
-        reordering: reorder the atoms of A to match B before aligning.
-        reorder_method: reordering algorithm, e.g. "brute" or "hungarian".
-        subset: atom indices to align on; a list of two lists gives separate
-            indices for A and B.
-    """
+    """Align the molecule in one PDB file onto the molecule in another."""
     logger.info(f"Will align molecule in file {pdbfileA} onto molecule in file {pdbfileB}")
     fragment_a = Fragment(pdbfile=pdbfileA)
     fragment_b = Fragment(pdbfile=pdbfileB)
@@ -2364,21 +2037,7 @@ def flexible_align(
     reorder_method="brute",
     subset=None,
 ) -> "Fragment":
-    """Align one fragment onto another (Kabsch superposition, optional reordering).
-
-    Args:
-        fragment_a: Fragment to move.
-        fragment_b: Fragment to align onto (stays fixed).
-        rotate_only: apply only the rotation, not the translation.
-        translate_only: apply only the translation, not the rotation.
-        reordering: reorder the atoms of A to match B before aligning.
-        reorder_method: reordering algorithm, e.g. "brute" or "hungarian".
-        subset: atom indices to align on; a list of two lists gives separate
-            indices for A and B.
-
-    Returns:
-        A new Fragment holding the aligned coordinates of fragment_a.
-    """
+    """Align one fragment onto another (Kabsch superposition, optional reordering)."""
     logger.info("flexible_align function")
     import geometric
 
@@ -2482,22 +2141,7 @@ def flexible_align(
 # Also simpler option: heavyatomsonly=True (ignores H-atoms)
 # NOTE: no reordering
 def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, write_aligned_structure=False) -> float:
-    """Return the RMSD between two fragments after optimal superposition.
-
-    Args:
-        fragment_a: first Fragment.
-        fragment_b: second Fragment.
-        subset: atom indices to compare; a list of two lists gives separate
-            indices for A and B.
-        heavyatomsonly: exclude hydrogen atoms from the comparison.
-        write_aligned_structure: also write the aligned structure to disk.
-
-    Returns:
-        RMSD in Angstrom.
-
-    Raises:
-        InputError: if the two subsets differ in length.
-    """
+    """Return the RMSD between two fragments after optimal superposition."""
     logger.info("calculate_RMSD function")
 
     # Do chosen subset
@@ -2559,22 +2203,10 @@ def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, wr
 
 
 def centroid(X):
-    """Compute the centroid of a vectorset.
-
-    The centroid is the mean position of all the points in all of the coordinate
-    directions: C = sum(X)/len(X). See https://en.wikipedia.org/wiki/Centroid.
-
-    Args:
-        X: (N,D) matrix, where N is points and D is dimension.
-
-    Returns:
-        The centroid, as a (D,) array.
-    """
     return X.mean(axis=0)
 
 
 def rmsd(V, W):
-    """Calculate Root-mean-square deviation from two sets of vectors V and W."""
     D = len(V[0])
     N = len(V)
     rmsd = 0.0
@@ -2843,17 +2475,7 @@ def get_linkatom_positions(
 # Grabbing molecules from multi-XYZ trajectory file (can be MD-file, optimization traj etc).
 # Creating fragments for each conformer
 def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=False) -> list:
-    """Create a Fragment for every snapshot in a multi-molecule XYZ trajectory.
-
-    Args:
-        file: path to the multi-molecule XYZ file.
-        writexyz: also write each snapshot to its own XYZ file.
-        skipindex: keep only every Nth snapshot.
-        conncalc: calculate connectivity for each fragment (slow for large systems).
-
-    Returns:
-        List of Fragment objects labelled "<file>_<index>".
-    """
+    """Create a Fragment for every snapshot in a multi-molecule XYZ trajectory."""
     logger.info(small_header("Get molecules from trajectory"))
     logger.info("Finding molecules/snapshots in multi-XYZ trajectory file and creating fragments...")
     logger.info(f"Taking every {skipindex}th entry")
@@ -2871,23 +2493,7 @@ def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=Fa
 
 # Get list of lists of water constraints in system (O-H,O-H,H-H) via OpenMM theory
 def get_water_constraints(openmmtheoryobject=None, atomlist=None, watermodel="tip3p") -> list:
-    """Return bond constraints for every water molecule in an OpenMM system.
-
-    Water residues are identified by residue name (HOH, WAT, TIP) using the
-    residue and element information stored on the OpenMMTheory object.
-
-    Args:
-        openmmtheoryobject: OpenMMTheory providing resnames and mm_elements.
-        atomlist: atom indices to search (e.g. the active region).
-        watermodel: water model name; "tip3p" and "spc" are supported.
-
-    Returns:
-        List of [i, j] atom-index pairs to constrain (O-H and H-H).
-
-    Raises:
-        InputError: for a missing argument, an unknown water model, or an
-            OpenMMTheory object without residue/element information.
-    """
+    """Return bond constraints for every water molecule in an OpenMM system."""
     logger.info("Inside getwaterconstraintslist")
     if openmmtheoryobject is None or atomlist is None:
         raise InputError("getwaterconstraintslist requires openmmtheoryobject and atomlist to be set")
@@ -3010,23 +2616,7 @@ def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000) 
 # Define XH bond constraints for a given fragment and a set of atomindices (e.g. an active region)
 # and an optional exclusion list (e.g. QM-region)
 def define_xh_constraints(fragment, actatoms=None, excludeatoms=None) -> list:
-    """Return X-H bond constraints for a fragment or a region of it.
-
-    Every hydrogen is paired with the atom it is bonded to, as determined from
-    the calculated connectivity.
-
-    Args:
-        fragment: Fragment holding elements and coordinates.
-        actatoms: atom indices to restrict the search to (the active region);
-            all atoms if None. Returned indices are always full-system indices.
-        excludeatoms: atom indices to leave unconstrained.
-
-    Returns:
-        List of [X, H] atom-index pairs to constrain.
-
-    Raises:
-        InternalError: if a hydrogen is not found bonded to exactly one atom.
-    """
+    """Return X-H bond constraints for a fragment or a region of it."""
     logger.info("Inside define_XH_constraints function")
     if actatoms is None:
         subset_elems = fragment.elems
@@ -3080,22 +2670,7 @@ def actindex_to_fullindex(actindex, actatoms):
 # Simple get_water constraints for fragment without doing connectivity
 # Limitation: Assumes all waters from starting index to end and that waters are ordered: O H H
 def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False) -> list:
-    """Return water bond constraints by position, without residue information.
-
-    Assumes the water molecules are stored in O, H, H order and occupy a
-    contiguous block at the end of the coordinate file.
-
-    Args:
-        fragment: Fragment holding the elements.
-        starting_index: index of the oxygen of the first water molecule.
-        onlyHH: constrain only the H-H distance, leaving the O-H bonds free.
-
-    Returns:
-        List of [i, j] atom-index pairs to constrain.
-
-    Raises:
-        InputError: if starting_index is missing or does not point at an oxygen.
-    """
+    """Return water bond constraints by position, without residue information."""
     logger.info("Inside simple_get_water_constraints function")
     logger.warning(
         "Warning: Note that water residues have to have O,H,H order and have to be at the end of the coordinate file"
@@ -3165,28 +2740,7 @@ def insert_solute_into_solvent(
     outputname="solution.pdb",
     write_pbc_info=True,
 ) -> "Fragment":
-    """Insert one or two solute molecules into a solvent box, removing clashes.
-
-    Solvent molecules overlapping the solute are deleted whole, so the result
-    stays chemically sensible.
-
-    Args:
-        solute: Fragment for the solute.
-        solute2: optional second solute Fragment.
-        solvent: Fragment holding the pre-equilibrated solvent box.
-        scale: covalent-radius scale factor used for clash detection.
-        tol: covalent-radius tolerance (Angstrom) used for clash detection.
-        write_pdb: also write the combined system to a PDB file.
-        write_solute_connectivity: include CONECT records for the solute.
-        solute_pdb: PDB file supplying the topology metadata for the solute.
-        solute2_pdb: PDB file supplying the topology metadata for the second solute.
-        solvent_pdb: PDB file supplying the topology metadata for the solvent.
-        outputname: filename for the written PDB file.
-        write_pbc_info: write the solvent cell dimensions as a CRYST1 record.
-
-    Returns:
-        A new Fragment containing the solute(s) plus the trimmed solvent.
-    """
+    """Insert one or two solute molecules into a solvent box, removing clashes."""
     logger.info("\ninsert_solute_into_solvent\n")
     # Early exits
     if write_pdb:
@@ -3327,15 +2881,7 @@ def insert_solute_into_solvent(
 # Basic fast function to calculate the Coulomb energy.
 # Assumes coords in Angstrom
 def nuc_nuc_repulsion(coords, charges) -> float:
-    """Return the classical nucleus-nucleus repulsion energy of a set of point charges.
-
-    Args:
-        coords: (natoms, 3) array of coordinates in Angstrom.
-        charges: per-atom charges (nuclear charges for the usual use).
-
-    Returns:
-        Repulsion energy in Hartree.
-    """
+    """Return the classical nucleus-nucleus repulsion energy of a set of point charges."""
     charges = np.array(charges)  # Ensure charges is a numpy array
     coords_b = coords * 1.88972612546
     diff = coords_b[:, None, :] - coords_b[None, :, :]
