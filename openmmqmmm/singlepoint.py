@@ -85,7 +85,6 @@ def single_point(
 
 
 # Single-point energy function that runs calculations on 1 fragment using multiple theories. Returns a list of energies.
-# TODO: allow Grad option?
 def single_point_theories(theories=None, fragment=None, charge=None, mult=None) -> "Results":
     """Run single-point calculations of one fragment with multiple theories."""
     logger.info(main_header("Singlepoint_theories function"))
@@ -330,7 +329,6 @@ def single_point_reaction(theory=None, reaction=None, moreadfiles=None) -> "Resu
         _cleanup_theory(theory)
         reaction.energies.append(energy)
 
-        # TODO: Change this so that instead we just grab whatever each Theory level deemed important
         # theory.properties feature?
         # Check if ORCATheory object contains ICE-CI info
         if isinstance(theory, openmmqmmm.ORCATheory):

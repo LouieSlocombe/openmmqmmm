@@ -59,7 +59,6 @@ def openmm_minimize(
     if fragment is None:
         raise InputError("No fragment object. Exiting.")
 
-    # Distinguish between OpenMM theory or QM/MM theory
     if isinstance(theory, OpenMMTheory):
         openmmobject = theory
     else:
@@ -68,7 +67,6 @@ def openmm_minimize(
     logger.info("Number of atoms: %s", fragment.numatoms)
     logger.info("Max iterations: %s", maxiter)
     logger.info(f"Tolerance: {tolerance} kj/mol/nm:")
-    # if float(openmm.__version__) >= 8.1:
     if version.parse(openmm.__version__) >= version.parse("8.1"):
         logger.info(f"Will write to trajectory every {traj_frequency} iterations")
     logger.info("OpenMM autoconstraints: %s", openmmobject.autoconstraints)
@@ -101,16 +99,11 @@ def openmm_minimize(
 
     openmmobject.set_simulation_parameters(timestep=0.001, temperature=1, integrator="VerletIntegrator")
 
-    # CREATE SIMULATION OBJECT
     simulation = openmmobject.create_simulation()
 
     logger.info("Simulation created.")
 
-    #############################################
     # New in OpenMM 8.1: reporters for minimizer
-    # StateDataReporter
-    #############################################
-    # if float(openmm.__version__ ) >= 8.1 and use_reporter is True:
     if version.parse(openmm.__version__) >= version.parse("8.1") and use_reporter is True:
 
         class Reporter(openmm.openmm.MinimizationReporter):
@@ -118,14 +111,12 @@ def openmm_minimize(
                 if not hasattr(self, "totaliter"):
                     self.totaliter = -1
 
-                # Counting total iterations
                 self.totaliter += 1
 
                 self.get_forces(grad)
                 short = False
 
                 if short is True:
-                    # Possible short mode: not finished
                     logger.info(f"Iteration {iteration} ")
                 else:
                     logger.info("TOTAL iteration: %s", self.totaliter)
@@ -133,7 +124,6 @@ def openmm_minimize(
                     self.print_energy(args)
                     self.print_forces()
                     self.write_traj(x)
-                # Once maxiter reached
                 if iteration == maxiter - 1:
                     logger.info("Max iterations reached. Now modifying restraints and restarting")
                     return True
@@ -145,7 +135,6 @@ def openmm_minimize(
                     logger.info("%s", "-" * 40)
                     logger.info("Now writing to trajectory file")
                     logger.info("%s", "-" * 40)
-                    # Reshaping and converting to Angstrom
                     pos = 10 * np.array(x).reshape(-1, 3)
                     write_xyzfile(fragment.elems, pos, "OpenMMOpt_traj", writemode="a")
 
@@ -158,7 +147,6 @@ def openmm_minimize(
                 logger.info("Max constraint error: %s", args["max constraint error"])
 
             def get_forces(self, grad):
-                # Reshaping
                 g = np.array(grad).reshape(-1, 3)  # To confirm
                 kjmolnm_to_atomic_factor = -49614.752589207
                 self.forces_init = g / kjmolnm_to_atomic_factor
@@ -172,7 +160,6 @@ def openmm_minimize(
 
         reporter = Reporter()
 
-    # Context: settings positions of simulation object
     logger.info("Now adding coordinates")
     openmmobject.set_positions(fragment.coords, simulation)
 
@@ -192,7 +179,6 @@ def openmm_minimize(
     if version.parse(openmm.__version__) >= version.parse("8.1") and use_reporter is True:
         logger.info("OpenMM versions >= 8.1. Will use a reporter to output progress")
         logger.info("OpenMM_Opt trajectory will be written to: OpenMMOpt_traj.xyz")
-        # Removing possible old traj file
         with contextlib.suppress(OSError):
             os.remove("OpenMMOpt_traj.xyz")
         simulation.minimizeEnergy(maxIterations=maxiter, tolerance=tolerance, reporter=reporter)
@@ -202,7 +188,6 @@ def openmm_minimize(
         simulation.minimizeEnergy(maxIterations=maxiter, tolerance=tolerance)
         logger.info("Minimization done.")
 
-    #####################################
     logger.info("")
     state = simulation.context.getState(
         getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=enforce_periodic_box
@@ -231,8 +216,6 @@ def openmm_minimize(
         positions = simulation.context.getState(getPositions=True, enforcePeriodicBox=False).getPositions()
     write_pdbfile_openmm_topology(openmmobject.topology, positions, "frag-minimized.pdb")
 
-    # Get coordinates to update fragment
-    # Strange bug before:
     newcoords = (
         simulation.context.getState(getPositions=True, enforcePeriodicBox=False)
         .getPositions(asNumpy=True)
@@ -298,12 +281,6 @@ def openmm_modeller(
     if residue_variants is None:
         residue_variants = {}
 
-    # Water model. May be overridden by forcefield below
-    # if watermodel == "tip3p":
-    #    # Possible Problem: this only has water, no ions.
-    #    # Problem: we need to define watermodel also
-
-    # Forcefield options
     if forcefield is not None:
         logger.info("Forcefield: %s", forcefield)
         if forcefield in {"Amber99", "Amber99sb"}:
@@ -329,7 +306,6 @@ def openmm_modeller(
         else:
             raise InputError("Unknown forcefield")
 
-        # Water model selection for CHARMM forcefields
         if "CHARMM" in forcefield:
             # Using specific CHARMM36 version of TIP3P
             if watermodel is None:
@@ -345,7 +321,6 @@ def openmm_modeller(
                 waterxmlfile = "charmm36/water.xml"
             logger.info("Waterxmlfile selected: %s", waterxmlfile)
 
-        # Water model selection for AMber forcefields
         if "Amber" in forcefield:
             if watermodel is None:
                 logger.info("No watermodel selected.")
@@ -364,16 +339,12 @@ def openmm_modeller(
                 waterxmlfile = "amber14/tip3p.xml" if forcefield == "Amber14" else "tip3p.xml"
             logger.info("Waterxmlfile selected: %s", waterxmlfile)
 
-    ############
-    # Define a forcefield if using XML-files
     if xmlfile is not None:
         logger.info("XMfile: %s", xmlfile)
         logger.info("Water model: %s", watermodel)
         logger.info("Water xmlfile: %s", waterxmlfile)
-        # Basic checks
         if extraxmlfile is not None:
             logger.info("Using extra XML file: %s", extraxmlfile)
-            # Checking if file exists first before continuing
             if os.path.isfile(extraxmlfile) is not True:
                 raise InputError(f"File {extraxmlfile} can not be found. Exiting.")
         logger.info("Now creating forcefield object")
@@ -439,7 +410,6 @@ def openmm_modeller(
         logger.info("Skipping PDBFixer")
         pdbfile_for_modeller = pdbfile
 
-    # Load fixed PDB-file and create Modeller object
     pdb = openmm_app.PDBFile(pdbfile_for_modeller)
     logger.info("\n\nNow loading Modeller.")
     modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
@@ -454,7 +424,6 @@ def openmm_modeller(
     logger.info(f"Modeller topology has {numchains} chains.")
     logger.info(f"Modeller topology has {modeller_numatoms} atoms.")
     logger.info("Chains: %s", modeller_chains)
-    # Getting residues for each chain
     for chain_x in modeller_chains:
         logger.info(
             f"This is chain {chain_x.index}, it has {len(chain_x._residues)} residues and they are: "
@@ -462,7 +431,6 @@ def openmm_modeller(
         )
     logger.info("\n")
 
-    # PRINTING big table of residues
     logger.info("User defined residue variants per chain:")
     for rv_key, rv_vals in residue_variants.items():
         logger.info(f"Chain {rv_key} : {rv_vals}")
@@ -478,7 +446,6 @@ def openmm_modeller(
     # Also using loop to get residue_states list that we pass on to modeller.addHydrogens
     residue_states = []
     for each_residue in modeller_residues:
-        # Division line between chains
         if each_residue.chain.index != current_chainindex:
             logger.info("%s", "--" * 30)
         resid = each_residue.index
@@ -502,18 +469,15 @@ def openmm_modeller(
     with open("system_afterfixes2.pdb", "w") as pdbfh:
         openmm_app.PDBFile.writeFile(modeller.topology, modeller.positions, pdbfh)
 
-    # NOTE: to be deleted
     if len(residue_states) != numresidues:
         raise InputError("residue_states != numresidues. Something went wrong")
 
-    # Adding hydrogens feeding in residue_states
     # This is were missing residue/atom errors will come
     logger.info("")
     logger.info("Adding hydrogens for pH: %s", ph)
     logger.warning("OpenMM Modeller will fail in this step if residue information is missing")
     logger.info("residue_states: %s", residue_states)
 
-    # Dealing with possible user-defined residuetemplate_choice
     residueTemplates = {}  # initisal
     if residuetemplate_choice is not None:
         logger.info("Found user-specified residuetemplate_choice")
@@ -524,7 +488,6 @@ def openmm_modeller(
             residueTemplates = {res: choice for res in modeller.topology.residues() if res.name == resname}
     logger.info("residueTemplates: %s", residueTemplates)
 
-    # Checking if we have problems with unmatched residues
     logger.info("\nNow checking if we have problems with unmatched residues")
     # NOTE: We would get exception in addHydrogens anyway
     try:
@@ -569,7 +532,6 @@ def openmm_modeller(
         for resname, choice in residuetemplate_choice.items():
             residueTemplates = {res: choice for res in modeller.topology.residues() if res.name == resname}
 
-    # Adding Solvent
     if implicit is True:
         periodic = False
         logger.info("We are doing implicit solvation")
@@ -605,10 +567,8 @@ def openmm_modeller(
         )
 
         write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
-        # Ions
         # NOTE: Had to remove separate ion-add step due to OpenMM 8.1 change
         print_systemsize(modeller)
-        # Create fragment and write to disk
         fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
     else:
         logger.info("We are doing explicit solvation")
@@ -645,10 +605,8 @@ def openmm_modeller(
             )
         write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
 
-        # Ions
         # NOTE: Had to remove separate ion-add step due to OpenMM 8.1 change
         print_systemsize(modeller)
-        # Create fragment and write to disk
         fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
 
     write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "finalsystem.pdb")
@@ -674,8 +632,6 @@ def openmm_modeller(
         rigidwater=True,
         residuetemplate_choice=residuetemplate_choice,
     )
-    # Write out System XMLfile
-    # TODO: Disable ?
     systemxmlfile = "system_full.xml"
 
     serialized_system = openmm.XmlSerializer.serialize(openmmobject.system)
@@ -737,8 +693,6 @@ def openmm_modeller(
             f'E.g. like this: omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
             f"periodic={periodic}, residuetemplate_choice={residuetemplate_choice})"
         )
-    # Check system for atoms with large gradient and print warning
-    # TODO: Can we avoid re-creating the omm object ?
     logger.info("\nNow running single-point MM job to check for bad contacts")
     # Setting sensible periodic cutoff to avoid error
     omm = OpenMMTheory(
@@ -757,7 +711,6 @@ def openmm_modeller(
 
     log_time_since(module_init_time, "OpenMM_Modeller")
 
-    # Return openmmobject. Could be used directly
     return openmmobject, fragment
 
 
@@ -812,14 +765,10 @@ def solvate_small_molecule(
             Also see http://docs.openmm.org/latest/userguide/application.html"
         ) from None
 
-    # Check if fragment is provided
     if fragment is None:
         raise InputError("No fragment object provided. Exiting.")
 
-    # Check charge/mult
     charge, mult = check_charge_mult(charge, mult, "QM", fragment, "solvate_small_molecule")
-
-    # Check xmlfile
 
     if xmlfile is None and skip_xmlfile is False:
         raise InputError(
@@ -844,7 +793,6 @@ def solvate_small_molecule(
 
         logger.info("LJ_treatment: %s", lj_treatment)
 
-    # Now selecting watermodel XML-file based on whether CHARMM, Amber etc.
     if watermodel in {"tip3p", "TIP3P"}:
         logger.info("Using watermodel=TIP3P")
         if lj_treatment == "amber":
@@ -856,7 +804,6 @@ def solvate_small_molecule(
     else:
         raise InputError("Only TIP3P water supported for now")
 
-    # Create forcefield object
     if skip_xmlfile is True:
         logger.info("Creating forcefield using XML-files: %s", waterxmlfile)
         forcefield = openmm_app.forcefield.ForceField(*[waterxmlfile])
@@ -864,8 +811,6 @@ def solvate_small_molecule(
         logger.info("Creating forcefield using XML-files: %s %s", xmlfile, waterxmlfile)
         forcefield = openmm_app.forcefield.ForceField(*[xmlfile, waterxmlfile])
 
-    # WRITE PDB-file
-    # Check if xmlfile contains bonded parameters
     if skip_xmlfile is True:
         atomnames = [el + "Y" + str(i) for i, el in enumerate(fragment.elems)]
         pdbfile = write_pdbfile(fragment, outputname="smallmol", dummyname="LIG", atomnames=atomnames)
@@ -877,13 +822,11 @@ def solvate_small_molecule(
         atomnames = [el + "Y" + str(i) for i, el in enumerate(fragment.elems)]
         pdbfile = write_pdbfile(fragment, outputname="smallmol", dummyname="LIG", atomnames=atomnames)
 
-    # Load PDB-file and create Modeller object
     pdb = openmm_app.PDBFile(pdbfile)
     logger.info("Loading Modeller.")
     modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
     logger.info(f"Modeller topology has {modeller.topology.getNumResidues()} residues.")
 
-    # Solvent+Ions
     logger.info("Adding solvent, watermodel: %s", watermodel)
 
     # NOTE: modeller.addsolvent will automatically add ions to neutralize any excess charge
@@ -895,12 +838,10 @@ def solvate_small_molecule(
             boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm_unit.angstrom,
         )
 
-    # Write out solvated system coordinates
     logger.info("Creating PDB-file: system_aftersolvent.pdb")
     write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent.pdb")
     print_systemsize(modeller)
 
-    # Create fragment and write to disk
     newfragment = Fragment(pdbfile="system_aftersolvent.pdb")
     newfragment.write_xyzfile(xyzfilename="system_aftersolvent.xyz")
     logger.info("Creating XYZ-file: system_aftersolvent.xyz")
@@ -914,7 +855,6 @@ def solvate_small_molecule(
     logger.info("")
     logger.info("")
 
-    # Return forcefield object,  topology object and fragment
     return forcefield, modeller.topology, newfragment
 
 
@@ -922,23 +862,17 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
     if use_higher_occupancy is True:
         logger.info("Will keep higher occupancy atoms for alternate locations")
 
-    # List of ATOM/HETATM lines to grab from PDB-file
     pdb_atomlines = []
-    # Dict of residues with alternate location labels
     bad_resids_dict = {}
 
-    # Alternate location dict for atoms found
     altloc_dict = {}
 
-    # Looping through PDB-file
     with open(pdbfile) as pfile:
         for line in pfile:
             if line.startswith(("ATOM", "HETATM")):
                 altloc = line[16]
-                # Adding info to dicts and adding marker if alternate location info present for atom
                 if altloc != " ":
                     chain = line[21:22]
-                    # New dict item with chain as key
                     if chain not in bad_resids_dict:
                         bad_resids_dict[chain] = []
                     resid = int(line[22:26].replace(" ", ""))
@@ -948,23 +882,17 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
                     occupancy = float(line[54:60])
                     # Atomstring contains only the atom-information (not alt-location label)
                     atomstring = chain + "_" + resname + "_" + str(resid) + "_" + atomname
-                    # Adding residue to dict
                     if residue not in bad_resids_dict[chain]:
                         bad_resids_dict[chain].append(residue)
-                    # Adding atom-info to dict
                     altloc_dict[(atomstring, altloc)] = [altloc, occupancy, line]
                     # Adding atomstring to list as a marker
                     if ["REPLACE_", atomstring] not in pdb_atomlines:
                         pdb_atomlines.append(["REPLACE_", atomstring])
-                # Use unmodifed ATOM line
                 else:
                     pdb_atomlines.append(line)
             else:
-                # Still keeping unmodified line
                 pdb_atomlines.append(line)
 
-    # For debugging
-    # for k,v in altloc_dict.items():
     def find_index_of_sublist_with_max_col(rows, index):
         max_val = 0
         result = None
@@ -974,21 +902,17 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
                 result = i
         return result
 
-    # Now going through pdb_atomlines, finding marker and looking up the best occupancy atom from altloc_dict
     finalpdblines = []
     for pdbline in pdb_atomlines:
         if pdbline[0] == "REPLACE_":
             logger.info("Alternate locations for atom: %s", pdbline[1])
             options = []
-            # Looping through altloc_dict items
             for i, j in altloc_dict.items():
-                # Matching atomstring
                 if i[0] == pdbline[1]:
                     options.append([j[0], j[1], j[2]])
             for option_row in options:
                 pdblinestring = "".join(map(str, option_row[2:]))
                 logger.info("%s", pdblinestring)
-            # Get max occupancy item
             ind = find_index_of_sublist_with_max_col(options, 1)
             fline = options[ind][2][:16] + " " + options[ind][2][16 + 1 :]
             logger.info(f"Choosing line with occupancy {options[ind][1]}.")
@@ -1005,7 +929,6 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
             for res in residues:
                 logger.info("%s", res)
         logger.warning("\nThese residues should be manually inspected and fixed in the PDB-file before continuing")
-        # if alternatelocation_label != None:
         if use_higher_occupancy is True:
             logger.warning("\n Use higher-occupancy location opton was selected, so continuing.")
             writelisttofile(finalpdblines, "system_afteratlocfixes.pdb", separator="")
@@ -1016,24 +939,19 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
             "in OpenMM_Modeller and openmmqmmm will keep the higher occupied form and go on \nMake sure that there "
             "is always an A or B form present.\nExiting."
         )
-    # Returning original pdbfile if all OK
 
     return pdbfile
 
 
 def merge_pdb_files(pdbfile_1, pdbfile_2, outputname="merged.pdb") -> str:
-    # Function to merge PDB-files (e.g. protein and ligand) while preserving and updating connectivity records
-    # PDB inputfiles
     """Merge two PDB files into one (e.g. protein plus ligand)."""
     pdb1 = openmm.app.PDBFile(pdbfile_1)
     pdb2 = openmm.app.PDBFile(pdbfile_2)
 
-    # Create modeller object
     modeller = openmm.app.Modeller(pdb1.topology, pdb1.positions)  # Add pdbfile1
     modeller.add(pdb2.topology, pdb2.positions)  # Add pdbfile2
     mergedPositions = modeller.positions  # merging positions
 
-    # Write merged topology and positions to new PDB file
     write_pdbfile_openmm_topology(modeller.topology, mergedPositions, outputname)
     logger.info("Wrote merged PDB file: %s", outputname)
 
@@ -1075,13 +993,11 @@ def small_molecule_parameterizer(
     else:
         raise InputError("Unknown forcefield_option")
 
-    # OpenMM
     try:
         from openmm.app import ForceField
     except ModuleNotFoundError:
         raise MissingDependencyError("OpenMM is required but could not be imported") from None
 
-    # Parmed
     try:
         import parmed
     except ImportError:
@@ -1089,7 +1005,6 @@ def small_molecule_parameterizer(
             "Problem importing parmed Python library\nParmed can be installed using pip: pip install parmed"
         ) from None
     logger.info(f"Parmed version {parmed.__version__} imported")
-    # OpenMMForcefields stuff
     try:
         import openff
         from openff.toolkit.topology import Molecule
@@ -1101,7 +1016,6 @@ def small_molecule_parameterizer(
         ) from errormessage
     logger.info("")
 
-    # How to read in file
     if molfile:
         # NOTE: Not well tested.
         logger.info("Mol file provided: %s", molfile)
@@ -1111,9 +1025,7 @@ def small_molecule_parameterizer(
         logger.info("SDF file provided %s", sdffile)
         molecule = Molecule.from_file(sdffile)
     elif smiles_string:
-        # NOTE:
         logger.info("SMILES string provided: %s", smiles_string)
-        # Create an OpenFF Molecule object from SMILES string
         molecule = Molecule.from_smiles(smiles_string, allow_undefined_stereo=allow_undefined_stereo)
         logger.info(
             "A SMILES string input means that no coordinate information is available. PDB-file created will have dummy "
@@ -1135,10 +1047,6 @@ def small_molecule_parameterizer(
         logger.info("RDKit-determined Smiles_string is: %s", smiles_string)
         molecule = Molecule.from_rdkit(mol)
 
-        # OLD silly way: convert XYZ-to-PDB and then PDB-to-SMILES
-        # Create a SMILES string from PDB-file
-
-        # Create an OpenFF Molecule object from SMILES string
     elif pdbfile:
         logger.info("PDB-file provided: %s", pdbfile)
         logger.info("Will use RDKit to convert PDB file to an RDKit Mol object and then to OpenFF Molecule object")
@@ -1152,29 +1060,23 @@ def small_molecule_parameterizer(
         logger.info("RDKit-determined Smiles_string is: %s", smiles_string)
         molecule = Molecule.from_rdkit(mol)
 
-        # Create a SMILES string from PDB-file
-        # Create an OpenFF Molecule object from SMILES string
     else:
         raise InputError("No inputfile provided. Exiting")
 
-    # Changing residue name in molecule object (for each atom)
     # Affects both PDB-file and XML-file
     for atom in molecule.atoms:
         atom.metadata["residue_name"] = resname
     logger.info("Conversion to OpenFF molecule object successful")
     # NOTE: problem writing proper PDB-file here. Using OpenMM instead below
 
-    # Create an OpenMM ForceField object
     logger.info("Now creating an Amber14 compatible OpenMM ForceField object")
     forcefield = ForceField("amber/protein.ff14SB.xml", "amber/tip3p_standard.xml", "amber/tip3p_HFE_multivalent.xml")
 
     if forcefield_option == "GAFF":
         logger.info("GAFF forcefield chosen")
-        # Create the GAFF template generator
         gaff = GAFFTemplateGenerator(molecules=molecule, forcefield=gaffversion)
         logger.info("GAFF version used: %s", gaff.gaff_version)
 
-        # Register the GAFF template generator
         logger.info("Now registering the GAFF template generator in Forcefield object")
         forcefield.registerTemplateGenerator(gaff.generator)
 
@@ -1182,10 +1084,6 @@ def small_molecule_parameterizer(
         # Forcefield will load the appropriate GAFF parameters when needed, and antechamber
         # will be used to generate small molecule parameters on the fly.
 
-        # Create system from PDB topology
-        # Topology:
-        # Option 1: pdb_obj.topology
-        # Option 2:
         topology = openff.toolkit.topology.Topology.from_molecules([molecule])
         topology_openmm = topology.to_openmm()
         topology = topology_openmm
@@ -1193,7 +1091,6 @@ def small_molecule_parameterizer(
         # Creating OpenMM system both to check that things works and for passing to Parmed for XML writing
         system = forcefield.createSystem(topology)
 
-        # Write XML-file for ligand using Parmed
         final_xmlfilename = f"gaff_{resname}.xml"
         write_xmlfile_parmed(topology, system, final_xmlfilename)
 
@@ -1206,10 +1103,7 @@ def small_molecule_parameterizer(
         forcefield = ForceField(
             "amber/protein.ff14SB.xml", "amber/tip3p_standard.xml", "amber/tip3p_HFE_multivalent.xml"
         )
-        # Register the SMIRNOFF template generator
         forcefield.registerTemplateGenerator(smirnoff.generator)
-
-        # Alternative: Create system from PDB topology
 
         topology = openff.toolkit.topology.Topology.from_molecules([molecule])
         topology_openmm = topology.to_openmm()
@@ -1218,22 +1112,17 @@ def small_molecule_parameterizer(
         # Creating OpenMM system both to check that things works and for passing to Parmed for XML writing
         system = forcefield.createSystem(topology)
 
-        # Write XML-file for ligand using Parmed
         final_xmlfilename = f"openff_{resname}.xml"
         write_xmlfile_parmed(topology, system, final_xmlfilename)
 
-    # Create PDB-file that matches xml-file
     logger.info("Now creating a PDB-file that matches the XML-file")
-    # Getting Cartesian coordinates from molecule
     pos = [openmm.Vec3(i[0]._magnitude, i[1]._magnitude, i[2]._magnitude) for i in molecule._conformers[0]]
     with open(f"{resname}.pdb", "w") as pdbfh:
         openmm.app.PDBFile.writeFile(topology, pos * openmm.unit.angstrom, pdbfh)
 
-    # Now we have created an OpenMM system based on ligand Forcefield and created an XML-file
     logger.info("")
     logger.info("")
     logger.info("%s", "-" * 100)
-    # Modifying XML-files
     logger.info("A new XML-file for molecule has been created: %s", final_xmlfilename)
     logger.info(
         f"Modifying 1-4 scaling parameters in XML-file to match Amber14 FF (coul14={expected_coul14}  and "
@@ -1311,27 +1200,21 @@ def create_sys_and_check_14_scaling_nonbonding(
     forcefield_from_xmlfile = openmm.app.ForceField(xml_file)
     system_from_xmlfile = forcefield_from_xmlfile.createSystem(topology)
 
-    # Find NonbondedForce in system_from_xmlfile
     for force in system_from_xmlfile.getForces():
         if isinstance(force, openmm.NonbondedForce):
             break
 
-    # Looping over exceptions
     for exception_index in range(force.getNumExceptions()):
-        # Get the pair parameters
         atom1, atom2, qq, _sigma, epsilon = force.getExceptionParameters(exception_index)
         # if 0.0 then should be 1-2 or 1-3 interaction
         if epsilon._value == 0.0:
             continue
-        # Get the particle parameters in the pair
         q1, sigma1, epsilon1 = force.getParticleParameters(atom1)
         q2, sigma2, epsilon2 = force.getParticleParameters(atom2)
 
-        # Calculate expected value based on expected scaling factors
         expected_qq = expected_coul14 * q1 * q2
         expected_epsilon = expected_lj14 * (epsilon1 * epsilon2) ** 0.5
 
-        # Checking deviations
         if abs(qq - expected_qq).value_in_unit(openmm.unit.elementary_charge**2) > 1e-5:
             logger.info("Problem with LJ-14 scaling")
             logger.info("Actual qq: %s", qq)
@@ -1350,17 +1233,13 @@ def create_sys_and_check_14_scaling_nonbonding(
 
 def calc_nonbonding_energy_exceptions(system=None):
 
-    # Find NonbondedForce in system
     for force in system.getForces():
         if isinstance(force, openmm.NonbondedForce):
             break
-    # Coulomb and LJ energies
     coulomb_energy = 0.0
     lj_energy = 0.0
 
-    # Looping over exceptions
     for exception_index in range(force.getNumExceptions()):
-        # Get the pair parameters
         _atom1, _atom2, qq, _sigma, epsilon = force.getExceptionParameters(exception_index)
         # if 0.0 then should be 1-2 or 1-3 interaction
         if epsilon._value == 0.0:
@@ -1369,12 +1248,10 @@ def calc_nonbonding_energy_exceptions(system=None):
         coulomb_energy += qq.value_in_unit(openmm.unit.elementary_charge**2)
         lj_energy += epsilon.value_in_unit(openmm.unit.kilojoule_per_mole)
 
-        # Return Coulomb energy and LJ energy
     return coulomb_energy, lj_energy
 
 
 def write_xmlfile_parmed(topology, system, xmlfilename):
-    # Load Parmed
     logger.info("Using Parmed to read topologyfiles")
     try:
         import parmed

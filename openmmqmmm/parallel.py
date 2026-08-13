@@ -19,9 +19,6 @@ from openmmqmmm.utils import sub_header
 logger = logging.getLogger(__name__)
 
 
-###############################################
-# CHECKS FOR OPENMPI
-###############################################
 def check_openmpi():
     # Find mpirun and take path
     try:
@@ -44,13 +41,7 @@ def verify_openmpi():
     logger.info("OpenMPI version (mpirun -V): %s", mpiversion)
 
 
-###############################################
-# MULTIPROCESS/MULTIPROCESSING handling
-###############################################
 def import_mp(version="multiprocessing"):
-    ###############################
-    # Multiprocessing Pool setup
-    ###############################
     # NOTE: Python 3.8 and higher use spawn in MacOS (openmmqmmm import problems). Unix/Linux uses fork
     if version == "multiprocessing":
         logger.info("Using version: multiprocessing")
@@ -74,9 +65,6 @@ def import_mp(version="multiprocessing"):
     return mp, Pool
 
 
-#########################################
-# Job_parallel: General PARALLEL function.
-#########################################
 # Used for standalone SP calculations and NumFreq
 # Can also be used for optimization and relaxed scans by providing Opt keyword or optimizer object
 
@@ -151,10 +139,6 @@ def job_parallel(
     else:
         fragmentfiles = []
 
-    ###############################
-    # Multiprocessing Pool setup
-    ###############################
-
     # Import multiprocess/multiprocessing library
     mp, Pool = import_mp(version=version)
 
@@ -171,9 +155,6 @@ def job_parallel(
     manager = mp.Manager()
     event = manager.Event()
 
-    ##############################################################
-    # Calling Pool for different fragment vs. theory scenarios
-    ###############################################################
     results = []
 
     def submit(**job):
@@ -262,13 +243,6 @@ def job_parallel(
             pool.terminate()
             break
 
-    ##############################################################
-    # END OF POOL
-    ###############################################################
-
-    ###########
-    # RESULTS
-    ###########
     # Going through each result-object and adding to energy_dict if ready
     # This prevents hanging for ApplyResult.get() if Pool did not finish correctly
     energy_dict = {}
@@ -328,13 +302,11 @@ def job_parallel(
             "Check the worker output above for the underlying exception."
         )
 
-    # TODO: JSON-array problem, reenable later
     return final_result
 
 
 # Worker_par for both Singlepoint-type and Opt-type jobs
 # NOTE: Version intended for apply_async
-# TODO: This function contains 2 many QM-code specifics. Needs to be generalized (QM-specifics moved to QMtheory class)
 def worker_par(
     fragment=None,
     fragmentfile=None,
@@ -367,9 +339,6 @@ def worker_par(
         logger.info("Reading fragmentfile from disk")
         fragment = Fragment(fragfile=fragmentfile)
 
-    ###############################
-    # Labels distinguishing jobs
-    ###############################
     # Making label flexible. Can be tuple but inputfilename is converted to string below
     logger.info(f"label: {label} (type {type(label)})")
     if label is None:
@@ -379,7 +348,6 @@ def worker_par(
     # Using label (could be tuple) to create a labelstring which is used to name worker directories
     # Tuple-label (1 or 2 elements).
     # Otherwise normally string
-    # TODO: Needs to be generalized.  Remove RC1, RC2 strings
     moreadfile_path = None
     if isinstance(label, tuple):
         if len(label) == 2:
@@ -389,7 +357,6 @@ def worker_par(
         logger.info("Labelstring: %s", labelstring)
         # RC1_0.9-RC2_170.0.xyz
         # orca_RC1_0.9RC2_170.0.gbw
-        # TODO: what if tuple is only a single number???
 
         if mofilesdir is not None:
             logger.info("Mofilesdir option.")
@@ -412,8 +379,6 @@ def worker_par(
         # Label is not tuple. String or single number
         labelstring = str(label).replace(".", "_")
 
-    ###############################
-    # TODO: Need to revisit all of this, ideally remove
     if mofilesdir is not None:
         if theory.__class__.__name__ != "ORCATheory":
             raise InputError(f"The mofilesdir option is only supported for ORCATheory, not {theory.__class__.__name__}")
@@ -425,9 +390,6 @@ def worker_par(
         theory.moreadfile = moreadfile_path + ".gbw"
         logger.info("Setting moreadfile to: %s", theory.moreadfile)
 
-    ####################################
-    # Handling Directory
-    ####################################
     # Creating new dir and running calculation inside
     worker_dirname = "Pooljob_" + labelstring
     try:
@@ -442,9 +404,6 @@ def worker_par(
             f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
         )
 
-        #####################
-        # RUN WORKER JOB
-        #####################
         # Create property dict containing some results except energy and gradient
         properties = {}
         # Optimizer
@@ -476,7 +435,6 @@ def worker_par(
             energy = theory.run(
                 current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult
             )
-        #####################
 
         logger.info("Energy:  %s", energy)
 

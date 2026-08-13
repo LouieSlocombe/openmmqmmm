@@ -15,30 +15,23 @@ def test_fragread():
     F 0.0 0.0 1.0
     """
     HF_frag = Fragment(coordsstring=fragcoords)
-    ####################################################
     # From lists
     elems = ["H", "Cl"]
     coords = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.9]]
     HCl_frag = Fragment(elems=elems, coords=coords)
-    ##############################
     # From np array
     elems2 = ["H", "Cl"]
     coords2 = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.9]])
     HCl_frag_np = Fragment(elems=elems2, coords=coords2)
-    ##############################
     # From XYZ file
     HI_frag = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/hi.xyz")
-    #######################################
     # New frag from fragcoords directly
     HF_frag2 = Fragment(coordsstring=fragcoords)
-    ##################################
     # Replace coordinates in fragment
     elems = ["H", "Cl"]
     coords = [[0.0, 0.0, 0.0], [0.0, 0.0, 1.1]]
     HCl_frag.replace_coords(elems, coords)
-    ##############################
 
-    #########################
     # Recalculate connectivity
     HCl_frag.calc_connectivity()
     print(HCl_frag.connectivity)
