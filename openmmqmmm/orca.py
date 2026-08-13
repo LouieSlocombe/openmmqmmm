@@ -457,74 +457,11 @@ end
         if numcores is None:
             numcores = self.numcores
 
-        if self.basis_per_element is not None:
-            basisstring = ""
-            for el, b in self.basis_per_element.items():
-                basisstring += f'newgto {el} "{b}" end\n'
-            basisblock = f"""
-%basis
-{basisstring}
-end"""
-
-            if basisblock not in self.orcablocks:
-                self.orcablocks = self.orcablocks + basisblock
-
-        if self.ecp_dict is not None:
-            bstring = ""
-            for b in self.ecp_dict.values():
-                for x in b:
-                    bstring += f"{x}"
-            ecpbasisblock = f"""
-%basis
-{bstring}
-end"""
-            if ecpbasisblock not in self.orcablocks:
-                self.orcablocks = self.orcablocks + ecpbasisblock
+        self._append_basis_blocks()
 
         logger.info(f"Running ORCA with {numcores} cores available")
 
-        if self.moreadfile is not None:
-            logger.info(f"Moreadfile option active. File path: {self.moreadfile}")
-            if os.path.isfile(self.moreadfile) is True:
-                logger.info(f"File exists in current directory: {os.getcwd()}")
-            else:
-                logger.info(f"File does not exist in current directory: {os.getcwd()}")
-                if os.path.isabs(self.moreadfile) is True:
-                    raise FileFormatError("Error: Absolute path provided but file does not exists. Exiting")
-                logger.info("Checking if file exists in parentdir instead:")
-                if os.path.isfile(f"../{self.moreadfile}") is True:
-                    logger.info("Yes. Copying file to current dir")
-                    shutil.copy(f"../{self.moreadfile}", f"./{self.moreadfile}")
-        else:
-            logger.info("Moreadfile option not active")
-            if os.path.isfile(f"{self.filename}.gbw") is False:
-                logger.info(f"No {self.filename}.gbw file is present in dir.")
-                if self.path_to_last_gbwfile_used is not None:
-                    logger.info(
-                        f"Found a path ({self.path_to_last_gbwfile_used}) to last GBW-file used by this Theory object. "
-                        f"Will try to copy this file do current dir"
-                    )
-                    try:
-                        shutil.copy(self.path_to_last_gbwfile_used, f"./{self.filename}.gbw")
-                    except FileNotFoundError:
-                        logger.info("File was not found. May have been deleted")
-                    if self.autostart is False:
-                        logger.info("Autostart option is False. ORCA will ignore this file")
-                    else:
-                        logger.info("Autostart feature is active. ORCA will read GBW-file present.")
-                else:
-                    logger.info(f"Checking if a file {self.filename}.gbw exists in parentdir:")
-                    if os.path.isfile(f"../{self.filename}.gbw") is True:
-                        logger.info("Yes. Copying file from parentdir to current dir")
-                        shutil.copy(f"../{self.filename}.gbw", f"./{self.filename}.gbw")
-                    else:
-                        logger.info("Found no file. ORCA will guess new orbitals")
-            else:
-                logger.info(f"A GBW-file with same basename : {self.filename}.gbw is present")
-                if self.autostart is False:
-                    logger.info("Autostart is False. ORCA will ignore any file present")
-                else:
-                    logger.info("Autostart feature is active. ORCA will read GBW-file present.")
+        self._prepare_orbital_guess()
 
         extraline = self.extraline + "\n" + self.first_iteration_input if self.runcalls == 1 else self.extraline
 
@@ -806,6 +743,79 @@ end"""
         logger.info("------------ENDING ORCA-INTERFACE-------------")
         log_time_since(module_init_time, "ORCA run")
         return self.energy
+
+    def _append_basis_blocks(self):
+        """Append per-element basis and ECP blocks to orcablocks, if not already present."""
+        if self.basis_per_element is not None:
+            basisstring = ""
+            for el, b in self.basis_per_element.items():
+                basisstring += f'newgto {el} "{b}" end\n'
+            basisblock = f"""
+%basis
+{basisstring}
+end"""
+            if basisblock not in self.orcablocks:
+                self.orcablocks = self.orcablocks + basisblock
+
+        if self.ecp_dict is not None:
+            bstring = ""
+            for b in self.ecp_dict.values():
+                for x in b:
+                    bstring += f"{x}"
+            ecpbasisblock = f"""
+%basis
+{bstring}
+end"""
+            if ecpbasisblock not in self.orcablocks:
+                self.orcablocks = self.orcablocks + ecpbasisblock
+
+    def _prepare_orbital_guess(self):
+        """Put a GBW file where ORCA will find it, or let it guess new orbitals."""
+        if self.moreadfile is not None:
+            logger.info(f"Moreadfile option active. File path: {self.moreadfile}")
+            if os.path.isfile(self.moreadfile) is True:
+                logger.info(f"File exists in current directory: {os.getcwd()}")
+                return
+            logger.info(f"File does not exist in current directory: {os.getcwd()}")
+            if os.path.isabs(self.moreadfile) is True:
+                raise FileFormatError("Error: Absolute path provided but file does not exists. Exiting")
+            logger.info("Checking if file exists in parentdir instead:")
+            if os.path.isfile(f"../{self.moreadfile}") is True:
+                logger.info("Yes. Copying file to current dir")
+                shutil.copy(f"../{self.moreadfile}", f"./{self.moreadfile}")
+            return
+
+        logger.info("Moreadfile option not active")
+        if os.path.isfile(f"{self.filename}.gbw") is True:
+            logger.info(f"A GBW-file with same basename : {self.filename}.gbw is present")
+            if self.autostart is False:
+                logger.info("Autostart is False. ORCA will ignore any file present")
+            else:
+                logger.info("Autostart feature is active. ORCA will read GBW-file present.")
+            return
+
+        logger.info(f"No {self.filename}.gbw file is present in dir.")
+        if self.path_to_last_gbwfile_used is None:
+            logger.info(f"Checking if a file {self.filename}.gbw exists in parentdir:")
+            if os.path.isfile(f"../{self.filename}.gbw") is True:
+                logger.info("Yes. Copying file from parentdir to current dir")
+                shutil.copy(f"../{self.filename}.gbw", f"./{self.filename}.gbw")
+            else:
+                logger.info("Found no file. ORCA will guess new orbitals")
+            return
+
+        logger.info(
+            f"Found a path ({self.path_to_last_gbwfile_used}) to last GBW-file used by this Theory object. "
+            f"Will try to copy this file do current dir"
+        )
+        try:
+            shutil.copy(self.path_to_last_gbwfile_used, f"./{self.filename}.gbw")
+        except FileNotFoundError:
+            logger.info("File was not found. May have been deleted")
+        if self.autostart is False:
+            logger.info("Autostart option is False. ORCA will ignore this file")
+        else:
+            logger.info("Autostart feature is active. ORCA will read GBW-file present.")
 
 
 def _looks_like_orca_dir(directory):
