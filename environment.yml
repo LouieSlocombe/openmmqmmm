@@ -28,11 +28,11 @@ dependencies:
       - geometric >=1.0.1
 # Optional extras — uncomment as needed:
 #  - openbabel           # ligand format conversion (mol_to_pdb, small_molecule_parameterizer, ...)
-#  - matplotlib          # metadynamics plots / Plot
+#  - matplotlib          # Plot
 #  - scipy               # occupation-entropy analysis in ORCATheory
 #  - parmed              # Amber/GROMACS prmtop handling in OpenMMTheory
 #  - openmmforcefields   # small_molecule_parameterizer (with openff-toolkit and rdkit)
 #  - openff-toolkit
 #  - rdkit
-#  - openmm-plumed       # PLUMED-biased MD (openmm_md_plumed)
+#  - openmm-plumed       # PLUMED-biased MD / metadynamics (openmm_md_plumed)
 #  - multiprocess        # alternative multiprocessing backend for job_parallel

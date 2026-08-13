@@ -15,8 +15,8 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 - `ORCATheory` — interface to ORCA (input generation, parallel runs, output parsing)
 - `OpenMMTheory` — interface to OpenMM, plus `openmm_md` (molecular dynamics, also for QM/MM),
   `openmm_modeller` (pdbfixer-based protein setup), `openmm_minimize`,
-  `openmm_box_equilibration`, `gentle_warmup_md`, metadynamics
-  (`openmm_metadynamics`, `openmm_md_plumed`), `solvate_small_molecule` and
+  `openmm_box_equilibration`, `gentle_warmup_md`, `openmm_md_plumed`
+  (PLUMED-biased MD, i.e. metadynamics), `solvate_small_molecule` and
   `small_molecule_parameterizer`
 - `QMMMTheory` — electrostatically embedded QM/MM with link atoms and charge-shifting
 - `single_point` (+ fragment/theory/reaction variants), `job_parallel`
@@ -64,7 +64,7 @@ pip install .
 
 | Package | Needed for |
 |---|---|
-| `matplotlib` | `Plot`, `metadynamics_plot_data` |
+| `matplotlib` | `Plot` |
 | `scipy` | electronic-entropy analysis in `ORCATheory` |
 | `parmed` | Amber/GROMACS file handling in `OpenMMTheory` |
 | `openbabel` | ligand format conversion (`mol_to_pdb`, `small_molecule_parameterizer`, ...) |

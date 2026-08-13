@@ -1,6 +1,5 @@
 """OpenMMTheory: the OpenMM system, its forces, and MM energies and gradients."""
 
-import copy
 import logging
 import os
 import time
@@ -1371,104 +1370,6 @@ class OpenMMTheory:
                 i, j, d * openmm.unit.angstroms, k * openmm.unit.kilocalories_per_mole / openmm.unit.angstroms**2
             )
         self.system.addForce(new_restraints)
-
-    # Z_cc: length of cone part
-    # R_cylinder: radius of cylinder part
-    # alpha: angle of cone in degrees
-    # k_xy: force constant in kcal/mol/r2
-    # force_group ??
-    def add_funnel_restraint(
-        self, host_index, guest_index, k_xy=10.0, z_cc=11.0, alpha=35.0, r_cylinder=1.0, force_group=10
-    ):
-        """Add a funnel-shaped restraint for funnel-metadynamics binding studies.
-
-        Confines the guest to a cone near the binding site that widens into a cylinder in bulk.
-
-        Args:
-            host_index: index of a host reference atom.
-            guest_index: index of a guest reference atom.
-            k_xy: force constant of the lateral restraint.
-            z_cc: distance along the funnel axis where the cone becomes a cylinder.
-            alpha: cone opening angle in degrees.
-            r_cylinder: radius of the cylindrical section.
-            force_group: OpenMM force group the restraint is assigned to.
-        """
-        logger.info("Adding funnel restraint potential")
-        # Funnel potential string expression
-        funnel = openmm.CustomCentroidBondForce(
-            2,
-            "U_funnel + U_cylinder;"
-            "U_funnel = step(z_cc - abs(r_z))*step(r_xy - R_funnel)*Wall;"
-            "U_cylinder = step(abs(r_z) - z_cc)*step(r_xy - R_cylinder)*Wall;"
-            "Wall = 0.5 * k_xy * r_xy^2;"
-            "R_funnel = (z_cc-abs(r_z))*tan(alpha) + R_cylinder;"
-            "r_xy = sqrt((x2 - x1)^2 + (y2 - y1)^2);"
-            "r_z = z2 - z1;",
-        )
-        funnel.setUsesPeriodicBoundaryConditions(False)
-        funnel.setForceGroup(force_group)
-
-        # Funnel parameters
-        funnel.addGlobalParameter("k_xy", k_xy * openmm.unit.kilocalorie_per_mole / openmm.unit.angstrom**2)
-        funnel.addGlobalParameter("z_cc", z_cc * openmm.unit.angstrom)
-        funnel.addGlobalParameter("alpha", alpha * openmm.unit.degrees)
-        funnel.addGlobalParameter("R_cylinder", r_cylinder * openmm.unit.angstrom)
-
-        # Add host and guest indices
-        g1 = funnel.addGroup(host_index, [1.0 for i in range(len(host_index))])
-        g2 = funnel.addGroup(guest_index, [1.0 for i in range(len(guest_index))])
-
-        # Add bond
-        funnel.addBond([g1, g2], [])
-
-        # Add force to system
-        self.system.addForce(funnel)
-
-    # For restraining CVs, used by metadynamics
-    # NOTE: Assuming Angstrom and kcal/mol^2 here like for regular restraints
-    # NOTE: Dihedrals not supported (unclear if useful). Angles are and units are radians
-    def add_cv_restraint(self, cvforce, restraint_par, cvtype):
-        # Make copy of CVforce (otherwise we can not use it also in restraint)
-        """Restrain a collective variable used in metadynamics.
-
-        Args:
-            cvforce: the force defining the collective variable.
-            restraint_par: restraint parameters, interpreted according to cvtype.
-            cvtype: kind of restraint, e.g. "upper_wall" or "lower_wall".
-        """
-        cvforce_copy = copy.copy(cvforce)
-        # TODO: periodic CV vs non-periodic
-        if cvtype in {"dihedral", "torsion"}:
-            raise InputError("Adding CV restraints for dihedrals is not available!")
-            # Not sure whether there is ever a need
-        if cvtype == "angle":
-            # Would need var_unit = openmm.unit.radian with the same flat-bottom expression
-            raise InputError("Adding CV restraints for angles is not available!")
-        if cvtype in {"bond", "distance", "rmsd"}:
-            energy_expression = "(k/2)*max(0, var-var_max)^2"
-            logger.info("CV type: bond/rmsd")
-            logger.info("Note: unit assumed be in Angstrom")
-            var_unit = openmm.unit.angstroms
-            var_unit_label = "Å"
-        elif cvtype.lower() == "cn":
-            energy_expression = "(k/2)*max(0, var-var_max)^2"
-            logger.info("CV type: CN")
-            var_unit = 1.0
-            var_unit_label = " "
-        else:
-            raise InputError("Error: unknown cvtype for add_CV_restraint")
-        # Energy unit
-        energy_unit = openmm.unit.kilocalories_per_mole / openmm.unit.angstroms**2
-        energy_unit_label = "kcal/mol*Å^-2"
-        # Periodic:
-        logger.info("Adding restraint with energy expression: %s", energy_expression)
-        logger.info(f"Max value (var_max): {restraint_par[0]} {var_unit_label}")
-        logger.info(f"Force constant (k) : {restraint_par[1]} {energy_unit_label}")
-        restraint_force_CV = openmm.CustomCVForce(energy_expression)
-        restraint_force_CV.addCollectiveVariable("var", cvforce_copy)
-        restraint_force_CV.addGlobalParameter("var_max", restraint_par[0] * var_unit)
-        restraint_force_CV.addGlobalParameter("k", restraint_par[1] * energy_unit)
-        self.system.addForce(restraint_force_CV)
 
     # Write XML-file for full system
     def save_xml(self, xmlfile="system_full.xml"):

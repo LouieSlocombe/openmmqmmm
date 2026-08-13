@@ -87,7 +87,7 @@ def test_no_call_site_passes_an_unknown_keyword():
 
 @pytest.mark.parametrize(
     "entry_point",
-    ["openmm_md", "openmm_box_equilibration", "openmm_metadynamics", "openmm_md_plumed"],
+    ["openmm_md", "openmm_box_equilibration", "openmm_md_plumed"],
 )
 def test_md_entry_points_forward_every_argument_they_accept(entry_point):
     """The MD wrappers restate the engine's parameters; none may be silently dropped.

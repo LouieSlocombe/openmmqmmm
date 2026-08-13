@@ -12,11 +12,8 @@ import openmm
 import openmm.app
 import openmm.unit
 
-import openmmqmmm.constants
-import openmmqmmm.parallel
-import openmmqmmm.plotting
+import openmmqmmm
 from openmmqmmm.coords import (
-    Fragment,
     change_origin_to_centroid,
     check_charge_mult,
     check_gradient_for_bad_atoms,
@@ -36,7 +33,6 @@ from openmmqmmm.utils import (
     log_time_since,
     main_header,
     small_header,
-    writestringtofile,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,7 +113,6 @@ def openmm_md(
     solute_indices=None,
     datafilename=None,
     dummy_mm=False,
-    plumed_object=None,
     add_centerforce=False,
     centerforce_atoms=None,
     centerforce_constant=1.0,
@@ -152,7 +147,7 @@ def openmm_md(
 class MolecularDynamicsEngine:
     """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD).
 
-    Usually created via the openmm_md / openmm_metadynamics functions.
+    Usually created via the openmm_md / openmm_md_plumed functions.
     """
 
     def __init__(
@@ -192,7 +187,6 @@ class MolecularDynamicsEngine:
         solute_indices=None,
         datafilename=None,
         dummy_mm=False,
-        plumed_object=None,
         add_centerforce=False,
         centerforce_atoms=None,
         centerforce_constant=1.0,
@@ -337,16 +331,11 @@ class MolecularDynamicsEngine:
         self.timestep = timestep
         self.traj_frequency = int(traj_frequency)
         self.restartfile_frequency = restartfile_frequency
-        self.plumed_object = plumed_object
         self.barostat_frequency = barostat_frequency
         self.trajectory_file_option = trajectory_file_option
         self.force_file_option = force_file_option  # Gradients/forces as a file
         self.energy_file_option = energy_file_option  # Energies as a file
         self.atomic_units_force_reporter = atomic_units_force_reporter  # Forces in atomic units
-        self.user_cvforce1 = None  # Initializing possibility of user CV object
-        self.user_biasvar1 = None  # Initializing possibility of user biasvariable
-        self.user_cvforce2 = None  # Initializing possibility of user CV object
-        self.user_biasvar2 = None  # Initializing possibility of user biasvariable
         # PERIODIC or not
         if self.openmmobject.periodic is True:
             # Generally we want True except sometimes we do our own wrapping
@@ -528,13 +517,6 @@ class MolecularDynamicsEngine:
         else:
             self.dataoutputoption = stdout
 
-        # NOTE: Better to use OpenMM-plumed interface instead??
-        if plumed_object is not None:
-            logger.info("Plumed active")
-            # Create new OpenMM custom external force
-            logger.info("Creating new OpenMM custom external force for Plumed.")
-            self.plumedcustomforce = self.openmmobject.add_custom_external_force()
-
         # QM/MM MD
         # if self.QM_MM_object is not None:
         #    #True sometimes means we end up with solute in corner of box (wrong for nonPBC QM code)
@@ -674,61 +656,6 @@ class MolecularDynamicsEngine:
                 os.remove(self.energy_file_option)
         logger.debug("Simulation reporters: %s", simulation.reporters)
 
-    # For OpenMM native MTD
-    def mtd_step(self, step, meta_object, metadyn_settings):
-        """Advance the metadynamics simulation by one bias-deposition interval.
-
-        Args:
-            step: current MD step number, used to decide when the collective variables
-                are flushed to disk.
-            meta_object: the OpenMM Metadynamics object depositing the bias.
-            metadyn_settings: metadynamics settings — collective-variable types and the
-                saveFrequency/frequency pair controlling how often CVs are written.
-        """
-        checkpoint = time.time()
-        cv1scaling = 1
-        cv2scaling = 1
-        meta_object.step(self.simulation, 1)
-        log_time_since(checkpoint, "mtd sim step")
-        checkpoint = time.time()
-
-        # getCollectiveVariables
-        if step % metadyn_settings["saveFrequency"] * metadyn_settings["frequency"] == 0:
-            logger.info("MTD: Writing current collective variables to disk")
-            current_cv = meta_object.getCollectiveVariables(self.simulation)
-            if (
-                metadyn_settings["CV1_type"] == "distance"
-                or metadyn_settings["CV1_type"] == "bond"
-                or metadyn_settings["CV1_type"] == "rmsd"
-            ):
-                cv1scaling = 10
-            elif (
-                metadyn_settings["CV1_type"] == "dihedral"
-                or metadyn_settings["CV1_type"] == "torsion"
-                or metadyn_settings["CV1_type"] == "angle"
-            ):
-                cv1scaling = 180 / np.pi
-            if (
-                metadyn_settings["CV2_type"] == "distance"
-                or metadyn_settings["CV2_type"] == "bond"
-                or metadyn_settings["CV2_type"] == "rmsd"
-            ):
-                cv2scaling = 10
-            elif (
-                metadyn_settings["CV2_type"] == "dihedral"
-                or metadyn_settings["CV2_type"] == "torsion"
-                or metadyn_settings["CV2_type"] == "angle"
-            ):
-                cv2scaling = 180 / np.pi
-            currtime = step * self.timestep  # Time in ps
-            with open("colvar", "a") as f:
-                if metadyn_settings["numCVs"] == 2:
-                    f.write(f"{currtime} {current_cv[0] * cv1scaling} {current_cv[1] * cv2scaling}\n")
-                elif metadyn_settings["numCVs"] == 1:
-                    f.write(f"{currtime} {current_cv[0] * cv1scaling}\n")
-        log_time_since(checkpoint, "mtd colvar-flush")
-        checkpoint = time.time()
-
     def write_state_and_chk_files(self, step):
         # Saving state and chkfile to disk
         """Write the OpenMM state (XML) and checkpoint files so a run can be restarted."""
@@ -743,17 +670,11 @@ class MolecularDynamicsEngine:
         self.simulation.saveCheckpoint("OpenMM_MD_checkpoint.chk")
 
     # Simulation loop.
-    # NOTE: process_id passed by Simple_parallel function when doing multiprocessing, e.g. Plumed multiwalker
-    # metadynamics
     def run(
         self,
         simulation_steps=None,
         simulation_time=None,
-        metadynamics=False,
-        metadyn_settings=None,
         plumedinput=None,
-        process_id=None,
-        workerdir=None,
         restraints=None,
         restart=False,
         chkfile=None,
@@ -764,15 +685,7 @@ class MolecularDynamicsEngine:
         Args:
             simulation_steps: number of steps to run; overrides simulation_time.
             simulation_time: simulation length in ps, converted using the timestep.
-            metadynamics: run OpenMM-native metadynamics rather than plain MD.
-            metadyn_settings: metadynamics settings (collective variables, deposition
-                frequency, ...) used when metadynamics is True.
-            plumedinput: Plumed input as a string. WALKERID in it is substituted with
-                process_id for multiwalker runs.
-            process_id: worker index, passed by the parallel driver for multiwalker
-                Plumed runs. Defaults to 0.
-            workerdir: directory to change into before running, so parallel workers do
-                not overwrite each other's output.
+            plumedinput: Plumed input as a string, defining the bias to apply.
             restraints: bond restraints to add to the system before running.
             restart: reuse the already-defined simulation object and append to the
                 existing reporter files instead of starting fresh.
@@ -805,145 +718,13 @@ class MolecularDynamicsEngine:
         # CREATE SIMULATION OBJECT
         ##################################
 
-        # Parallelization handling
-        if process_id is None:
-            process_id = 0
-        if workerdir is not None:
-            logger.info(f"Workerdir: {workerdir} provided. Entering dir")
-            os.chdir(workerdir)
-
         # If using Plumed then now we add Plumed-force to system from plumedinput string
         if plumedinput is not None:
             import openmmplumed
 
             logger.info("Plumed active. Adding Plumedforce to system")
-            if process_id is not None:
-                logger.info(f"process_id ({process_id}) passed to md.run. Assuming multiwalker Plumed MD run")
-                logger.info("plumedinput: %s", plumedinput)
-                plumedinput = plumedinput.replace("WALKERID", str(process_id))
-                logger.info("plumedinput: %s", plumedinput)
-                writestringtofile(plumedinput, "plumedinput.in")
+            logger.info("plumedinput: %s", plumedinput)
             self.openmmobject.system.addForce(openmmplumed.PlumedForce(plumedinput))
-
-        # Case native OpenMM metadynamcis
-        if metadynamics is True:
-            biasdir = metadyn_settings["biasdir"]
-            with contextlib.suppress(OSError):
-                os.remove("colvar")
-            # Reference positions for RMSD. Currently limited to starting position
-            if metadyn_settings["CV1_type"] == "rmsd" or metadyn_settings["CV2_type"] == "rmsd":
-                if metadyn_settings["reference_xyzfile"] is None:
-                    logger.info("No reference_xyzfile was provided for RMSD-CV. Using input coordinates as reference")
-                    coords_nm = self.fragment.coords * 0.1  # converting from Angstrom to nm
-                    reference_pos = [
-                        openmm.Vec3(coords_nm[i, 0], coords_nm[i, 1], coords_nm[i, 2]) for i in range(len(coords_nm))
-                    ] * openmm.unit.nanometer
-                else:
-                    logger.info("A reference_xyzfile was provided for RMSD-CV. Using")
-                    logger.info("Reading XYZ-file: %s", metadyn_settings["reference_xyzfile"])
-                    ref_frag = Fragment(xyzfile=metadyn_settings["reference_xyzfile"])
-                    coords_nm = ref_frag.coords * 0.1  # converting from Angstrom to nm
-                    reference_pos = [
-                        openmm.Vec3(coords_nm[i, 0], coords_nm[i, 1], coords_nm[i, 2]) for i in range(len(coords_nm))
-                    ] * openmm.unit.nanometer
-            else:
-                reference_pos = None
-            # Creating meta_object from settings provided
-            if metadyn_settings["numCVs"] == 2:
-                # Creating CV biasvariables and forces
-                CV1_bias, cvforce_1 = create_cv_bias(
-                    metadyn_settings["CV1_type"],
-                    metadyn_settings["CV1_atoms"],
-                    metadyn_settings["CV1_biaswidth"],
-                    cv_range=metadyn_settings["CV1_range"],
-                    reference_pos=reference_pos,
-                    reference_particles=metadyn_settings["CV1_atoms"],
-                    user_cvforce=self.user_cvforce1,
-                    user_biasvar=self.user_biasvar1,
-                    cv_parameters=metadyn_settings["CV1_parameters"],
-                )
-                CV2_bias, cvforce_2 = create_cv_bias(
-                    metadyn_settings["CV2_type"],
-                    metadyn_settings["CV2_atoms"],
-                    metadyn_settings["CV2_biaswidth"],
-                    cv_range=metadyn_settings["CV2_range"],
-                    reference_pos=reference_pos,
-                    reference_particles=metadyn_settings["CV2_atoms"],
-                    user_cvforce=self.user_cvforce2,
-                    user_biasvar=self.user_biasvar2,
-                    cv_parameters=metadyn_settings["CV2_parameters"],
-                )
-
-                # Gridwidth and min/max values now set. Adding to dict
-                metadyn_settings["CV1_gridwidth"] = CV1_bias.gridWidth
-                metadyn_settings["CV2_gridwidth"] = CV2_bias.gridWidth
-                metadyn_settings["CV1_minvalue"] = CV1_bias.minValue
-                metadyn_settings["CV1_maxvalue"] = CV1_bias.maxValue
-                metadyn_settings["CV2_minvalue"] = CV2_bias.minValue
-                metadyn_settings["CV2_maxvalue"] = CV2_bias.maxValue
-                ##Possible flatbottom or other restraint accompanying CV
-                if metadyn_settings["flatbottom_restraint_CV1"] is not None:
-                    logger.info("Adding flatbottom restraint for CV1")
-                    self.openmmobject.add_cv_restraint(
-                        cvforce_1, metadyn_settings["flatbottom_restraint_CV1"], metadyn_settings["CV2_type"]
-                    )
-                if metadyn_settings["flatbottom_restraint_CV2"] is not None:
-                    logger.info("Adding flatbottom restraint for CV2")
-                    self.openmmobject.add_cv_restraint(
-                        cvforce_2, metadyn_settings["flatbottom_restraint_CV2"], metadyn_settings["CV2_type"]
-                    )
-
-                meta_object = openmm.app.Metadynamics(
-                    self.openmmobject.system,
-                    [CV1_bias, CV2_bias],
-                    metadyn_settings["temperature"],
-                    metadyn_settings["biasfactor"],
-                    metadyn_settings["height"],
-                    metadyn_settings["frequency"],
-                    saveFrequency=metadyn_settings["saveFrequency"],
-                    biasDir=metadyn_settings["biasdir"],
-                )
-            elif metadyn_settings["numCVs"] == 1:
-                # Creating CV biasvariable and force
-                CV1_bias, cvforce_1 = create_cv_bias(
-                    metadyn_settings["CV1_type"],
-                    metadyn_settings["CV1_atoms"],
-                    metadyn_settings["CV1_biaswidth"],
-                    cv_range=metadyn_settings["CV1_range"],
-                    reference_pos=reference_pos,
-                    reference_particles=metadyn_settings["CV1_atoms"],
-                    user_cvforce=self.user_cvforce1,
-                    user_biasvar=self.user_biasvar1,
-                    cv_parameters=metadyn_settings["CV1_parameters"],
-                )
-                # Gridwidth and min/max values now set. Adding to dict
-                metadyn_settings["CV1_gridwidth"] = CV1_bias.gridWidth
-                metadyn_settings["CV1_minvalue"] = CV1_bias.minValue
-                metadyn_settings["CV1_maxvalue"] = CV1_bias.maxValue
-                metadyn_settings["CV2_gridwidth"] = None
-                ##Possible flatbottom or other restraint accompanying CV
-                if metadyn_settings["flatbottom_restraint_CV1"] is not None:
-                    logger.info("Adding flatbottom restraint for CV1")
-                    self.openmmobject.add_cv_restraint(
-                        cvforce_1, metadyn_settings["flatbottom_restraint_CV1"], metadyn_settings["CV1_type"]
-                    )
-
-                meta_object = openmm.app.Metadynamics(
-                    self.openmmobject.system,
-                    [CV1_bias],
-                    metadyn_settings["temperature"],
-                    metadyn_settings["biasfactor"],
-                    metadyn_settings["height"],
-                    metadyn_settings["frequency"],
-                    saveFrequency=metadyn_settings["saveFrequency"],
-                    biasDir=metadyn_settings["biasdir"],
-                )
-
-            # Writing metadyn_settings dict to disk
-            import json
-
-            with open(f"{biasdir}/MTD_parameters.txt", "w") as mtdfh:
-                json.dump(metadyn_settings, mtdfh)
 
         # Possible restraints added
         if restraints is not None:
@@ -1200,15 +981,9 @@ class MolecularDynamicsEngine:
                 # Now take OpenMM step (E+G + displacement etc.)
                 checkpoint = time.time()
 
-                # OpenMM metadynamics
-                if metadynamics is True:
-                    logger.info("Now calling OpenMM native metadynamics and taking 1 step")
-                    self.mtd_step(step, meta_object, metadyn_settings)
-                else:
-                    self.simulation.step(1)
-                    log_time_since(checkpoint, "openmmobject sim step")
-                    checkpoint = time.time()
-                    log_time_since(checkpoint_begin_step, "Total sim step")
+                self.simulation.step(1)
+                log_time_since(checkpoint, "openmmobject sim step")
+                log_time_since(checkpoint_begin_step, "Total sim step")
 
         # External QM for OpenMMtheory
         # TODO: Think about possible wrapping
@@ -1289,62 +1064,14 @@ class MolecularDynamicsEngine:
                     # Writing state and chk files
                     self.write_state_and_chk_files(step)
 
-                # OpenMM metadynamics
-                if metadynamics is True:
-                    logger.info("Now calling OpenMM native metadynamics and taking 1 step")
-                    meta_object.step(self.simulation, 1)
-
-                    # getCollectiveVariables
-                    cv1scaling = 1
-                    cv2scaling = 1
-                    if step % metadyn_settings["saveFrequency"] * metadyn_settings["frequency"] == 0:
-                        logger.info("MTD: Writing current collective variables to disk")
-                        current_cv = meta_object.getCollectiveVariables(self.simulation)
-                        if (
-                            metadyn_settings["CV1_type"] == "distance"
-                            or metadyn_settings["CV1_type"] == "bond"
-                            or metadyn_settings["CV1_type"] == "rmsd"
-                        ):
-                            cv1scaling = 10
-                        elif (
-                            metadyn_settings["CV1_type"] == "dihedral"
-                            or metadyn_settings["CV1_type"] == "torsion"
-                            or metadyn_settings["CV1_type"] == "angle"
-                        ):
-                            cv1scaling = 180 / np.pi
-                        if (
-                            metadyn_settings["CV2_type"] == "distance"
-                            or metadyn_settings["CV2_type"] == "bond"
-                            or metadyn_settings["CV2_type"] == "rmsd"
-                        ):
-                            cv2scaling = 10
-                        elif (
-                            metadyn_settings["CV2_type"] == "dihedral"
-                            or metadyn_settings["CV2_type"] == "torsion"
-                            or metadyn_settings["CV2_type"] == "angle"
-                        ):
-                            cv2scaling = 180 / np.pi
-                        currtime = step * self.timestep  # Time in ps
-                        with open("colvar", "a") as f:
-                            if metadyn_settings["numCVs"] == 2:
-                                f.write(f"{currtime} {current_cv[0] * cv1scaling} {current_cv[1] * cv2scaling}\n")
-                            elif metadyn_settings["numCVs"] == 1:
-                                f.write(f"{currtime} {current_cv[0] * cv1scaling}\n")
-                else:
-                    self.simulation.step(1)
+                self.simulation.step(1)
                 log_time_since(checkpoint, "OpenMM sim step")
                 log_time_since(checkpoint_begin_step, "Total sim step")
 
         elif self.theory_runtype == "MM":
-            logger.info("External QM with OpenMM option")
-            # OpenMM metadynamics
-            if metadynamics is True:
-                logger.info("Now calling OpenMM native metadynamics")
-                meta_object.step(self.simulation, simulation_steps)
-            else:
-                logger.info("Regular classical OpenMM MD option chosen.")
-                # Running all steps in one go
-                self.simulation.step(simulation_steps)
+            logger.info("Regular classical OpenMM MD option chosen.")
+            # Running all steps in one go
+            self.simulation.step(simulation_steps)
         else:
             raise InputError(
                 f"Error: Unrecognized Theory runtype ({self.theory_runtype}) for MD. This might mean that this theory "
@@ -1367,10 +1094,6 @@ class MolecularDynamicsEngine:
         # Close Statadatareporter file if open
         if self.datafilename is not None:
             self.dataoutputoption.close()
-
-        # Close Plumed also if active. Flushes HILLS/COLVAR etc.
-        if self.plumed_object is not None:
-            self.plumed_object.close()
 
         # GETTING positions, forces and energy of final frame
         self.state = self.simulation.context.getState(
@@ -1748,160 +1471,6 @@ def gentle_warmup_md(
 
     logger.info("Gentle_warm_up_MD finished successfully!")
     log_time_since(module_init_time, "Gentle_warm_up_MD")
-
-
-def create_cv_bias(
-    cv_type,
-    cv_atoms,
-    biaswidth_cv,
-    cv_range=None,
-    reference_pos=None,
-    reference_particles=None,
-    user_cvforce=None,
-    user_biasvar=None,
-    cv_parameters=None,
-):
-
-    logger.info("Inside create_CV_bias")
-    logger.info("CV_type: %s", cv_type)
-    logger.info("CV_atoms: %s", cv_atoms)
-    # TODO: Try changing dihedrals/angles to deg units
-    # Most of the time though there is no reason to specify CV min and max for these CVs as you want the full range
-    # However the biaswidth is also in
-    if cv_range is None:
-        logger.warning("No minx/max value range for CVchosen by user")
-        logger.info("Will choose reasonable values based on CV type:")
-        if cv_type in {"dihedral", "torsion"}:
-            CV_min_val = -np.pi
-            CV_max_val = np.pi
-            CV_unit = openmm.unit.radians
-            CV_unit_label = "rad"
-            biaswidth_cv_unit = openmm.unit.radians
-            biaswidth_cv_unit_label = "rad"
-        elif cv_type == "angle":
-            CV_min_val = 0
-            CV_max_val = np.pi
-            CV_unit = openmm.unit.radians
-            CV_unit_label = "rad"
-            biaswidth_cv_unit = openmm.unit.radians
-            biaswidth_cv_unit_label = "rad"
-        elif cv_type in {"distance", "bond", "rmsd"}:
-            CV_min_val = 0.0
-            CV_max_val = 5.0
-            CV_unit = openmm.unit.angstroms
-            CV_unit_label = "Å"
-            biaswidth_cv_unit = openmm.unit.angstroms
-            biaswidth_cv_unit_label = "Å"
-        elif cv_type.lower() == "cn":
-            CV_min_val = 0.0
-            CV_max_val = 5.0  # TODO
-            CV_unit = 1
-            CV_unit_label = "CN"
-            biaswidth_cv_unit = 1  # TODO
-            biaswidth_cv_unit_label = "CN"
-        elif cv_type.lower() == "custom":
-            CV_min_val = 0.0
-            CV_max_val = 5.0  # TODO
-            CV_unit = 1
-            CV_unit_label = "Custom"
-            biaswidth_cv_unit = 1  # TODO
-            biaswidth_cv_unit_label = "Custom"
-    else:
-        logger.info("CV range given.")
-        CV_min_val = cv_range[0]
-        CV_max_val = cv_range[1]
-        if cv_type in {"dihedral", "torsion", "angle"}:
-            CV_unit = openmm.unit.radians
-            CV_unit_label = "rad"
-            biaswidth_cv_unit = openmm.unit.radians
-            biaswidth_cv_unit_label = "rad"
-        elif cv_type in {"distance", "bond", "rmsd"}:
-            CV_unit = openmm.unit.angstroms
-            CV_unit_label = "Å"
-            biaswidth_cv_unit = openmm.unit.angstroms
-            biaswidth_cv_unit_label = "Å"
-        elif cv_type.lower() == "cn":
-            CV_unit = 1  # TODO
-            CV_unit_label = "CN"
-            biaswidth_cv_unit = 1  # TODO
-            biaswidth_cv_unit_label = "CN"
-        elif cv_type.lower() == "custom":
-            CV_unit = 1  # TODO
-            CV_unit_label = "Custom"
-            biaswidth_cv_unit = 1  # TODO
-            biaswidth_cv_unit_label = "Custom"
-    logger.info(f"CV_min_val: {CV_min_val} and CV_max_val: {CV_max_val} {CV_unit_label}")
-    logger.info(f"Biaswidth of CV: {biaswidth_cv} {biaswidth_cv_unit_label}")
-    # Define collective variables for CV1 and CV2.
-    if cv_type in {"dihedral", "torsion"}:
-        if len(cv_atoms) != 4:
-            raise InputError("Error: CV_atoms list must contain 4 atom indices")
-        cvforce = openmm.CustomTorsionForce("theta")
-        cvforce.addTorsion(*cv_atoms)
-        CV_bias = openmm.app.BiasVariable(
-            cvforce, CV_min_val * CV_unit, CV_max_val * CV_unit, biaswidth_cv * biaswidth_cv_unit, periodic=True
-        )
-    elif cv_type == "angle":
-        if len(cv_atoms) != 3:
-            raise InputError("Error: CV_atoms list must contain 3 atom indices")
-        cvforce = openmm.CustomAngleForce("theta")
-        cvforce.addAngle(*cv_atoms)
-        CV_bias = openmm.app.BiasVariable(
-            cvforce, CV_min_val * CV_unit, CV_max_val * CV_unit, biaswidth_cv * biaswidth_cv_unit, periodic=False
-        )
-    elif cv_type in {"distance", "bond"}:
-        if len(cv_atoms) != 2:
-            raise InputError("Error: CV_atoms list must contain 2 atom indices")
-        cvforce = openmm.CustomBondForce("r")
-        cvforce.addBond(*cv_atoms)
-        CV_bias = openmm.app.BiasVariable(
-            cvforce, CV_min_val * CV_unit, CV_max_val * CV_unit, biaswidth_cv * biaswidth_cv_unit, periodic=False
-        )
-    elif cv_type == "rmsd":
-        # http://docs.openmm.org/development/api-python/generated/openmm.openmm.RMSDForce.html
-        # reference_pos: A vector of atom positions
-        # reference_particles: atom indices used to calculate RMSD
-        cvforce = openmm.RMSDForce(reference_pos)
-        cvforce.setParticles(reference_particles)
-        CV_bias = openmm.app.BiasVariable(
-            cvforce, CV_min_val * CV_unit, CV_max_val * CV_unit, biaswidth_cv * biaswidth_cv_unit, periodic=False
-        )
-    elif cv_type.lower() == "cn":
-        logger.info("CV type is CN")
-
-        if cv_parameters is None:
-            raise InputError(
-                "Error: CV-type coordination number requires a threshold value (when the distance should not longer be "
-                "considered a bond)\nThis should be passed as a list using CV1_parameters/CV2_parameters, e.g. "
-                "CV1_parameters=[2.0]"
-            )
-        logger.info(f"List CV_parameters contains: {cv_parameters}. Using {cv_parameters[0]} as threshold")
-        # Defining custom cvforce
-        energy_expression = "1/(1+x^6) ; x=r/threshold"
-        cvforce = openmm.CustomBondForce(energy_expression)
-        # Threshold that defines when a bond is present
-        # Taking threshold from first number in CV_parameters list
-        cvforce.addGlobalParameter("threshold", cv_parameters[0] * openmm.unit.angstrom)
-
-        # Adding the atoms that define each bonds
-        for bond_indices in cv_atoms:
-            cvforce.addBond(*bond_indices)
-
-        # Creating Biasvariable: forceobj, minval, maxval, biaswidth
-        CV_bias = openmm.app.BiasVariable(
-            cvforce, CV_min_val * CV_unit, CV_max_val * CV_unit, biaswidth_cv * biaswidth_cv_unit, periodic=False
-        )
-
-    elif cv_type.lower() == "custom":
-        # User cv force with atoms already added
-        # cvforce
-        cvforce = user_cvforce
-        CV_bias = user_biasvar
-        logger.info("cvforce: %s", cvforce)
-        logger.info("CV_bias: %s", CV_bias)
-    else:
-        raise InputError("unsupported CV_type for native OpenMM metadynamics implementation")
-    return CV_bias, cvforce
 
 
 def diff_wrap_box_coords(coords_nm, boxvectors, mdtrajtopology, anchoratoms):

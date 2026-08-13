@@ -75,15 +75,11 @@ from .openmm import (
     MolecularDynamicsEngine,
     OpenMMTheory,
     check_gradient_for_bad_atoms,
-    free_energy_from_bias_array,
     gentle_warmup_md,
-    get_free_energy_from_biasfiles,
     merge_pdb_files,
-    metadynamics_plot_data,
     openmm_box_equilibration,
     openmm_md,
     openmm_md_plumed,
-    openmm_metadynamics,
     openmm_minimize,
     openmm_modeller,
     small_molecule_parameterizer,
@@ -96,7 +92,7 @@ from .orca import ORCATheory, orca_external_optimizer
 
 # Results dataclass
 # Parallel
-from .parallel import job_parallel, simple_parallel
+from .parallel import job_parallel
 
 # Plotting
 from .plotting import Plot
@@ -166,20 +162,15 @@ __all__ = [
     "single_point_theories",
     # Parallel
     "job_parallel",
-    "simple_parallel",
     # OpenMM workflows
     "gentle_warmup_md",
     "openmm_box_equilibration",
     "openmm_md",
     "openmm_md_plumed",
-    "openmm_metadynamics",
     "openmm_minimize",
     "openmm_modeller",
     "check_gradient_for_bad_atoms",
-    "free_energy_from_bias_array",
-    "get_free_energy_from_biasfiles",
     "merge_pdb_files",
-    "metadynamics_plot_data",
     "small_molecule_parameterizer",
     "solvate_small_molecule",
     # QM/MM helpers
