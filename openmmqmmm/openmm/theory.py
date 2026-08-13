@@ -58,6 +58,13 @@ NONBONDED_METHODS_PBC = {
     "CutoffPeriodic": openmm.app.CutoffPeriodic,
 }
 
+# Non-periodic counterparts. CutoffPeriodic is deliberately absent: it is rejected with a
+# dedicated message rather than silently accepted.
+NONBONDED_METHODS_NO_PBC = {
+    "NoCutoff": openmm.app.NoCutoff,
+    "CutoffNonPeriodic": openmm.app.CutoffNonPeriodic,
+}
+
 
 class OpenMMTheory:
     """Interface to the OpenMM molecular-mechanics library."""
@@ -119,13 +126,7 @@ class OpenMMTheory:
         logger.info(main_header("OpenMM Theory"))
         module_init_time = time.time()
 
-        # CPU: Control either by provided numcores keyword, or by setting env variable:
-        # $OPENMM_CPU_THREADS in shell
-        # before running.
-        os.environ["OMP_NUM_THREADS"] = str(numcores)
-        os.environ["OPENMM_CPU_THREADS"] = str(numcores)
-        logger.info("OpenMM CPU threads set to: %s", os.environ["OMP_NUM_THREADS"])
-        self.numcores = numcores  # Setting for general theory-interface compatibility
+        self._configure_platform(platform, numcores=numcores, properties=properties)
 
         self.theorytype = "MM"
         self.theorynamelabel = "OpenMM"
@@ -146,26 +147,9 @@ class OpenMMTheory:
         # Degrees of freedom of system (accounts for frozen atoms and constraints)
         self.dof = None
 
-        if autoconstraints == "None":
-            autoconstraints = None
-        try:
-            self.autoconstraints, description = AUTOCONSTRAINTS[autoconstraints]
-        except (KeyError, TypeError):
-            raise InputError("Unknown autoconstraints option") from None
-        logger.info(description)
-        logger.info("AutoConstraint setting: %s", self.autoconstraints)
-
-        self.user_frozen_atoms = []
-        self.user_constraints = []
-        self.user_restraints = []
-
-        self.rigidwater = rigidwater
-        logger.info("Rigidwater constraints: %s", self.rigidwater)
-        if hydrogenmass is not None:
-            self.hydrogenmass = hydrogenmass * openmm.unit.amu
-        else:
-            self.hydrogenmass = None
-        logger.info("Hydrogenmass option: %s", self.hydrogenmass)
+        self._configure_constraint_defaults(
+            autoconstraints=autoconstraints, rigidwater=rigidwater, hydrogenmass=hydrogenmass
+        )
 
         # Active when RPMDIntegrator is used
         self.rpmd_num_copies = rpmd_num_copies
@@ -173,17 +157,7 @@ class OpenMMTheory:
         # Setting for controlling whether QM1-MM1 bonded terms are deleted or not in a QM/MM job
         # See modify_bonded_forces
         self.delete_qm1_mm1_bonded = delete_qm1_mm1_bonded
-        self.platform_choice = platform
 
-        if properties is None:
-            self.properties = {}
-        else:
-            self.properties = properties
-        if self.platform_choice == "CPU":
-            logger.info("Using platform: CPU")
-            self.properties["Threads"] = str(numcores)
-        else:
-            logger.info("Using platform: %s", self.platform_choice)
         # Whether to do energy decomposition of MM energy or not. Takes time. Can be turned off for MD runs
         self.do_energy_decomposition = do_energy_decomposition
 
@@ -226,179 +200,24 @@ class OpenMMTheory:
                 periodic_cell_vectors = pbc_vectors
 
         if charmm_files is True:
-            logger.info("Reading CHARMM files.")
-            if use_parmed is True:
-                import parmed
-
-                logger.info("Using Parmed.")
-                self.psf = parmed.charmm.CharmmPsfFile(psffile)
-                # Removed , permissive=True, no longer in parmed
-                self.params = parmed.charmm.CharmmParameterSet(charmmtopfile, charmmprmfile)
-                # Note: OpenMM uses 0-indexing
-                self.resnames = [self.psf.atoms[i].residue.name for i in range(len(self.psf.atoms))]
-                self.resids = [self.psf.atoms[i].residue.idx for i in range(len(self.psf.atoms))]
-                self.segmentnames = [self.psf.atoms[i].residue.segid for i in range(len(self.psf.atoms))]
-                self.atomtypes = [i.type for i in self.psf.atoms]
-                self.atomnames = [self.psf.atoms[i].name for i in range(len(self.psf.atoms))]
-            else:
-                self.psf = openmm.app.CharmmPsfFile(psffile)
-                self.params = openmm.app.CharmmParameterSet(charmmtopfile, charmmprmfile, permissive=True)
-                self.resnames = [self.psf.atom_list[i].residue.resname for i in range(len(self.psf.atom_list))]
-                self.resids = [self.psf.atom_list[i].residue.idx for i in range(len(self.psf.atom_list))]
-                self.segmentnames = [self.psf.atom_list[i].system for i in range(len(self.psf.atom_list))]
-                self.atomtypes = [self.psf.atom_list[i].attype for i in range(len(self.psf.atom_list))]
-                self.atomnames = [self.psf.atom_list[i].name for i in range(len(self.psf.atom_list))]
-                self.define_mm_elements(self.psf.topology)
-
-            self.topology = self.psf.topology
-            self.forcefield = self.psf
+            self._load_charmm_files(psffile, charmmtopfile, charmmprmfile, use_parmed=use_parmed)
         elif gromacs_files is True:
-            logger.info("Reading Gromacs files.")
-            if use_parmed is True:
-                import parmed
-
-                logger.info("Using Parmed.")
-                logger.info("GROMACS top dir: %s", gromacstopdir)
-                parmed.gromacs.GROMACS_TOPDIR = gromacstopdir
-                logger.info("Reading GROMACS GRO file: %s", grofile)
-                gmx_gro = parmed.gromacs.GromacsGroFile.parse(grofile)
-                logger.info("Reading GROMACS topology file: %s", gromacstopfile)
-                gmx_top = parmed.gromacs.GromacsTopologyFile(gromacstopfile)
-
-                gmx_top.box = gmx_gro.box
-                gmx_top.positions = gmx_gro.positions
-                self.positions = gmx_top.positions
-
-                self.topology = gmx_top.topology
-                self.forcefield = gmx_top
-            else:
-                logger.info("Using built-in OpenMM routines to read GROMACS topology.")
-                logger.warning("May fail if virtual sites present (e.g. TIP4P residues).")
-                logger.info("Use 'parmed=True'  to avoid")
-                gro = openmm.app.GromacsGroFile(grofile)
-                self.grotop = openmm.app.GromacsTopFile(
-                    gromacstopfile, periodicBoxVectors=gro.getPeriodicBoxVectors(), includeDir=gromacstopdir
-                )
-
-                self.topology = self.grotop.topology
-                self.forcefield = self.grotop
-
-            self.define_mm_elements(self.topology)
+            self._load_gromacs_files(grofile, gromacstopfile, gromacstopdir, use_parmed=use_parmed)
         elif amber_files is True:
-            logger.info("Reading Amber files.")
-            logger.warning("Only new-style Amber7 prmtop-file will work.")
-            logger.warning("Will take periodic boundary conditions from prmtop file.")
-            if use_parmed is True:
-                import parmed
-
-                logger.info("Using Parmed to read Amber files.")
-                self.prmtop = parmed.load_file(amberprmtopfile)
-            else:
-                logger.info("Using built-in OpenMM routines to read Amber files.")
-                # Note: Only new-style Amber7 prmtop files work
-                # If PBC vectors provided and new OpenMM version
-                # Note Jan 2024: Amber prmtop files sometimes have PBC vectors (ready by OpenMM parser), this is
-                # deprecated behaviour though it seems
-                # Generally recommended instead to get PBC info from inpcrd files that we typically don't use
-                # Hence we need to override that info anyway
-                # OpenMM 8.1 allows us to do this easily by constructor, older versions requires hacky workarounds
-                # (see set_periodics_before_system_creation for those hacks)
-                # Note: https://github.com/openmm/openmm/issues/4078
-
-                if version.parse(openmm.__version__) >= version.parse("8.1"):
-                    if periodic_cell_vectors is None:
-                        temp_pbc_vecs = None
-                    else:
-                        temp_pbc_vecs = periodic_cell_vectors * openmm.unit.angstrom  # Adding units
-                    if periodic_cell_dimensions is None:
-                        temp_pbc_cell_value = None
-                    else:
-                        # This works despite specifying Angstrom units for all cell dimensions
-                        temp_pbc_cell_value = periodic_cell_dimensions * openmm.unit.angstrom
-                    self.prmtop = openmm.app.AmberPrmtopFile(
-                        amberprmtopfile, periodicBoxVectors=temp_pbc_vecs, unitCellDimensions=temp_pbc_cell_value
-                    )
-                else:
-                    self.prmtop = openmm.app.AmberPrmtopFile(amberprmtopfile)
-            self.topology = self.prmtop.topology
-            logger.info("Amber PBC vectors read: %s", self.topology.getPeriodicBoxVectors())
-            self.forcefield = self.prmtop
-
-            # List of resids, resnames and mm_elements. Used by actregiondefine
-            self.resids = [i.residue.index for i in self.prmtop.topology.atoms()]
-            self.resnames = [i.residue.name for i in self.prmtop.topology.atoms()]
-            self.define_mm_elements(self.prmtop.topology)
-            self.atomnames = [i.name for i in self.prmtop.topology.atoms()]
-            # NOTE: OpenMM does not grab Amber atomtypes for some reason. Feature request
-
-        elif topoforce is True:
-            logger.info("Using forcefield info from topology and forcefield keyword.")
-            if topology is not None:
-                logger.info("Topology provided as keyword")
-                self.topology = topology
-            else:
-                logger.info("No topology provided as keyword")
-                logger.info("Reading topology from PDB-file instead")
-                pdb = openmm.app.PDBFile(pdbfile)
-                self.topology = pdb.topology
-                pdb_pbc_vectors = pdb.topology.getPeriodicBoxVectors()
-            self.forcefield = forcefield
-            self.define_mm_elements(self.topology)
-        elif xmlsystemfile is not None:
-            logger.info("Reading system XML file: %s", xmlsystemfile)
-            with open(xmlsystemfile) as xmlfh:
-                xmlsystemfileobj = xmlfh.read()
-            logger.info("Now defining OpenMM system using information in file")
-            logger.warning("File may contain hardcoded constraints that can not be overridden.")
-            self.system = openmm.XmlSerializer.deserializeSystem(xmlsystemfileobj)
-            # NOTE: Big drawback of xmlsystemfile is that constraints have been hardcoded and can
-
-            logger.info("Reading topology from PDBfile: %s", pdbfile)
-            pdb = openmm.app.PDBFile(pdbfile)
-            self.topology = pdb.topology
-            self.define_mm_elements(self.topology)
-            pdb_pbc_vectors = pdb.topology.getPeriodicBoxVectors()
-        # Used for OpenMM_MD with QM Hamiltonian
-        elif dummysystem is True:
-            atomnames_full = [j + str(i) for i, j in enumerate(fragment.elems)]
-
-            self.topology = define_dummy_topology(fragment.elems)
-
-            xmlfile = write_xmlfile_nonbonded(
-                filename="dummy.xml",
-                resnames=["DUM"],
-                atomnames_per_res=[atomnames_full],
-                atomtypes_per_res=[fragment.elems],
-                elements_per_res=[fragment.elems],
-                masses_per_res=[fragment.masses],
-                charges_per_res=[[0.0] * fragment.numatoms],
-                sigmas_per_res=[[0.0] * fragment.numatoms],
-                epsilons_per_res=[[0.0] * fragment.numatoms],
-                skip_nb=False,
+            self._load_amber_files(
+                amberprmtopfile,
+                use_parmed=use_parmed,
+                periodic_cell_vectors=periodic_cell_vectors,
+                periodic_cell_dimensions=periodic_cell_dimensions,
             )
-            self.forcefield = openmm.app.ForceField(xmlfile)
-            self.define_mm_elements(self.topology)
+        elif topoforce is True:
+            pdb_pbc_vectors = self._load_topology_forcefield(topology, forcefield, pdbfile)
+        elif xmlsystemfile is not None:
+            pdb_pbc_vectors = self._load_system_xml(xmlsystemfile, pdbfile)
+        elif dummysystem is True:
+            self._load_dummy_system(fragment)
         else:
-            logger.info("Reading OpenMM XML forcefield files and PDB (or PDBx) file")
-            logger.info("xmlfiles: %s", str(xmlfiles).strip("[]"))
-            logger.info("pdbfile: %s", pdbfile)
-            logger.info("pdbxfile: %s", pdbxfile)
-            if pdbfile is not None:
-                pdb = openmm.app.PDBFile(pdbfile)
-            elif pdbxfile is not None:
-                pdb = openmm.app.PDBxFile(pdbxfile)
-            else:
-                raise InputError("Error: No pdbfile or pdbxfile input provided")
-
-            pdb_pbc_vectors = pdb.topology.getPeriodicBoxVectors()
-
-            self.topology = pdb.topology
-            self.forcefield = openmm.app.ForceField(*xmlfiles)
-            # Defining some things. resids is used by actregiondefine
-            self.resids = [i.residue.index for i in self.topology.atoms()]
-            self.resnames = [i.residue.name for i in self.topology.atoms()]
-            self.atomnames = [i.name for i in self.topology.atoms()]
-            self.define_mm_elements(self.topology)
+            pdb_pbc_vectors = self._load_xml_forcefield(xmlfiles, pdbfile, pdbxfile)
 
         residueTemplates = {}  # initial
         if residuetemplate_choice is not None:
@@ -413,136 +232,24 @@ class OpenMMTheory:
         logger.info("residueTemplates: %s", residueTemplates)
         if self.system is None:
             if self.periodic is True:
-                logger.info("System is periodic.")
-                logger.info(sub_header("Setting up periodicity."))
-                # Necessary for system creation with periodics (otherwise failure)
-                self.set_periodics_before_system_creation(
-                    periodic_cell_vectors,
-                    pdb_pbc_vectors,
-                    periodic_cell_dimensions,
-                    charmm_files,
-                    amber_files,
-                    use_parmed,
+                self._create_periodic_system(
+                    periodic_cell_vectors=periodic_cell_vectors,
+                    pdb_pbc_vectors=pdb_pbc_vectors,
+                    periodic_cell_dimensions=periodic_cell_dimensions,
+                    periodic_nonbonded_cutoff=periodic_nonbonded_cutoff,
+                    switching_function_distance=switching_function_distance,
+                    charmm_files=charmm_files,
+                    gromacs_files=gromacs_files,
+                    amber_files=amber_files,
+                    use_parmed=use_parmed,
+                    residue_templates=residueTemplates,
+                    dispersion_correction=dispersion_correction,
+                    pme_parameters=pme_parameters,
                 )
-
-                try:
-                    nonb_method_PBC = NONBONDED_METHODS_PBC[self.nonbonded_method_pbc]
-                except (KeyError, TypeError):
-                    raise InputError("Unknown nonbonded method") from None
-
-                logger.info("Nonbonded PBC method selected: %s", nonb_method_PBC)
-
-                smallest_boxdim = min(self.topology.getUnitCellDimensions()).value_in_unit(openmm.unit.angstroms)
-                logger.info("Smallest_box dimension is: %s", smallest_boxdim)
-                logger.info("periodic_nonbonded_cutoff: %s", periodic_nonbonded_cutoff)
-                if smallest_boxdim < periodic_nonbonded_cutoff * 2:
-                    logger.warning(
-                        f"Warning: Smallest box dimension is less than 2*periodic_nonbonded_cutoff = "
-                        f"{2 * self.periodic_nonbonded_cutoff}"
-                    )
-                    logger.info(
-                        "This will not work. See https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#boxsize"
-                    )
-                    logger.info("Will now automatically set the cutoff to be 1/2 the smallest box dimension")
-                    self.periodic_nonbonded_cutoff = round(
-                        0.5 * min(self.topology.getUnitCellDimensions()).value_in_unit(openmm.unit.angstroms), 6
-                    )
-                    logger.info("periodic_nonbonded_cutoff is now: %s", self.periodic_nonbonded_cutoff)
-
-                logger.info(f"Nonbonded cutoff is {self.periodic_nonbonded_cutoff} Angstrom.")
-                # Parameters here are based on OpenMM DHFR example. Shared by all four
-                # branches below, which differ only in what they add and what they pass
-                # positionally: CHARMM hands createSystem its parsed parameter set, the
-                # modeller/XML route hands it the topology, and GROMACS and Amber carry
-                # their own (the forcefield object already holds the PBC information).
-                pbc_system_kwargs = {
-                    "nonbondedMethod": nonb_method_PBC,
-                    "constraints": self.autoconstraints,
-                    "hydrogenMass": self.hydrogenmass,
-                    "rigidWater": self.rigidwater,
-                    "ewaldErrorTolerance": self.ewalderrortolerance,
-                    "nonbondedCutoff": self.periodic_nonbonded_cutoff * openmm.unit.angstroms,
-                }
-                if charmm_files is True:
-                    logger.info("Using CHARMM files.")
-                    self.system = self.forcefield.createSystem(
-                        self.params,
-                        switchDistance=switching_function_distance * openmm.unit.angstroms,
-                        **pbc_system_kwargs,
-                    )
-                elif gromacs_files is True:
-                    # NOTE: Gromacs has read PBC info from Gro file already
-                    logger.info("Ewald Error tolerance: %s", self.ewalderrortolerance)
-                    # Note: no switchDistance. Not available for GROMACS?
-                    self.system = self.forcefield.createSystem(**pbc_system_kwargs)
-                elif amber_files is True:
-                    # NOTE: PBC information should be in forcefield object already
-                    self.system = self.forcefield.createSystem(**pbc_system_kwargs)
-                else:
-                    self.system = self.forcefield.createSystem(
-                        self.topology, residueTemplates=residueTemplates, **pbc_system_kwargs
-                    )
-
-                self.periodic_cell_vectors = np.array(
-                    [[v._value * 10 for v in vec] for vec in self.system.getDefaultPeriodicBoxVectors()]
-                )
-                logger.info("Periodic_cell_vectors (Å) %s", self.periodic_cell_vectors)
-
-                logger.info(small_header("OpenMM Forces defined:"))
-                for force in self.system.getForces():
-                    logger.info("%s", force.getName())
-                    if isinstance(force, openmm.CustomNonbondedForce):
-                        # NOTE: This is only sometimes used: XML-CHARMM setup, GROMACS-files etc.
-                        pass
-                    elif isinstance(force, openmm.NonbondedForce):
-                        force.setUseDispersionCorrection(dispersion_correction)
-
-                        if pme_parameters is not None:
-                            logger.info("Nonbonded force:  Changing PME parameters")
-                            force.setPMEParameters(
-                                pme_parameters[0], pme_parameters[1], pme_parameters[2], pme_parameters[3]
-                            )
-                        logger.info("Nonbonded force settings (after all modifications):")
-                        logger.info(f"   Periodic cutoff distance: {force.getCutoffDistance()}")
-                        logger.info(f"   Use SwitchingFunction: {force.getUseSwitchingFunction()}")
-                        if force.getUseSwitchingFunction() is True:
-                            logger.info(f"   SwitchingFunction distance: {force.getSwitchingDistance()}")
-                        logger.info(f"   Use Long-range Dispersion correction: {force.getUseDispersionCorrection()}")
-                        logger.info("   PME Parameters: %s", force.getPMEParameters())
-                        logger.info("   Ewald error tolerance: %s", force.getEwaldErrorTolerance())
-                logger.info(small_header("OpenMM system created."))
             else:
-                if self.nonbonded_method_no_pbc == "NoCutoff":
-                    noPBC_nonbondedMethod = openmm.app.NoCutoff
-                elif self.nonbonded_method_no_pbc == "CutoffNonPeriodic":
-                    noPBC_nonbondedMethod = openmm.app.CutoffNonPeriodic
-                elif self.nonbonded_method_no_pbc == "CutoffPeriodic":
-                    raise InputError("nonbondedMethod_noPBC with CutoffPeriodic not currently allowed")
-                logger.info("System is non-periodic.")
-                logger.info("nonbonded noPBC Method is: %s", noPBC_nonbondedMethod)
-
-                logger.info("Nonbonded cutoff : %s Angstrom", self.nonbonded_cutoff_no_pbc)
-
-                # No Ewald tolerance here: without PBC there is no Ewald sum.
-                no_pbc_system_kwargs = {
-                    "nonbondedMethod": noPBC_nonbondedMethod,
-                    "constraints": self.autoconstraints,
-                    "rigidWater": self.rigidwater,
-                    "nonbondedCutoff": self.nonbonded_cutoff_no_pbc * openmm.unit.angstroms,
-                    "hydrogenMass": self.hydrogenmass,
-                }
-                if charmm_files is True:
-                    self.system = self.forcefield.createSystem(self.params, **no_pbc_system_kwargs)
-                elif amber_files is True:
-                    self.system = self.forcefield.createSystem(**no_pbc_system_kwargs)
-                elif dummysystem is True:
-                    # Dummy system: OpenMM's own defaults, no nonbonded settings applied
-                    self.system = self.forcefield.createSystem(self.topology)
-                else:
-                    self.system = self.forcefield.createSystem(self.topology, **no_pbc_system_kwargs)
-                logger.info(small_header("OpenMM system created."))
-                logger.info("OpenMM Forces defined: %s", self.system.getForces())
-                logger.info("")
+                self._create_nonperiodic_system(
+                    charmm_files=charmm_files, amber_files=amber_files, dummysystem=dummysystem
+                )
 
         for force in self.system.getForces():
             if isinstance(force, openmm.NonbondedForce):
@@ -568,60 +275,11 @@ class OpenMMTheory:
         if bondconstraints or frozen_atoms or restraints:
             logger.info(sub_header("Adding user constraints, restraints or frozen atoms."))
         if bondconstraints is not None:
-            if bondconstraints is None:
-                bondconstraints = []
-            tot_num_user_constraints = len(bondconstraints)
-
-            logger.info(
-                f"Before adding user constraints, system contains {self.system.getNumConstraints()} constraints"
-            )
-            logger.info("")
-
-            if len(bondconstraints) < 50:
-                logger.info("User-constraints to add (bond) %s", bondconstraints)
-            else:
-                logger.info(f"{tot_num_user_constraints} user-defined constraints to add.")
-
-            if 2 in [len(con) for con in bondconstraints]:
-                logger.info(
-                    "Missing distance value for some constraints. Can apply current-geometry distances if a\n"
-                    "fragment has been provided"
-                )
-                if fragment is None:
-                    logger.info(
-                        "No fragment provided to OpenMMTheory. Will check if pdbfile is defined and use coordinates "
-                        "from there"
-                    )
-                    if pdbfile is None:
-                        logger.info(
-                            "No PDBfile present either. Either fragment or PDBfile containing \
-                                coordinates is required for constraint definition"
-                        )
-                        raise InputError("Constraint definition requires a fragment or a PDB file with coordinates")
-                    fragment = Fragment(pdbfile=pdbfile)
-                bondconstraints = clean_up_constraints_list(fragment=fragment, constraints=bondconstraints)
-                self.add_bondconstraints(constraints=bondconstraints)
-
-            self.user_constraints = bondconstraints
-
-            logger.info(f"{len(self.user_constraints)} user-defined constraints added.")
+            self._apply_bondconstraints(bondconstraints, fragment=fragment, pdbfile=pdbfile)
         if frozen_atoms is not None:
-            self.user_frozen_atoms = frozen_atoms
-            if len(self.user_frozen_atoms) < 50:
-                logger.info("Frozen atoms to add: %s", str(frozen_atoms).strip("[]"))
-            else:
-                logger.info(f"{len(self.user_frozen_atoms)} user-defined frozen atoms to add.")
-            self.freeze_atoms(frozen_atoms=frozen_atoms)
-
+            self._apply_frozen_atoms(frozen_atoms)
         if restraints is not None:
-            # restraints is a list of lists defining bond restraints: constraints = [[atom_i,atom_j, d, k ]]
-            # Example: [[700,701, 1.05, 5.0 ]] Unit is Angstrom and kcal/mol * Angstrom^-2
-            self.user_restraints = restraints
-            if len(self.user_restraints) < 50:
-                logger.info("User-restraints to add: %s", restraints)
-            else:
-                logger.info(f"{len(self.user_restraints)} user-defined restraints to add.")
-            self.add_bondrestraints(restraints=restraints)
+            self._apply_bondrestraints(restraints)
 
         if changed_masses is not None:
             logger.info("Modified masses")
@@ -650,6 +308,421 @@ class OpenMMTheory:
             self.forcegroupify()
 
         log_time_since(module_init_time, "OpenMM object creation")
+
+    def _configure_platform(self, platform, *, numcores, properties):
+        # OpenMM also honours $OPENMM_CPU_THREADS from the shell; numcores sets it here.
+        os.environ["OMP_NUM_THREADS"] = str(numcores)
+        os.environ["OPENMM_CPU_THREADS"] = str(numcores)
+        logger.info("OpenMM CPU threads set to: %s", os.environ["OMP_NUM_THREADS"])
+        self.numcores = numcores  # Setting for general theory-interface compatibility
+
+        self.platform_choice = platform
+        self.properties = {} if properties is None else properties
+        if self.platform_choice == "CPU":
+            logger.info("Using platform: CPU")
+            self.properties["Threads"] = str(numcores)
+        else:
+            logger.info("Using platform: %s", self.platform_choice)
+
+    def _configure_constraint_defaults(self, *, autoconstraints, rigidwater, hydrogenmass):
+        if autoconstraints == "None":
+            autoconstraints = None
+        try:
+            self.autoconstraints, description = AUTOCONSTRAINTS[autoconstraints]
+        except (KeyError, TypeError):
+            raise InputError("Unknown autoconstraints option") from None
+        logger.info(description)
+        logger.info("AutoConstraint setting: %s", self.autoconstraints)
+
+        self.user_frozen_atoms = []
+        self.user_constraints = []
+        self.user_restraints = []
+
+        self.rigidwater = rigidwater
+        logger.info("Rigidwater constraints: %s", self.rigidwater)
+        self.hydrogenmass = None if hydrogenmass is None else hydrogenmass * openmm.unit.amu
+        logger.info("Hydrogenmass option: %s", self.hydrogenmass)
+
+    def _apply_bondconstraints(self, bondconstraints, *, fragment, pdbfile):
+        logger.info(f"Before adding user constraints, system contains {self.system.getNumConstraints()} constraints")
+        logger.info("")
+        if len(bondconstraints) < 50:
+            logger.info("User-constraints to add (bond) %s", bondconstraints)
+        else:
+            logger.info(f"{len(bondconstraints)} user-defined constraints to add.")
+
+        if 2 in [len(con) for con in bondconstraints]:
+            logger.info(
+                "Missing distance value for some constraints. Can apply current-geometry distances if a\n"
+                "fragment has been provided"
+            )
+            if fragment is None:
+                logger.info(
+                    "No fragment provided to OpenMMTheory. Will check if pdbfile is defined and use coordinates "
+                    "from there"
+                )
+                if pdbfile is None:
+                    logger.info(
+                        "No PDBfile present either. Either fragment or PDBfile containing coordinates is "
+                        "required for constraint definition"
+                    )
+                    raise InputError("Constraint definition requires a fragment or a PDB file with coordinates")
+                fragment = Fragment(pdbfile=pdbfile)
+            bondconstraints = clean_up_constraints_list(fragment=fragment, constraints=bondconstraints)
+            self.add_bondconstraints(constraints=bondconstraints)
+
+        self.user_constraints = bondconstraints
+        logger.info(f"{len(self.user_constraints)} user-defined constraints added.")
+
+    def _apply_frozen_atoms(self, frozen_atoms):
+        self.user_frozen_atoms = frozen_atoms
+        if len(self.user_frozen_atoms) < 50:
+            logger.info("Frozen atoms to add: %s", str(frozen_atoms).strip("[]"))
+        else:
+            logger.info(f"{len(self.user_frozen_atoms)} user-defined frozen atoms to add.")
+        self.freeze_atoms(frozen_atoms=frozen_atoms)
+
+    def _apply_bondrestraints(self, restraints):
+        # [[atom_i, atom_j, d, k]], e.g. [[700, 701, 1.05, 5.0]]; Angstrom and kcal/mol/Angstrom^2
+        self.user_restraints = restraints
+        if len(self.user_restraints) < 50:
+            logger.info("User-restraints to add: %s", restraints)
+        else:
+            logger.info(f"{len(self.user_restraints)} user-defined restraints to add.")
+        self.add_bondrestraints(restraints=restraints)
+
+    def _create_periodic_system(
+        self,
+        *,
+        periodic_cell_vectors,
+        pdb_pbc_vectors,
+        periodic_cell_dimensions,
+        periodic_nonbonded_cutoff,
+        switching_function_distance,
+        charmm_files,
+        gromacs_files,
+        amber_files,
+        use_parmed,
+        residue_templates,
+        dispersion_correction,
+        pme_parameters,
+    ):
+        logger.info("System is periodic.")
+        logger.info(sub_header("Setting up periodicity."))
+        # Necessary for system creation with periodics (otherwise failure)
+        self.set_periodics_before_system_creation(
+            periodic_cell_vectors,
+            pdb_pbc_vectors,
+            periodic_cell_dimensions,
+            charmm_files,
+            amber_files,
+            use_parmed,
+        )
+
+        try:
+            nonb_method_PBC = NONBONDED_METHODS_PBC[self.nonbonded_method_pbc]
+        except (KeyError, TypeError):
+            raise InputError("Unknown nonbonded method") from None
+
+        logger.info("Nonbonded PBC method selected: %s", nonb_method_PBC)
+
+        smallest_boxdim = min(self.topology.getUnitCellDimensions()).value_in_unit(openmm.unit.angstroms)
+        logger.info("Smallest_box dimension is: %s", smallest_boxdim)
+        logger.info("periodic_nonbonded_cutoff: %s", periodic_nonbonded_cutoff)
+        if smallest_boxdim < periodic_nonbonded_cutoff * 2:
+            logger.warning(
+                f"Warning: Smallest box dimension is less than 2*periodic_nonbonded_cutoff = "
+                f"{2 * self.periodic_nonbonded_cutoff}"
+            )
+            logger.info(
+                "This will not work. See https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#boxsize"
+            )
+            logger.info("Will now automatically set the cutoff to be 1/2 the smallest box dimension")
+            self.periodic_nonbonded_cutoff = round(
+                0.5 * min(self.topology.getUnitCellDimensions()).value_in_unit(openmm.unit.angstroms), 6
+            )
+            logger.info("periodic_nonbonded_cutoff is now: %s", self.periodic_nonbonded_cutoff)
+
+        logger.info(f"Nonbonded cutoff is {self.periodic_nonbonded_cutoff} Angstrom.")
+        # Parameters here are based on OpenMM DHFR example. Shared by all four
+        # branches below, which differ only in what they add and what they pass
+        # positionally: CHARMM hands createSystem its parsed parameter set, the
+        # modeller/XML route hands it the topology, and GROMACS and Amber carry
+        # their own (the forcefield object already holds the PBC information).
+        pbc_system_kwargs = {
+            "nonbondedMethod": nonb_method_PBC,
+            "constraints": self.autoconstraints,
+            "hydrogenMass": self.hydrogenmass,
+            "rigidWater": self.rigidwater,
+            "ewaldErrorTolerance": self.ewalderrortolerance,
+            "nonbondedCutoff": self.periodic_nonbonded_cutoff * openmm.unit.angstroms,
+        }
+        if charmm_files is True:
+            logger.info("Using CHARMM files.")
+            self.system = self.forcefield.createSystem(
+                self.params,
+                switchDistance=switching_function_distance * openmm.unit.angstroms,
+                **pbc_system_kwargs,
+            )
+        elif gromacs_files is True:
+            # NOTE: Gromacs has read PBC info from Gro file already
+            logger.info("Ewald Error tolerance: %s", self.ewalderrortolerance)
+            # Note: no switchDistance. Not available for GROMACS?
+            self.system = self.forcefield.createSystem(**pbc_system_kwargs)
+        elif amber_files is True:
+            # NOTE: PBC information should be in forcefield object already
+            self.system = self.forcefield.createSystem(**pbc_system_kwargs)
+        else:
+            self.system = self.forcefield.createSystem(
+                self.topology, residueTemplates=residue_templates, **pbc_system_kwargs
+            )
+
+        self.periodic_cell_vectors = np.array(
+            [[v._value * 10 for v in vec] for vec in self.system.getDefaultPeriodicBoxVectors()]
+        )
+        logger.info("Periodic_cell_vectors (Å) %s", self.periodic_cell_vectors)
+
+        self._log_nonbonded_force_settings(dispersion_correction=dispersion_correction, pme_parameters=pme_parameters)
+
+    def _log_nonbonded_force_settings(self, *, dispersion_correction, pme_parameters):
+        logger.info(small_header("OpenMM Forces defined:"))
+        for force in self.system.getForces():
+            logger.info("%s", force.getName())
+            if isinstance(force, openmm.CustomNonbondedForce):
+                # NOTE: This is only sometimes used: XML-CHARMM setup, GROMACS-files etc.
+                pass
+            elif isinstance(force, openmm.NonbondedForce):
+                force.setUseDispersionCorrection(dispersion_correction)
+
+                if pme_parameters is not None:
+                    logger.info("Nonbonded force:  Changing PME parameters")
+                    force.setPMEParameters(pme_parameters[0], pme_parameters[1], pme_parameters[2], pme_parameters[3])
+                logger.info("Nonbonded force settings (after all modifications):")
+                logger.info(f"   Periodic cutoff distance: {force.getCutoffDistance()}")
+                logger.info(f"   Use SwitchingFunction: {force.getUseSwitchingFunction()}")
+                if force.getUseSwitchingFunction() is True:
+                    logger.info(f"   SwitchingFunction distance: {force.getSwitchingDistance()}")
+                logger.info(f"   Use Long-range Dispersion correction: {force.getUseDispersionCorrection()}")
+                logger.info("   PME Parameters: %s", force.getPMEParameters())
+                logger.info("   Ewald error tolerance: %s", force.getEwaldErrorTolerance())
+        logger.info(small_header("OpenMM system created."))
+
+    def _create_nonperiodic_system(self, *, charmm_files, amber_files, dummysystem):
+        if self.nonbonded_method_no_pbc == "CutoffPeriodic":
+            raise InputError("nonbondedMethod_noPBC with CutoffPeriodic not currently allowed")
+        try:
+            noPBC_nonbondedMethod = NONBONDED_METHODS_NO_PBC[self.nonbonded_method_no_pbc]
+        except (KeyError, TypeError):
+            raise InputError("Unknown non-periodic nonbonded method") from None
+        logger.info("System is non-periodic.")
+        logger.info("nonbonded noPBC Method is: %s", noPBC_nonbondedMethod)
+
+        logger.info("Nonbonded cutoff : %s Angstrom", self.nonbonded_cutoff_no_pbc)
+
+        # No Ewald tolerance here: without PBC there is no Ewald sum.
+        no_pbc_system_kwargs = {
+            "nonbondedMethod": noPBC_nonbondedMethod,
+            "constraints": self.autoconstraints,
+            "rigidWater": self.rigidwater,
+            "nonbondedCutoff": self.nonbonded_cutoff_no_pbc * openmm.unit.angstroms,
+            "hydrogenMass": self.hydrogenmass,
+        }
+        if charmm_files is True:
+            self.system = self.forcefield.createSystem(self.params, **no_pbc_system_kwargs)
+        elif amber_files is True:
+            self.system = self.forcefield.createSystem(**no_pbc_system_kwargs)
+        elif dummysystem is True:
+            # Dummy system: OpenMM's own defaults, no nonbonded settings applied
+            self.system = self.forcefield.createSystem(self.topology)
+        else:
+            self.system = self.forcefield.createSystem(self.topology, **no_pbc_system_kwargs)
+        logger.info(small_header("OpenMM system created."))
+        logger.info("OpenMM Forces defined: %s", self.system.getForces())
+        logger.info("")
+
+    def _load_charmm_files(self, psffile, charmmtopfile, charmmprmfile, *, use_parmed=False):
+        logger.info("Reading CHARMM files.")
+        if use_parmed is True:
+            import parmed
+
+            logger.info("Using Parmed.")
+            self.psf = parmed.charmm.CharmmPsfFile(psffile)
+            # Removed , permissive=True, no longer in parmed
+            self.params = parmed.charmm.CharmmParameterSet(charmmtopfile, charmmprmfile)
+            # Note: OpenMM uses 0-indexing
+            self.resnames = [self.psf.atoms[i].residue.name for i in range(len(self.psf.atoms))]
+            self.resids = [self.psf.atoms[i].residue.idx for i in range(len(self.psf.atoms))]
+            self.segmentnames = [self.psf.atoms[i].residue.segid for i in range(len(self.psf.atoms))]
+            self.atomtypes = [i.type for i in self.psf.atoms]
+            self.atomnames = [self.psf.atoms[i].name for i in range(len(self.psf.atoms))]
+        else:
+            self.psf = openmm.app.CharmmPsfFile(psffile)
+            self.params = openmm.app.CharmmParameterSet(charmmtopfile, charmmprmfile, permissive=True)
+            self.resnames = [self.psf.atom_list[i].residue.resname for i in range(len(self.psf.atom_list))]
+            self.resids = [self.psf.atom_list[i].residue.idx for i in range(len(self.psf.atom_list))]
+            self.segmentnames = [self.psf.atom_list[i].system for i in range(len(self.psf.atom_list))]
+            self.atomtypes = [self.psf.atom_list[i].attype for i in range(len(self.psf.atom_list))]
+            self.atomnames = [self.psf.atom_list[i].name for i in range(len(self.psf.atom_list))]
+            self.define_mm_elements(self.psf.topology)
+
+        self.topology = self.psf.topology
+        self.forcefield = self.psf
+
+    def _load_gromacs_files(self, grofile, gromacstopfile, gromacstopdir, *, use_parmed=False):
+        logger.info("Reading Gromacs files.")
+        if use_parmed is True:
+            import parmed
+
+            logger.info("Using Parmed.")
+            logger.info("GROMACS top dir: %s", gromacstopdir)
+            parmed.gromacs.GROMACS_TOPDIR = gromacstopdir
+            logger.info("Reading GROMACS GRO file: %s", grofile)
+            gmx_gro = parmed.gromacs.GromacsGroFile.parse(grofile)
+            logger.info("Reading GROMACS topology file: %s", gromacstopfile)
+            gmx_top = parmed.gromacs.GromacsTopologyFile(gromacstopfile)
+
+            gmx_top.box = gmx_gro.box
+            gmx_top.positions = gmx_gro.positions
+            self.positions = gmx_top.positions
+
+            self.topology = gmx_top.topology
+            self.forcefield = gmx_top
+        else:
+            logger.info("Using built-in OpenMM routines to read GROMACS topology.")
+            logger.warning("May fail if virtual sites present (e.g. TIP4P residues).")
+            logger.info("Use 'parmed=True'  to avoid")
+            gro = openmm.app.GromacsGroFile(grofile)
+            self.grotop = openmm.app.GromacsTopFile(
+                gromacstopfile, periodicBoxVectors=gro.getPeriodicBoxVectors(), includeDir=gromacstopdir
+            )
+
+            self.topology = self.grotop.topology
+            self.forcefield = self.grotop
+
+        self.define_mm_elements(self.topology)
+
+    def _load_amber_files(
+        self,
+        amberprmtopfile,
+        *,
+        use_parmed=False,
+        periodic_cell_vectors=None,
+        periodic_cell_dimensions=None,
+    ):
+        logger.info("Reading Amber files.")
+        logger.warning("Only new-style Amber7 prmtop-file will work.")
+        logger.warning("Will take periodic boundary conditions from prmtop file.")
+        if use_parmed is True:
+            import parmed
+
+            logger.info("Using Parmed to read Amber files.")
+            self.prmtop = parmed.load_file(amberprmtopfile)
+        else:
+            logger.info("Using built-in OpenMM routines to read Amber files.")
+            # Note: Only new-style Amber7 prmtop files work
+            # If PBC vectors provided and new OpenMM version
+            # Note Jan 2024: Amber prmtop files sometimes have PBC vectors (ready by OpenMM parser), this is
+            # deprecated behaviour though it seems
+            # Generally recommended instead to get PBC info from inpcrd files that we typically don't use
+            # Hence we need to override that info anyway
+            # OpenMM 8.1 allows us to do this easily by constructor, older versions requires hacky workarounds
+            # (see set_periodics_before_system_creation for those hacks)
+            # Note: https://github.com/openmm/openmm/issues/4078
+
+            if version.parse(openmm.__version__) >= version.parse("8.1"):
+                temp_pbc_vecs = None if periodic_cell_vectors is None else periodic_cell_vectors * openmm.unit.angstrom
+                # Angstrom units work here despite naming all three cell dimensions
+                temp_pbc_cell_value = (
+                    None if periodic_cell_dimensions is None else periodic_cell_dimensions * openmm.unit.angstrom
+                )
+                self.prmtop = openmm.app.AmberPrmtopFile(
+                    amberprmtopfile, periodicBoxVectors=temp_pbc_vecs, unitCellDimensions=temp_pbc_cell_value
+                )
+            else:
+                self.prmtop = openmm.app.AmberPrmtopFile(amberprmtopfile)
+        self.topology = self.prmtop.topology
+        logger.info("Amber PBC vectors read: %s", self.topology.getPeriodicBoxVectors())
+        self.forcefield = self.prmtop
+
+        # List of resids, resnames and mm_elements. Used by actregiondefine
+        self.resids = [i.residue.index for i in self.prmtop.topology.atoms()]
+        self.resnames = [i.residue.name for i in self.prmtop.topology.atoms()]
+        self.define_mm_elements(self.prmtop.topology)
+        self.atomnames = [i.name for i in self.prmtop.topology.atoms()]
+
+    def _load_topology_forcefield(self, topology, forcefield, pdbfile):
+        logger.info("Using forcefield info from topology and forcefield keyword.")
+        pdb_pbc_vectors = None
+        if topology is not None:
+            logger.info("Topology provided as keyword")
+            self.topology = topology
+        else:
+            logger.info("No topology provided as keyword")
+            logger.info("Reading topology from PDB-file instead")
+            pdb = openmm.app.PDBFile(pdbfile)
+            self.topology = pdb.topology
+            pdb_pbc_vectors = pdb.topology.getPeriodicBoxVectors()
+        self.forcefield = forcefield
+        self.define_mm_elements(self.topology)
+        return pdb_pbc_vectors
+
+    def _load_system_xml(self, xmlsystemfile, pdbfile):
+        logger.info("Reading system XML file: %s", xmlsystemfile)
+        with open(xmlsystemfile) as xmlfh:
+            xmlsystemfileobj = xmlfh.read()
+        logger.info("Now defining OpenMM system using information in file")
+        logger.warning("File may contain hardcoded constraints that can not be overridden.")
+        self.system = openmm.XmlSerializer.deserializeSystem(xmlsystemfileobj)
+        # NOTE: Big drawback of xmlsystemfile is that constraints have been hardcoded and can
+
+        logger.info("Reading topology from PDBfile: %s", pdbfile)
+        pdb = openmm.app.PDBFile(pdbfile)
+        self.topology = pdb.topology
+        self.define_mm_elements(self.topology)
+        return pdb.topology.getPeriodicBoxVectors()
+
+    def _load_dummy_system(self, fragment):
+        atomnames_full = [j + str(i) for i, j in enumerate(fragment.elems)]
+
+        self.topology = define_dummy_topology(fragment.elems)
+
+        xmlfile = write_xmlfile_nonbonded(
+            filename="dummy.xml",
+            resnames=["DUM"],
+            atomnames_per_res=[atomnames_full],
+            atomtypes_per_res=[fragment.elems],
+            elements_per_res=[fragment.elems],
+            masses_per_res=[fragment.masses],
+            charges_per_res=[[0.0] * fragment.numatoms],
+            sigmas_per_res=[[0.0] * fragment.numatoms],
+            epsilons_per_res=[[0.0] * fragment.numatoms],
+            skip_nb=False,
+        )
+        self.forcefield = openmm.app.ForceField(xmlfile)
+        self.define_mm_elements(self.topology)
+
+    def _load_xml_forcefield(self, xmlfiles, pdbfile, pdbxfile):
+        logger.info("Reading OpenMM XML forcefield files and PDB (or PDBx) file")
+        logger.info("xmlfiles: %s", str(xmlfiles).strip("[]"))
+        logger.info("pdbfile: %s", pdbfile)
+        logger.info("pdbxfile: %s", pdbxfile)
+        if pdbfile is not None:
+            pdb = openmm.app.PDBFile(pdbfile)
+        elif pdbxfile is not None:
+            pdb = openmm.app.PDBxFile(pdbxfile)
+        else:
+            raise InputError("Error: No pdbfile or pdbxfile input provided")
+
+        pdb_pbc_vectors = pdb.topology.getPeriodicBoxVectors()
+
+        self.topology = pdb.topology
+        self.forcefield = openmm.app.ForceField(*xmlfiles)
+        # Defining some things. resids is used by actregiondefine
+        self.resids = [i.residue.index for i in self.topology.atoms()]
+        self.resnames = [i.residue.name for i in self.topology.atoms()]
+        self.atomnames = [i.name for i in self.topology.atoms()]
+        self.define_mm_elements(self.topology)
+        return pdb_pbc_vectors
 
     def define_mm_elements(self, topology):
         """Extract the element symbol of every atom from an OpenMM topology."""
