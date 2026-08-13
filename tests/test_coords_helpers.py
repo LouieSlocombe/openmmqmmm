@@ -1,11 +1,3 @@
-"""Tests for the geometry and file-I/O helpers in coords.py.
-
-coords.py is the second-largest module and only its Fragment-reading paths were
-covered. The geometry primitives here (distance, angle, dihedral, RMSD, centroid)
-underpin every constraint, active-region definition and analysis in the package, and
-they are checkable against exact values from elementary geometry.
-"""
-
 import numpy as np
 import pytest
 
@@ -50,18 +42,15 @@ def test_angle_of_a_straight_line():
 
 
 def test_dihedral_of_a_planar_arrangement():
-    """Four coplanar atoms in a cis arrangement have a zero dihedral."""
     assert abs(dihedral(*UNIT_SQUARE)) == pytest.approx(0.0, abs=1e-9)
 
 
 def test_dihedral_of_a_right_angle_twist():
-    """Rotating the last atom out of the plane by 90 degrees gives a 90 degree dihedral."""
     twisted = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0]])
     assert abs(dihedral(*twisted)) == pytest.approx(90.0)
 
 
 def test_geometry_helpers_on_a_fragment():
-    """The fragment-level wrappers must agree with the raw coordinate helpers."""
     fragment = Fragment(coords=UNIT_SQUARE, elems=["C", "C", "C", "C"], charge=0, mult=1)
 
     assert distance_between_atoms(fragment=fragment, atoms=[0, 1]) == pytest.approx(1.0)
@@ -74,12 +63,6 @@ def test_get_centroid():
 
 
 def test_elemlisttoformula_is_deterministic_hill_notation():
-    """The formula must be stable and in Hill notation.
-
-    It used to be built by iterating a set, so the same molecule produced a different
-    string in every process — and the formula is embedded in the calculation labels
-    that single_point_fragments builds.
-    """
     assert elemlisttoformula(["H", "O", "H"]) == "H2O1"
     assert elemlisttoformula(["O", "H", "H"]) == "H2O1", "Input order must not matter"
     # Hill notation: carbon first, then hydrogen, then the rest alphabetically.
@@ -93,7 +76,6 @@ def test_nuclear_charges_and_mass():
 
 
 def test_xyzfile_roundtrip(tmp_path):
-    """Coordinates written to XYZ must read back unchanged."""
     elems = ["O", "H", "H"]
     coords = np.array([[0.0, 0.0, 0.1173], [0.0, 0.7572, -0.4692], [0.0, -0.7572, -0.4692]])
 
@@ -135,7 +117,6 @@ def test_rmsd_detects_a_real_difference():
 
 
 def _neighbours_via_calc_conn(coords, elems):
-    """Connectivity as Fragment.calc_connectivity computes it, as a per-atom neighbour set."""
     neighbours = [set() for _ in elems]
     for i in range(len(elems)):
         for j in range(i + 1, len(elems)):
@@ -146,12 +127,6 @@ def _neighbours_via_calc_conn(coords, elems):
 
 
 def test_ions_do_not_bond_in_either_connectivity_path():
-    """Na+ sitting in a water shell must stay unbonded in both implementations.
-
-    eldict_covrad deliberately sets the Na and K radii to ~0 so that a solvated ion is not
-    reported as covalently bonded to the waters around it. The second radii table did not
-    carry that override, so _build_connectivity bonded the ion to all three waters.
-    """
     # Na+ at the origin with three oxygens at 2.4 A -- a typical first solvation shell,
     # well inside the sum of the unmodified Alvarez radii for Na (1.66) and O (0.66).
     coords = np.array([[0.0, 0.0, 0.0], [2.4, 0.0, 0.0], [0.0, 2.4, 0.0], [0.0, 0.0, 2.4]])
@@ -162,14 +137,6 @@ def test_ions_do_not_bond_in_either_connectivity_path():
 
 
 def test_both_paths_use_the_same_covalent_radii():
-    """The one radii table, overrides included, backs both implementations.
-
-    Asserted directly rather than through a geometry, because the two implementations
-    still differ in one respect that no radius can paper over: _build_connectivity ignores
-    pairs closer than 0.4 A, threshold_conn has no such floor. A TIP4P M-site 0.15 A from
-    its oxygen is therefore unbonded in the first and bonded in the second, whatever the
-    M radius is set to.
-    """
     # The overrides that keep solvated ions and dummy sites from bonding
     assert eldict_covrad["Na"] < 0.01
     assert eldict_covrad["K"] < 0.01
@@ -188,7 +155,6 @@ def test_both_paths_use_the_same_covalent_radii():
 
 
 def test_both_connectivity_paths_agree_on_a_normal_molecule():
-    """Where no override is involved the two implementations must give the same answer."""
     # Water, at its equilibrium geometry.
     coords = np.array([[0.0, 0.0, 0.0], [0.96, 0.0, 0.0], [-0.24, 0.93, 0.0]])
     elems = ["O", "H", "H"]

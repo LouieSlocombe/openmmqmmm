@@ -1,5 +1,3 @@
-"""Parallel execution of independent calculations with multiprocessing."""
-
 import copy
 import logging
 import os
@@ -21,11 +19,7 @@ from openmmqmmm.utils import sub_header
 logger = logging.getLogger(__name__)
 
 
-###############################################
-# CHECKS FOR OPENMPI
-###############################################
 def check_openmpi():
-    # Find mpirun and take path
     try:
         openmpibindir = os.path.dirname(shutil.which("mpirun"))
     except TypeError:
@@ -33,7 +27,6 @@ def check_openmpi():
             "No mpirun found in PATH. Make sure to add OpenMPI to PATH in your environment/jobscript"
         ) from None
     logger.info("OpenMPI binary directory found: %s", openmpibindir)
-    # Test that mpirun is executable and grab OpenMPI version number for printout
     verify_openmpi()
 
 
@@ -46,13 +39,7 @@ def verify_openmpi():
     logger.info("OpenMPI version (mpirun -V): %s", mpiversion)
 
 
-###############################################
-# MULTIPROCESS/MULTIPROCESSING handling
-###############################################
 def import_mp(version="multiprocessing"):
-    ###############################
-    # Multiprocessing Pool setup
-    ###############################
     # NOTE: Python 3.8 and higher use spawn in MacOS (openmmqmmm import problems). Unix/Linux uses fork
     if version == "multiprocessing":
         logger.info("Using version: multiprocessing")
@@ -76,21 +63,17 @@ def import_mp(version="multiprocessing"):
     return mp, Pool
 
 
-#########################################
-# Job_parallel: General PARALLEL function.
-#########################################
 # Used for standalone SP calculations and NumFreq
 # Can also be used for optimization and relaxed scans by providing Opt keyword or optimizer object
 
-# will run over fragments or fragmentfiles, over theories or both
 # mofilesdir. Directory containing MO-files (GBW files for ORCA). Usef for multiple fragment option
 # NOTE: Experimental copytheory option
 # NOTE: Can now either use built-in multiprocessing library or more reliable fork multiprocess.
 # The latter uses dill serialization and should be more reliable
 
 
-# Used to be Singlepoint_parallel. Default behaviour is single-point
 def job_parallel(
+    *,
     fragments=None,
     fragmentfiles=None,
     theories=None,
@@ -103,41 +86,12 @@ def job_parallel(
     opt=False,
     optimizer=None,
 ) -> "Results":
-    """Carry out multiple single-point or optimization calculations in parallel.
-
-    Runs over fragments or fragmentfiles, over theories, or over both.
-
-    Args:
-        fragments: list of Fragment objects to run.
-        fragmentfiles: list of fragment filenames (strings) to read from disk instead.
-        theories: list of theory objects. A single theory is applied to every fragment.
-        numcores: number of jobs to run simultaneously (the worker pool size). Required.
-        mofilesdir: directory holding MO files (GBW files for ORCA), used with the
-            multiple-fragment option.
-        allow_theory_parallelization: when False (the default) each theory's own
-            numcores is forced to 1, so at most numcores cores are busy. When True each
-            job may use theory.numcores, so up to numcores * theory.numcores cores run
-            at once — make sure that many slots are actually available.
-        grad: also compute the gradient.
-        copytheory: experimental. Deep-copy the theory for each job so that first-run-only
-            features (brokensym, for one) are not deactivated by a preceding run.
-        version: which library to parallelize with — "multiprocessing" (standard library)
-            or "multiprocess" (a fork using dill, more reliable for objects that pickle
-            badly).
-        opt: run geometry optimizations rather than single points.
-        optimizer: optimizer object to use when opt is True. A default GeometricOptimizer
-            is created if none is given.
-
-    Returns:
-        Results labelled "Job_parallel", holding one energy per job (and one gradient
-        per job when grad=True).
-    """
+    """Carry out multiple single-point or optimization calculations in parallel."""
     logger.info("")
     logger.info(sub_header("Job_parallel function"))
 
     logger.info("copytheory: %s", copytheory)
 
-    # OPT
     if opt is True:
         logger.info("Job_parallel: Opt is True. This is an Opt_parallel job")
         if optimizer is None:
@@ -147,7 +101,6 @@ def job_parallel(
 
             # No options easily provided. Unclear if this is a good idea
             optimizer = GeometricOptimizer()
-    # SP
     else:
         logger.info("Job_parallel: No Opt. This is a Singlepoint_parallel job")
         optimizer = None
@@ -171,7 +124,6 @@ def job_parallel(
     logger.info("Mofilesdir: %s", mofilesdir)
     logger.warning("Output from Job_parallel will be erratic due to simultaneous output from multiple workers")
 
-    # Fragment objects passed or name of fragmentfiles
     if fragments is not None:
         logger.info("Number of fragments: %s", len(fragments))
     else:
@@ -181,14 +133,8 @@ def job_parallel(
     else:
         fragmentfiles = []
 
-    ###############################
-    # Multiprocessing Pool setup
-    ###############################
-
-    # Import multiprocess/multiprocessing library
     mp, Pool = import_mp(version=version)
 
-    # Function to handle exception of child processes
     def terminate_pool_processes(message):
         logger.error("Terminating Pool processes due to exception")
         logger.error("Exception message: %s", message)
@@ -197,17 +143,12 @@ def job_parallel(
         raise OpenMMQMMMError(f"Terminating pool processes due to worker exception: {message}")
 
     pool = Pool(numcores)
-    # Manager
     manager = mp.Manager()
     event = manager.Event()
 
-    ##############################################################
-    # Calling Pool for different fragment vs. theory scenarios
-    ###############################################################
     results = []
 
     def submit(**job):
-        """Queue one worker_par call. The four cases below differ only in `job`."""
         results.append(
             pool.apply_async(
                 worker_par,
@@ -224,7 +165,6 @@ def job_parallel(
             )
         )
 
-    # Case: 1 theory, multiple fragments
     if len(theories) == 1:
         theory = theories[0]
         logger.info("Case: Multiple fragments but one theory")
@@ -233,7 +173,6 @@ def job_parallel(
         logger.info("Job_parallel numcores set to: %s", numcores)
         logger.info(f"openmmqmmm will run {numcores} jobs simultaneously")
 
-        # Whether to allow theory parallelization or not
         if theory.numcores != 1:
             logger.warning("Theory numcores set to: %s", theory.numcores)
             if allow_theory_parallelization is True:
@@ -251,26 +190,22 @@ def job_parallel(
                 logger.warning("This can be overriden by: Job_parallel(allow_theory_parallelization=True)\n")
                 theory.numcores = 1
 
-        # Passing list of fragments
         if len(fragments) > 0:
             logger.info("fragments: %s", fragments)
             for fragment in fragments:
                 logger.info("fragment: %s", fragment)
                 submit(theory=theory, fragment=fragment, label=fragment.label)
-        # Passing list of fragment files
         elif len(fragmentfiles) > 0:
             logger.info("Launching multiprocessing and passing list of fragment files")
             for fragmentfile in fragmentfiles:
                 logger.info("fragmentfile: %s", fragmentfile)
                 submit(theory=theory, fragmentfile=fragmentfile, label=fragmentfile)
-    # Case: Multiple theories, 1 fragment
     elif len(fragments) == 1:
         logger.info("Case: Multiple theories but one fragment")
         fragment = fragments[0]
         for theory in theories:
             logger.info("theory: %s", theory)
             submit(theory=theory, fragment=fragment, label=fragment.label)
-    # Case: Multiple theories, 1 fragmentfile
     elif len(fragmentfiles) == 1:
         logger.info("Case: Multiple theories but one fragmentfile")
         fragmentfile = fragmentfiles[0]
@@ -284,7 +219,6 @@ def job_parallel(
     pool.join()
     event.set()
 
-    # While loop that is only terminated if processes finished or exception occurred
     while True:
         logger.info("Pool multiprocessing underway....")
         time.sleep(3)
@@ -293,19 +227,10 @@ def job_parallel(
             pool.terminate()
             break
 
-    ##############################################################
-    # END OF POOL
-    ###############################################################
-
-    ###########
-    # RESULTS
-    ###########
-    # Going through each result-object and adding to energy_dict if ready
     # This prevents hanging for ApplyResult.get() if Pool did not finish correctly
     energy_dict = {}
     worker_dirnames_dict = {}
     property_dict = {}
-    # Dipole-dict, polarizability-dict etc.
     dipole_dict = {}
     polarizability_dict = {}
 
@@ -321,7 +246,6 @@ def job_parallel(
                 final_result.gradients.append(r.get()[2])
                 if len(r.get()[4]) > 0:
                     property_dict[r.get()[0]] = r.get()[4]
-                    # Dipole and polarizability
                     if "dipole_moment" in r.get()[4]:
                         dipole_dict[r.get()[0]] = r.get()[4]["dipole_moment"]
                     if "polarizability" in r.get()[4]:
@@ -329,25 +253,20 @@ def job_parallel(
 
         final_result.gradients_dict = gradient_dict
         final_result.properties = property_dict
-        # Dipole and polarizability
         final_result.displacement_dipole_dictionary = dipole_dict
         final_result.displacement_polarizability_dictionary = polarizability_dict
-
     else:
         for _i, r in enumerate(results):
             if r.ready() is True:
                 energy_dict[r.get()[0]] = r.get()[1]
                 worker_dirnames_dict[r.get()[0]] = r.get()[2]
                 final_result.energies.append(r.get()[1])
-                # Optional property dict
                 if len(r.get()[3]) > 0:
                     logger.info("r.get()[3]: %s", r.get()[3])
                     property_dict[r.get()[0]] = r.get()[3]
         final_result.properties = property_dict
 
-    # Adding energy dictionary also
     final_result.energies_dict = energy_dict
-    # And dictionary with dirnames used (so we can look up stuff)
     final_result.worker_dirnames = worker_dirnames_dict
 
     # Results from jobs that died are skipped above so that a broken pool cannot hang the
@@ -359,14 +278,12 @@ def job_parallel(
             "Check the worker output above for the underlying exception."
         )
 
-    # TODO: JSON-array problem, reenable later
     return final_result
 
 
-# Worker_par for both Singlepoint-type and Opt-type jobs
 # NOTE: Version intended for apply_async
-# TODO: This function contains 2 many QM-code specifics. Needs to be generalized (QM-specifics moved to QMtheory class)
 def worker_par(
+    *,
     fragment=None,
     fragmentfile=None,
     theory=None,
@@ -380,27 +297,19 @@ def worker_par(
     optimizer=None,
     version="multiprocessing",
 ):
-    # Should not be necessary to import
-    # Check charge/mult.
     charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Worker_par", theory=theory)
-    # BASIC PRINTING
     logger.info("Fragment: %s", fragment)
     logger.info("fragmentfile: %s", fragmentfile)
     logger.info("Theory: %s", theory)
 
     # Creating new copy of theory to avoid deactivation of certain first-run features (e.g. brokensym)
-    # NOTE: Alternatively add if-statement inside orca.run
     if copytheory:
         theory = copy.deepcopy(theory)
 
-    # Optional fragment-creation from disk
     if fragmentfile is not None:
         logger.info("Reading fragmentfile from disk")
         fragment = Fragment(fragfile=fragmentfile)
 
-    ###############################
-    # Labels distinguishing jobs
-    ###############################
     # Making label flexible. Can be tuple but inputfilename is converted to string below
     logger.info(f"label: {label} (type {type(label)})")
     if label is None:
@@ -408,9 +317,6 @@ def worker_par(
             "No label provided to fragment or theory objects. This is required to distinguish between calculations"
         )
     # Using label (could be tuple) to create a labelstring which is used to name worker directories
-    # Tuple-label (1 or 2 elements).
-    # Otherwise normally string
-    # TODO: Needs to be generalized.  Remove RC1, RC2 strings
     moreadfile_path = None
     if isinstance(label, tuple):
         if len(label) == 2:
@@ -420,7 +326,6 @@ def worker_par(
         logger.info("Labelstring: %s", labelstring)
         # RC1_0.9-RC2_170.0.xyz
         # orca_RC1_0.9RC2_170.0.gbw
-        # TODO: what if tuple is only a single number???
 
         if mofilesdir is not None:
             logger.info("Mofilesdir option.")
@@ -430,21 +335,15 @@ def worker_par(
                 )
             else:
                 moreadfile_path = mofilesdir + "/" + theory.filename + "_" + "RC1_" + str(label[0])
-
-    # Label is not a tuple
     elif isinstance(label, (float, int)):
         logger.info("Label is float or int")
         labelstring = str(label).replace(".", "_")
-        # Label is float or int.
         if mofilesdir is not None:
             logger.info("Mofilesdir option.")
             moreadfile_path = mofilesdir + "/" + theory.filename + "_" + "RC1_" + str(label)
     else:
-        # Label is not tuple. String or single number
         labelstring = str(label).replace(".", "_")
 
-    ###############################
-    # TODO: Need to revisit all of this, ideally remove
     if mofilesdir is not None:
         if theory.__class__.__name__ != "ORCATheory":
             raise InputError(f"The mofilesdir option is only supported for ORCATheory, not {theory.__class__.__name__}")
@@ -456,10 +355,6 @@ def worker_par(
         theory.moreadfile = moreadfile_path + ".gbw"
         logger.info("Setting moreadfile to: %s", theory.moreadfile)
 
-    ####################################
-    # Handling Directory
-    ####################################
-    # Creating new dir and running calculation inside
     worker_dirname = "Pooljob_" + labelstring
     try:
         os.mkdir(worker_dirname)
@@ -473,24 +368,17 @@ def worker_par(
             f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
         )
 
-        #####################
-        # RUN WORKER JOB
-        #####################
         # Create property dict containing some results except energy and gradient
         properties = {}
-        # Optimizer
         if optimizer is not None:
-            # Make copy of optimizer
             optimizer_new = copy.copy(optimizer)
             result = optimizer_new.run(theory=theory, fragment=fragment, charge=charge, mult=mult)
             energy = result.energy
-        # Singlepoint Grad
         elif grad:
             energy, gradient = theory.run(
                 current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult, grad=grad
             )
 
-            # Dipole and polarizability
             try:
                 dm = theory.get_dipole_moment()
                 properties = {"dipole_moment": dm}
@@ -501,21 +389,15 @@ def worker_par(
                 properties = {"polarizability": polarizability}
             except Exception:  # noqa: BLE001 - best-effort property grab
                 pass
-
-        # Singlepoint energy
         else:
             energy = theory.run(
                 current_coords=fragment.coords, elems=fragment.elems, label=label, charge=charge, mult=mult
             )
-        #####################
 
         logger.info("Energy:  %s", energy)
 
-        # Now adding total energy to fragment.
-        # NOTE: Add to theory also?
         fragment.energy = energy
     finally:
-        # Exiting workerdir
         os.chdir(parent_dir)
 
     # Return label and energy or label, energy and gradient. Also worker_dirname

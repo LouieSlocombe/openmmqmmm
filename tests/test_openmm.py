@@ -9,13 +9,10 @@ from openmmqmmm.exceptions import InputError
 TEST_DIR = Path(__file__).parent
 
 
-# Read solvated PDB-file, create OpenMMTheory job and run MM singlepoint
 def test_openmm_basic():
-    # Defining fragment containing coordinates (can be read from XYZ-file, fragment or PDB-file)
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki_solvated.pdb"
     fragment = Fragment(pdbfile=pdbfile)
 
-    # Creating new OpenMM object from OpenMM full system file
     omm = OpenMMTheory(
         xmlfiles=["charmm36.xml", "charmm36/water.xml"],
         pdbfile=pdbfile,
@@ -23,15 +20,12 @@ def test_openmm_basic():
         autoconstraints=None,
         rigidwater=False,
     )
-    # Singlepoint MM energy
     single_point(theory=omm, fragment=fragment, grad=True)
 
 
-# Read raw PDB-file, fix using pdbfixer, setup using Modeller and optimize
 def test_openmm_modeller():
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki.pdb"
 
-    # Setting up new system, adding hydrogens, solvent, ions and defining forcefield, topology
     openmmobject, fragment = openmm_modeller(
         pdbfile=pdbfile,
         forcefield="CHARMM36",
@@ -50,17 +44,6 @@ def test_openmm_modeller():
 
 
 def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):
-    """openmm_md end to end, on a system small enough to run in a test.
-
-    This entry point had no execution coverage at all, and spent a release raising
-    TypeError on every call: it passed ``enforcePeriodicBox`` to MolecularDynamicsEngine,
-    whose parameter is ``enforce_periodic_box``. A static check on the call sites lives in
-    test_internal_call_signatures.py; this one actually turns the crank.
-
-    The MeOH...H2O force field here has no bonded terms, so the dynamics are not
-    physically meaningful and nothing below asserts on energies — only that the run
-    completes, advances the coordinates and writes its output files.
-    """
     monkeypatch.chdir(tmp_path)
     fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
     fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)

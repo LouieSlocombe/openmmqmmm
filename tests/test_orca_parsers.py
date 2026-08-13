@@ -1,18 +1,3 @@
-"""Tests for the ORCA output parsers.
-
-These are pure text -> number functions and they had no coverage at all, even though
-they are the layer that breaks silently when ORCA changes its output formatting: a
-parser that stops matching returns an empty result rather than an error. Writing
-these tests found exactly that — grab_orca_timings matched one of its nine labels
-against ORCA 6.1.1 output, including the point-charge gradient timing that the QM/MM
-path reports.
-
-The fixtures in orca_outputs/ are real ORCA 6.1.1 output for a water molecule
-(HF/def2-SVP gradient, BP86/def2-SVP gradient with a point-charge field, and an
-HF/def2-SVP frequency run), with only the banner trimmed off the top. The inputs that
-produced them are committed alongside; see orca_outputs/README.md to regenerate.
-"""
-
 import numpy as np
 import pytest
 
@@ -30,7 +15,6 @@ ENGRAD_GRADIENT = [
 
 @pytest.fixture
 def orca_outputs(request):
-    """Directory holding the committed ORCA reference outputs."""
     return request.path.parent / "orca_outputs"
 
 
@@ -91,11 +75,7 @@ def test_grab_dipole_moment(orca_outputs):
 
 
 def test_grab_timings(orca_outputs):
-    """The timing labels must survive ORCA's varying column widths.
-
-    The previous implementation matched fixed-width strings such as
-    "Sum of individual times         ...:" and found only one label in this output.
-    """
+    """The timing labels must survive ORCA's varying column widths."""
     timings = orca.grab_orca_timings(str(orca_outputs / "h2o_engrad.out"))
     assert "total_time" in timings
     assert "time_scfiterations" in timings
@@ -122,11 +102,6 @@ def test_grab_hessian(orca_outputs):
 
 
 def test_hessian_write_read_roundtrip(orca_outputs, tmp_path):
-    """write_orca_hessfile must produce a file grab_hessian can read back.
-
-    It did not: the written file has no section after $hessian, so the reader ran on
-    into the $atoms block, treated those lines as matrix rows and raised IndexError.
-    """
     hessian = orca.grab_hessian(str(orca_outputs / "h2o_freq.hess"))
     elems = ["O", "H", "H"]
     coords = [[0.0, 0.0, 0.1173], [0.0, 0.7572, -0.4692], [0.0, -0.7572, -0.4692]]
@@ -163,7 +138,6 @@ def test_grab_warnings_reports_real_warnings(tmp_path, caplog):
 
 
 def test_clean_output_has_no_errors(orca_outputs, caplog):
-    """A successful run must not be reported as having errors."""
     with caplog.at_level("INFO", logger="openmmqmmm.orca"):
         orca.grab_orca_errors(str(orca_outputs / "h2o_engrad.out"))
     assert "ORCA-error" not in caplog.text
@@ -219,13 +193,7 @@ def test_grab_spin_populations(cation_output, chargemodel, expected):
 
 
 def test_charge_tables_are_not_confused_with_spin_tables(cation_output):
-    """The plain-charge and charge-plus-spin tables share a heading prefix.
-
-    "MULLIKEN ATOMIC CHARGES" is a prefix of "MULLIKEN ATOMIC CHARGES AND SPIN
-    POPULATIONS", so the charge parser matches the open-shell table too and has to take
-    the second-to-last column there rather than the last one. Getting that wrong returns
-    spin populations while claiming to return charges.
-    """
+    """The plain-charge and charge-plus-spin tables share a heading prefix."""
     charges = orca.grab_orca_atom_charges("Mulliken", cation_output)
     spinpops = orca.grab_orca_spin_populations("Mulliken", cation_output)
     assert charges != pytest.approx(spinpops)
@@ -238,11 +206,7 @@ def test_grab_spin_populations_rejects_unknown_model(cation_output):
 
 
 def test_grab_cm5_charges(cation_output):
-    """CM5 is derived from the Hirshfeld charges plus the geometry ORCA used for them.
-
-    It is the one charge model that needs a second block out of the output file, and it
-    had no coverage at all.
-    """
+    """CM5 is derived from the Hirshfeld charges plus the geometry ORCA used for them."""
     cm5 = orca.grab_orca_atom_charges("CM5", cation_output)
     assert len(cm5) == 3
     assert sum(cm5) == pytest.approx(1.0, abs=1e-4), "The cation carries one positive charge"

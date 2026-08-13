@@ -1,5 +1,3 @@
-"""Electronic-structure analysis helpers (electronic entropy, XDM dispersion via postg, CM5 charges)."""
-
 import logging
 import os
 import shutil
@@ -15,15 +13,19 @@ logger = logging.getLogger(__name__)
 
 # Remaining CM5 parameters from the paper; cm5_radii and cm5_dz are the per-element columns.
 _alpha = 2.474
-_DHC = 0.0502
-_DHN = 0.1747
-_DHO = 0.1671
-_DCN = 0.0556
-_DCO = 0.0234
-_DNO = -0.0346
+
+# Pairwise D_kk' parameters, keyed low-Z first. The value applies as written when the row
+# atom is the lighter of the pair and negated when it is the heavier one.
+_CM5_PAIRS = {
+    (1, 6): 0.0502,
+    (1, 7): 0.1747,
+    (1, 8): 0.1671,
+    (6, 7): 0.0556,
+    (6, 8): 0.0234,
+    (7, 8): -0.0346,
+}
 
 
-# Get list-of-lists of distances of coords
 def distance_matrix_from_coords(coords):
     distmatrix = []
     for i in coords:
@@ -48,35 +50,14 @@ def calc_cm5(atomic_numbers, coords, hirschfeldcharges):
     shape = Tkk.shape
     for i in range(shape[0]):
         for j in range(shape[1]):
-            numbers = [atomic_numbers[i], atomic_numbers[j]]
-            if numbers[0] == numbers[1]:
+            zi, zj = atomic_numbers[i], atomic_numbers[j]
+            if zi == zj:
                 continue
-            if set(numbers) == {1, 6}:
-                Tkk[i, j] = _DHC
-                if numbers == [6, 1]:
-                    Tkk[i, j] *= -1.0
-            elif set(numbers) == {1, 7}:
-                Tkk[i, j] = _DHN
-                if numbers == [7, 1]:
-                    Tkk[i, j] *= -1.0
-            elif set(numbers) == {1, 8}:
-                Tkk[i, j] = _DHO
-                if numbers == [8, 1]:
-                    Tkk[i, j] *= -1.0
-            elif set(numbers) == {6, 7}:
-                Tkk[i, j] = _DCN
-                if numbers == [7, 6]:
-                    Tkk[i, j] *= -1.0
-            elif set(numbers) == {6, 8}:
-                Tkk[i, j] = _DCO
-                if numbers == [8, 6]:
-                    Tkk[i, j] *= -1.0
-            elif set(numbers) == {7, 8}:
-                Tkk[i, j] = _DNO
-                if numbers == [8, 7]:
-                    Tkk[i, j] *= -1.0
+            pair = _CM5_PAIRS.get((min(zi, zj), max(zi, zj)))
+            if pair is None:
+                Tkk[i, j] = cm5_dz[zi - 1] - cm5_dz[zj - 1]
             else:
-                Tkk[i, j] = cm5_dz[numbers[0] - 1] - cm5_dz[numbers[1] - 1]
+                Tkk[i, j] = pair if zi < zj else -pair
     if not (np.diagonal(Tkk) == 0).all():
         raise InternalError("Tkk matrix diagonal is not zero")
     product = np.multiply(Tkk, Bkk)
@@ -86,11 +67,9 @@ def calc_cm5(atomic_numbers, coords, hirschfeldcharges):
     return np.array(hirschfeldcharges) + result
 
 
-# Interface to XDM postg program
 # https://github.com/aoterodelaroza/postg
 def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
     if postgdir is None:
-        # Trying to find postgdir in path
         logger.info("postgdir keyword argument not provided to xdm_run. Trying to find postg in PATH")
         try:
             postgdir = os.path.dirname(shutil.which("postg"))
@@ -150,7 +129,6 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
     return dispenergy, dispgradient
 
 
-# Get electron correlation energy as a function of occupation numbers, sigma and the chosen distribution
 def get_ec_entropy(occ, sigma, method="fermi"):
     from scipy.special import erfinv
 

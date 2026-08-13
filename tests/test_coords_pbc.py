@@ -1,10 +1,3 @@
-"""Tests for the periodic-cell helpers.
-
-coords_pbc.py was at 10% coverage. Cell conversions are exactly checkable — an
-orthorhombic cell has known vectors, volume and fractional coordinates — and the
-structure writers only need their output parsing back to the same numbers.
-"""
-
 import numpy as np
 import pytest
 
@@ -29,7 +22,6 @@ def test_orthorhombic_params_to_vectors():
 
 
 def test_params_and_vectors_roundtrip():
-    """A triclinic cell must survive the conversion in both directions."""
     triclinic = [8.0, 9.0, 10.0, 75.0, 85.0, 95.0]
 
     vectors = cell_params_to_vectors(triclinic)
@@ -41,7 +33,6 @@ def test_cell_volume_of_a_box():
 
 
 def test_cartesian_to_fractional():
-    """The cell corner is at fractional (1, 1, 1) and the centre at (0.5, 0.5, 0.5)."""
     vectors = np.diag([10.0, 20.0, 30.0])
 
     fractional = cart_coords_to_fract(np.array([[5.0, 10.0, 15.0], [10.0, 20.0, 30.0]]), vectors)
@@ -52,7 +43,6 @@ def test_cartesian_to_fractional():
 
 @pytest.mark.parametrize("writer", [write_poscar_file, write_xsf_file, write_cif_file])
 def test_structure_writers_produce_a_non_empty_file(tmp_path, writer):
-    """Each writer must emit a file mentioning both elements and the cell size."""
     coords = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
     filename = str(tmp_path / f"structure_{writer.__name__}")
 

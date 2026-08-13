@@ -1,11 +1,3 @@
-"""Checks that the public API stays documented and that py.typed is honest.
-
-The 1.0.0 docstring pass covered module-level functions only, so all 128 public
-methods of the exported classes — everything a user calls on a Fragment, an
-ORCATheory or an OpenMMTheory — went undocumented while the README advertised a
-documented API. These tests fail the moment a new public method arrives without one.
-"""
-
 import inspect
 import pathlib
 
@@ -50,12 +42,7 @@ def test_exported_functions_are_documented(name):
 
 
 def test_py_typed_marker_matches_reality():
-    """Shipping py.typed tells type checkers the package is annotated.
-
-    If the marker is present, the exported job functions must actually carry
-    annotations — otherwise downstream mypy users are promised types and silently
-    get Any. Delete the marker rather than let it lie.
-    """
+    """Shipping py.typed tells type checkers the package is annotated."""
     package_dir = pathlib.Path(openmmqmmm.__file__).parent
     if not (package_dir / "py.typed").exists():
         pytest.skip("No py.typed marker: the package does not claim to be typed")

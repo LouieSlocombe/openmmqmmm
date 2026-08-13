@@ -1,17 +1,3 @@
-"""OpenMM interface for openmmqmmm.
-
-Provides OpenMMTheory, the MD drivers, system preparation (modeller/solvation)
-and PLUMED-biased MD.
-
-Split across submodules for navigability; every name is re-exported here, so
-`from openmmqmmm.openmm import X` keeps working exactly as before:
-
-- `theory` — OpenMMTheory and the forces it manages
-- `systemsetup` — modeller, solvation, minimization, ligand parameterization
-- `md` — the MD engine and the molecular-dynamics drivers
-- `plumed` — PLUMED-biased MD (metadynamics and other biases)
-"""
-
 # Defined in coords but part of the OpenMM-facing API since 1.0: re-exported here so
 # `from openmmqmmm.openmm import check_gradient_for_bad_atoms` keeps working.
 from openmmqmmm.coords import check_gradient_for_bad_atoms

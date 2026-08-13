@@ -1,5 +1,3 @@
-# Keep the test suite out of the sdist. setuptools otherwise sweeps a top-level
-# tests/*.py into it by default, but not conftest.py or the ~2.5 MB of reference
-# data alongside them — shipping test modules that cannot run is worse than
-# shipping none. The suite runs from a repository checkout; see README.md.
+# Keep the test suite out of the sdist: setuptools would sweep in tests/*.py but not
+# conftest.py or the reference data, shipping test modules that cannot run.
 prune tests

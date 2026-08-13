@@ -1,10 +1,3 @@
-"""PLUMED-biased molecular dynamics via the openmm-plumed plugin.
-
-PLUMED owns the collective variables, the bias and the analysis: the bias
-specification is the PLUMED input string, and the HILLS/COLVAR files it writes are
-read back with PLUMED's own tools (``plumed sum_hills`` for a free-energy surface).
-"""
-
 import logging
 
 from openmmqmmm.exceptions import (
@@ -21,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def openmm_md_plumed(
+    *,
     fragment=None,
     theory=None,
     timestep=0.001,
@@ -78,7 +72,6 @@ def openmm_md_plumed(
             "conda: \nconda install -c conda-forge openmm-plumed"
         ) from None
 
-    # Creating MDclass
     md = MolecularDynamicsEngine(**engine_kwargs)
 
     logger.info("Setting up Plumed")
@@ -100,7 +93,6 @@ def openmm_md_plumed(
     )
     logger.info("PLUMED-biased simulation done")
 
-    # Finalizing simulation (writes and updates files)
     md.finalize_simulation()
 
     logger.info(

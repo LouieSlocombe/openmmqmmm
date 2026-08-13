@@ -1,14 +1,3 @@
-"""Tests for ORCA input-file generation.
-
-These functions had no coverage, which is how a missing newline separator shipped:
-`create_orca_input_plain` ran `extraline` straight into `orcablocks`, so
-`ORCATheory(orcablocks=...).opt()` wrote `! OPT %scf maxiter 200 end` on one line
-and ORCA exited with an error. The point-charge variant got the separators right,
-and the two writers were 90% duplicated, so the bug only affected gas-phase runs.
-
-Nothing here needs an ORCA installation — these are pure file-writing functions.
-"""
-
 import pytest
 
 from openmmqmmm import Fragment, ORCATheory
@@ -30,10 +19,7 @@ def _directive_lines(path):
 
 
 def test_keywords_and_blocks_each_get_their_own_line(tmp_path):
-    """Every directive must sit on its own line, however the options are combined.
-
-    ORCA input is line-oriented: two directives sharing a line is a syntax error.
-    """
+    """Every directive must sit on its own line, however the options are combined."""
     for writer in (create_orca_input_plain, create_orca_input_pc):
         name = str(tmp_path / writer.__name__)
         writer(name, extraline="! TightSCF", grad=True, hessian=True, **BASE_ARGS)
@@ -48,10 +34,6 @@ def test_keywords_and_blocks_each_get_their_own_line(tmp_path):
 
 @pytest.mark.parametrize("extraline", ["! TightSCF", "! TightSCF\n", "\n! Noautostart\n"])
 def test_extraline_is_separated_from_what_follows(tmp_path, extraline):
-    """A user extraline is always separated from the next directive.
-
-    This holds whether or not the extraline carries its own trailing newline.
-    """
     name = str(tmp_path / "orca")
     create_orca_input_plain(name, extraline=extraline, grad=True, **BASE_ARGS)
 
@@ -61,10 +43,7 @@ def test_extraline_is_separated_from_what_follows(tmp_path, extraline):
 
 
 def test_pc_and_plain_differ_only_by_the_pointcharge_line(tmp_path):
-    """The two writers are one implementation; only `%pointcharges` should differ.
-
-    They used to be separate near-copies that had drifted apart.
-    """
+    """The two writers are one implementation; only `%pointcharges` should differ."""
     create_orca_input_plain(str(tmp_path / "plain"), extraline="! TightSCF", grad=True, **BASE_ARGS)
     create_orca_input_pc(str(tmp_path / "pc"), extraline="! TightSCF", grad=True, **BASE_ARGS)
 
@@ -77,11 +56,7 @@ def test_pc_and_plain_differ_only_by_the_pointcharge_line(tmp_path):
 
 
 def test_fragment_indices_keep_unassigned_atoms(tmp_path):
-    """Atoms in no fragment (link atoms) are still written, without a fragment tag.
-
-    The plain writer used to raise TypeError on them and the PC writer used to drop
-    them from the coordinate block entirely, silently shrinking the QM region.
-    """
+    """Atoms in no fragment (link atoms) are still written, without a fragment tag."""
     args = BASE_ARGS | {"elems": ["H", "F", "H"], "coords": [[0.0, 0.0, 0.0]] * 3}
     create_orca_input_plain(str(tmp_path / "orca"), fragment_indices=[[0, 1]], **args)
 
@@ -94,13 +69,7 @@ def test_fragment_indices_keep_unassigned_atoms(tmp_path):
 
 @pytest.mark.usefixtures("fake_orca_dir")
 def test_opt_writes_valid_input_and_leaves_theory_unchanged(tmp_path, monkeypatch):
-    """Repeated opt() calls must each write valid input and not accumulate state.
-
-    opt() used to append `! OPT` to self.extraline, so a second call wrote
-    `! OPT ! OPT` and ORCA exited with an error; worse, a later run() single point
-    silently inherited the `! OPT`. The ORCA launch is stubbed out — the bug was in
-    the input written before it.
-    """
+    """Repeated opt() calls must each write valid input and not accumulate state."""
 
     class OrcaLaunchedError(Exception):
         """Raised in place of launching ORCA, to stop right after input writing."""

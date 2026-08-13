@@ -1,10 +1,4 @@
-"""Checks that severity is carried by the log level, not by the message text.
-
-The 1.0.0 modernization moved all output onto the logging module but kept the old
-print-era conventions in the strings: 50 warnings and errors were emitted through
-logger.info with a "WARNING:"/"Error:" prefix, so filtering by level did not work.
-These tests are a source scan, so they keep that from creeping back in.
-"""
+"""Checks that severity is carried by the log level, not by the message text."""
 
 import ast
 import pathlib
@@ -45,7 +39,6 @@ def _logging_calls(module):
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda p: p.name)
 def test_warnings_are_not_logged_at_info(module):
-    """A message announcing a problem must use the level that matches it."""
     offenders = [
         f"{module.name}:{lineno}: {message[:60]!r}"
         for lineno, level, message in _logging_calls(module)
@@ -66,10 +59,7 @@ def test_no_leftover_debug_markers(module):
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda p: p.name)
 def test_section_banners_are_not_warnings(module):
-    """Banner lines belong to the INFO-level calculation record.
-
-    At WARNING they reach a user who filtered out everything the banner introduces.
-    """
+    """Banner lines belong to the INFO-level calculation record."""
     offenders = [
         f"{module.name}:{lineno}: {message[:60]!r}"
         for lineno, level, message in _logging_calls(module)

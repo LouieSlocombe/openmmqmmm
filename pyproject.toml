@@ -20,8 +20,7 @@ dependencies = [
     "numpy",
     "packaging",
     "geometric >= 1.0.1",
-    # openmm is required at import time (interface_OpenMM); conda-forge remains
-    # the recommended install route for the full stack (pdbfixer is conda-only).
+    # Required at import time. conda-forge is the recommended route: pdbfixer is conda-only.
     "openmm >= 8",
 ]
 
@@ -29,9 +28,8 @@ dependencies = [
 md = ["mdtraj"]
 extras = ["scipy", "parmed"]
 test = ["pytest", "pytest-cov"]
-# Pinned, not floating: ruff's formatter output can shift between releases, so the
-# version here must match .pre-commit-config.yaml and .github/workflows/ci.yml or
-# a locally-clean tree can still fail the CI format gate.
+# Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts
+# between releases, so a skew lets a locally-clean tree fail the CI format gate.
 dev = ["ruff == 0.16.2", "pre-commit"]
 
 [project.urls]
@@ -41,9 +39,8 @@ Upstream = "https://github.com/RagnarB83/ash"
 where = ["."]
 include = ["openmmqmmm*"]
 
-# Non-Python files shipped in wheels: the geomeTRIC logging config and the
-# PEP 561 typing marker. Test data (~2.5 MB under tests/) stays in
-# the source repository — run the test suite from a checkout.
+# Wheels ship the geomeTRIC logging config and the PEP 561 marker. Test data
+# (~2.5 MB under tests/) is repository-only — run the suite from a checkout.
 [tool.setuptools.package-data]
 openmmqmmm = ["log.ini", "py.typed"]
 
@@ -51,9 +48,7 @@ openmmqmmm = ["log.ini", "py.typed"]
 testpaths = ["tests"]
 addopts = "-ra"
 
-# Coverage is measured with `pytest --cov`; the config lives here so local runs and CI
-# report the same numbers. The tests live outside the package, so they fall outside
-# `source` and need no explicit omit.
+# Configured here so `pytest --cov` reports the same numbers locally and in CI.
 [tool.coverage.run]
 source = ["openmmqmmm"]
 
@@ -63,17 +58,11 @@ exclude_also = [
     "raise NotImplementedError",
 ]
 
-# Style is machine-enforced end to end: `ruff format` owns layout, `ruff check` owns
-# what the formatter cannot express. Both gate CI (.github/workflows/ci.yml) and run
-# as pre-commit hooks (.pre-commit-config.yaml); the ruff version is pinned in all
-# three places and in the `dev` extra above — keep them in step.
 [tool.ruff]
 line-length = 120
 target-version = "py310"
 
-# These are ruff's current defaults, so pinning them changes nothing today. The
-# section exists so that a future ruff release which changes a default cannot
-# silently reformat the whole tree.
+# Ruff's current defaults, pinned so a future release cannot silently reformat the tree.
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
@@ -85,17 +74,10 @@ docstring-code-format = true
 select = [
     "F", "E", "W", "I", "N", "UP", "B", "A", "C4", "PIE", "SIM", "RUF", "FURB",
     "PLE", "PLW", "BLE", "T20", "G", "LOG",
-    # Docstring shape, Google convention (configured below). Docstring *presence*
-    # is deliberately not checked here — see the D1xx ignores.
+    # Docstring shape only; presence is not checked here — see the D1xx ignores.
     "D",
-    # Consistency guards. Each was at zero violations when adopted, so they cost
-    # nothing to keep and stop the styles they forbid from creeping back in.
     "ICN", "TID", "PYI", "RSE", "FA", "PGH", "DTZ", "EXE", "INT", "ISC", "ERA",
     "PLR2044",
-    # Redundancy the formatter cannot see: `else` after `return`/`raise`, assign-then-
-    # return, `x == 0 or x == 1` chains, trailing bare `return`, manual list-building
-    # loops. Adopted after a de-duplication pass cleared the ~130 existing violations.
-    # (RUF047/RUF050 would belong here too but are preview-only in ruff 0.16.)
     "RET", "PERF", "PLR1714", "PLR5501", "PLR1711", "PLC1802",
 ]
 ignore = [
@@ -103,23 +85,17 @@ ignore = [
     "G004",
     # Uppercase locals are idiomatic in the physics-heavy code
     "N806",
-    # Docstring presence is enforced by tests/test_api_docs.py against the public
-    # API — the surface that actually matters. Requiring one everywhere would mean
-    # ~250 new docstrings on private helpers and test functions.
+    # Docstring presence is enforced by tests/test_api_docs.py against the public API
     "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
-    # On ruff's own formatter-incompatible list. Implicit concatenation across
-    # lines is how the long output templates stay under line-length. For the same
-    # reason do not add COM or Q here: trailing commas and quote style are settled
-    # by [tool.ruff.format] above.
+    # Formatter-incompatible. Implicit concatenation keeps long output templates
+    # under line-length; do not add COM or Q here for the same reason.
     "ISC001",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests and the runnable examples may print. The examples also show alternative
-# calls as commented-out code on purpose — that is documentation for the reader,
-# not dead code.
+# Tests and the runnable examples may print.
 "tests/*" = ["T20"]
-"examples/*" = ["T20", "ERA001"]
+"examples/*" = ["T20"]
 # __all__ is grouped semantically, not alphabetically
 "openmmqmmm/__init__.py" = ["RUF022"]
 # Mathematical/physics argument notation (A, B, C, T, Qcoord, Lgrad, ...)

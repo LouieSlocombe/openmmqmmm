@@ -1,5 +1,3 @@
-"""OpenBabel-backed conversions used internally: XYZ to PDB with connectivity, SMILES to coordinates."""
-
 import logging
 import os
 
@@ -10,15 +8,10 @@ from openmmqmmm.exceptions import (
 
 logger = logging.getLogger(__name__)
 
-###################################
-###################################
-
 
 # Function to read in XYZ-file (small molecule) and create PDB-file with CONECT lines (geometry needs to be sensible)
 def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
-    """Convert an XYZ file to a PDB file with CONECT records via OpenBabel."""
     logger.info("xyz_to_pdb_with_connectivity function:")
-    # OpenBabel
     try:
         from openbabel import openbabel, pybel
     except ModuleNotFoundError:
@@ -26,9 +19,7 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
             "Error: xyz_to_pdb_with_connectivity requires OpenBabel library but it could not be imported\nYou can "
             "install OpenBabel like this:    conda install --yes -c conda-forge openbabel"
         ) from None
-    # Read in XYZ-file
     mol = next(pybel.readfile("xyz", file))
-    # Write do disk as PDB-file
     mol.write(format="pdb", filename=os.path.splitext(file)[0] + "temp.pdb", overwrite=True)
     # Read-in again (this will create a Residue)
     newmol = next(pybel.readfile("pdb", os.path.splitext(file)[0] + "temp.pdb"))
@@ -38,24 +29,19 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
     logger.info("Creating new atomnames for PDBfile")
     # Note: currently just combining element and atomindex to get a unique atomname (otherwise Modeller will not work)
-    # TODO: make something better (element-specific numbering?)
     for res in pybel.ob.OBResidueIter(newmol.OBMol):
-        # Setting residue name
         res.SetName(resname)
         for i, atom in enumerate(openbabel.OBResidueAtomIter(res)):
             atomname = res.GetAtomID(atom)
             res.SetAtomID(atom, atomname.strip() + str(i + 1))
             atomname = res.GetAtomID(atom)
 
-    # Write final PDB-file
     newmol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
     logger.info("Wrote PDB-file: %s", os.path.splitext(file)[0] + ".pdb")
     return os.path.splitext(file)[0] + ".pdb"
 
 
-# Function to convert SMILES string to elements and coordinates list
 def smiles_to_coords(smiles_string):
-    # OpenBabel
     try:
         from openbabel import openbabel, pybel
     except ModuleNotFoundError:

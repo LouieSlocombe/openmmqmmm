@@ -1,11 +1,3 @@
-"""Exception hierarchy for openmmqmmm.
-
-Every error raised by this package derives from OpenMMQMMMError, so callers can
-catch that one type to handle any package failure. The subclasses also inherit
-from the closest builtin exception (ValueError, ImportError, RuntimeError) so
-generic handlers keep working.
-"""
-
 from types import ModuleType
 
 
@@ -18,10 +10,7 @@ class InputError(OpenMMQMMMError, ValueError):
 
 
 class MissingDependencyError(OpenMMQMMMError, ImportError):
-    """An optional dependency is required for the requested feature.
-
-    Raised via require(), which attaches an installation hint.
-    """
+    """An optional dependency is required for the requested feature."""
 
 
 class ExternalProgramError(OpenMMQMMMError, RuntimeError):
@@ -37,16 +26,7 @@ class InternalError(OpenMMQMMMError, RuntimeError):
 
 
 def require(module_name, hint=None, feature=None) -> ModuleType:
-    """Import and return an optional dependency, or raise MissingDependencyError.
-
-    Args:
-        module_name: importable module name, e.g. "parmed" or "openff.toolkit".
-        hint: install command suggestion, e.g. "conda install -c conda-forge parmed".
-        feature: short description of what needs the dependency, for the error message.
-
-    Returns:
-        The imported module object.
-    """
+    """Import and return an optional dependency, or raise MissingDependencyError."""
     import importlib
 
     try:

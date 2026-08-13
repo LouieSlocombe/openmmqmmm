@@ -10,7 +10,7 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
-# Coverage output (pytest --cov)
+# Coverage output
 .coverage
 coverage.xml
 htmlcov/
@@ -20,9 +20,7 @@ htmlcov/
 .vscode/
 .DS_Store
 
-# Scratch output from manual runs in the repo root (test output is handled by
-# tests/.gitignore; the tests themselves run in temporary directories)
+# Scratch output from manual runs in the repo root. Test output is handled by
+# tests/.gitignore; the tests themselves run in temporary directories.
 *_OPTtraj.tmp/
-
-# Results files written by the job functions during manual runs in the repo root
 results_*.json

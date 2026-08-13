@@ -1,5 +1,3 @@
-"""The Results dataclass returned by job functions, plus JSON (de)serialization."""
-
 import logging
 from dataclasses import dataclass
 
@@ -9,16 +7,12 @@ from openmmqmmm.coords import Fragment
 
 logger = logging.getLogger(__name__)
 
-# Dataclasses https://realpython.com/python-data-classes/
 
-
-# Results dataclass that job functions return
 @dataclass
 class Results:
     """Container for job results (energies, gradients, frequencies, thermochemistry)."""
 
     label: str | None = None
-    # Single-job: Energy and gradient
     energy: float | None = None
     qm_energy: float | None = None
     mm_energy: float | None = None
@@ -26,7 +20,6 @@ class Results:
     gradient: np.ndarray | None = None
     reaction_energy: float | None = None
 
-    # Multi-energy job: Lists of energies and gradients
     energies: list | None = None
     reaction_energies: list | None = None
     relative_energies: list | None = None
@@ -34,14 +27,11 @@ class Results:
     gradients: list | None = None
     energies_dict: dict | None = None
     gradients_dict: dict | None = None
-    # parallel Multi-energy job
     # Name of worker directories that could be accessed later
     worker_dirnames: dict | None = None
     charge: int | None = None
     mult: int | None = None
-    # Possible unsorted information.
     properties: dict | None = None
-    # Frequency information
     hessian: np.ndarray | None = None
     frequencies: list | None = None
     freq_masses: list | None = None
@@ -64,24 +54,14 @@ class Results:
     displacement_polarizability_dictionary: dict | None = None
 
     def write_to_disk(self, filename="results.json"):
-        """Write the defined attributes to a JSON file.
-
-        Numpy arrays are converted to nested lists; openmmqmmm objects (fragments,
-        theories) are skipped since they are not JSON-serialisable.
-
-        Args:
-            filename: path of the JSON file to write.
-        """
+        """Write the defined attributes to a JSON file."""
         import json
 
         logger.info("\nWriting to disk defined attributes of Results dataclass")
 
         newdict = {}
-        # Looping over attributes, converting ndarrays to lists and skipping openmmqmmm objects
         for k, v in self.__dict__.items():
-            # Deal with np array
             if isinstance(v, np.ndarray):
-                # Check for nans in array
                 if np.any(np.isnan(v)):
                     logger.warning(f"NaN found in array {k}")
                     logger.info("Skipping writing to disk")
@@ -90,7 +70,6 @@ class Results:
                     newdict[k] = newv
             # Dealing with cases of lists of np arrays (e.g. pol derivs)
             elif isinstance(v, list):
-                # If list is empty, just add it
                 if len(v) == 0:
                     newdict[k] = v
                 elif isinstance(v[0], np.ndarray):
@@ -112,7 +91,6 @@ class Results:
                     logger.info(f"{k} : too long to print")
             elif v is not None:
                 logger.info(f"{k} : {v}")
-        # Dump new dict
         try:
             with open(filename, "w") as f:
                 f.write(json.dumps(newdict, allow_nan=True))
@@ -122,7 +100,6 @@ class Results:
             return
 
 
-# Read Results data from disk
 def read_results_from_file(filename="results.json") -> "Results":
     """Read a Results object from a JSON file written by Results.write_to_disk."""
     import json

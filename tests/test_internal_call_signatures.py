@@ -1,15 +1,4 @@
-"""Static check that internal keyword arguments match the signatures they are passed to.
-
-The package renames aggressively (the v1.0.0 PEP8 sweep, then a follow-up audit that
-restored OpenMM's own camelCase spellings at the call sites that talk to OpenMM). Both
-sweeps hit call sites the tests do not exercise: all four OpenMM MD entry points spent a
-release passing ``enforcePeriodicBox=`` to ``MolecularDynamicsEngine``, whose parameter is
-``enforce_periodic_box``. Every call raised TypeError; openmm/md.py sits at 4% coverage,
-so nothing noticed.
-
-Parsing the call sites and comparing them against the real signatures catches that whole
-family at import speed, with no OpenMM or ORCA run needed.
-"""
+"""Static check that internal keyword arguments match the signatures they are passed to."""
 
 import ast
 import importlib
@@ -25,12 +14,7 @@ SOURCE_FILES = sorted(PACKAGE_DIR.rglob("*.py"))
 
 
 def _public_callables():
-    """Map name -> callable for everything the package defines, where the name is unique.
-
-    Names bound to more than one object are dropped: ``write_xyzfile`` is both a module
-    function and a Fragment method, and this check has no type information to tell them
-    apart.
-    """
+    """Map name -> callable for everything the package defines, where the name is unique."""
     found = {}
     for path in SOURCE_FILES:
         module_name = str(path.relative_to(PACKAGE_DIR.parent).with_suffix("")).replace("/", ".")
@@ -90,12 +74,7 @@ def test_no_call_site_passes_an_unknown_keyword():
     ["openmm_md", "openmm_box_equilibration", "openmm_md_plumed"],
 )
 def test_md_entry_points_forward_every_argument_they_accept(entry_point):
-    """The MD wrappers restate the engine's parameters; none may be silently dropped.
-
-    Each wrapper takes ~45 keyword arguments and hands them to MolecularDynamicsEngine,
-    or to its run() method. An argument accepted by the wrapper but passed to neither is
-    accepted from the user and then ignored, which is worse than rejecting it.
-    """
+    """The MD wrappers restate the engine's parameters; none may be silently dropped."""
     from openmmqmmm.openmm.md import MolecularDynamicsEngine
 
     module = importlib.import_module(getattr(openmmqmmm, entry_point).__module__)

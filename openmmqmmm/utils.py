@@ -1,5 +1,3 @@
-"""General utilities: logging setup, file helpers, headers and small list/string tools."""
-
 import logging
 import os
 import re
@@ -16,25 +14,7 @@ timings_logger = logging.getLogger("openmmqmmm.timings")
 
 
 def configure_logging(level="INFO", file=None, fmt="%(message)s") -> logging.Logger:
-    """Configure output for openmmqmmm calculations.
-
-    The package logs the calculation record through the standard logging
-    module and stays silent by default (library convention). Calling this
-    once in a run script restores the classic console output:
-
-        import openmmqmmm
-        openmmqmmm.configure_logging()
-
-    Args:
-        level: logging level name or number for the package logger.
-            Overridden by the OPENMMQMMM_LOGLEVEL environment variable if set.
-        file: optional path; if given, output also goes to this file.
-        fmt: logging format string; the message-only default reproduces the
-            look of the old print-based output.
-
-    Returns:
-        The configured "openmmqmmm" logger.
-    """
+    """Configure output for openmmqmmm calculations."""
     package_logger = logging.getLogger("openmmqmmm")
     env_level = os.environ.get("OPENMMQMMM_LOGLEVEL")
     if env_level:
@@ -58,13 +38,11 @@ def configure_logging(level="INFO", file=None, fmt="%(message)s") -> logging.Log
 
 
 def log_time_since(timestamp, label="step"):
-    """Log wall time elapsed since timestamp (DEBUG level, openmmqmmm.timings logger)."""
     secs = time.time() - timestamp
     timings_logger.debug("Time to calculate step (%s): %.3f seconds, %.1f minutes", label, secs, secs / 60)
 
 
 def main_header(text):
-    """Return text in the boxed banner used for major module headers."""
     width = len(text) + 12
     edge = "#" * width
     mid = "#" + " " * (width - 2) + "#"
@@ -73,18 +51,15 @@ def main_header(text):
 
 
 def sub_header(text):
-    """Return text with the full-width rule used for submodule headers."""
     rule = "-" * 80
     return f"\n{rule}\n{text.center(80)}\n{rule}\n"
 
 
 def sub_header_end():
-    """Return the closing rule matching sub_header."""
     return "\n" + "-" * 80
 
 
 def small_header(text):
-    """Return text with an underline rule of matching width."""
     rule = "-" * len(text)
     return f"\n{rule}\n{text}\n{rule}"
 
@@ -94,7 +69,6 @@ def basename(filename):
 
 
 def pygrep(string, file, errors=None):
-    """Return the whitespace-split first line of file containing string, or None."""
     with open(file, errors=errors) as f:
         for line in f:
             if string in line:
@@ -103,7 +77,6 @@ def pygrep(string, file, errors=None):
 
 
 def pygrep2(string, file, print_output=False, errors=None):
-    """Return every line of file containing string, unsplit and with line endings."""
     with open(file, errors=errors) as f:
         matches = [line for line in f if string in line]
     if print_output is True:
@@ -111,13 +84,10 @@ def pygrep2(string, file, print_output=False, errors=None):
     return matches
 
 
-# Simple function to do find and replace string in file
 def find_replace_string_in_file(file, findstring, replstring):
     with open(file) as f:
         filedata = f.read()
-    # Replace the target string
     filedata = filedata.replace(findstring, replstring)
-    # Write the file out again
     with open(file, "w") as f:
         f.write(filedata)
 
@@ -129,7 +99,6 @@ def listdiff(list1, list2):
     return diff
 
 
-# Inserts line into file for matched string.
 # option: Once=True means only added for first match
 def insert_line_into_file(file, string, addedstring, once=True):
     added = False
@@ -144,7 +113,6 @@ def insert_line_into_file(file, string, addedstring, once=True):
                     added = True
 
 
-# Can variable be converted into integer
 def isint(s):
     try:
         int(s)
@@ -156,11 +124,9 @@ def isint(s):
 
 
 def search_list_of_lists_for_index(i, list_of_lists):
-    """Return the index of the first sublist containing i, or None."""
     return next((c for c, f in enumerate(list_of_lists) if i in f), None)
 
 
-# convert list of lists to dict
 def create_conn_dict(list_of_lists):
     index = {}
     for c, sublist in enumerate(list_of_lists):
@@ -178,7 +144,6 @@ def read_intlist_from_file(filename, offset=0):
         with open(filename) as f:
             for line in f:
                 for word in line.split():
-                    # Removing non-numeric part
                     digits = "".join(i for i in word if i.isdigit())
                     if isint(digits):
                         intlist.append(int(digits) + offset)
@@ -188,13 +153,11 @@ def read_intlist_from_file(filename, offset=0):
     return intlist
 
 
-# Write a string to file simply
 def writestringtofile(string, file, writemode="w"):
     with open(file, writemode) as f:
         f.write(string)
 
 
-# Write a Python list to file simply
 def writelisttofile(pylist, file, separator=" "):
     with open(file, "w") as f:
         f.writelines(str(item) + separator for item in pylist)
@@ -202,8 +165,6 @@ def writelisttofile(pylist, file, separator=" "):
 
 
 def natural_sort(items):
-    """Sort strings the way a human reads them: atom10 after atom9, not after atom1."""
-
     def alphanum_key(key):
         return [int(part) if part.isdigit() else part.lower() for part in re.split("([0-9]+)", key)]
 
@@ -211,10 +172,8 @@ def natural_sort(items):
 
 
 def clean_number(number):
-    """Drop a negligible imaginary part, e.g. from a diagonalization."""
     return np.real_if_close(number)
 
 
 def column(matrix, i):
-    """Return column i of a list-of-lists matrix."""
     return [row[i] for row in matrix]
