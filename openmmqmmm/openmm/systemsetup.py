@@ -154,8 +154,8 @@ def openmm_minimize(
                     write_xyzfile(fragment.elems, pos, "OpenMMOpt_traj", writemode="a")
 
             def print_energy(self, args):
-                system_energy = args["system energy"] / openmmqmmm.constants.hartokj
-                restraint_energy = args["restraint energy"] / openmmqmmm.constants.hartokj
+                system_energy = args["system energy"] / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
+                restraint_energy = args["restraint energy"] / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
                 logger.info("System energy: %s", system_energy)
                 logger.info("Restraint energy: %s", restraint_energy)
                 logger.info("Restraint strength: %s", args["restraint strength"])
@@ -163,7 +163,7 @@ def openmm_minimize(
 
             def get_forces(self, grad):
                 g = np.array(grad).reshape(-1, 3)  # To confirm
-                kjmolnm_to_atomic_factor = -49614.752589207
+                kjmolnm_to_atomic_factor = -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
                 self.forces_init = g / kjmolnm_to_atomic_factor
                 self.rms_force = np.sqrt(sum(n * n for n in self.forces_init.flatten()) / len(forces_init.flatten()))
                 self.max_force = self.forces_init.max()
@@ -181,10 +181,11 @@ def openmm_minimize(
     logger.info("")
     state = simulation.context.getState(getEnergy=True, getForces=True, enforcePeriodicBox=enforce_periodic_box)
     potE_init = (
-        state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system) / openmmqmmm.constants.hartokj
+        state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system)
+        / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
     )
     logger.info(f"Initial potential energy is: {potE_init} Eh")
-    kjmolnm_to_atomic_factor = -49614.752589207
+    kjmolnm_to_atomic_factor = -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
     forces_init = np.array(state.getForces(asNumpy=True)) / kjmolnm_to_atomic_factor
     rms_force = np.sqrt(sum(n * n for n in forces_init.flatten()) / len(forces_init.flatten()))
     logger.info(f"Initial RMS force: {rms_force} Eh/Bohr (w/o restraints)")
@@ -207,12 +208,11 @@ def openmm_minimize(
     state = simulation.context.getState(
         getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=enforce_periodic_box
     )
-    logger.info(
-        "%s",
-        f"Final Potential energy is: "
-        f"{state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system) / openmmqmmm.constants.hartokj} "
-        f"Eh",
+    final_energy = (
+        state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system)
+        / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
     )
+    logger.info("Final Potential energy is: %s Eh", final_energy)
     forces_final = np.array(state.getForces(asNumpy=True)) / kjmolnm_to_atomic_factor
     rms_force = np.sqrt(sum(n * n for n in forces_final.flatten()) / len(forces_final.flatten()))
     logger.info(f"Final RMS force: {rms_force} Eh/Bohr (w/o restraints)")

@@ -12,6 +12,7 @@ dependencies:
   - pdbfixer
   - mdtraj
   - numpy
+  - scipy
   - packaging
   - pytest
   - pytest-cov
@@ -20,7 +21,6 @@ dependencies:
       - geometric >=1.0.1
 # Optional extras — uncomment as needed:
 #  - openbabel           # Fragment(smiles=...) and small_molecule_parameterizer
-#  - scipy               # occupation-entropy analysis in ORCATheory
 #  - parmed              # Amber/GROMACS prmtop handling in OpenMMTheory
 #  - openmmforcefields   # small_molecule_parameterizer (with openff-toolkit and rdkit)
 #  - openff-toolkit

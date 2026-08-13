@@ -4,6 +4,7 @@ import shutil
 import subprocess as sp
 
 import numpy as np
+from scipy.special import erfinv
 
 import openmmqmmm.coords
 from openmmqmmm.elements import cm5_dz, cm5_radii
@@ -130,8 +131,6 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
 
 
 def get_ec_entropy(occ, sigma, method="fermi"):
-    from scipy.special import erfinv
-
     f = occ / 2.0
     f = f[(f > 0) & (f < 1)]
     mask = f > 0.5

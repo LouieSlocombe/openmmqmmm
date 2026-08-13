@@ -1,45 +1,61 @@
+import math
 import os
 
-# Absolute path to the installed package directory (data files, log.ini)
+from scipy import constants as _sc
+
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-"""
-Conversion factors
-"""
+_HARTREE_J = _sc.physical_constants["hartree-joule relationship"][0]
+_BOHR_M = _sc.physical_constants["Bohr radius"][0]
 
-hartokcal = 627.5094740631
-harkcal = 627.5094740631
-hartokj = 2625.4996394798254
-hartree2j = 4.3597438e-18
+PLANCK_J_S = _sc.h
+BOLTZMANN_J_PER_K = _sc.k
+LIGHT_SPEED_CM_PER_S = _sc.c * 100
+HC_J_CM = PLANCK_J_S * LIGHT_SPEED_CM_PER_S
 
-# speed of light in cm/s
-c = 2.99792458e10
+HARTREE_TO_J = _HARTREE_J
+HARTREE_TO_KJ_PER_MOL = _HARTREE_J * _sc.N_A / 1000
+HARTREE_TO_KCAL_PER_MOL = HARTREE_TO_KJ_PER_MOL / _sc.calorie
+HARTREE_TO_EV = _sc.physical_constants["hartree-electron volt relationship"][0]
+HARTREE_TO_WAVENUMBER = _sc.physical_constants["hartree-inverse meter relationship"][0] / 100
+KCAL_TO_KJ = _sc.calorie
 
-GHztocm = 0.0333564095198152
-# 0.5*h*c: 0.5 * 6.62607015E-34 Js*2.293712317E+17hartree/J*29979245800cm/s
-halfhcfactor = 2.27816766479806e-06
+BOHR_TO_ANG = _BOHR_M * 1e10
+ANG_TO_BOHR = 1 / BOHR_TO_ANG
+BOHR_TO_NM = _BOHR_M * 1e9
+BOHR_TO_M = _BOHR_M
+ANG_TO_M = _sc.angstrom
 
-# Planck's constant J*s
-h_planck = 6.62607015e-34
-# in Eh*s
-h_planck_hartreeseconds = 1.5198298716361000e-16
+AMU_TO_KG = _sc.u
 
-# hc  (J cm)
-hc = h_planck * 2.99792458e10
+#: Gradient units: OpenMM works in kJ/mol/nm, the QM codes in Eh/Bohr.
+HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM = HARTREE_TO_KJ_PER_MOL / BOHR_TO_NM
 
-bohr2ang = 0.5291772109303  # CODATA value, previous was 0.52917721067
-ang2bohr = 1.88972612546
-bohr2nm = bohr2ang / 10
-bohr2m = 5.29177210903e-11
-amu2kg = 1.66053906660e-27
-ang2m = 1e-10
+GAS_CONSTANT_HARTREE_PER_K = _sc.k / _HARTREE_J
+GAS_CONSTANT_KCAL_PER_MOL_K = _sc.R / _sc.calorie / 1000
+PLANCK_HARTREE_S = _sc.h / _HARTREE_J
+HALF_HC_HARTREE_PER_WAVENUMBER = 0.5 / HARTREE_TO_WAVENUMBER
+GHZ_TO_WAVENUMBER = 1e9 / LIGHT_SPEED_CM_PER_S
 
-# R in hartree/K. Converted from 8.31446261815324000 J/Kmol
-R_gasconst = 3.16681161675373e-06
-R_gasconst_kcalK = 1.987191683e-3  # kcal/mol/K
-k_b_jk = 1.380649e-23
+#: h/(8 pi^2) expressed so that B[GHz] = ROT_CONSTANT_GHZ_AMU_ANG2 / I[amu Ang^2].
+ROT_CONSTANT_GHZ_AMU_ANG2 = _sc.h / (8 * math.pi**2 * _sc.u * 1e-20) / 1e9
 
-# From OpenMM
-BOLTZMANN = 1.380649e-23  # J/K
+#: Sackur-Tetrode prefactor for q_trans = PREFACTOR * T^2.5 * M^1.5 / p, with M in amu and p in atm.
+TRANS_PARTITION_PREFACTOR = ((2 * math.pi * _sc.u * _sc.k / _sc.h**2) ** 1.5) * _sc.k / _sc.atm
 
-pi = 3.14159265359
+#: N_A pi e^2 / (3 * 4 pi eps_0 * c^2 * u), in km/mol per squared atomic-unit dipole derivative.
+IR_INTENSITY_AU_TO_KM_PER_MOL = (
+    _sc.N_A * math.pi * _sc.e**2 / (3 * 4 * math.pi * _sc.epsilon_0 * _sc.c**2 * _sc.u) * 1e-3
+)
+
+ENERGY_UNIT_FROM_HARTREE = {
+    "Eh": 1.0,
+    "mEh": 1000.0,
+    "eV": HARTREE_TO_EV,
+    "meV": HARTREE_TO_EV * 1000,
+    "kcal/mol": HARTREE_TO_KCAL_PER_MOL,
+    "kcalpermol": HARTREE_TO_KCAL_PER_MOL,
+    "kJ/mol": HARTREE_TO_KJ_PER_MOL,
+    "kJpermol": HARTREE_TO_KJ_PER_MOL,
+    "cm-1": HARTREE_TO_WAVENUMBER,
+}

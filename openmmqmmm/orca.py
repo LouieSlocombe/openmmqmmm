@@ -223,7 +223,7 @@ class ORCATheory:
             self.nmf_sigma = nmf_sigma
 
             logger.info("NMF option is active. Will activate Fermi-smearing in ORCA input!")
-            NMF_smeartemp = self.nmf_sigma / openmmqmmm.constants.R_gasconst
+            NMF_smeartemp = self.nmf_sigma / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
             logger.info(f"NMF_smeartemp = {NMF_smeartemp} calculated from NMF_sigma: {self.nmf_sigma}:")
             self.orcablocks = (
                 self.orcablocks
@@ -1247,11 +1247,11 @@ def write_orca_hessfile(hessian, coords, elems, masses, outputname):
             + "    "
             + str(mass)
             + "  "
-            + str(coord[0] / openmmqmmm.constants.bohr2ang)
+            + str(coord[0] / openmmqmmm.constants.BOHR_TO_ANG)
             + " "
-            + str(coord[1] / openmmqmmm.constants.bohr2ang)
+            + str(coord[1] / openmmqmmm.constants.BOHR_TO_ANG)
             + " "
-            + str(coord[2] / openmmqmmm.constants.bohr2ang)
+            + str(coord[2] / openmmqmmm.constants.BOHR_TO_ANG)
             + "\n"
             for el, mass, coord in zip(elems, masses, coords, strict=False)
         )

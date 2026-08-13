@@ -5,6 +5,7 @@ import time
 
 import numpy as np
 
+import openmmqmmm.constants
 import openmmqmmm.coords
 from openmmqmmm.coords import CONNECTIVITY_SCALE, CONNECTIVITY_TOL, Fragment
 from openmmqmmm.exceptions import (
@@ -800,7 +801,7 @@ class QMMMTheory:
                 if self.openmm_externalforce is True:
                     logger.info("OpenMM externalforce is True")
                     # Calculate energy associated with external force so that we can subtract it later
-                    scaled_current_coords = current_coords * 1.88972612546
+                    scaled_current_coords = current_coords * openmmqmmm.constants.ANG_TO_BOHR
                     self.extforce_energy = 3 * np.mean(np.sum(self.QM_MM_gradient * scaled_current_coords, axis=0))
                     logger.info(f"Extforce energy: {self.extforce_energy}")
                     log_time_since(CheckpointTime, "extforce prepare")
@@ -1144,7 +1145,7 @@ class QMMMTheory:
                 if self.openmm_externalforce is True:
                     logger.info("OpenMM externalforce is True")
                     # Calculate energy associated with external force so that we can subtract it later
-                    scaled_current_coords = current_coords * 1.88972612546
+                    scaled_current_coords = current_coords * openmmqmmm.constants.ANG_TO_BOHR
                     self.extforce_energy = 3 * np.mean(np.sum(self.QM_PC_gradient * scaled_current_coords, axis=0))
                     logger.info(f"Extforce energy: {self.extforce_energy}")
                     log_time_since(CheckpointTime, "extforce prepare")
@@ -1383,11 +1384,11 @@ def define_active_region(
 
 # This projects the linkatom force onto the respective QM atom and MM atom
 def linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad):
-    QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ang2bohr
-    MQdistance = openmmqmmm.coords.distance(Mcoord, Qcoord) * openmmqmmm.constants.ang2bohr
+    QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ANG_TO_BOHR
+    MQdistance = openmmqmmm.coords.distance(Mcoord, Qcoord) * openmmqmmm.constants.ANG_TO_BOHR
     # Coords in Bohr
-    Mcoord = Mcoord * openmmqmmm.constants.ang2bohr
-    Qcoord = Qcoord * openmmqmmm.constants.ang2bohr
+    Mcoord = Mcoord * openmmqmmm.constants.ANG_TO_BOHR
+    Qcoord = Qcoord * openmmqmmm.constants.ANG_TO_BOHR
     B = np.zeros([3, 3])
     C = np.zeros([3, 3])
     for i in range(3):
@@ -1430,8 +1431,8 @@ def linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad):
 
 # Simplistic; selected with linkatom_forceproj_method="chain"
 def linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad):
-    QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ang2bohr
-    vec = (Mcoord - Qcoord) * openmmqmmm.constants.ang2bohr
+    QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ANG_TO_BOHR
+    vec = (Mcoord - Qcoord) * openmmqmmm.constants.ANG_TO_BOHR
     R2 = vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]
     oneR = 1.0 / math.sqrt(R2)
     lnk_dis_oneR = QLdistance * oneR

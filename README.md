@@ -49,7 +49,7 @@ conda install -c conda-forge "openmm>=8" pdbfixer mdtraj
 pip install .
 ```
 
-Optional dependencies (scipy, parmed, openbabel, openmmforcefields, openmm-plumed, multiprocess)
+Optional dependencies (parmed, openbabel, openmmforcefields, openmm-plumed, multiprocess)
 are listed with the features they enable at the bottom of `environment.yml`.
 
 **Configuring ORCA**

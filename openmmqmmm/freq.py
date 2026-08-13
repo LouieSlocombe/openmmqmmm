@@ -233,7 +233,7 @@ def numerical_frequencies(
     os.chdir("Numfreq_dir")
     logger.info("Creating separate directory for displacement calculations: Numfreq_dir ")
 
-    displacement_bohr = displacement * openmmqmmm.constants.ang2bohr
+    displacement_bohr = displacement * openmmqmmm.constants.ANG_TO_BOHR
     logger.info("Starting Numerical Frequencies job for fragment")
     logger.info("Hessian atoms: %s", hessatoms)
     if hessatoms != allatoms:
@@ -645,12 +645,11 @@ def diagonalize_hessian(
 
 
 def calc_ir_intensities(hessmasses, evectors, dipole_derivs):
-    intens_factor = 974.88011184
     mass_matrix = np.repeat(hessmasses, 3)
     inv_sqrt_mass_matrix = np.diag(1 / (mass_matrix**0.5))
     displacements = inv_sqrt_mass_matrix.dot(np.transpose(evectors))
     de_q = displacements.T @ dipole_derivs
-    return intens_factor * np.einsum("qt, qt -> q", de_q, de_q)
+    return openmmqmmm.constants.IR_INTENSITY_AU_TO_KM_PER_MOL * np.einsum("qt, qt -> q", de_q, de_q)
 
 
 def massweight(matrix, masses):
@@ -664,14 +663,12 @@ def massweight(matrix, masses):
 
 
 def calcfreq(evalues):
-    hartree2j = openmmqmmm.constants.hartree2j
-    bohr2m = openmmqmmm.constants.bohr2m
-    amu2kg = openmmqmmm.constants.amu2kg
-    c = openmmqmmm.constants.c
-    pi = openmmqmmm.constants.pi
-    evalues_si = [val * hartree2j / bohr2m / bohr2m / amu2kg for val in evalues]
-    vfreq_hz = [1 / (2 * pi) * np.sqrt(np.complex128(val)) for val in evalues_si]
-    return [val / c for val in vfreq_hz]
+    evalues_si = [
+        val * openmmqmmm.constants.HARTREE_TO_J / openmmqmmm.constants.BOHR_TO_M**2 / openmmqmmm.constants.AMU_TO_KG
+        for val in evalues
+    ]
+    vfreq_hz = [1 / (2 * math.pi) * np.sqrt(np.complex128(val)) for val in evalues_si]
+    return [val / openmmqmmm.constants.LIGHT_SPEED_CM_PER_S for val in vfreq_hz]
 
 
 def printfreqs(vfreq, numatoms, tr_modenum=6, intensities=None, raman_activities=None):
@@ -778,7 +775,7 @@ def thermochemcalc(
 
         logger.info("Moments of inertia (amu Å^2): %s", rinertia)
         # Changing units to m and kg
-        inertia_si = np.array(rinertia) * openmmqmmm.constants.amu2kg * openmmqmmm.constants.ang2m**2
+        inertia_si = np.array(rinertia) * openmmqmmm.constants.AMU_TO_KG * openmmqmmm.constants.ANG_TO_M**2
         inertia_avg = (inertia_si[0] + inertia_si[1] + inertia_si[2]) / 3
         if moltype == "atom":
             q_r = 1.0
@@ -787,7 +784,10 @@ def thermochemcalc(
         elif moltype == "linear":
             # Rotational temperatures (linear case)
             rot_temps = [
-                float(openmmqmmm.constants.h_planck**2 / (8 * math.pi**2 * openmmqmmm.constants.k_b_jk * in_I))
+                float(
+                    openmmqmmm.constants.PLANCK_J_S**2
+                    / (8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * in_I)
+                )
                 for in_I in inertia_si
                 if in_I != 0.0
             ]
@@ -795,20 +795,20 @@ def thermochemcalc(
             rot_temps_x = rot_temps[0]
             sigma_r = 1.0
             q_r = (1 / sigma_r) * (temp / (rot_temps_x))
-            S_rot = openmmqmmm.constants.R_gasconst * (math.log(q_r) + 1.0)
-            E_rot = openmmqmmm.constants.R_gasconst * temp
+            S_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (math.log(q_r) + 1.0)
+            E_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
             rotconstants = calc_rotational_constants(fragment)
         else:
             # Nonlinear case
 
-            rot_temps_x = openmmqmmm.constants.h_planck**2 / (
-                8 * math.pi**2 * openmmqmmm.constants.k_b_jk * inertia_si[0]
+            rot_temps_x = openmmqmmm.constants.PLANCK_J_S**2 / (
+                8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * inertia_si[0]
             )
-            rot_temps_y = openmmqmmm.constants.h_planck**2 / (
-                8 * math.pi**2 * openmmqmmm.constants.k_b_jk * inertia_si[1]
+            rot_temps_y = openmmqmmm.constants.PLANCK_J_S**2 / (
+                8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * inertia_si[1]
             )
-            rot_temps_z = openmmqmmm.constants.h_planck**2 / (
-                8 * math.pi**2 * openmmqmmm.constants.k_b_jk * inertia_si[2]
+            rot_temps_z = openmmqmmm.constants.PLANCK_J_S**2 / (
+                8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * inertia_si[2]
             )
             logger.info(f"Rotational temperatures: {rot_temps_x}, {rot_temps_y}, {rot_temps_z} K")
             rotconstants = calc_rotational_constants(fragment)
@@ -826,8 +826,8 @@ def thermochemcalc(
                 * (temp ** (3 / 2))
                 / ((rot_temps_x * rot_temps_y * rot_temps_z) ** (1 / 2))
             )
-            S_rot = openmmqmmm.constants.R_gasconst * (math.log(q_r) + 1.5)
-            E_rot = 1.5 * openmmqmmm.constants.R_gasconst * temp
+            S_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (math.log(q_r) + 1.5)
+            E_rot = 1.5 * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
         TS_rot = temp * S_rot
     else:
         E_rot = 0.0
@@ -851,11 +851,13 @@ def thermochemcalc(
                 logger.info(f"Mode {mode} with frequency {vib} is not positive. Skipping in thermochemistry")
             else:
                 freqs.append(float(vib))
-                freq_Hz = vib * openmmqmmm.constants.c
-                vibtemp = (openmmqmmm.constants.h_planck_hartreeseconds * freq_Hz) / openmmqmmm.constants.R_gasconst
+                freq_Hz = vib * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S
+                vibtemp = (
+                    openmmqmmm.constants.PLANCK_HARTREE_S * freq_Hz
+                ) / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
                 vibtemps.append(vibtemp)
 
-        zpve = sum([i * openmmqmmm.constants.halfhcfactor for i in freqs])
+        zpve = sum([i * openmmqmmm.constants.HALF_HC_HARTREE_PER_WAVENUMBER for i in freqs])
 
         # Thermal vibrational energy: R * sum over modes of theta*(1/2 + 1/(exp(theta/T) - 1)),
         # the harmonic-oscillator internal energy. The Bose-Einstein factor is
@@ -864,7 +866,7 @@ def thermochemcalc(
         sumb = 0.0
         for v in vibtemps:
             sumb = sumb + v * (0.5 + (1 / (np.exp(v / temp) - 1)))
-        E_vib = sumb * openmmqmmm.constants.R_gasconst
+        E_vib = sumb * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
         vibenergycorr = E_vib - zpve
         if qrrho is True:
             logger.info("QRHHO is True. Doing quasi-RRHO for the vibrational entropy")
@@ -883,26 +885,23 @@ def thermochemcalc(
         vibenergycorr = 0.0
         TS_vib = 0.0
 
-    E_trans = 1.5 * openmmqmmm.constants.R_gasconst * temp
+    E_trans = 1.5 * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
 
-    # R gas constant in kcal/molK
-    R_kcalpermolK = 1.987e-3
-    factor = 0.025607868
-    qtrans = (factor * temp**2.5 * totalmass**1.5) / pressure
-    S_trans = R_kcalpermolK * (math.log(qtrans) + 2.5)
+    qtrans = (openmmqmmm.constants.TRANS_PARTITION_PREFACTOR * temp**2.5 * totalmass**1.5) / pressure
+    S_trans = openmmqmmm.constants.GAS_CONSTANT_KCAL_PER_MOL_K * (math.log(qtrans) + 2.5)
 
-    TS_trans = temp * S_trans / openmmqmmm.constants.harkcal  # Energy term converted to Eh
+    TS_trans = temp * S_trans / openmmqmmm.constants.HARTREE_TO_KCAL_PER_MOL  # Energy term converted to Eh
 
     if multiplicity is not None:
         q_el = multiplicity
-        S_el = openmmqmmm.constants.R_gasconst * math.log(q_el)
+        S_el = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * math.log(q_el)
         TS_el = temp * S_el
     else:
         # E.g. OpenMMTheory
         TS_el = 0.0
 
     E_tot = E_vib + E_trans + E_rot
-    Hcorr = E_vib + E_trans + E_rot + openmmqmmm.constants.R_gasconst * temp
+    Hcorr = E_vib + E_trans + E_rot + openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
     TS_tot = TS_el + TS_trans + TS_rot + TS_vib
     Gcorr = Hcorr - TS_tot
 
@@ -1177,15 +1176,13 @@ def calc_rotational_constants(frag) -> list[float]:
     center = get_center(coords, elems=elems)
     rinertia = [float(i) for i in inertia(elems, coords, center)]
 
-    # Converting from moments of inertia in amu A^2 to rotational constants in Ghz.
-    # COnversion factor from http://openmopac.net/manual/thermochemistry.html
     rot_constants = []
     for inertval in rinertia:
         if inertval != 0.0:
-            rot_ghz = 5.053791e5 / (inertval * 1000)
+            rot_ghz = openmmqmmm.constants.ROT_CONSTANT_GHZ_AMU_ANG2 / inertval
             rot_constants.append(rot_ghz)
 
-    rot_constants_cm = [i * openmmqmmm.constants.GHztocm for i in rot_constants]
+    rot_constants_cm = [i * openmmqmmm.constants.GHZ_TO_WAVENUMBER for i in rot_constants]
     logger.info("Moments of inertia (amu A^2 ): %s", rinertia)
     logger.info("Rotational constants (GHz): %s", rot_constants)
     logger.info("Rotational constants (cm-1): %s", rot_constants_cm)
@@ -1390,14 +1387,15 @@ def normalmodecomp_permode_by_elems(mode, fragment, evectors, hessatoms=None):
 
 def s_vib(freqs, T):
     vibtemps = [
-        (f * openmmqmmm.constants.c * openmmqmmm.constants.h_planck_hartreeseconds) / openmmqmmm.constants.R_gasconst
+        (f * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S * openmmqmmm.constants.PLANCK_HARTREE_S)
+        / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
         for f in freqs
     ]
     s_vib = 0.0
     for vibtemp in vibtemps:
-        s_vib += openmmqmmm.constants.R_gasconst * (vibtemp / T) / (
+        s_vib += openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (vibtemp / T) / (
             math.exp(vibtemp / T) - 1
-        ) - openmmqmmm.constants.R_gasconst * math.log(1 - math.exp(-1 * vibtemp / T))
+        ) - openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * math.log(1 - math.exp(-1 * vibtemp / T))
         TS_vib_final = s_vib * T
     return TS_vib_final
 
@@ -1419,12 +1417,12 @@ def s_vib_qrrho_truhlar(freqs, T, lowfreq_thresh=100):
             )
             freq_value = lowfreq_thresh
         vibtemp = (
-            freq_value * openmmqmmm.constants.c * openmmqmmm.constants.h_planck_hartreeseconds
-        ) / openmmqmmm.constants.R_gasconst
+            freq_value * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S * openmmqmmm.constants.PLANCK_HARTREE_S
+        ) / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
         logger.info("vibtemp: %s", vibtemp)
         TS_vib_f = T * (
-            openmmqmmm.constants.R_gasconst * (vibtemp / T) / (math.exp(vibtemp / T) - 1)
-            - openmmqmmm.constants.R_gasconst * math.log(1 - math.exp(-1 * vibtemp / T))
+            openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (vibtemp / T) / (math.exp(vibtemp / T) - 1)
+            - openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * math.log(1 - math.exp(-1 * vibtemp / T))
         )
         TS_vib_final += TS_vib_f
         logger.info("TS_vib_final: %s", TS_vib_final)
@@ -1439,21 +1437,21 @@ def s_vib_qrrho_grimme(freqs, T, omega_0=100, i_av=None):
     TS_vib_final = 0.0
     for f in freqs:
         vibtemp = (
-            f * openmmqmmm.constants.c * openmmqmmm.constants.h_planck_hartreeseconds
-        ) / openmmqmmm.constants.R_gasconst
+            f * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S * openmmqmmm.constants.PLANCK_HARTREE_S
+        ) / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
         TS_vib_f = T * (
-            openmmqmmm.constants.R_gasconst * (vibtemp / T) / (math.exp(vibtemp / T) - 1)
-            - openmmqmmm.constants.R_gasconst * math.log(1 - math.exp(-1 * vibtemp / T))
+            openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (vibtemp / T) / (math.exp(vibtemp / T) - 1)
+            - openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * math.log(1 - math.exp(-1 * vibtemp / T))
         )
         m_si = (
-            openmmqmmm.constants.h_planck
-            * openmmqmmm.constants.h_planck
-            / (8 * math.pi * math.pi * f * openmmqmmm.constants.hc)
+            openmmqmmm.constants.PLANCK_J_S
+            * openmmqmmm.constants.PLANCK_J_S
+            / (8 * math.pi * math.pi * f * openmmqmmm.constants.HC_J_CM)
         )
         mp_si = m_si * i_av / (m_si + i_av)
         TS_rot_f_kcal = (
             T
-            * openmmqmmm.constants.R_gasconst_kcalK
+            * openmmqmmm.constants.GAS_CONSTANT_KCAL_PER_MOL_K
             * (
                 0.5
                 + math.log(
@@ -1463,14 +1461,14 @@ def s_vib_qrrho_grimme(freqs, T, omega_0=100, i_av=None):
                         * math.pi
                         * math.pi
                         * mp_si
-                        * openmmqmmm.constants.BOLTZMANN
+                        * openmmqmmm.constants.BOLTZMANN_J_PER_K
                         * T
-                        / (openmmqmmm.constants.h_planck * openmmqmmm.constants.h_planck)
+                        / (openmmqmmm.constants.PLANCK_J_S * openmmqmmm.constants.PLANCK_J_S)
                     )
                 )
             )
         )
-        TS_rot_f_au = TS_rot_f_kcal / openmmqmmm.constants.hartokcal  # Converting from kcal/mol to a.u.
+        TS_rot_f_au = TS_rot_f_kcal / openmmqmmm.constants.HARTREE_TO_KCAL_PER_MOL  # Converting from kcal/mol to a.u.
         w = 1 / (1 + pow(omega_0 / f, 4))  # Weighting function
         TS_vib_final += w * TS_vib_f + (1 - w) * TS_rot_f_au
     return TS_vib_final
@@ -1526,13 +1524,13 @@ def clean_frequencies(freqs):
 
 def project_rot_and_trans(coords, mass, hessian, rotmode_threshold=1e-4):
     mass = np.array(mass)
-    coords = np.array(coords) * openmmqmmm.constants.ang2bohr
+    coords = np.array(coords) * openmmqmmm.constants.ANG_TO_BOHR
     coords = coords.copy().reshape(-1, 3)
     na = coords.shape[0]
     wavenumber_scaling = (
         1e10
-        * np.sqrt(openmmqmmm.constants.hartokj / openmmqmmm.constants.bohr2nm**2)
-        / (2 * np.pi * openmmqmmm.constants.c * 0.01)
+        * np.sqrt(openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL / openmmqmmm.constants.BOHR_TO_NM**2)
+        / (2 * np.pi * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S * 0.01)
     )
     TotDOF = 3 * na
 
@@ -1684,7 +1682,7 @@ def calc_raman_activities(hessmasses, evectors, polarizability_derivs):
         raman_act[i] = 45 * alpha[i] * alpha[i] + 7 * beta2[i]
 
     # Converting to Angstrom^4/amu
-    raman_unit = 1 / openmmqmmm.constants.bohr2ang**4
+    raman_unit = 1 / openmmqmmm.constants.BOHR_TO_ANG**4
     raman_act = raman_act / raman_unit
 
     logger.info("Calculated Raman activities for each normal mode: %s", raman_act)

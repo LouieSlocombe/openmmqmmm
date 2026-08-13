@@ -1001,7 +1001,7 @@ class GeometricEngine:
 
         logger.info("")
         # Need to combine with rest of full-system coords
-        self.M.xyzs[0] = coords.reshape(-1, 3) * openmmqmmm.constants.bohr2ang
+        self.M.xyzs[0] = coords.reshape(-1, 3) * openmmqmmm.constants.BOHR_TO_ANG
         currcoords = self.M.xyzs[0]
 
         if self.active_region is True:
