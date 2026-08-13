@@ -21,7 +21,6 @@ _DCO = 0.0234
 _DNO = -0.0346
 
 
-# Get list-of-lists of distances of coords
 def distance_matrix_from_coords(coords):
     distmatrix = []
     for i in coords:
@@ -84,11 +83,9 @@ def calc_cm5(atomic_numbers, coords, hirschfeldcharges):
     return np.array(hirschfeldcharges) + result
 
 
-# Interface to XDM postg program
 # https://github.com/aoterodelaroza/postg
 def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
     if postgdir is None:
-        # Trying to find postgdir in path
         logger.info("postgdir keyword argument not provided to xdm_run. Trying to find postg in PATH")
         try:
             postgdir = os.path.dirname(shutil.which("postg"))
@@ -148,7 +145,6 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
     return dispenergy, dispgradient
 
 
-# Get electron correlation energy as a function of occupation numbers, sigma and the chosen distribution
 def get_ec_entropy(occ, sigma, method="fermi"):
     from scipy.special import erfinv
 

@@ -10,12 +10,6 @@ class Element:
     atomnumber: int
 
 
-# Z, symbol, name, covalent radius (A), atomic mass, CM5 radius (A), CM5 Dz
-#
-# Z=0 is the M dummy site, e.g. the TIP4P M-site. Its covalent radius is 0.0, and Na and K
-# carry 0.0001 rather than their Alvarez values (1.66 and 2.03): all three would otherwise
-# be reported as covalently bonded to whatever solvent surrounds them.
-# None means "this table has no value for this element", not zero.
 # fmt: off
 _ELEMENT_TABLE = (
     (  0, "M",  "dummy",            0.0,        None, None,    None),
@@ -160,9 +154,6 @@ cm5_radii = np.array([row[5] for row in _ELEMENT_TABLE[1:]])
 cm5_dz = np.array([row[6] for row in _ELEMENT_TABLE[1:]])
 
 
-# Atom types and atom names, grouped by the element they denote. Used by
-# coords.conv_atomtypes_elems, which read_gromacsfile and read_ambercoordinates
-# call to name elements they only know an atom type for. MW is the M-site atom type.
 # fmt: off
 _ATOM_TYPES_BY_ELEMENT = {
     "H": (

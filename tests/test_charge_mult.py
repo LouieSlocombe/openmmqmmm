@@ -2,7 +2,6 @@ from openmmqmmm import Fragment
 
 
 def test_chargemult():
-    # Testing charge/mult definitions
 
     fragcoords = """
     H 0.0 0.0 0.0

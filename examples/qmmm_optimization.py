@@ -39,7 +39,3 @@ if __name__ == "__main__":
     # Optimizing only the QM region keeps the problem tractable for a large system.
     result = optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
     print(f"Optimized QM/MM energy: {result.energy:.8f} Eh")
-
-    # For QM/MM molecular dynamics instead (timestep and simulation_time in ps):
-    #   from openmmqmmm import openmm_md
-    #   openmm_md(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)

@@ -71,7 +71,6 @@ def openmm_md_plumed(
             "conda: \nconda install -c conda-forge openmm-plumed"
         ) from None
 
-    # Creating MDclass
     md = MolecularDynamicsEngine(**engine_kwargs)
 
     logger.info("Setting up Plumed")
@@ -93,7 +92,6 @@ def openmm_md_plumed(
     )
     logger.info("PLUMED-biased simulation done")
 
-    # Finalizing simulation (writes and updates files)
     md.finalize_simulation()
 
     logger.info(

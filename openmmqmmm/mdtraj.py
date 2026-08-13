@@ -26,10 +26,8 @@ def mdtraj_rmsf(
 ) -> list[int]:
     """Compute per-atom root-mean-square fluctuations of a trajectory via mdtraj."""
     logger.info("Inside MDtraj_RMSF")
-    # Import mdtraj library
     mdtraj = mdtraj_load()
 
-    # Load trajectory
     logger.info("Loading trajectory using mdtraj.")
     traj = mdtraj.load(trajectory, top=pdbtopology)
     firstframe = traj[0]
@@ -58,16 +56,12 @@ def mdtraj_rmsf(
 def mdtraj_image_trajectory(
     trajectory, pdbtopology, traj_format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
 ) -> str:
-    # Trajectory basename
     """Re-image (wrap) a periodic trajectory so molecules stay whole, via mdtraj."""
     traj_basename = os.path.splitext(trajectory)[0]
-    # PDB-file basename
     pdb_basename = os.path.splitext(pdbtopology)[0]
 
-    # Import mdtraj library
     mdtraj = mdtraj_load()
 
-    # Load trajectory
     logger.info("Loading trajectory using mdtraj.")
     traj = mdtraj.load(trajectory, top=pdbtopology)
 
@@ -83,19 +77,15 @@ def mdtraj_image_trajectory(
 
     # Also load the pdbfile as a trajectory-snapshot (in addition to being topology)
     pdbsnap = mdtraj.load(pdbtopology, top=pdbtopology)
-    # Manual anchor if needed
     # NOTE: not sure how well this works but it's something
     if solute_anchor is True:
         anchors = [set(traj.topology.residue(0).atoms)]
         logger.info("anchors: %s", anchors)
-        # Re-imaging trajectory
         imaged = traj.image_molecules(anchor_molecules=anchors)
-        # Reimaging PDB
         pdbsnap_imaged = pdbsnap.image_molecules(anchor_molecules=anchors)
     else:
         imaged = traj.image_molecules()
         pdbsnap_imaged = pdbsnap.image_molecules()
-    # Save trajectory in format
     if traj_format == "DCD":
         imaged.save(traj_basename + "_imaged.dcd")
         logger.info("Saved reimaged trajectory: %s", traj_basename + "_imaged.dcd")
@@ -104,9 +94,7 @@ def mdtraj_image_trajectory(
         logger.info("Saved reimaged trajectory: %s", traj_basename + "_imaged.pdb")
     else:
         logger.info("Unknown trajectory format.")
-    # Save PDB-snapshot
     pdbsnap_imaged.save(pdb_basename + "_imaged.pdb")
     logger.info("Saved reimaged PDB-file: %s", pdb_basename + "_imaged.pdb")
-    # Return last frame as coords or fragment ?
     # Last frame coordinates as Angstrom
     return imaged[-1]._xyz[-1] * 10

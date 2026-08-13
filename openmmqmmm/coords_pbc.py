@@ -11,12 +11,10 @@ logger = logging.getLogger(__name__)
 
 def cell_params_to_vectors(parameters):
     a, b, c, alpha, beta, gamma = parameters
-    # Convert angles to radians
     rad_a = np.radians(alpha)
     rad_b = np.radians(beta)
     rad_g = np.radians(gamma)
 
-    # Calculate components
     ax = a
     ay = 0.0
     az = 0.0
@@ -35,7 +33,6 @@ def cell_params_to_vectors(parameters):
 def cell_vectors_to_params(vectors):
     va, vb, vc = vectors[0], vectors[1], vectors[2]
 
-    # Calculate lengths (norms)
     a = np.linalg.norm(va)
     b = np.linalg.norm(vb)
     c = np.linalg.norm(vc)
@@ -46,7 +43,6 @@ def cell_vectors_to_params(vectors):
     beta_rad = np.arccos(np.dot(va, vc) / (a * c))
     gamma_rad = np.arccos(np.dot(va, vb) / (a * b))
 
-    # Convert radians to degrees
     alpha = np.degrees(alpha_rad)
     beta = np.degrees(beta_rad)
     gamma = np.degrees(gamma_rad)
@@ -54,7 +50,6 @@ def cell_vectors_to_params(vectors):
     return [float(a), float(b), float(c), float(alpha), float(beta), float(gamma)]
 
 
-# Basic conversion of Cartesian coordinates to fractional coordinates and reverse
 def cart_coords_to_fract(cart_coords, cellvectors):
     M = np.array(cellvectors)
     return np.dot(cart_coords, np.linalg.inv(M))
@@ -67,20 +62,16 @@ def cell_volume(vectors):
     return abs(np.dot(a, np.cross(b, c)))
 
 
-# Write Cartesian-based POSCAR files
 def write_poscar_file(coords, elems, cellvectors=None, celldimensions=None, filename="POSCAR"):
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
-        # converting
         cellvectors = cell_params_to_vectors(celldimensions)
 
-    # Unique elements in original order
     unique_elements = []
     for e in elems:
         if e not in unique_elements:
             unique_elements.append(e)
-    # Count atoms of each elemtype
     counts = [elems.count(e) for e in unique_elements]
 
     with open(filename, "w") as f:
@@ -100,27 +91,21 @@ def write_poscar_file(coords, elems, cellvectors=None, celldimensions=None, file
     return filename
 
 
-# Write XSF files
 def write_xsf_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.xsf"):
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
-        # Assuming your helper function handles the conversion
         cellvectors = cell_params_to_vectors(celldimensions)
 
     with open(filename, "w") as f:
-        # Header for periodic structures
         f.write("CRYSTAL\n")
 
-        # Section 1: Lattice Vectors
         f.write("PRIMVEC\n")
         f.writelines(
             f"  {cellvectors[i, 0]:.10f}  {cellvectors[i, 1]:.10f}  {cellvectors[i, 2]:.10f}\n" for i in range(3)
         )
 
-        # Section 2: Atomic Coordinates
         f.write("PRIMCOORD\n")
-        # Header for coordinates: [Number of atoms] [Number of units, usually 1]
         f.write(f"{len(elems)} 1\n")
 
         # XSF supports either Atomic Number or Element Symbol.
@@ -135,12 +120,10 @@ def write_cif_file(coords, elems, cellvectors=None, celldimensions=None, filenam
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
-        # Assuming your helper function handles the conversion
         cellvectors = cell_params_to_vectors(celldimensions)
     elif cellvectors is not None:
         celldimensions = cell_vectors_to_params(cellvectors)
 
-    # Cart to fract
     frac_coords = cart_coords_to_fract(coords, cellvectors)
 
     # celldimensions should be [a, b, c, alpha, beta, gamma]
@@ -159,7 +142,6 @@ def write_cif_file(coords, elems, cellvectors=None, celldimensions=None, filenam
         f.write("_symmetry_space_group_name_H-M 'P 1'\n")
         f.write("_symmetry_Int_Tables_number 1\n\n")
 
-        # The Atom Loop
         f.write("loop_\n")
         f.write("_atom_site_label\n")
         f.write("_atom_site_type_symbol\n")

@@ -84,13 +84,10 @@ def pygrep2(string, file, print_output=False, errors=None):
     return matches
 
 
-# Simple function to do find and replace string in file
 def find_replace_string_in_file(file, findstring, replstring):
     with open(file) as f:
         filedata = f.read()
-    # Replace the target string
     filedata = filedata.replace(findstring, replstring)
-    # Write the file out again
     with open(file, "w") as f:
         f.write(filedata)
 
@@ -102,7 +99,6 @@ def listdiff(list1, list2):
     return diff
 
 
-# Inserts line into file for matched string.
 # option: Once=True means only added for first match
 def insert_line_into_file(file, string, addedstring, once=True):
     added = False
@@ -117,7 +113,6 @@ def insert_line_into_file(file, string, addedstring, once=True):
                     added = True
 
 
-# Can variable be converted into integer
 def isint(s):
     try:
         int(s)
@@ -132,7 +127,6 @@ def search_list_of_lists_for_index(i, list_of_lists):
     return next((c for c, f in enumerate(list_of_lists) if i in f), None)
 
 
-# convert list of lists to dict
 def create_conn_dict(list_of_lists):
     index = {}
     for c, sublist in enumerate(list_of_lists):
@@ -150,7 +144,6 @@ def read_intlist_from_file(filename, offset=0):
         with open(filename) as f:
             for line in f:
                 for word in line.split():
-                    # Removing non-numeric part
                     digits = "".join(i for i in word if i.isdigit())
                     if isint(digits):
                         intlist.append(int(digits) + offset)
@@ -160,13 +153,11 @@ def read_intlist_from_file(filename, offset=0):
     return intlist
 
 
-# Write a string to file simply
 def writestringtofile(string, file, writemode="w"):
     with open(file, writemode) as f:
         f.write(string)
 
 
-# Write a Python list to file simply
 def writelisttofile(pylist, file, separator=" "):
     with open(file, "w") as f:
         f.writelines(str(item) + separator for item in pylist)
