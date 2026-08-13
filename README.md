@@ -10,23 +10,12 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 > side effects, logging instead of print). Scripts written for the 0.x releases need updating; the
 > Conventions section below describes the naming now in force.
 
-## What is included
-
-- `ORCATheory` — interface to ORCA (input generation, parallel runs, output parsing)
-- `OpenMMTheory` — interface to OpenMM, plus `openmm_md` (molecular dynamics, also for QM/MM),
-  `openmm_modeller` (pdbfixer-based protein setup), `openmm_minimize`,
-  `openmm_box_equilibration`, `gentle_warmup_md`, `openmm_md_plumed`
-  (PLUMED-biased MD, i.e. metadynamics), `solvate_small_molecule` and
-  `small_molecule_parameterizer`
-- `QMMMTheory` — electrostatically embedded QM/MM with link atoms and charge-shifting
-- `single_point` (+ fragment/theory/reaction variants), `job_parallel`
-- `optimize_geometry` — geometry optimization via [geomeTRIC](https://github.com/leeping/geomeTRIC),
-  including frozen/active-region optimizations of large systems (`active_region=True`)
-- `numerical_frequencies` / `analytic_frequencies` — frequencies with partial Hessians and
-  thermochemistry
-- `Fragment` — coordinates/topology handling incl. XYZ, PDB, Amber and GROMACS file reading
-- Helper interfaces: mdtraj (`mdtraj_image_trajectory`, `mdtraj_rmsf`, used by the MD drivers to
-  re-image trajectories and flag high-RMSF atoms)
+`openmmqmmm.__all__` is the full public API: `ORCATheory`, `OpenMMTheory`, `QMMMTheory` and
+`Fragment`, the job functions `single_point`, `optimize_geometry` (via
+[geomeTRIC](https://github.com/leeping/geomeTRIC)), `numerical_frequencies`,
+`analytic_frequencies`, `openmm_md` and `job_parallel`, plus the OpenMM setup helpers
+(`openmm_modeller`, `openmm_minimize`, `openmm_box_equilibration`, `gentle_warmup_md`,
+`openmm_md_plumed`, `solvate_small_molecule`, `small_molecule_parameterizer`).
 
 ## Installation
 
@@ -60,16 +49,8 @@ conda install -c conda-forge "openmm>=8" pdbfixer mdtraj
 pip install .
 ```
 
-**Optional dependencies** (all conda-forge; commented out in `environment.yml`)
-
-| Package | Needed for |
-|---|---|
-| `scipy` | electronic-entropy analysis in `ORCATheory` |
-| `parmed` | Amber/GROMACS file handling in `OpenMMTheory` |
-| `openbabel` | `Fragment(smiles=...)` and `small_molecule_parameterizer` |
-| `openmmforcefields`, `openff-toolkit`, `rdkit` | `small_molecule_parameterizer` |
-| `openmm-plumed` | `openmm_md_plumed` (PLUMED-biased MD) |
-| `multiprocess` | alternative multiprocessing backend for `job_parallel` |
+Optional dependencies (scipy, parmed, openbabel, openmmforcefields, openmm-plumed, multiprocess)
+are listed with the features they enable at the bottom of `environment.yml`.
 
 **Configuring ORCA**
 
@@ -99,26 +80,6 @@ openmmqmmm.configure_logging()  # INFO to console
 Step timings are logged at DEBUG level on the `openmmqmmm.timings` logger. The
 `OPENMMQMMM_LOGLEVEL` environment variable overrides the level.
 
-## Basic example
-
-```py
-from openmmqmmm import Fragment, ORCATheory, configure_logging, numerical_frequencies, optimize_geometry, single_point
-
-configure_logging()
-
-coords = """
-H 0.0 0.0 0.0
-F 0.0 0.0 1.0
-"""
-hf_frag = Fragment(coordsstring=coords, charge=0, mult=1)
-
-orca_calc = ORCATheory(orcasimpleinput="! r2SCAN def2-SVP def2/J tightscf", orcablocks="%scf maxiter 200 end")
-
-single_point(theory=orca_calc, fragment=hf_frag)
-optimize_geometry(theory=orca_calc, fragment=hf_frag)
-numerical_frequencies(theory=orca_calc, fragment=hf_frag)
-```
-
 ## QM/MM example
 
 ```py
@@ -142,6 +103,13 @@ optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
 openmm_md(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
 ```
 
+Runnable scripts, including a gas-phase ORCA example, live in [examples/](examples/):
+
+```sh
+python examples/gasphase_hf.py
+python examples/qmmm_optimization.py system.pdb
+```
+
 ## Errors
 
 All package errors derive from `openmmqmmm.OpenMMQMMMError`, with specific subclasses
@@ -159,15 +127,6 @@ exiting the interpreter. Job functions are snake_case (`single_point`, `optimize
 writes its `Results` object to a `results_*.json` file — for example `results_singlepoint.json`,
 `results_optimizer.json`, `results_numfreq.json`.
 
-## Examples
-
-Runnable versions of the two examples above live in [examples/](examples/):
-
-```sh
-python examples/gasphase_hf.py
-python examples/qmmm_optimization.py system.pdb
-```
-
 ## Testing
 
 ```sh
@@ -183,14 +142,7 @@ Coverage is measured with `pytest --cov` (needs the `test` extra: `pip install -
 Tests run in isolated temporary directories, so no output files are left behind. The test data
 (~2.5 MB) lives in the source repository and is not shipped in wheels.
 
-## Building distributions
-
-```sh
-python -m build
-```
-
-This produces an sdist and a wheel under `dist/`. Wheels ship the runtime data file `log.ini`
-(geomeTRIC logging configuration) and the `py.typed` marker.
+`python -m build` produces an sdist and a wheel under `dist/`.
 
 ## Citation
 

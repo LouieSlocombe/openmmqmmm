@@ -1,12 +1,8 @@
-# Local mirror of the CI lint gate (.github/workflows/ci.yml), so drift is caught
-# before the commit rather than after the push.
-#
+# Local mirror of the CI lint gate:
 #   pip install -e '.[dev]' && pre-commit install     # once, per checkout
 #   pre-commit run --all-files                        # check the whole tree
 #
-# The ruff rev below must match the version pinned in .github/workflows/ci.yml and
-# in the `dev` extra of pyproject.toml. ruff's formatter output can change between
-# releases, so a skew is what lets a locally-clean tree fail the CI format gate.
+# The ruff rev must match ci.yml and the `dev` extra in pyproject.toml.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.2
@@ -16,12 +12,8 @@ repos:
       - id: ruff-format
 
   # Whitespace hygiene for the files ruff never sees (YAML, TOML, Markdown).
-  #
-  # The test data directories are excluded deliberately. tests/orca_outputs/ holds
-  # byte-for-byte ORCA 6.1.1 reference output that the parser tests read, and real
-  # ORCA output carries trailing whitespace; tests/extra_files/ likewise. Letting a
-  # whitespace hook rewrite those would silently change what the parsers are tested
-  # against — the exact class of failure this suite exists to catch.
+  # The test data directories are excluded because the parser tests compare against
+  # them byte-for-byte, and real ORCA output carries trailing whitespace.
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

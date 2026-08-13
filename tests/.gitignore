@@ -1,11 +1,9 @@
-# conftest.py runs every test in its own temporary directory, so output files
-# (orca.*, finalsystem.*, trajectories, ...) should never land here. This
-# whitelist keeps any leftovers from a crashed or manual run out of git status.
+# Tests run in temporary directories, so this whitelist only keeps leftovers from a
+# crashed or manual run out of git status.
 #
-# Every data directory must be listed below. A directory left out is ignored in
-# silence: orca_outputs/ was missing here, so `git add` skipped it, it never
-# reached a commit, and the 13 tests that read it broke as soon as the untracked
-# local copy was cleaned away. Add new data directories here in the same commit.
+# Every data directory MUST be listed below. One left out is ignored in silence:
+# orca_outputs/ was missing, so `git add` skipped it, it never reached a commit, and
+# the 13 tests reading it broke once the untracked local copy was cleaned away.
 *
 !.gitignore
 !conftest.py

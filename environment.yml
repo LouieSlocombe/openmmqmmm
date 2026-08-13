@@ -1,17 +1,11 @@
-# Conda environment for building, developing and running openmmqmmm.
+#   conda env create -f environment.yml && conda activate openmmqmmm && pip install -e .
 #
-# Usage (from the repository root):
-#   conda env create -f environment.yml
-#   conda activate openmmqmmm
-#   pip install -e .
-#
-# ORCA is not packaged here — install it separately and set the
-# OPENMMQMMM_ORCADIR environment variable (or put `orca` in PATH). See README.md.
+# ORCA is not packaged here — install it separately and set OPENMMQMMM_ORCADIR. See README.md.
 name: openmmqmmm
 channels:
   - conda-forge
 dependencies:
-  # Runtime — the OpenMM stack comes from conda-forge (pdbfixer is not on PyPI)
+  # The OpenMM stack comes from conda-forge (pdbfixer is not on PyPI)
   - python>=3.10
   - pip
   - openmm >=8
@@ -19,12 +13,10 @@ dependencies:
   - mdtraj
   - numpy
   - packaging
-  # Development / build tooling
   - pytest
   - pytest-cov
   - python-build
   - pip:
-      # geomeTRIC optimizer
       - geometric >=1.0.1
 # Optional extras — uncomment as needed:
 #  - openbabel           # Fragment(smiles=...) and small_molecule_parameterizer
