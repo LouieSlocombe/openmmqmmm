@@ -121,3 +121,25 @@ def test_md_engine_can_override_the_rpmd_copy_count():
 
     assert engine.rpmd_num_copies == 6
     assert theory.rpmd_num_copies == 6
+
+
+def test_md_engine_rejects_rpmd_with_barostat_before_adding_force():
+    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
+    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
+    theory = OpenMMTheory(
+        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
+        pdbfile="h2o_MeOH.pdb",
+        autoconstraints=None,
+        rigidwater=False,
+    )
+
+    with pytest.raises(InputError, match="RPMDIntegrator cannot be used with a barostat"):
+        MolecularDynamicsEngine(
+            fragment=fragment,
+            theory=theory,
+            integrator="RPMDIntegrator",
+            barostat="MonteCarloBarostat",
+        )
+
+    force_names = {force.__class__.__name__ for force in theory.system.getForces()}
+    assert "MonteCarloBarostat" not in force_names

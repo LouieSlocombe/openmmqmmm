@@ -249,6 +249,12 @@ class MolecularDynamicsEngine:
             self.qmtheory = theory
             self.theory_runtype = "QM"
 
+        if integrator == "RPMDIntegrator" and barostat is not None:
+            raise InputError(
+                "RPMDIntegrator cannot be used with a barostat. Remove the barostat or explicitly select a "
+                "classical integrator."
+            )
+
         if restraints is not None:
             logger.info("Restraints defined. Will add to OpenMMTheory object")
             logger.info("All restraints: %s", restraints)
