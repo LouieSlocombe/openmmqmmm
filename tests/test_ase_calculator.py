@@ -67,6 +67,28 @@ def test_energy_only_request_does_not_calculate_a_gradient():
     assert theory.calls[0]["grad"] is False
 
 
+def test_calculation_reuses_fixed_element_metadata():
+    theory = StubQMMMTheory()
+    atoms = Atoms("H2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.7]])
+    atoms.get_chemical_symbols = lambda: pytest.fail("chemical symbols were rebuilt")
+    atoms.calc = OpenMMQMMMCalculator(theory)
+
+    atoms.get_forces()
+
+    assert theory.calls[0]["elems"] == ["H", "H"]
+
+
+def test_theory_and_fragment_share_one_coordinate_snapshot():
+    theory = StubQMMMTheory()
+    atoms = Atoms("H2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.7]])
+    atoms.calc = OpenMMQMMMCalculator(theory)
+
+    atoms.get_forces()
+
+    assert theory.coords is theory.fragment.coords
+    assert theory.coords == pytest.approx(atoms.positions)
+
+
 def test_theory_electronic_state_is_forwarded():
     theory = StubQMMMTheory(charge=-1, mult=2)
     atoms = Atoms("H2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.7]])

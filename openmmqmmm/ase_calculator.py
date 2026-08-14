@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import ClassVar
 
 import numpy as np
@@ -10,6 +9,7 @@ from ase.calculators.calculator import (
     PropertyNotImplementedError,
     all_changes,
 )
+from ase.symbols import symbols2numbers
 from ase.utils import workdir
 
 from openmmqmmm.qmmm import QMMMTheory
@@ -19,6 +19,7 @@ class OpenMMQMMMCalculator(Calculator):
     """Expose an openmmqmmm QM/MM theory as an ASE energy/forces calculator."""
 
     implemented_properties: ClassVar[list[str]] = ["energy", "forces"]
+    _implemented_properties: ClassVar[frozenset[str]] = frozenset(implemented_properties)
 
     def __init__(
         self,
@@ -35,6 +36,7 @@ class OpenMMQMMMCalculator(Calculator):
         self.charge = self._resolve_electronic_state("charge", charge)
         self.mult = self._resolve_electronic_state("mult", mult)
         self._expected_symbols = tuple(qmmm_theory.elems)
+        self._expected_numbers = np.asarray(symbols2numbers(self._expected_symbols))
         self._reference_cell = None
         self._reference_pbc = None
         super().__init__(**kwargs)
@@ -59,25 +61,27 @@ class OpenMMQMMMCalculator(Calculator):
             f"QM-region {name} is undefined; set QMMMTheory.qm_{name} or pass {name}= to the calculator"
         )
 
-    def _validate_atoms(self, atoms: Atoms) -> np.ndarray:
-        symbols = tuple(atoms.get_chemical_symbols())
-        if symbols != self._expected_symbols:
+    def _validate_atoms(self, atoms: Atoms, system_changes: list[str]) -> np.ndarray:
+        first_calculation = self._reference_cell is None
+        if (first_calculation or "numbers" in system_changes) and not np.array_equal(
+            atoms.numbers, self._expected_numbers
+        ):
             raise CalculatorSetupError(
                 "ASE atoms must retain the atom count, elements, and ordering of the Fragment used to create QMMMTheory"
             )
 
-        positions = np.asarray(atoms.get_positions())
+        # Calculator.calculate() owns a copy of the Atoms, so its position array can
+        # be passed through without allocating another full-system copy here.
+        positions = atoms.positions
         if not np.all(np.isfinite(positions)):
             raise CalculatorSetupError("ASE atom positions must all be finite")
 
-        cell = np.asarray(atoms.cell)
-        pbc = np.asarray(atoms.pbc)
-        if self._reference_cell is None:
-            self._reference_cell = cell.copy()
-            self._reference_pbc = pbc.copy()
-        elif not np.allclose(cell, self._reference_cell, rtol=0.0, atol=1e-12) or not np.array_equal(
-            pbc, self._reference_pbc
-        ):
+        if first_calculation:
+            self._reference_cell = atoms.cell.array.copy()
+            self._reference_pbc = atoms.pbc.copy()
+        elif (
+            "cell" in system_changes and not np.allclose(atoms.cell.array, self._reference_cell, rtol=0.0, atol=1e-12)
+        ) or ("pbc" in system_changes and not np.array_equal(atoms.pbc, self._reference_pbc)):
             raise CalculatorSetupError(
                 "Changing the ASE cell or periodic boundary conditions is unsupported; QMMMTheory uses a fixed "
                 "OpenMM system and does not provide stress"
@@ -94,7 +98,7 @@ class OpenMMQMMMCalculator(Calculator):
         """Calculate QM/MM energy and, when requested, atomic forces for ASE."""
         if properties is None:
             properties = self.implemented_properties
-        unsupported = set(properties) - set(self.implemented_properties)
+        unsupported = set(properties).difference(self._implemented_properties)
         if unsupported:
             raise PropertyNotImplementedError(f"Unsupported ASE properties: {sorted(unsupported)}")
 
@@ -102,15 +106,13 @@ class OpenMMQMMMCalculator(Calculator):
         if self.atoms is None:
             raise CalculatorSetupError("An ASE Atoms object is required")
 
-        positions = self._validate_atoms(self.atoms)
-        symbols = self.atoms.get_chemical_symbols()
+        positions = self._validate_atoms(self.atoms, system_changes)
         needs_forces = "forces" in properties
-        calculation_directory = Path(self._directory).resolve()
 
-        with workdir(calculation_directory):
+        with workdir(self._directory):
             output = self.qmmm_theory.run(
                 current_coords=positions,
-                elems=symbols,
+                elems=self._expected_symbols,
                 grad=needs_forces,
                 label=self.prefix,
                 charge=self.charge,
@@ -139,5 +141,6 @@ class OpenMMQMMMCalculator(Calculator):
             self.results["forces"] = forces
 
         # Keep the original Fragment useful to callers after an ASE optimization.
-        self.qmmm_theory.fragment.coords = positions.copy()
-        self.qmmm_theory.coords = positions.copy()
+        coordinates = positions.copy()
+        self.qmmm_theory.fragment.coords = coordinates
+        self.qmmm_theory.coords = coordinates
