@@ -24,7 +24,7 @@ dependencies = [
     "scipy",
     "geometric >= 1.0.1",
     # Required at import time.
-    "openmm >= 8",
+    "openmm == 8.5.2",
     "pdbfixer",
     "mdtraj",
     "parmed",
@@ -40,7 +40,9 @@ dependencies = [
 # Development tooling only. Every runtime dependency is required above, with two
 # exceptions that pip cannot express: openff-toolkit and openmm-plumed are not published
 # to PyPI, so a pip-only install leaves small_molecule_parameterizer and openmm_md_plumed
-# unavailable. environment.yml pulls both from conda-forge — see README.
+# unavailable. environment.yml pulls openff-toolkit and the OpenMM-PLUMED source-build
+# prerequisites from conda-forge; README.md documents building the latest GitHub master
+# against OpenMM 8.5.2.
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts

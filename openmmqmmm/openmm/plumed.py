@@ -69,8 +69,10 @@ def openmm_md_plumed(
         import openmmplumed  # noqa: F401
     except ModuleNotFoundError:
         raise MissingDependencyError(
-            "openmmplumed module plugin not found. See https://github.com/openmm/openmm-plumed \nYou can install via "
-            "conda: \nconda install -c conda-forge openmm-plumed"
+            "openmmplumed module plugin not found. The current conda-forge build requires OpenMM <8.5 and is "
+            "incompatible with this project's OpenMM 8.5.2 requirement. Build the latest OpenMM-PLUMED GitHub "
+            "master against the active environment as documented in README.md. See "
+            "https://github.com/openmm/openmm-plumed"
         ) from None
 
     md = MolecularDynamicsEngine(**engine_kwargs)
