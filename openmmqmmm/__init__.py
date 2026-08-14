@@ -72,7 +72,6 @@ from .openmm import (
     openmm_md_plumed,
     openmm_minimize,
     openmm_modeller,
-    small_molecule_parameterizer,
     solvate_small_molecule,
 )
 
@@ -156,7 +155,6 @@ __all__ = [
     "openmm_modeller",
     "check_gradient_for_bad_atoms",
     "merge_pdb_files",
-    "small_molecule_parameterizer",
     "solvate_small_molecule",
     # QM/MM helpers
     "compute_decomposed_qm_mm_energy",

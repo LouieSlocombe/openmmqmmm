@@ -1,3 +1,6 @@
+import importlib.util
+import shutil
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +16,7 @@ from openmmqmmm import (
     openmm_modeller,
     single_point,
 )
-from openmmqmmm.exceptions import InputError
+from openmmqmmm.exceptions import InputError, MissingDependencyError
 from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
 
 TEST_DIR = Path(__file__).parent
@@ -161,6 +164,68 @@ def test_openmm_modeller(forcefield_route):
     assert fragment.numatoms > 1079, "Modeller should add hydrogens, water and ions"
     assert len(fragment.elems) == fragment.numatoms
     assert "H" in fragment.elems, "Hydrogens should have been added"
+
+
+def _write_methanol_pdb():
+    fragment = Fragment(
+        elems=["C", "O", "H", "H", "H", "H"],
+        coords=[
+            [-0.046, 0.662, 0.000],
+            [-0.046, -0.755, 0.000],
+            [-1.086, 0.976, 0.000],
+            [0.438, 1.071, 0.890],
+            [0.438, 1.071, -0.890],
+            [0.860, -1.057, 0.000],
+        ],
+        charge=0,
+        mult=1,
+    )
+    return fragment.write_pdbfile_openmm(filename="methanol.pdb", resname="LIG")
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("forcefill") is None or shutil.which("antechamber") is None,
+    reason="needs forcefill and AmberTools",
+)
+def test_openmm_modeller_parameterize_nonstandard():
+    pdbfile = _write_methanol_pdb()
+
+    openmmobject, fragment = openmm_modeller(
+        pdbfile=pdbfile,
+        forcefield="Amber14",
+        watermodel="tip3p",
+        parameterize_nonstandard=True,
+        net_charges={"LIG": 0},
+        solvent_boxdims=[30.0, 30.0, 30.0],
+    )
+
+    assert openmmobject is not None, "openmm_modeller should return an OpenMMTheory object"
+    assert Path("nonstandard_ff.xml").is_file(), "forcefill should write the generated ligand XML to CWD"
+    assert fragment.numatoms > 6, "Solvation should add water around the methanol"
+
+
+def test_openmm_modeller_parameterize_rejects_forcefield_object():
+    import openmm.app
+
+    pdbfile = _write_methanol_pdb()
+    with pytest.raises(InputError, match="parameterize_nonstandard"):
+        openmm_modeller(
+            pdbfile=pdbfile,
+            forcefield_object=openmm.app.ForceField("amber14-all.xml", "amber14/tip3p.xml"),
+            parameterize_nonstandard=True,
+        )
+
+
+def test_openmm_modeller_parameterize_missing_forcefill(monkeypatch):
+    monkeypatch.setitem(sys.modules, "forcefill", None)
+    pdbfile = _write_methanol_pdb()
+    with pytest.raises(MissingDependencyError, match="forcefill"):
+        openmm_modeller(
+            pdbfile=pdbfile,
+            forcefield="Amber14",
+            watermodel="tip3p",
+            parameterize_nonstandard=True,
+        )
 
 
 def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):

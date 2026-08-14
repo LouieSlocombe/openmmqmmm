@@ -21,7 +21,6 @@ from openmmqmmm.coords import (
     write_xyzfile,
 )
 from openmmqmmm.exceptions import (
-    FileFormatError,
     InputError,
     MissingDependencyError,
 )
@@ -29,7 +28,6 @@ from openmmqmmm.openbabel import xyz_to_pdb_with_connectivity
 from openmmqmmm.openmm.theory import OpenMMTheory
 from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
-    find_replace_string_in_file,
     log_time_since,
     main_header,
     pygrep,
@@ -285,6 +283,10 @@ def openmm_modeller(
     membrane_padding=10.0,
     membrane_center_z=0.0,
     residuetemplate_choice=None,
+    parameterize_nonstandard=False,
+    ligand_files=None,
+    net_charges=None,
+    ligand_backend="gaff",
 ) -> tuple:
     """Prepare a protein system from a raw PDB file using pdbfixer."""
     module_init_time = time.time()
@@ -379,6 +381,13 @@ def openmm_modeller(
     else:
         raise InputError("You must provide a forcefield name, forcefieldobject or xmlfile keywords!")
 
+    if parameterize_nonstandard is True and forcefield_object is not None:
+        raise InputError(
+            "parameterize_nonstandard=True requires forcefield XML names (forcefield= or xmlfile=), not a "
+            "forcefield_object: forcefill needs the XML file list to decide which residues are non-standard.\n"
+            "Run forcefill.build_forcefield_xml yourself and load its XML into your ForceField object instead."
+        )
+
     logger.info("PDBfile: %s", pdbfile)
     logger.info("pH: %s", ph)
     logger.info("User-provided dictionary of residue_variants: %s", residue_variants)
@@ -421,6 +430,19 @@ def openmm_modeller(
     else:
         logger.info("Skipping PDBFixer")
         pdbfile_for_modeller = pdbfile
+
+    nonstandard_xmlfile = None
+    if parameterize_nonstandard is True:
+        nonstandard_xmlfile = _parameterize_nonstandard_residues(
+            pdbfile_for_modeller,
+            forcefield_obj=forcefield_obj,
+            xmlfile=xmlfile,
+            waterxmlfile=waterxmlfile,
+            extraxmlfile=extraxmlfile,
+            ligand_files=ligand_files,
+            net_charges=net_charges,
+            ligand_backend=ligand_backend,
+        )
 
     pdb = openmm_app.PDBFile(pdbfile_for_modeller)
     logger.info("\n\nNow loading Modeller.")
@@ -506,7 +528,8 @@ def openmm_modeller(
             "forcefield."
         )
         logger.info(
-            "Non-standard inorganic/organic residues require providing an additional XML-file via extraxmlfile= option"
+            "Non-standard inorganic/organic residues require providing an additional XML-file via extraxmlfile=, "
+            "or can be parameterized automatically with parameterize_nonstandard=True (requires the forcefill package)"
         )
         logger.info("Note that C-terminii require the dangling O-atom to be named OXT ")
         raise InputError(
@@ -576,6 +599,7 @@ def openmm_modeller(
         xmlfile=xmlfile,
         waterxmlfile=waterxmlfile,
         extraxmlfile=extraxmlfile,
+        nonstandard_xmlfile=nonstandard_xmlfile,
         residuetemplate_choice=residuetemplate_choice,
         periodic=periodic,
     )
@@ -656,8 +680,9 @@ def solvate_small_molecule(
 
     if xmlfile is None and skip_xmlfile is False:
         raise InputError(
-            "No xmlfile was provided. You must provide one\nIf you need a forcefield for the solute then try :\n       "
-            "       small_molecule_parameterizer"
+            "No xmlfile was provided. You must provide one.\nIf you need a forcefield XML for the solute, build one "
+            'with forcefill:\n    from forcefill import build_ligand_xml\n    build_ligand_xml({"LIG": "solute.sdf"}, '
+            '"lig_ff.xml")'
         )
 
     # Read XML-file and check for LJ treatment
@@ -842,310 +867,52 @@ def merge_pdb_files(pdbfile_1, pdbfile_2, outputname="merged.pdb") -> str:
     return outputname
 
 
-def small_molecule_parameterizer(
+def _parameterize_nonstandard_residues(
+    pdbfile_for_modeller,
     *,
-    charge=None,
-    xyzfile=None,
-    pdbfile=None,
-    molfile=None,
-    sdffile=None,
-    smiles_string=None,
-    resname="LIG",
-    forcefield_option="GAFF",
-    gaffversion="gaff-2.11",
-    openff_file="openff-2.0.0.offxml",
-    expected_coul14=0.8333333333333334,
-    expected_lj14=0.5,
-    allow_undefined_stereo=None,
-) -> tuple:
-    """Generate an OpenMM forcefield XML for a small molecule with GAFF or OpenFF."""
-    logger.info(main_header("SmallMolecule Parameterizor"))
-    logger.info("Input options: xyzfile, pdbfile, molfile, sdffile, smiles_string")
-    logger.info("Forcefield options: GAFF, OpenFF")
-    if charge is None:
-        raise InputError(
-            "You have to specify a formal total charge of the molecule via the charge keyword (e.g. charge=0)"
-        )
-    if forcefield_option == "GAFF":
-        logger.info("Using GAFF forcefield")
-        logger.info("Options:")
-    elif forcefield_option == "OpenFF":
-        logger.info("Using OpenFF forcefield")
-        logger.info(
-            "OpenFF forcefield options are Sage (version 2.Y.Z) and Parsley (version 1.Y.Z)  (see https://github.com/openforcefield/openff-forcefields)"
-        )
-        logger.info("Chosen forcefield is: %s", openff_file)
-    else:
-        raise InputError("Unknown forcefield_option")
-
+    forcefield_obj,
+    xmlfile,
+    waterxmlfile,
+    extraxmlfile,
+    ligand_files,
+    net_charges,
+    ligand_backend,
+) -> str | None:
+    """Generate a forcefill XML for unmatched residues and load it into the forcefield object."""
     try:
-        from openmm.app import ForceField
-    except ModuleNotFoundError:
-        raise MissingDependencyError("OpenMM is required but could not be imported") from None
-
-    try:
-        import parmed
+        from forcefill import build_forcefield_xml
     except ImportError:
         raise MissingDependencyError(
-            "Problem importing parmed Python library\nParmed can be installed using pip: pip install parmed"
+            "parameterize_nonstandard=True requires the forcefill package, which is not on PyPI.\n"
+            'Install it with: pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"'
         ) from None
-    logger.info(f"Parmed version {parmed.__version__} imported")
+
+    base_forcefield = [x for x in (xmlfile, extraxmlfile, waterxmlfile) if x is not None]
+    logger.info("\nNow parameterizing non-standard residues with forcefill")
+    logger.info("Base forcefield XML files defining the standard residues: %s", base_forcefield)
+    logger.info("NOTE: non-standard residues must carry explicit hydrogens and CONECT records in the PDB-file")
     try:
-        import openff
-        from openff.toolkit.topology import Molecule
-        from openmmforcefields.generators import GAFFTemplateGenerator
-    except ImportError as errormessage:
-        raise MissingDependencyError(
-            f"OpenFF and openmmforcefields libraries are required but could not be imported\nYou can install like "
-            f"this:   conda install --yes -c conda-forge openmmforcefields\nPython import error message: {errormessage}"
-        ) from errormessage
-    logger.info("")
-
-    if molfile:
-        # NOTE: Not well tested.
-        logger.info("Mol file provided: %s", molfile)
-        molecule = Molecule.from_file(molfile)
-    elif sdffile:
-        # NOTE: Not well tested.
-        logger.info("SDF file provided %s", sdffile)
-        molecule = Molecule.from_file(sdffile)
-    elif smiles_string:
-        logger.info("SMILES string provided: %s", smiles_string)
-        molecule = Molecule.from_smiles(smiles_string, allow_undefined_stereo=allow_undefined_stereo)
-        logger.info(
-            "A SMILES string input means that no coordinate information is available. PDB-file created will have dummy "
-            "coordinates that you have to fill in yourself."
+        result = build_forcefield_xml(
+            pdbfile_for_modeller,
+            "nonstandard_ff.xml",
+            base_forcefield=base_forcefield,
+            residue_files=ligand_files,
+            net_charges=net_charges,
+            backend=ligand_backend,
+            workdir="forcefill_files",
         )
-    elif xyzfile:
-        logger.info("XYZ file provided: %s", xyzfile)
-        if os.path.isfile(xyzfile) is False:
-            raise FileFormatError("File does not exist. Exiting")
-        logger.info("Will use RDKit to convert XYZ file to an RDKit Mol object and then to OpenFF Molecule object")
-        # Now using rdkit for more reliable XYZ-Mol conversion (handles total charges and bond orders)
-        from rdkit import Chem
-        from rdkit.Chem import rdDetermineBonds
-
-        raw_mol = Chem.MolFromXYZFile(xyzfile)
-        mol = Chem.Mol(raw_mol)
-        rdDetermineBonds.DetermineBonds(mol, charge=charge)
-        smiles_string = Chem.MolToSmiles(mol)
-        logger.info("RDKit-determined Smiles_string is: %s", smiles_string)
-        molecule = Molecule.from_rdkit(mol)
-    elif pdbfile:
-        logger.info("PDB-file provided: %s", pdbfile)
-        logger.info("Will use RDKit to convert PDB file to an RDKit Mol object and then to OpenFF Molecule object")
-        from rdkit import Chem
-        from rdkit.Chem import rdDetermineBonds
-
-        raw_mol = Chem.MolFromPDBFile(pdbfile, removeHs=False)
-        mol = Chem.Mol(raw_mol)
-        rdDetermineBonds.DetermineBonds(mol, charge=charge)
-        smiles_string = Chem.MolToSmiles(mol)
-        logger.info("RDKit-determined Smiles_string is: %s", smiles_string)
-        molecule = Molecule.from_rdkit(mol)
-    else:
-        raise InputError("No inputfile provided. Exiting")
-
-    # Affects both PDB-file and XML-file
-    for atom in molecule.atoms:
-        atom.metadata["residue_name"] = resname
-    logger.info("Conversion to OpenFF molecule object successful")
-    # NOTE: problem writing proper PDB-file here. Using OpenMM instead below
-
-    logger.info("Now creating an Amber14 compatible OpenMM ForceField object")
-    forcefield = ForceField("amber/protein.ff14SB.xml", "amber/tip3p_standard.xml", "amber/tip3p_HFE_multivalent.xml")
-
-    if forcefield_option == "GAFF":
-        logger.info("GAFF forcefield chosen")
-        gaff = GAFFTemplateGenerator(molecules=molecule, forcefield=gaffversion)
-        logger.info("GAFF version used: %s", gaff.gaff_version)
-
-        logger.info("Now registering the GAFF template generator in Forcefield object")
-        forcefield.registerTemplateGenerator(gaff.generator)
-
-        # Parameterize an OpenMM Topology object that contains the specified molecule.
-        # Forcefield will load the appropriate GAFF parameters when needed, and antechamber
-        # will be used to generate small molecule parameters on the fly.
-
-        topology = openff.toolkit.topology.Topology.from_molecules([molecule])
-        topology_openmm = topology.to_openmm()
-        topology = topology_openmm
-
-        # Creating OpenMM system both to check that things works and for passing to Parmed for XML writing
-        system = forcefield.createSystem(topology)
-
-        final_xmlfilename = f"gaff_{resname}.xml"
-        write_xmlfile_parmed(topology, system, final_xmlfilename)
-    elif forcefield_option == "OpenFF":
-        import openff
-        from openmmforcefields.generators import SMIRNOFFTemplateGenerator
-
-        smirnoff = SMIRNOFFTemplateGenerator(molecules=molecule, forcefield=openff_file)
-
-        forcefield = ForceField(
-            "amber/protein.ff14SB.xml", "amber/tip3p_standard.xml", "amber/tip3p_HFE_multivalent.xml"
-        )
-        forcefield.registerTemplateGenerator(smirnoff.generator)
-
-        topology = openff.toolkit.topology.Topology.from_molecules([molecule])
-        topology_openmm = topology.to_openmm()
-        topology = topology_openmm
-
-        # Creating OpenMM system both to check that things works and for passing to Parmed for XML writing
-        system = forcefield.createSystem(topology)
-
-        final_xmlfilename = f"openff_{resname}.xml"
-        write_xmlfile_parmed(topology, system, final_xmlfilename)
-
-    logger.info("Now creating a PDB-file that matches the XML-file")
-    pos = [openmm.Vec3(i[0]._magnitude, i[1]._magnitude, i[2]._magnitude) for i in molecule._conformers[0]]
-    with open(f"{resname}.pdb", "w") as pdbfh:
-        openmm.app.PDBFile.writeFile(topology, pos * openmm.unit.angstrom, pdbfh)
-
-    logger.info("")
-    logger.info("")
-    logger.info("%s", "-" * 100)
-    logger.info("A new XML-file for molecule has been created: %s", final_xmlfilename)
-    logger.info(
-        f"Modifying 1-4 scaling parameters in XML-file to match Amber14 FF (coul14={expected_coul14}  and "
-        f"lj14={expected_lj14})"
-    )
-    find_replace_string_in_file(final_xmlfilename, 'coulomb14scale="1.0"', f'coulomb14scale="{expected_coul14}"')
-    find_replace_string_in_file(final_xmlfilename, 'lj14scale="1.0"', f'lj14scale="{expected_lj14}"')
-
-    logger.info("Now checking whether the 1-4 scaling is consistent in the XML-file vs. OpenMM system")
-    system_from_xml = create_sys_and_check_14_scaling_nonbonding(
-        topology=topology, xml_file=final_xmlfilename, expected_coul14=expected_coul14, expected_lj14=expected_lj14
-    )
-    logger.info("system_from_xml: %s", system_from_xml)
-    coulomb_xml, lj_xml = calc_nonbonding_energy_exceptions(system=system_from_xml)
-    coulomb_sys, lj_sys = calc_nonbonding_energy_exceptions(system=system)
-    logger.info("")
-    logger.info("Coulomb_xml: %s", coulomb_xml)
-    logger.info("LJ_xml: %s", lj_xml)
-    logger.info("")
-    logger.info("Coulomb_sys: %s", coulomb_sys)
-    logger.info("LJ_sys: %s", lj_sys)
-    logger.info("")
-    if abs(coulomb_xml - coulomb_sys) > 1e-5:
-        raise InputError(
-            f"abs(coulomb_xml - coulomb_sys): {abs(coulomb_xml - coulomb_sys)}\nProblem with Coulomb-14 scaling in "
-            f"XML-file"
-        )
-    if abs(lj_xml - lj_sys) > 1e-5:
-        raise InputError(f"abs(lj_xml - lj_system): {abs(lj_xml - lj_sys)}\nProblem with LJ-14 scaling in XML-file")
-    logger.info("XML-file and forcefield objects are consistent. All good!")
-    logger.info("Now returning a Forcefield object containing ligand compatible with the Amber14 FF.\n")
-    logger.info(
-        "You can feed this object into OpenMM_Modeller like this:\n\
-          OpenMM_Modeller(pdbfile=full_pdbfile, forcefield_object=forcefield"
-    )
-
-    logger.info(
-        "or feed it into OpenMMTheory like this:\n\
-          OpenMM_Theory(pdbfile=full_pdbfile, forcefield=forcefield"
-    )
-    logger.info("")
-    logger.info(
-        f"The XML-file just created: {final_xmlfilename} can also be used directly (recommended only together with "
-        f"Amber14)\n"
-    )
-    logger.info(
-        f"You can use it in OpenMM_Modeller like this:\n\
-          OpenMM_Modeller(pdbfile=full_pdbfile, forcefield='Amber14', extraxmlfile=\"{final_xmlfilename}\")"
-    )
-
-    logger.info(
-        f'or in OpenMMTheory like this:\n\
-          OpenMMTheory(xmlfiles=["amber14-all.xml", "amber14/tip3pfb.xml", "{final_xmlfilename}"])'
-    )
-    logger.info("")
-    logger.warning(
-        "\nWarning: Make sure that the ligand has the same atom order in the large-system PDB-file \nas in the \
-file that was used in this function."
-    )
-    logger.info("Additionally the ligand requires correct CONECT record lines in that same PDB-file")
-    logger.info(f"A {resname}.pdb file has been created that is compatible with the XML-file")
-    logger.info("%s", "-" * 100)
-    return forcefield
-
-
-def create_sys_and_check_14_scaling_nonbonding(
-    topology=None, xml_file=None, expected_coul14=0.833333, expected_lj14=0.5
-):
-    logger.info("Creating system from XML-file and topology")
-    if topology is None:
-        raise InputError("Error: topology is required if system is not provided")
-    if xml_file is None:
-        raise InputError("Error: xml_file is required if system is not provided")
-    forcefield_from_xmlfile = openmm.app.ForceField(xml_file)
-    system_from_xmlfile = forcefield_from_xmlfile.createSystem(topology)
-
-    for force in system_from_xmlfile.getForces():
-        if isinstance(force, openmm.NonbondedForce):
-            break
-
-    for exception_index in range(force.getNumExceptions()):
-        atom1, atom2, qq, _sigma, epsilon = force.getExceptionParameters(exception_index)
-        # if 0.0 then should be 1-2 or 1-3 interaction
-        if epsilon._value == 0.0:
-            continue
-        q1, sigma1, epsilon1 = force.getParticleParameters(atom1)
-        q2, sigma2, epsilon2 = force.getParticleParameters(atom2)
-
-        expected_qq = expected_coul14 * q1 * q2
-        expected_epsilon = expected_lj14 * (epsilon1 * epsilon2) ** 0.5
-
-        if abs(qq - expected_qq).value_in_unit(openmm.unit.elementary_charge**2) > 1e-5:
-            logger.info("Problem with LJ-14 scaling")
-            logger.info("Actual qq: %s", qq)
-            logger.info("expected_qq: %s", expected_qq)
-            logger.info("expected_epsilon: %s", expected_epsilon)
-            logger.info(f"q1: {q1} sigma1:{sigma1} epsilon1:{epsilon1}")
-            logger.info(f"q2: {q2} sigma2:{sigma2} epsilon2:{epsilon2}")
-        if abs(epsilon - expected_epsilon).value_in_unit(openmm.unit.kilojoule_per_mole) > 1e-5:
-            logger.info("Problem with LJ-14 scaling")
-            logger.info("Actual epsilon: %s", epsilon)
-            logger.info("expected_qq: %s", expected_qq)
-            logger.info("expected_epsilon: %s", expected_epsilon)
-
-    return system_from_xmlfile
-
-
-def calc_nonbonding_energy_exceptions(system=None):
-    for force in system.getForces():
-        if isinstance(force, openmm.NonbondedForce):
-            break
-    coulomb_energy = 0.0
-    lj_energy = 0.0
-
-    for exception_index in range(force.getNumExceptions()):
-        _atom1, _atom2, qq, _sigma, epsilon = force.getExceptionParameters(exception_index)
-        # if 0.0 then should be 1-2 or 1-3 interaction
-        if epsilon._value == 0.0:
-            continue
-
-        coulomb_energy += qq.value_in_unit(openmm.unit.elementary_charge**2)
-        lj_energy += epsilon.value_in_unit(openmm.unit.kilojoule_per_mole)
-
-    return coulomb_energy, lj_energy
-
-
-def write_xmlfile_parmed(topology, system, xmlfilename):
-    logger.info("Using Parmed to read topologyfiles")
-    try:
-        import parmed
-    except ImportError:
-        raise MissingDependencyError(
-            "Problem importing parmed Python library\nMake sure parmed is present in your Python.\nParmed can be "
-            "installed using pip: pip install parmed"
-        ) from None
-    st = parmed.openmm.load_topology(topology, system=system)
-    w = parmed.amber.parameters.ParameterSet.from_structure(st)
-    ww = parmed.openmm.parameters.OpenMMParameterSet.from_parameterset(w)
-    ww.residues.update(parmed.modeller.ResidueTemplateContainer.from_structure(st).to_library())
-    ww.write(xmlfilename)
-    logger.info("Wrote XML-file: %s", xmlfilename)
+    except (ValueError, RuntimeError) as e:
+        raise InputError(f"forcefill could not parameterize the non-standard residues:\n{e}") from e
+    # forcefill logs on its own logger, which configure_logging() does not wire up:
+    # repeat the outcome here so it lands in the calculation record.
+    for name, reason in result.skipped.items():
+        logger.warning("forcefill skipped %s: %s", name, reason)
+    if result.forcefield_xml is None:
+        logger.info("All residues matched the forcefield; nothing to parameterize.")
+        return None
+    logger.info("forcefill parameterized %s -> %s", result.parameterized, result.forcefield_xml)
+    forcefield_obj.loadFile(result.forcefield_xml)
+    return result.forcefield_xml
 
 
 def _log_residue_table(modeller_residues, residue_variants):
@@ -1275,7 +1042,7 @@ def _add_solvent_or_membrane(
 
 
 def _log_output_files_and_usage(
-    *, systemxmlfile, xmlfile, waterxmlfile, extraxmlfile, residuetemplate_choice, periodic
+    *, systemxmlfile, xmlfile, waterxmlfile, extraxmlfile, nonstandard_xmlfile, residuetemplate_choice, periodic
 ):
     logger.info("\n\nFiles written to disk:")
     logger.info("system_afteratlocfixes.pdb")
@@ -1284,6 +1051,8 @@ def _log_output_files_and_usage(
     logger.info("system_afterH.pdb")
     logger.info("system_aftersolvent.pdb")
     logger.info("system_afterions.pdb and finalsystem.pdb (same)")
+    if nonstandard_xmlfile is not None:
+        logger.info("%s (forcefill-generated ligand parameters - keep with the other XML files)", nonstandard_xmlfile)
     logger.info("\nFinal files:")
     logger.info("finalsystem.pdb  (PDB file)")
     logger.info("finalsystem.cif  (PDBx/mmCIF file)")
@@ -1294,28 +1063,11 @@ def _log_output_files_and_usage(
     logger.warning("Strongly recommended: Check finalsystem.pdb carefully for correctness!")
     logger.info("\nTo use this system setup to define a future OpenMMTheory object you can either do:\n")
 
+    xml_list = ", ".join(f'"{x}"' for x in (xmlfile, waterxmlfile, extraxmlfile, nonstandard_xmlfile) if x is not None)
     logger.info("1. Define using separate forcefield XML files and PDB-file (for topology):")
-    if extraxmlfile is None:
-        logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
-            f"periodic={periodic})"
-        )
-    else:
-        logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], '
-            f'pdbfile="finalsystem.pdb", periodic={periodic})'
-        )
+    logger.info(f'omm = OpenMMTheory(xmlfiles=[{xml_list}], pdbfile="finalsystem.pdb", periodic={periodic})')
     logger.info("2. Define using separate forcefield XML files and PDBx/mmCIF file (instead of PDB):")
-    if extraxmlfile is None:
-        logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbxfile="finalsystem.cif", '
-            f"periodic={periodic})"
-        )
-    else:
-        logger.info(
-            f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}", "{extraxmlfile}"], '
-            f'pdbxfile="finalsystem.cif", periodic={periodic})'
-        )
+    logger.info(f'omm = OpenMMTheory(xmlfiles=[{xml_list}], pdbxfile="finalsystem.cif", periodic={periodic})')
     logger.info(
         "3. Use forcefield object file :\n %s",
         f'omm = OpenMMTheory(topoforce=True, forcefield=forcefield_object, pdbfile="finalsystem.pdb", '
@@ -1329,6 +1081,6 @@ def _log_output_files_and_usage(
             "to provide this also when defining an OpenMMTheory object."
         )
         logger.info(
-            f'E.g. like this: omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="finalsystem.pdb", '
+            f'E.g. like this: omm = OpenMMTheory(xmlfiles=[{xml_list}], pdbfile="finalsystem.pdb", '
             f"periodic={periodic}, residuetemplate_choice={residuetemplate_choice})"
         )

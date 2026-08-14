@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openmmqmmm"
-version = "1.0.1"
+version = "2.0.0"
 description = "ORCA + OpenMM QM/MM for biomolecular calculations (derived from ASH)"
 readme = "README.md"
 license = "MIT"
@@ -28,8 +28,6 @@ dependencies = [
     "pdbfixer",
     "mdtraj",
     "parmed",
-    "rdkit",
-    "openmmforcefields",
     "multiprocess",
     "rmsd",
     # Wheels exist for linux-x86_64 and macOS-arm64 only; conda-forge has no build past
@@ -38,11 +36,12 @@ dependencies = [
 ]
 
 # Development tooling only. Every runtime dependency is required above, with two
-# exceptions that pip cannot express: openff-toolkit and openmm-plumed are not published
-# to PyPI, so a pip-only install leaves small_molecule_parameterizer and openmm_md_plumed
-# unavailable. environment.yml pulls openff-toolkit and the OpenMM-PLUMED source-build
-# prerequisites from conda-forge; README.md documents building the latest GitHub master
-# against OpenMM 8.5.2.
+# exceptions that pip cannot express: openmm-plumed and forcefill are not published to
+# PyPI, so a pip-only install leaves openmm_md_plumed and
+# openmm_modeller(parameterize_nonstandard=True) unavailable. environment.yml pulls
+# forcefill's dependency stack (openff-toolkit, openmmforcefields, rdkit) and the
+# OpenMM-PLUMED source-build prerequisites from conda-forge; README.md documents the
+# forcefill pip command and the OpenMM-PLUMED source build against OpenMM 8.5.2.
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts

@@ -1,4 +1,5 @@
 #   conda env create -f environment.yml && conda activate openmmqmmm && pip install -e .
+#   pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"
 #
 # ORCA is not packaged here — install it separately and set OPENMMQMMM_ORCADIR. See README.md.
 name: openmmqmmm
@@ -25,8 +26,10 @@ dependencies:
   - packaging
   # Amber/CHARMM/GROMACS topology handling in OpenMMTheory
   - parmed
-  # small_molecule_parameterizer: GAFF + SMIRNOFF template generation.
-  # openff-toolkit pulls ambertools, which pulls pytorch + CUDA (several GB).
+  # forcefill's dependency stack (openmm_modeller parameterize_nonstandard=True; see README.md).
+  # forcefill itself is not on PyPI or conda-forge — install it with the pip command above.
+  # openff-toolkit pulls ambertools (antechamber for the GAFF backend), which pulls
+  # pytorch + CUDA (several GB).
   - openmmforcefields
   - openff-toolkit
   - rdkit

@@ -42,9 +42,11 @@ jobs:
           create-args: python=${{ matrix.python }}
           cache-environment: true
       - run: pip install -e . --no-deps
+      - run: pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"
       - run: python -c "import openmmqmmm"
-      # Floor is set against the no-ORCA number (36%); with ORCA available it reaches 43%.
-      # The two end-to-end QM/MM tests skip here since no orca binary exists in CI.
+      # The no-ORCA number is 53% (57% with ORCA); the floor sits well below it so
+      # coverage-neutral PRs pass. The four end-to-end QM/MM tests skip here since no
+      # orca binary exists in CI.
       - name: Run tests with coverage
         run: pytest --cov --cov-report=term --cov-report=xml --cov-fail-under=35
       - uses: actions/upload-artifact@v4

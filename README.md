@@ -15,7 +15,7 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 [geomeTRIC](https://github.com/leeping/geomeTRIC)), `numerical_frequencies`,
 `analytic_frequencies`, `openmm_md` and `job_parallel`, plus the OpenMM setup helpers
 (`openmm_modeller`, `openmm_minimize`, `openmm_box_equilibration`, `gentle_warmup_md`,
-`openmm_md_plumed`, `solvate_small_molecule`, `small_molecule_parameterizer`).
+`openmm_md_plumed`, `solvate_small_molecule`).
 
 ## Installation
 
@@ -23,19 +23,23 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 
 - Linux or macOS, Python ≥ 3.10
 - Every Python dependency is required — there are no feature-gated extras. `pip install .` pulls
-  the full set (ASE, OpenMM, PDBFixer, mdtraj, ParmEd, RDKit, openmmforcefields, OpenBabel,
-  geomeTRIC, rmsd, multiprocess, numpy, scipy, packaging)
-- **openff-toolkit** is not on PyPI and must come from conda-forge, which is why the conda route
-  below is recommended. A pip-only install leaves `small_molecule_parameterizer` raising
-  `MissingDependencyError`; everything else except the PLUMED integration works
+  the full set (ASE, OpenMM, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd, multiprocess,
+  numpy, scipy, packaging)
+- **[forcefill](https://github.com/LouieSlocombe/forcefill)** is not on PyPI: install it after the
+  environment exists with
+  `pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"`.
+  Without it `openmm_modeller(parameterize_nonstandard=True)` raises `MissingDependencyError`;
+  everything else except the PLUMED integration works. Its dependency stack (openff-toolkit,
+  openmmforcefields, RDKit, AmberTools) comes from conda-forge via `environment.yml` —
+  openff-toolkit is not on PyPI, which is why the conda route below is recommended
 - `openmm_md_plumed` also requires **openmm-plumed**. The conda-forge binary requires OpenMM
   `<8.5`, so it must not be installed here; build the latest GitHub `master` source against
   OpenMM 8.5.2 using the instructions below
 - [ORCA](https://www.faccts.de/orca/) — installed separately (free for academic use); required for
   `ORCATheory` and QM/MM, not for the pure-MM/OpenMM functionality
 
-The full environment is large (~5 GB): openff-toolkit depends on AmberTools, which depends on
-PyTorch and CUDA.
+The full environment is large (~5 GB): forcefill's openff-toolkit dependency pulls AmberTools,
+which pulls PyTorch and CUDA.
 
 **Conda environment (recommended)**
 
@@ -45,6 +49,7 @@ From the repository root:
 conda env create -f environment.yml
 conda activate openmmqmmm
 pip install -e .
+pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"
 ```
 
 `pip install -e .` is an editable (development) install: changes to the source tree take effect
@@ -92,7 +97,9 @@ pip install .
 ```
 
 `pip install .` then adds OpenBabel and geomeTRIC. OpenBabel has to come from PyPI: conda-forge
-has no build for Python 3.13 or newer. Then follow the OpenMM-PLUMED source-build steps above.
+has no build for Python 3.13 or newer. Add forcefill with
+`pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"`, then
+follow the OpenMM-PLUMED source-build steps above.
 
 **Configuring ORCA**
 
@@ -105,6 +112,44 @@ ORCA is located in this order, and every candidate is validated (the directory m
 
 For parallel ORCA runs (`numcores` > 1) the matching OpenMPI version must also be set up, as for
 any ORCA installation.
+
+## Ligand force fields (forcefill)
+
+Version 2.0 removed the in-house ligand parameterization (`small_molecule_parameterizer`,
+`write_xmlfile_parmed`, `create_sys_and_check_14_scaling_nonbonding`,
+`calc_nonbonding_energy_exceptions`). [forcefill](https://github.com/LouieSlocombe/forcefill)
+replaces them: `build_ligand_xml` / `build_forcefield_xml` produce an OpenMM force-field XML
+(GAFF via antechamber/AM1-BCC, OpenFF SMIRNOFF, or CHARMM CGenFF), and `assemble_openmm_ffxml` /
+`validate_forcefield_xml` cover the lower-level XML writing and checking.
+
+Build the XML from an SDF/MOL2/PDB file or a SMILES (XYZ-only inputs: convert to SDF first, e.g.
+with RDKit's `rdDetermineBonds` or OpenBabel), then feed it to any of the setup helpers:
+
+```py
+from forcefill import build_ligand_xml
+
+result = build_ligand_xml({"LIG": "ligand.sdf"}, "lig_ff.xml")  # or LigandSpec(smiles=...)
+
+openmm_modeller(pdbfile="complex.pdb", forcefield="Amber14", extraxmlfile=result.forcefield_xml)
+# or
+OpenMMTheory(xmlfiles=["amber14-all.xml", "amber14/tip3p.xml", "lig_ff.xml"], pdbfile="complex.pdb", periodic=True)
+# or
+solvate_small_molecule(fragment=fragment, xmlfile=result.forcefield_xml, watermodel="tip3p")
+```
+
+`openmm_modeller` can also do this in one step: with `parameterize_nonstandard=True`, every
+residue the chosen forcefield cannot match is parameterized through
+`forcefill.build_forcefield_xml` and the generated `nonstandard_ff.xml` is loaded automatically:
+
+```py
+openmm_modeller(pdbfile="complex.pdb", forcefield="Amber14", parameterize_nonstandard=True, net_charges={"LIG": 0})
+```
+
+Non-standard residues must carry explicit hydrogens and CONECT records in the PDB-file.
+`ligand_files={"LIG": "ligand.sdf"}` supplies bond orders from a file instead of PDB geometry
+perception, and `ligand_backend` selects `"gaff"` (default), `"smirnoff"` or `"charmm"`. For finer
+control (charge methods, per-ligand `LigandSpec`, minimization checks) call forcefill directly and
+pass the XML via `extraxmlfile=`.
 
 ## Output
 
