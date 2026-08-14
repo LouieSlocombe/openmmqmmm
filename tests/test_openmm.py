@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from openmmqmmm import Fragment, OpenMMTheory, openmm_md, openmm_modeller, single_point
+from openmmqmmm import Fragment, MolecularDynamicsEngine, OpenMMTheory, openmm_md, openmm_modeller, single_point
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
 
@@ -100,3 +100,24 @@ def test_openmm_md_requires_a_run_length():
     """Neither simulation_steps nor simulation_time is an error, not a zero-length run."""
     with pytest.raises(InputError):
         openmm_md(fragment=None, theory=None)
+
+
+def test_md_engine_can_override_the_rpmd_copy_count():
+    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
+    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
+    theory = OpenMMTheory(
+        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
+        pdbfile="h2o_MeOH.pdb",
+        autoconstraints=None,
+        rigidwater=False,
+    )
+
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=theory,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=6,
+    )
+
+    assert engine.rpmd_num_copies == 6
+    assert theory.rpmd_num_copies == 6

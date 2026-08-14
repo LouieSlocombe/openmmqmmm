@@ -144,7 +144,7 @@ def test_set_positions_initializes_every_rpmd_copy():
 
     theory = OpenMMTheory.__new__(OpenMMTheory)
     theory.system = system
-    theory.rpmd_num_copies = num_copies
+    theory.set_rpmd_num_copies(num_copies)
     theory.set_simulation_parameters(integrator="RPMDIntegrator")
     theory.create_integrator()
     integrator = theory.integrator
@@ -173,11 +173,19 @@ def test_rpmd_rejects_constrained_system_before_context_creation():
     theory.system.addParticle(1.0)
     theory.system.addParticle(1.0)
     theory.system.addConstraint(0, 1, 0.1)
-    theory.rpmd_num_copies = 4
+    theory.set_rpmd_num_copies(4)
     theory.set_simulation_parameters(integrator="RPMDIntegrator")
 
     with pytest.raises(InputError, match=r"RPMDIntegrator does not support constraints.*autoconstraints=None"):
         theory.create_integrator()
+
+
+@pytest.mark.parametrize("num_copies", [0, -1, 1.5, True, "8"])
+def test_rpmd_copy_count_must_be_a_positive_integer(num_copies):
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+
+    with pytest.raises(InputError, match="rpmd_num_copies must be a positive integer"):
+        theory.set_rpmd_num_copies(num_copies)
 
 
 def test_write_pdbfile_uses_the_positions_it_is_given(tmp_path, solvated_fragment):

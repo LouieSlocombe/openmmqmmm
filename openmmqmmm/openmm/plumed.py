@@ -23,6 +23,7 @@ def openmm_md_plumed(
     traj_frequency=1000,
     temperature=300,
     integrator="LangevinMiddleIntegrator",
+    rpmd_num_copies=None,
     specialatoms=None,
     specialtraj_frequency=1000,
     barostat=None,

@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from numbers import Integral
 
 import numpy as np
 from packaging import version
@@ -152,7 +153,7 @@ class OpenMMTheory:
         )
 
         # Active when RPMDIntegrator is used
-        self.rpmd_num_copies = rpmd_num_copies
+        self.set_rpmd_num_copies(rpmd_num_copies)
 
         # Setting for controlling whether QM1-MM1 bonded terms are deleted or not in a QM/MM job
         # See modify_bonded_forces
@@ -1196,6 +1197,12 @@ class OpenMMTheory:
         self.temperature = temperature
         self.integrator_name = integrator
 
+    def set_rpmd_num_copies(self, num_copies):
+        """Set the number of ring-polymer copies (beads) used by RPMD."""
+        if isinstance(num_copies, bool) or not isinstance(num_copies, Integral) or num_copies < 1:
+            raise InputError("rpmd_num_copies must be a positive integer.")
+        self.rpmd_num_copies = int(num_copies)
+
     def create_integrator(self):
         # NOTE: Integrator definition has to be here (instead of set_simulation_parameters) as it has to be recreated
         # for each updated simulation
@@ -1249,7 +1256,7 @@ class OpenMMTheory:
                     f"{num_constraints}. Create OpenMMTheory with autoconstraints=None, rigidwater=False, "
                     "and without bondconstraints."
                 )
-            logger.info(f"RPMD number of copies set to {self.rpmd_num_copies}. Use rpmd_num_copies keyword to change")
+            logger.info("RPMD number of copies (beads) set to %s", self.rpmd_num_copies)
             self.integrator = openmm.RPMDIntegrator(
                 self.rpmd_num_copies,
                 self.temperature * openmm.unit.kelvin,

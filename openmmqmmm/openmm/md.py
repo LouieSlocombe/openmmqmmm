@@ -71,6 +71,7 @@ def openmm_md(
     restartfile_frequency=1000,
     temperature=300,
     integrator="LangevinMiddleIntegrator",
+    rpmd_num_copies=None,
     barostat=None,
     pressure=1,
     trajectory_file_option="DCD",
@@ -138,6 +139,7 @@ class MolecularDynamicsEngine:
         restartfile_frequency=1000,
         temperature=300,
         integrator="LangevinMiddleIntegrator",
+        rpmd_num_copies=None,
         barostat=None,
         pressure=1,
         trajectory_file_option="DCD",
@@ -284,6 +286,9 @@ class MolecularDynamicsEngine:
         self.temperature = temperature
         self.pressure = pressure
         self.integrator = integrator
+        if rpmd_num_copies is not None:
+            self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)
+        self.rpmd_num_copies = self.openmmobject.rpmd_num_copies
         self.coupling_frequency = coupling_frequency
         self.timestep = timestep
         self.traj_frequency = int(traj_frequency)
@@ -319,6 +324,8 @@ class MolecularDynamicsEngine:
         if len(self.openmmobject.user_frozen_atoms) < 50:
             logger.info("Frozen atoms %s", self.openmmobject.user_frozen_atoms)
         logger.info("Integrator: %s", self.integrator)
+        if self.integrator == "RPMDIntegrator":
+            logger.info("RPMD number of copies (beads): %s", self.rpmd_num_copies)
         logger.info(f"Timestep: {self.timestep} ps")
         logger.info("Anderon Thermostat: %s", anderson_thermostat)
         logger.info(f"coupling_frequency: {self.coupling_frequency} ps^-1 (for Nose-Hoover and Langevin integrators)")
