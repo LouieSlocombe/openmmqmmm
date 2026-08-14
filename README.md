@@ -10,8 +10,8 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 > side effects, logging instead of print). Scripts written for the 0.x releases need updating; the
 > Conventions section below describes the naming now in force.
 
-`openmmqmmm.__all__` is the full public API: `ORCATheory`, `OpenMMTheory`, `QMMMTheory` and
-`Fragment`, the job functions `single_point`, `optimize_geometry` (via
+`openmmqmmm.__all__` is the full public API: `ORCATheory`, `OpenMMTheory`, `QMMMTheory`,
+`OpenMMQMMMCalculator` and `Fragment`, the job functions `single_point`, `optimize_geometry` (via
 [geomeTRIC](https://github.com/leeping/geomeTRIC)), `numerical_frequencies`,
 `analytic_frequencies`, `openmm_md` and `job_parallel`, plus the OpenMM setup helpers
 (`openmm_modeller`, `openmm_minimize`, `openmm_box_equilibration`, `gentle_warmup_md`,
@@ -128,10 +128,30 @@ working).
 Importing the package is silent and side-effect free, and errors raise exceptions rather than
 exiting the interpreter. Job functions are snake_case (`single_point`, `optimize_geometry`,
 `numerical_frequencies`, `openmm_md`), classes are CapWords (`ORCATheory`, `OpenMMTheory`,
-`QMMMTheory`, `Fragment`, `Results`), and keyword arguments are snake_case (`grad=`,
+`QMMMTheory`, `OpenMMQMMMCalculator`, `Fragment`, `Results`), and keyword arguments are snake_case (`grad=`,
 `active_region=`, `num_grad=`). Fragment files use the `.frag` extension, and each job function
 writes its `Results` object to a `results_*.json` file — for example `results_singlepoint.json`,
 `results_optimizer.json`, `results_numfreq.json`.
+
+## ASE calculator
+
+`OpenMMQMMMCalculator` exposes a configured `QMMMTheory` to ASE with energies in eV and forces
+in eV/Å. The ASE atoms must retain the atom count, elements and ordering of the `Fragment` used
+to create the QM/MM theory. Cell changes and stress are not supported.
+
+```py
+from ase import Atoms
+from ase.optimize import BFGS
+from openmmqmmm import OpenMMQMMMCalculator
+
+atoms = Atoms(fragment.elems, positions=fragment.coords)
+atoms.calc = OpenMMQMMMCalculator(qm_mm, directory="ase-qmmm")
+BFGS(atoms).run(fmax=0.05)
+```
+
+The QM-region charge and multiplicity are taken from `QMMMTheory.qm_charge` and `qm_mult`. If
+they were not set on the theory, pass `charge=` and `mult=` to the calculator. Use a separate
+theory instance, process and calculation directory for every concurrent ASE calculation.
 
 ## Testing
 

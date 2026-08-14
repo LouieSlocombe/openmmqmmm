@@ -2,6 +2,9 @@ import logging as _logging
 from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
 from importlib.metadata import version as _get_version
 
+# ASE calculator
+from .ase_calculator import OpenMMQMMMCalculator
+
 # Fragment class and coordinate functions
 from .coords import (
     Fragment,
@@ -115,6 +118,7 @@ __all__ = [
     "GeometricOptimizer",
     "MolecularDynamicsEngine",
     "NumGrad",
+    "OpenMMQMMMCalculator",
     "ORCATheory",
     "OpenMMTheory",
     "QMMMTheory",
