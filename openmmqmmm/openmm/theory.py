@@ -154,6 +154,7 @@ class OpenMMTheory:
 
         # Active when RPMDIntegrator is used
         self.set_rpmd_num_copies(rpmd_num_copies)
+        self.rpmd_contractions = {}
 
         # Setting for controlling whether QM1-MM1 bonded terms are deleted or not in a QM/MM job
         # See modify_bonded_forces
@@ -1203,6 +1204,24 @@ class OpenMMTheory:
             raise InputError("rpmd_num_copies must be a positive integer.")
         self.rpmd_num_copies = int(num_copies)
 
+    def set_rpmd_contractions(self, contractions):
+        """Set force-group ring-polymer contractions for the next RPMD integrator."""
+        validated = {}
+        for group, num_copies in ({} if contractions is None else dict(contractions)).items():
+            if isinstance(group, bool) or not isinstance(group, Integral) or not 0 <= group <= 31:
+                raise InputError("RPMD contraction force groups must be integer indices from 0 to 31.")
+            if (
+                isinstance(num_copies, bool)
+                or not isinstance(num_copies, Integral)
+                or not 1 <= num_copies <= self.rpmd_num_copies
+            ):
+                raise InputError(
+                    f"RPMD contraction copy counts must be positive integers no larger than "
+                    f"rpmd_num_copies ({self.rpmd_num_copies})."
+                )
+            validated[int(group)] = int(num_copies)
+        self.rpmd_contractions = validated
+
     def create_integrator(self):
         # NOTE: Integrator definition has to be here (instead of set_simulation_parameters) as it has to be recreated
         # for each updated simulation
@@ -1257,12 +1276,18 @@ class OpenMMTheory:
                     "and without bondconstraints."
                 )
             logger.info("RPMD number of copies (beads) set to %s", self.rpmd_num_copies)
-            self.integrator = openmm.RPMDIntegrator(
+            args = (
                 self.rpmd_num_copies,
                 self.temperature * openmm.unit.kelvin,
                 self.coupling_frequency / openmm.unit.picosecond,
                 self.timestep * openmm.unit.picoseconds,
             )
+            contractions = getattr(self, "rpmd_contractions", {})
+            if contractions:
+                logger.info("RPMD force-group contractions: %s", contractions)
+                self.integrator = openmm.RPMDIntegrator(*args, contractions)
+            else:
+                self.integrator = openmm.RPMDIntegrator(*args)
         else:
             raise InputError(
                 "Unknown integrator.\n Valid integrator keywords are: VerletIntegrator, VariableVerletIntegrator, "

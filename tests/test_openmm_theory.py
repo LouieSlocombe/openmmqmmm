@@ -188,6 +188,29 @@ def test_rpmd_copy_count_must_be_a_positive_integer(num_copies):
         theory.set_rpmd_num_copies(num_copies)
 
 
+def test_rpmd_force_group_contractions_reach_the_integrator():
+    import openmm
+
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.system = openmm.System()
+    theory.system.addParticle(1.0)
+    theory.set_rpmd_num_copies(4)
+    theory.set_rpmd_contractions({7: 1})
+    theory.set_simulation_parameters(integrator="RPMDIntegrator")
+    theory.create_integrator()
+
+    assert dict(theory.integrator.getContractions()) == {7: 1}
+
+
+@pytest.mark.parametrize("contractions", [{-1: 1}, {32: 1}, {1: 0}, {1: 5}, {True: 1}, {1: True}])
+def test_rpmd_force_group_contractions_are_validated(contractions):
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.set_rpmd_num_copies(4)
+
+    with pytest.raises(InputError, match="RPMD contraction"):
+        theory.set_rpmd_contractions(contractions)
+
+
 def test_write_pdbfile_uses_the_positions_it_is_given(tmp_path, solvated_fragment):
     """An explicit positions argument must win over the object's own coordinates."""
     import openmm

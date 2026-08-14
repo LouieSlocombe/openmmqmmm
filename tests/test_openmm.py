@@ -19,6 +19,64 @@ from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
 TEST_DIR = Path(__file__).parent
 
 
+class _AnalyticQM:
+    """Small deterministic QM stand-in used to exercise PythonForce without ORCA."""
+
+    def __init__(self, force_constant=0.01):
+        self.numcores = 1
+        self.theorytype = "QM"
+        self.theorynamelabel = "AnalyticQM"
+        self.force_constant = force_constant
+        self.calls = []
+
+    def run(self, *, current_coords=None, current_mm_coords=None, grad=False, pc=False, **_kwargs):
+        from openmmqmmm import constants
+
+        qm_bohr = np.asarray(current_coords) * constants.ANG_TO_BOHR
+        mm_bohr = (
+            np.asarray(current_mm_coords) * constants.ANG_TO_BOHR if current_mm_coords is not None else np.zeros((0, 3))
+        )
+        energy = 0.5 * self.force_constant * (np.sum(qm_bohr * qm_bohr) + np.sum(mm_bohr * mm_bohr))
+        qm_gradient = self.force_constant * qm_bohr
+        mm_gradient = self.force_constant * mm_bohr
+        self.calls.append(np.asarray(current_coords).copy())
+        if not grad:
+            return energy
+        if pc:
+            return energy, qm_gradient, mm_gradient
+        return energy, qm_gradient
+
+
+def _make_analytic_qmmm(embedding="mech", **kwargs):
+    if embedding == "mech":
+        fragment = Fragment(elems=["H", "H"], coords=[[-0.5, 0, 0], [0.5, 0, 0]], charge=0, mult=1)
+        qmatoms = [0, 1]
+    else:
+        fragment = Fragment(elems=["H", "H"], coords=[[1.0, 0, 0], [5.0, 0, 0]], charge=0, mult=1, conncalc=False)
+        qmatoms = [0]
+    mm = OpenMMTheory(
+        fragment=fragment,
+        dummysystem=True,
+        platform="Reference",
+        autoconstraints=None,
+        rigidwater=False,
+        hydrogenmass=None,
+    )
+    qm = _AnalyticQM()
+    qmmm = QMMMTheory(
+        fragment=fragment,
+        qm_theory=qm,
+        mm_theory=mm,
+        qmatoms=qmatoms,
+        embedding=embedding,
+        qm_charge=0,
+        qm_mult=1,
+        dipole_correction=False,
+        **kwargs,
+    )
+    return qmmm, fragment, qm
+
+
 def _make_minimal_rpmd_simulation(num_copies):
     import openmm
     import openmm.app
@@ -183,21 +241,251 @@ def test_md_engine_rejects_rpmd_with_barostat_before_adding_force():
     assert "MonteCarloBarostat" not in force_names
 
 
-def test_md_engine_rejects_qmmm_rpmd_before_mutating_qmmm_object():
-    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-    qmmm = QMMMTheory.__new__(QMMMTheory)
+def test_qmmm_rpmd_uses_pythonforce_instead_of_shared_external_parameters():
+    import openmm
 
-    with pytest.raises(InputError, match="QM/MM and external-QM forces cannot be applied independently"):
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+    )
+
+    force_names = [force.__class__.__name__ for force in qmmm.mm_theory.system.getForces()]
+    assert force_names.count("PythonForce") == 1
+    assert "CustomExternalForce" not in force_names
+    assert engine.rpmd_force_provider is not None
+
+    simulation = qmmm.mm_theory.create_simulation()
+    for copy, half_separation_nm in enumerate((0.05, 0.15)):
+        positions = [
+            openmm.Vec3(-half_separation_nm, 0, 0),
+            openmm.Vec3(half_separation_nm, 0, 0),
+        ]
+        simulation.integrator.setPositions(copy, positions * openmm.unit.nanometer)
+        simulation.integrator.setVelocities(
+            copy,
+            [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * openmm.unit.nanometer / openmm.unit.picosecond,
+        )
+
+    forces = []
+    for copy in range(2):
+        state = simulation.integrator.getState(copy, getForces=True, groups={engine.rpmd_external_force_group})
+        forces.append(
+            state.getForces(asNumpy=True).value_in_unit(openmm.unit.kilojoules_per_mole / openmm.unit.nanometer)[0, 0]
+        )
+    assert forces[0] != pytest.approx(forces[1])
+
+
+def test_qmmm_rpmd_pythonforce_system_round_trips_through_xml():
+    import openmm
+
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+    )
+
+    serialized = openmm.XmlSerializer.serialize(qmmm.mm_theory.system)
+    restored = openmm.XmlSerializer.deserialize(serialized)
+    assert [force.__class__.__name__ for force in restored.getForces()].count("PythonForce") == 1
+
+
+def test_qmmm_rpmd_step_evaluates_and_caches_each_final_bead():
+    import openmm
+
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        timestep=0.000001,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+    )
+    simulation = qmmm.mm_theory.create_simulation()
+    for copy, half_separation_nm in enumerate((0.05, 0.15)):
+        simulation.integrator.setPositions(
+            copy,
+            [openmm.Vec3(-half_separation_nm, 0, 0), openmm.Vec3(half_separation_nm, 0, 0)] * openmm.unit.nanometer,
+        )
+        simulation.integrator.setVelocities(
+            copy,
+            [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * openmm.unit.nanometer / openmm.unit.picosecond,
+        )
+
+    provider = engine.rpmd_force_provider
+    provider.clear_cache()
+    evaluations_before = provider.evaluation_count
+    simulation.integrator.step(1)
+    assert provider.evaluation_count - evaluations_before == 4, "RPMD evaluates the force twice on every bead"
+
+    evaluations_after_step = provider.evaluation_count
+    cache_hits_before = provider.cache_hits
+    simulation.integrator.getState(0, getEnergy=True, getForces=True)
+    assert provider.evaluation_count == evaluations_after_step
+    assert provider.cache_hits == cache_hits_before + 1, "Reporting should reuse the final force evaluation"
+
+
+def test_qmmm_rpmd_engine_run_reports_and_restarts_all_beads():
+    from openmmqmmm.openmm.md import RPMD_FINAL_RESTART_FILENAME, RPMD_RESTART_FILENAME
+
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        timestep=0.000001,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+        traj_frequency=1,
+        restartfile_frequency=1,
+        trajectory_file_option="DCD",
+    )
+    engine.run(simulation_steps=1)
+    assert engine.simulation.currentStep == 1
+    assert Path(RPMD_RESTART_FILENAME).exists()
+    with np.load(RPMD_RESTART_FILENAME) as restart:
+        assert restart["positions_nm"].shape == (2, fragment.numatoms, 3)
+
+    engine.finalize_simulation()
+    assert Path(RPMD_FINAL_RESTART_FILENAME).exists()
+
+
+def test_qmmm_rpmd_electrostatic_pythonforce_returns_physical_qm_energy():
+    import openmm
+
+    from openmmqmmm import constants
+
+    qmmm, fragment, _qm = _make_analytic_qmmm("elstat")
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+    )
+    simulation = qmmm.mm_theory.create_simulation()
+    qmmm.mm_theory.set_positions(fragment.coords, simulation)
+
+    state = simulation.integrator.getState(0, getEnergy=True, groups={engine.rpmd_external_force_group})
+    energy_hartree = (
+        state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole) / constants.HARTREE_TO_KJ_PER_MOL
+    )
+    assert energy_hartree == pytest.approx(qmmm.QMenergy)
+    assert energy_hartree > 0, "The legacy CustomExternalForce correction would give the wrong sign"
+
+
+def test_qmmm_rpmd_can_contract_only_the_qm_force_to_the_centroid():
+    import openmm
+
+    qmmm, fragment, qm = _make_analytic_qmmm()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        timestep=0.000001,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+        rpmd_qm_num_copies=1,
+    )
+    assert qmmm.mm_theory.rpmd_contractions == {engine.rpmd_external_force_group: 1}
+
+    simulation = qmmm.mm_theory.create_simulation()
+    for copy, center_nm in enumerate((0.1, 0.3)):
+        simulation.integrator.setPositions(
+            copy,
+            [openmm.Vec3(center_nm - 0.05, 0, 0), openmm.Vec3(center_nm + 0.05, 0, 0)] * openmm.unit.nanometer,
+        )
+        simulation.integrator.setVelocities(
+            copy,
+            [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * openmm.unit.nanometer / openmm.unit.picosecond,
+        )
+
+    qm.calls.clear()
+    simulation.integrator.step(1)
+    assert len(qm.calls) == 2
+    assert np.mean(qm.calls[0][:, 0]) == pytest.approx(2.0), "The contracted QM force sees the centroid geometry"
+
+
+def test_external_qm_rpmd_uses_the_same_bead_specific_force_path():
+    import openmm
+
+    fragment = Fragment(elems=["H", "H"], coords=[[-0.5, 0, 0], [0.5, 0, 0]], charge=0, mult=1)
+    qm = _AnalyticQM()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qm,
+        charge=0,
+        mult=1,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+        platform="Reference",
+        constraints=None,
+    )
+    assert engine.theory_runtype == "QM"
+    assert isinstance(engine.rpmd_python_force, openmm.PythonForce)
+
+    simulation = engine.openmmobject.create_simulation()
+    for copy, half_separation_nm in enumerate((0.05, 0.15)):
+        simulation.integrator.setPositions(
+            copy,
+            [openmm.Vec3(-half_separation_nm, 0, 0), openmm.Vec3(half_separation_nm, 0, 0)] * openmm.unit.nanometer,
+        )
+        simulation.integrator.setVelocities(
+            copy,
+            [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * openmm.unit.nanometer / openmm.unit.picosecond,
+        )
+    simulation.integrator.step(1)
+    assert engine.rpmd_force_provider.evaluation_count == 4
+
+
+@pytest.mark.parametrize(
+    ("qmmm_kwargs", "engine_kwargs", "message"),
+    [
+        ({"truncated_pc": True}, {}, "does not support truncated_pc"),
+        ({"update_qm_region_charges": True}, {}, "does not support update_qm_region_charges"),
+        ({}, {"special_wrapping": True}, "does not support special_wrapping"),
+    ],
+)
+def test_qmmm_rpmd_rejects_state_shared_across_beads(qmmm_kwargs, engine_kwargs, message):
+    qmmm, fragment, _qm = _make_analytic_qmmm(**qmmm_kwargs)
+    with pytest.raises(InputError, match=message):
         MolecularDynamicsEngine(
             fragment=fragment,
             theory=qmmm,
             charge=0,
             mult=1,
             integrator="RPMDIntegrator",
+            rpmd_num_copies=2,
+            **engine_kwargs,
         )
 
-    assert not hasattr(qmmm, "openmm_externalforce")
-    assert not hasattr(qmmm, "exit_after_customexternalforce_update")
+
+@pytest.mark.parametrize("num_copies", [0, -1, 3, 1.5, True])
+def test_qmmm_rpmd_qm_copy_count_is_validated(num_copies):
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    with pytest.raises(InputError, match="rpmd_qm_num_copies must be a positive integer"):
+        MolecularDynamicsEngine(
+            fragment=fragment,
+            theory=qmmm,
+            charge=0,
+            mult=1,
+            integrator="RPMDIntegrator",
+            rpmd_num_copies=2,
+            rpmd_qm_num_copies=num_copies,
+        )
 
 
 def test_rpmd_restart_round_trip_preserves_every_copy(tmp_path):

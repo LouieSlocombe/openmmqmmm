@@ -646,6 +646,27 @@ class QMMMTheory:
             mult=mult,
         )
 
+    def run_openmm_python_force(self, *, current_coords, elems, charge, mult):
+        """Return the physical external energy and gradient for an OpenMM ``PythonForce``.
+
+        The older ``CustomExternalForce`` MD path represents a frozen gradient with a
+        coordinate-linear potential.  Electrostatic embedding therefore subtracts that
+        artificial potential from its reported energy.  ``PythonForce`` directly owns the
+        QM potential and must instead receive the uncorrected QM energy.
+        """
+        result = self.run(
+            current_coords=current_coords,
+            elems=elems,
+            grad=True,
+            exit_after_customexternalforce_update=True,
+            charge=charge,
+            mult=mult,
+        )
+        if not isinstance(result, tuple) or len(result) != 2:
+            raise InternalError("QM/MM force evaluation must return an (energy, gradient) pair.")
+        _legacy_external_energy, gradient = result
+        return self.QMenergy, gradient
+
     def _prepare_run(self, current_coords, embedding_label):
         logger.info("Embedding: %s", embedding_label)
 

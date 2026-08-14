@@ -3,6 +3,7 @@ import inspect
 import logging
 import os
 import time
+from numbers import Integral
 from sys import stdout
 
 import numpy as np
@@ -24,6 +25,11 @@ from openmmqmmm.exceptions import (
     MissingDependencyError,
 )
 from openmmqmmm.mdtraj import mdtraj_image_trajectory, mdtraj_load, mdtraj_rmsf
+from openmmqmmm.openmm.rpmd_force import (
+    RPMDExternalQMForceProvider,
+    RPMDQMMMForceProvider,
+    add_rpmd_python_force,
+)
 from openmmqmmm.openmm.systemsetup import openmm_minimize
 from openmmqmmm.openmm.theory import ForceReporter, OpenMMTheory
 from openmmqmmm.singlepoint import single_point
@@ -125,6 +131,7 @@ def openmm_md(
     temperature=300,
     integrator="LangevinMiddleIntegrator",
     rpmd_num_copies=None,
+    rpmd_qm_num_copies=None,
     barostat=None,
     pressure=1,
     trajectory_file_option="DCD",
@@ -193,6 +200,7 @@ class MolecularDynamicsEngine:
         temperature=300,
         integrator="LangevinMiddleIntegrator",
         rpmd_num_copies=None,
+        rpmd_qm_num_copies=None,
         barostat=None,
         pressure=1,
         trajectory_file_option="DCD",
@@ -236,11 +244,11 @@ class MolecularDynamicsEngine:
             raise InputError("No fragment object. Exiting.")
         self.fragment = fragment
 
-        if integrator == "RPMDIntegrator" and not isinstance(theory, OpenMMTheory):
+        is_rpmd = integrator == "RPMDIntegrator"
+        if is_rpmd and barostat is not None:
             raise InputError(
-                "RPMDIntegrator currently supports only pure-MM OpenMMTheory dynamics. QM/MM and external-QM "
-                "forces cannot be applied independently to each RPMD bead. Use a classical integrator for QM/MM "
-                "dynamics."
+                "RPMDIntegrator cannot be used with a barostat. Remove the barostat or explicitly select a "
+                "classical integrator."
             )
 
         self.charge, self.mult = check_charge_mult(
@@ -264,6 +272,9 @@ class MolecularDynamicsEngine:
 
         self.openmmobject = None
         self.QM_MM_object = None
+        self.rpmd_force_provider = None
+        self.rpmd_python_force = None
+        self.rpmd_external_force_group = None
         logger.info("Analyzing theory input to OpenMM_MDclass")
         if isinstance(theory, OpenMMTheory):
             logger.info("This is an OpenMMTheory object")
@@ -279,14 +290,29 @@ class MolecularDynamicsEngine:
             self.openmmobject = theory.mm_theory
             self.theory_runtype = "QMMM"
 
+            if is_rpmd:
+                if self.QM_MM_object.truncated_pc:
+                    raise InputError(
+                        "QM/MM RPMD does not support truncated_pc because its correction history is shared across "
+                        "beads. Disable truncated_pc for bead-resolved dynamics."
+                    )
+                if self.QM_MM_object.update_qm_region_charges:
+                    raise InputError(
+                        "QM/MM RPMD does not support update_qm_region_charges because one shared MM charge set "
+                        "cannot represent every bead."
+                    )
+                if special_wrapping or special_wrapping_updatepos:
+                    raise InputError(
+                        "QM/MM RPMD does not support special_wrapping. Use OpenMM periodic wrapping through the "
+                        "PythonForce callback instead."
+                    )
+                if dummyatomrestraint:
+                    raise InputError("QM/MM RPMD does not support dummyatomrestraint.")
+
             # Making sure QM/MM object will exit before calculating MM part
             self.QM_MM_object.exit_after_customexternalforce_update = True
             logger.info("Turning on externalforce option.")
             self.QM_MM_object.openmm_externalforce = True
-            # NOTE: Now creating externalforceobject as part of this MD object instead (previously QM/MM object)
-            self.openmm_externalforceobject = self.openmmobject.add_custom_external_force()
-            # OpenMM_MD with QM/MM object does not make sense without openmm_externalforce
-            # (it would calculate OpenMM energy twice) so turning on in case forgotten
         else:
             logger.info("Unrecognized theory.")
             logger.info("Will assume to be QM theory and will continue")
@@ -303,17 +329,68 @@ class MolecularDynamicsEngine:
                 periodic=force_periodic,
                 periodic_cell_dimensions=periodic_cell_dimensions,
             )  # NOTE: might add more options here
-            logger.info("Creating new OpenMM custom external force for external QM theory.")
-            self.openmm_externalforceobject = self.openmmobject.add_custom_external_force()
             self.QM_MM_object = None
             self.qmtheory = theory
             self.theory_runtype = "QM"
 
-        if integrator == "RPMDIntegrator" and barostat is not None:
+        if rpmd_num_copies is not None:
+            self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)
+        self.rpmd_num_copies = self.openmmobject.rpmd_num_copies
+
+        if rpmd_qm_num_copies is not None and (not is_rpmd or self.theory_runtype not in {"QMMM", "QM"}):
+            raise InputError("rpmd_qm_num_copies is only valid for QM/MM or external-QM RPMD dynamics.")
+        if rpmd_qm_num_copies is None:
+            self.rpmd_qm_num_copies = self.rpmd_num_copies
+        elif (
+            isinstance(rpmd_qm_num_copies, bool)
+            or not isinstance(rpmd_qm_num_copies, Integral)
+            or not 1 <= rpmd_qm_num_copies <= self.rpmd_num_copies
+        ):
             raise InputError(
-                "RPMDIntegrator cannot be used with a barostat. Remove the barostat or explicitly select a "
-                "classical integrator."
+                f"rpmd_qm_num_copies must be a positive integer no larger than rpmd_num_copies "
+                f"({self.rpmd_num_copies})."
             )
+        else:
+            self.rpmd_qm_num_copies = int(rpmd_qm_num_copies)
+
+        if self.theory_runtype in {"QMMM", "QM"}:
+            if is_rpmd:
+                cache_size = 2 * self.rpmd_num_copies + 4
+                if self.theory_runtype == "QMMM":
+                    self.rpmd_force_provider = RPMDQMMMForceProvider(
+                        self.QM_MM_object,
+                        self.fragment.elems,
+                        self.charge,
+                        self.mult,
+                        periodic=self.openmmobject.periodic,
+                        cache_size=cache_size,
+                    )
+                else:
+                    self.rpmd_force_provider = RPMDExternalQMForceProvider(
+                        self.qmtheory,
+                        self.fragment.elems,
+                        self.charge,
+                        self.mult,
+                        periodic=self.openmmobject.periodic,
+                        cache_size=cache_size,
+                    )
+                self.rpmd_python_force, self.rpmd_external_force_group = add_rpmd_python_force(
+                    self.openmmobject.system,
+                    self.rpmd_force_provider,
+                    periodic=self.openmmobject.periodic,
+                )
+                if self.rpmd_qm_num_copies < self.rpmd_num_copies:
+                    contractions = dict(getattr(self.openmmobject, "rpmd_contractions", {}))
+                    contractions[self.rpmd_external_force_group] = self.rpmd_qm_num_copies
+                    self.openmmobject.set_rpmd_contractions(contractions)
+                    logger.info(
+                        "QM force contracted from %s to %s RPMD copies",
+                        self.rpmd_num_copies,
+                        self.rpmd_qm_num_copies,
+                    )
+            else:
+                logger.info("Creating the classical-MD CustomExternalForce for external QM gradients")
+                self.openmm_externalforceobject = self.openmmobject.add_custom_external_force()
 
         if restraints is not None:
             logger.info("Restraints defined. Will add to OpenMMTheory object")
@@ -352,9 +429,6 @@ class MolecularDynamicsEngine:
         self.temperature = temperature
         self.pressure = pressure
         self.integrator = integrator
-        if rpmd_num_copies is not None:
-            self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)
-        self.rpmd_num_copies = self.openmmobject.rpmd_num_copies
         self.rpmd_report_copy = 0
         self._rpmd_reporters = []
         self.coupling_frequency = coupling_frequency
@@ -394,6 +468,8 @@ class MolecularDynamicsEngine:
         logger.info("Integrator: %s", self.integrator)
         if self.integrator == "RPMDIntegrator":
             logger.info("RPMD number of copies (beads): %s", self.rpmd_num_copies)
+            if self.theory_runtype in {"QMMM", "QM"}:
+                logger.info("RPMD copies used for the QM force: %s", self.rpmd_qm_num_copies)
         logger.info(f"Timestep: {self.timestep} ps")
         logger.info("Anderon Thermostat: %s", anderson_thermostat)
         logger.info(f"coupling_frequency: {self.coupling_frequency} ps^-1 (for Nose-Hoover and Langevin integrators)")
@@ -649,7 +725,12 @@ class MolecularDynamicsEngine:
                 steps_to_event.append(self.traj_frequency - current_step % self.traj_frequency)
             if self.restartfile_frequency > 0:
                 steps_to_event.append(self.restartfile_frequency - current_step % self.restartfile_frequency)
-            self.simulation.integrator.step(min(steps_to_event))
+            steps = min(steps_to_event)
+            self.simulation.integrator.step(steps)
+            # Calling an RPMDIntegrator directly advances time but, unlike Simulation.step(),
+            # does not update Context's step counter.  Keep Simulation.currentStep in sync so
+            # this event loop terminates and reporters/restarts receive the correct step.
+            self.simulation.currentStep = current_step + steps
 
             current_step = self.simulation.currentStep
             if self.traj_frequency > 0 and current_step % self.traj_frequency == 0:
@@ -722,6 +803,8 @@ class MolecularDynamicsEngine:
             self.simulation.context.setPeriodicBoxVectors(*vectors)
         self.simulation.context.setStepCount(current_step)
         self.simulation.context.setTime(simulation_time * openmm.unit.picosecond)
+        if getattr(self, "rpmd_force_provider", None) is not None:
+            self.rpmd_force_provider.clear_cache()
         logger.info("Restored all %s RPMD copies from %s", expected_copies, filename)
 
     # Set sim reporters. Needs to be done after simulation is created and not modified anymore
@@ -1018,7 +1101,19 @@ class MolecularDynamicsEngine:
 
         if self.theory_runtype == "QMMM":
             logger.info("QM/MM MD run beginning")
-            # CASE: QM/MM. Custom external force needs to have been created in OpenMMTheory (should be handled by init)
+            if self._is_rpmd_simulation(self.simulation):
+                logger.info("Running bead-resolved QM/MM through OpenMM PythonForce")
+                self._run_rpmd_mm(simulation_steps)
+                logger.info(
+                    "QM/MM RPMD external evaluations: %s (%s cache hits)",
+                    self.rpmd_force_provider.evaluation_count,
+                    self.rpmd_force_provider.cache_hits,
+                )
+                logger.info(small_header("OpenMM MD simulation finished!"))
+                log_time_since(module_init_time, "OpenMM_MD run")
+                return
+
+            # Classical QM/MM uses a frozen-gradient CustomExternalForce updated before every step.
 
             connectivity = []
             for resi in self.openmmobject.topology.residues():
@@ -1097,6 +1192,17 @@ class MolecularDynamicsEngine:
                 log_time_since(checkpoint_begin_step, "Total sim step")
         elif self.theory_runtype == "QM":
             logger.info("External QM with OpenMM option")
+            if self._is_rpmd_simulation(self.simulation):
+                logger.info("Running bead-resolved external-QM dynamics through OpenMM PythonForce")
+                self._run_rpmd_mm(simulation_steps)
+                logger.info(
+                    "External-QM RPMD evaluations: %s (%s cache hits)",
+                    self.rpmd_force_provider.evaluation_count,
+                    self.rpmd_force_provider.cache_hits,
+                )
+                logger.info(small_header("OpenMM MD simulation finished!"))
+                log_time_since(module_init_time, "OpenMM_MD run")
+                return
             for step in range(simulation_steps):
                 checkpoint_begin_step = time.time()
                 checkpoint = time.time()

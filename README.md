@@ -145,6 +145,51 @@ optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
 openmm_md(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
 ```
 
+### QM/MM ring-polymer molecular dynamics
+
+OpenMM 8.5.2's `PythonForce` lets the RPMD integrator request the QM/MM energy and gradient for
+the bead it is currently propagating. Create the MM theory without constraints—OpenMM's
+`RPMDIntegrator` does not support them—and select the RPMD integrator normally:
+
+```py
+omm = OpenMMTheory(
+    xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"],
+    pdbfile="system.pdb",
+    periodic=True,
+    autoconstraints=None,
+    rigidwater=False,
+    hydrogenmass=None,
+)
+qm_mm = QMMMTheory(
+    qm_theory=qm_orca,
+    mm_theory=omm,
+    fragment=fragment,
+    qm_charge=-1,
+    qm_mult=6,
+    qmatoms=qmatoms,
+)
+openmm_md(
+    fragment=fragment,
+    theory=qm_mm,
+    integrator="RPMDIntegrator",
+    rpmd_num_copies=32,
+    timestep=0.0005,
+    simulation_steps=100,
+)
+```
+
+By default the QM force is evaluated independently on every bead. `RPMDIntegrator` evaluates
+the potential twice per step, so this example performs 64 QM/MM evaluations per MD step. To use
+OpenMM's ring-polymer contraction approximation for only the QM force, set—for example—
+`rpmd_qm_num_copies=1` for a centroid calculation or another value no larger than
+`rpmd_num_copies`. Final bead evaluations are cached, so ordinary exact-RPMD state and force
+reporting does not relaunch identical QM jobs. RPMD restart files contain positions and velocities
+for every bead.
+
+`truncated_pc`, `update_qm_region_charges`, `special_wrapping` and `dummyatomrestraint` are rejected
+for QM/MM RPMD because their current state is shared across beads. Standard OpenMM periodic
+wrapping remains available through the `PythonForce` state.
+
 Runnable scripts, including a gas-phase ORCA example, live in [examples/](examples/):
 
 ```sh

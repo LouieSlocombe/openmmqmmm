@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from openmmqmmm import Fragment, OpenMMTheory, ORCATheory, QMMMTheory, single_point
+from openmmqmmm import Fragment, MolecularDynamicsEngine, OpenMMTheory, ORCATheory, QMMMTheory, single_point
 from openmmqmmm.orca import find_orca
 
 TEST_DIR = Path(__file__).parent
@@ -51,6 +51,36 @@ def test_qm_mm_orca_openmm_meoh_h2o():
 
     assert np.isclose(result.energy, ref_energy, atol=2e-6), "Energy is not correct"
     assert np.allclose(result.gradient, ref_gradient, atol=1e-5), "Gradient is not correct"
+
+    # The same physical energy and total gradient must be assembled when OpenMM evaluates
+    # the QM/MM correction from inside an RPMD bead through PythonForce.
+    import openmm
+
+    from openmmqmmm import constants
+
+    MolecularDynamicsEngine(
+        fragment=H2O_MeOH,
+        theory=QMMMobject,
+        charge=0,
+        mult=1,
+        timestep=0.000001,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+    )
+    simulation = MMpart.create_simulation()
+    MMpart.set_positions(H2O_MeOH.coords, simulation)
+    state = simulation.integrator.getState(0, getEnergy=True, getForces=True)
+    rpmd_energy = (
+        state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole) / constants.HARTREE_TO_KJ_PER_MOL
+    )
+    rpmd_gradient = (
+        -np.asarray(
+            state.getForces(asNumpy=True).value_in_unit(openmm.unit.kilojoules_per_mole / openmm.unit.nanometer)
+        )
+        / constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
+    )
+    assert rpmd_energy == pytest.approx(result.energy, abs=2e-6)
+    assert rpmd_gradient == pytest.approx(result.gradient, abs=1e-5)
 
 
 def test_qm_mm_orca_openmm_lysozyme():

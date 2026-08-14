@@ -24,6 +24,7 @@ def openmm_md_plumed(
     temperature=300,
     integrator="LangevinMiddleIntegrator",
     rpmd_num_copies=None,
+    rpmd_qm_num_copies=None,
     specialatoms=None,
     specialtraj_frequency=1000,
     barostat=None,
