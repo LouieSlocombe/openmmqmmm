@@ -141,12 +141,13 @@ def test_set_positions_initializes_every_rpmd_copy():
     chain = topology.addChain()
     residue = topology.addResidue("X", chain)
     topology.addAtom("H", openmm.app.Element.getByAtomicNumber(1), residue)
-    integrator = openmm.RPMDIntegrator(
-        num_copies,
-        300 * openmm.unit.kelvin,
-        1 / openmm.unit.picosecond,
-        0.001 * openmm.unit.picoseconds,
-    )
+
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.system = system
+    theory.rpmd_num_copies = num_copies
+    theory.set_simulation_parameters(integrator="RPMDIntegrator")
+    theory.create_integrator()
+    integrator = theory.integrator
     simulation = openmm.app.Simulation(
         topology,
         system,
@@ -155,7 +156,6 @@ def test_set_positions_initializes_every_rpmd_copy():
     )
     coords = np.array([[1.25, -2.5, 3.75]])
 
-    theory = OpenMMTheory.__new__(OpenMMTheory)
     theory.set_positions(coords, simulation)
 
     expected_nm = coords * 0.1
@@ -163,6 +163,21 @@ def test_set_positions_initializes_every_rpmd_copy():
         state = integrator.getState(copy_index, getPositions=True)
         actual_nm = state.getPositions(asNumpy=True).value_in_unit(openmm.unit.nanometer)
         assert actual_nm == pytest.approx(expected_nm)
+
+
+def test_rpmd_rejects_constrained_system_before_context_creation():
+    import openmm
+
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.system = openmm.System()
+    theory.system.addParticle(1.0)
+    theory.system.addParticle(1.0)
+    theory.system.addConstraint(0, 1, 0.1)
+    theory.rpmd_num_copies = 4
+    theory.set_simulation_parameters(integrator="RPMDIntegrator")
+
+    with pytest.raises(InputError, match=r"RPMDIntegrator does not support constraints.*autoconstraints=None"):
+        theory.create_integrator()
 
 
 def test_write_pdbfile_uses_the_positions_it_is_given(tmp_path, solvated_fragment):

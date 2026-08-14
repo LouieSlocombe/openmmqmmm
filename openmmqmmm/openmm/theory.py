@@ -1242,8 +1242,14 @@ class OpenMMTheory:
             )
         elif self.integrator_name == "RPMDIntegrator":
             logger.info("RPMDIntegrator will be used")
-            logger.warning("Autoconstraints, rigidwater and other contraints must have been disabled.")
-            logger.info(f"RPMD number of copies set to {self.rpmd_num_copies}. Use RPMD_num_copies keyword to change")
+            num_constraints = self.system.getNumConstraints()
+            if num_constraints:
+                raise InputError(
+                    f"RPMDIntegrator does not support constraints, but the OpenMM System contains "
+                    f"{num_constraints}. Create OpenMMTheory with autoconstraints=None, rigidwater=False, "
+                    "and without bondconstraints."
+                )
+            logger.info(f"RPMD number of copies set to {self.rpmd_num_copies}. Use rpmd_num_copies keyword to change")
             self.integrator = openmm.RPMDIntegrator(
                 self.rpmd_num_copies,
                 self.temperature * openmm.unit.kelvin,
