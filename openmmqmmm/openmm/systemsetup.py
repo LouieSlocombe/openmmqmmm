@@ -54,6 +54,19 @@ FORCEFIELD_XMLFILES = {
 }
 
 
+def _normalise_modeller_solvent_name(watermodel: str | None) -> str:
+    """Return the water-box name expected by OpenMM's Modeller."""
+    if watermodel is None:
+        return "tip3p"
+
+    model = watermodel.lower()
+    # TIP3P-FB has different parameters but uses the standard three-site
+    # TIP3P box geometry supplied by Modeller.
+    if model in {"tip3pfb", "tip3p-fb"}:
+        return "tip3p"
+    return model
+
+
 def print_systemsize(modeller):
     logger.info(f"System size: {len(modeller.getPositions())} atoms\n")
 
@@ -313,8 +326,7 @@ def openmm_modeller(
                     watermodel = "tip3p"
 
             logger.info("watermodel: %s", watermodel)
-            if watermodel.lower() == "tip3p":
-                modeller_solvent_name = "tip3p"  # Used when adding solvent
+            if watermodel is not None and watermodel.lower() == "tip3p":
                 waterxmlfile = "charmm36/water.xml"
             logger.info("Waterxmlfile selected: %s", waterxmlfile)
 
@@ -328,13 +340,16 @@ def openmm_modeller(
                     watermodel = "tip3pfb"
             logger.info("watermodel: %s", watermodel)
             # Using specific Amber FB version of TIP3P
-            if watermodel.lower() == "tip3pfb" or watermodel.lower() == "tip3p-fb":
-                modeller_solvent_name = "tip3p"  # Used when adding solvent
+            if watermodel is not None and watermodel.lower() in {"tip3pfb", "tip3p-fb"}:
                 waterxmlfile = "amber14/tip3pfb.xml"  # NOTE: this is not actually TIP3P but a reparaterized version
-            elif watermodel.lower() == "tip3p":
-                modeller_solvent_name = "tip3p"
+            elif watermodel is not None and watermodel.lower() == "tip3p":
                 waterxmlfile = "amber14/tip3p.xml" if forcefield == "Amber14" else "tip3p.xml"
             logger.info("Waterxmlfile selected: %s", waterxmlfile)
+
+    # OpenMM defaults addSolvent() to TIP3P when no model is specified. Resolve
+    # that default explicitly so the xmlfile= and forcefield_object= routes, as
+    # well as non-TIP3P models, always pass a defined value to the helper below.
+    modeller_solvent_name = _normalise_modeller_solvent_name(watermodel)
 
     if xmlfile is not None:
         logger.info("XMfile: %s", xmlfile)
@@ -357,8 +372,10 @@ def openmm_modeller(
         logger.info("Using forcefield object provided")
         forcefield_obj = forcefield_object
 
-        if watermodel is not None or waterxmlfile is not None:
-            logger.warning("Ignoring watermodel/waterxmlfile: a forcefield_object was supplied")
+        if waterxmlfile is not None:
+            logger.warning("Ignoring waterxmlfile: a forcefield_object was supplied")
+        if watermodel is not None:
+            logger.info("Water model selects the solvent box geometry used by Modeller: %s", watermodel)
     else:
         raise InputError("You must provide a forcefield name, forcefieldobject or xmlfile keywords!")
 

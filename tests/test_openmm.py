@@ -5,8 +5,24 @@ import pytest
 
 from openmmqmmm import Fragment, OpenMMTheory, openmm_md, openmm_modeller, single_point
 from openmmqmmm.exceptions import InputError
+from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
 
 TEST_DIR = Path(__file__).parent
+
+
+@pytest.mark.parametrize(
+    ("watermodel", "expected"),
+    [
+        (None, "tip3p"),
+        ("TIP3P", "tip3p"),
+        ("tip3pfb", "tip3p"),
+        ("tip3p-fb", "tip3p"),
+        ("SPCE", "spce"),
+        ("tip4pew", "tip4pew"),
+    ],
+)
+def test_modeller_solvent_name_is_defined_for_every_water_model(watermodel, expected):
+    assert _normalise_modeller_solvent_name(watermodel) == expected
 
 
 def test_openmm_basic():
@@ -23,17 +39,25 @@ def test_openmm_basic():
     single_point(theory=omm, fragment=fragment, grad=True)
 
 
-def test_openmm_modeller():
+@pytest.mark.parametrize("forcefield_route", ["name", "xmlfile", "object"])
+def test_openmm_modeller(forcefield_route):
+    import openmm.app
+
     pdbfile = f"{TEST_DIR}/pdbfiles/1aki.pdb"
+    if forcefield_route == "name":
+        forcefield_kwargs = {"forcefield": "CHARMM36", "watermodel": "tip3p"}
+    elif forcefield_route == "xmlfile":
+        forcefield_kwargs = {"xmlfile": "charmm36.xml", "waterxmlfile": "charmm36/water.xml"}
+    else:
+        forcefield_kwargs = {"forcefield_object": openmm.app.ForceField("charmm36.xml", "charmm36/water.xml")}
 
     openmmobject, fragment = openmm_modeller(
         pdbfile=pdbfile,
-        forcefield="CHARMM36",
-        watermodel="tip3p",
         ph=7.0,
         solvent_padding=10.0,
         ionicstrength=0.1,
         platform="CPU",
+        **forcefield_kwargs,
     )
 
     assert openmmobject is not None, "openmm_modeller should return an OpenMMTheory object"
