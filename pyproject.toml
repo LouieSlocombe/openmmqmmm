@@ -22,13 +22,25 @@ dependencies = [
     # openmmqmmm.constants derives every physical constant from scipy.constants (CODATA)
     "scipy",
     "geometric >= 1.0.1",
-    # Required at import time. conda-forge is the recommended route: pdbfixer is conda-only.
+    # Required at import time.
     "openmm >= 8",
+    "pdbfixer",
+    "mdtraj",
+    "parmed",
+    "rdkit",
+    "openmmforcefields",
+    "multiprocess",
+    "rmsd",
+    # Wheels exist for linux-x86_64 and macOS-arm64 only; conda-forge has no build past
+    # python 3.12, so pip is the route for this one even inside a conda environment.
+    "openbabel",
 ]
 
+# Development tooling only. Every runtime dependency is required above, with two
+# exceptions that pip cannot express: openff-toolkit and openmm-plumed are not published
+# to PyPI, so a pip-only install leaves small_molecule_parameterizer and openmm_md_plumed
+# unavailable. environment.yml pulls both from conda-forge — see README.
 [project.optional-dependencies]
-md = ["mdtraj"]
-extras = ["parmed"]
 test = ["pytest", "pytest-cov"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts
 # between releases, so a skew lets a locally-clean tree fail the CI format gate.

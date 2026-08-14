@@ -5,25 +5,34 @@ name: openmmqmmm
 channels:
   - conda-forge
 dependencies:
-  # The OpenMM stack comes from conda-forge (pdbfixer is not on PyPI)
+  # The OpenMM stack comes from conda-forge (pdbfixer's only binary route)
   - python>=3.10
   - pip
+  # openmm-plumed's newest builds target openmm 8.4, which caps the whole stack
   - openmm >=8
   - pdbfixer
   - mdtraj
   - numpy
   - scipy
   - packaging
+  # Amber/CHARMM/GROMACS topology handling in OpenMMTheory
+  - parmed
+  # small_molecule_parameterizer: GAFF + SMIRNOFF template generation.
+  # openff-toolkit pulls ambertools, which pulls pytorch + CUDA (several GB).
+  - openmmforcefields
+  - openff-toolkit
+  - rdkit
+  # PLUMED-biased MD / metadynamics (openmm_md_plumed)
+  - openmm-plumed
+  # Alternative multiprocessing backend for job_parallel
+  - multiprocess
+  # flexible_align(reordering=True)
+  - rmsd
   - pytest
   - pytest-cov
   - python-build
   - pip:
       - geometric >=1.0.1
-# Optional extras — uncomment as needed:
-#  - openbabel           # Fragment(smiles=...) and small_molecule_parameterizer
-#  - parmed              # Amber/GROMACS prmtop handling in OpenMMTheory
-#  - openmmforcefields   # small_molecule_parameterizer (with openff-toolkit and rdkit)
-#  - openff-toolkit
-#  - rdkit
-#  - openmm-plumed       # PLUMED-biased MD / metadynamics (openmm_md_plumed)
-#  - multiprocess        # alternative multiprocessing backend for job_parallel
+      # Fragment(smiles=...) and xyz_to_pdb_with_connectivity. Not from conda-forge:
+      # it has no build past python 3.12. PyPI ships linux-x86_64 and macOS-arm64 wheels.
+      - openbabel

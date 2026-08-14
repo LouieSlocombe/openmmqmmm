@@ -22,12 +22,18 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 **Requirements**
 
 - Linux or macOS, Python ≥ 3.10
-- [OpenMM](https://openmm.org) ≥ 8, [PDBFixer](https://github.com/openmm/pdbfixer) and
-  [mdtraj](https://www.mdtraj.org) — installed from conda-forge (PDBFixer is not on PyPI, so a
-  conda/mamba environment is the recommended route)
-- geomeTRIC, numpy, packaging — pulled in automatically by pip
+- Every Python dependency is required — there are no feature-gated extras. `pip install .` pulls
+  the full set (OpenMM, PDBFixer, mdtraj, ParmEd, RDKit, openmmforcefields, OpenBabel, geomeTRIC,
+  rmsd, multiprocess, numpy, scipy, packaging)
+- Two of them are not on PyPI and must come from conda-forge, which is why the conda route below
+  is the recommended one: **openff-toolkit** (needed by `small_molecule_parameterizer`) and
+  **openmm-plumed** (needed by `openmm_md_plumed`). A pip-only install leaves those two
+  entry points raising `MissingDependencyError`; everything else works
 - [ORCA](https://www.faccts.de/orca/) — installed separately (free for academic use); required for
   `ORCATheory` and QM/MM, not for the pure-MM/OpenMM functionality
+
+The full environment is large (~5 GB): openff-toolkit depends on AmberTools, which depends on
+PyTorch and CUDA.
 
 **Conda environment (recommended)**
 
@@ -45,12 +51,12 @@ without reinstalling. Use `pip install .` for a regular install.
 **Installing into an existing environment**
 
 ```sh
-conda install -c conda-forge "openmm>=8" pdbfixer mdtraj
+conda install -c conda-forge "openmm>=8" pdbfixer mdtraj parmed rdkit openmmforcefields openff-toolkit openmm-plumed multiprocess rmsd
 pip install .
 ```
 
-Optional dependencies (parmed, openbabel, openmmforcefields, openmm-plumed, multiprocess)
-are listed with the features they enable at the bottom of `environment.yml`.
+`pip install .` then adds OpenBabel and geomeTRIC. OpenBabel has to come from PyPI: conda-forge
+has no build for Python 3.13 or newer.
 
 **Configuring ORCA**
 
