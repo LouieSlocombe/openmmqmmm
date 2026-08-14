@@ -36,6 +36,59 @@ from openmmqmmm.utils import (
 
 logger = logging.getLogger(__name__)
 
+RPMD_RESTART_FILENAME = "OpenMM_MD_rpmd_restart.npz"
+RPMD_FINAL_RESTART_FILENAME = "OpenMM_MD_final_rpmd_restart.npz"
+RPMD_RESTART_FORMAT_VERSION = 1
+
+
+class _RPMDStateDataReporter:
+    """Write state data for one RPMD copy plus the full ring-polymer energy."""
+
+    def __init__(self, output, copy_index, degrees_of_freedom, separator=",", append=False):
+        self._output = output
+        self._copy_index = copy_index
+        self._degrees_of_freedom = degrees_of_freedom
+        self._separator = separator
+        self._header_written = append
+
+    def report(self, simulation, state):
+        if not self._header_written:
+            headers = (
+                "Step",
+                "Time (ps)",
+                "RPMD Copy",
+                "Copy Potential Energy (kJ/mole)",
+                "Copy Kinetic Energy (kJ/mole)",
+                "Copy Temperature (K)",
+                "Ring Polymer Total Energy (kJ/mole)",
+            )
+            header = ('"' + self._separator + '"').join(headers)
+            print(f'#"{header}"', file=self._output)
+            self._header_written = True
+
+        potential_energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
+        kinetic_energy = state.getKineticEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
+        gas_constant = openmm.unit.MOLAR_GAS_CONSTANT_R.value_in_unit(
+            openmm.unit.kilojoule_per_mole / openmm.unit.kelvin
+        )
+        if self._degrees_of_freedom and self._degrees_of_freedom > 0:
+            temperature = 2 * kinetic_energy / (self._degrees_of_freedom * gas_constant)
+        else:
+            temperature = float("nan")
+        total_energy = simulation.integrator.getTotalEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
+        simulation_time = state.getTime().value_in_unit(openmm.unit.picosecond)
+        values = (
+            simulation.currentStep,
+            simulation_time,
+            self._copy_index,
+            potential_energy,
+            kinetic_energy,
+            temperature,
+            total_energy,
+        )
+        print(self._separator.join(str(value) for value in values), file=self._output)
+        self._output.flush()
+
 
 def engine_kwargs_from(caller_locals, **overrides):
     engine_parameters = set(inspect.signature(MolecularDynamicsEngine.__init__).parameters) - {"self"}
@@ -295,6 +348,8 @@ class MolecularDynamicsEngine:
         if rpmd_num_copies is not None:
             self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)
         self.rpmd_num_copies = self.openmmobject.rpmd_num_copies
+        self.rpmd_report_copy = 0
+        self._rpmd_reporters = []
         self.coupling_frequency = coupling_frequency
         self.timestep = timestep
         self.traj_frequency = int(traj_frequency)
@@ -498,9 +553,177 @@ class MolecularDynamicsEngine:
 
         log_time_since(module_init_time, "OpenMM_MD setup")
 
+    @staticmethod
+    def _is_rpmd_simulation(simulation):
+        return isinstance(simulation.integrator, openmm.RPMDIntegrator)
+
+    def _get_simulation_state(self, **kwargs):
+        if self._is_rpmd_simulation(self.simulation):
+            return self.simulation.integrator.getState(self.rpmd_report_copy, **kwargs)
+        return self.simulation.context.getState(**kwargs)
+
+    def _set_rpmd_reporters(self, simulation, restart=False):
+        old_reporters = self._rpmd_reporters
+        self._rpmd_reporters = []
+        old_reporters.clear()
+
+        logger.info("Creating RPMD-aware state and trajectory reporters for copy %s", self.rpmd_report_copy)
+        self._rpmd_reporters.append(
+            _RPMDStateDataReporter(stdout, self.rpmd_report_copy, self.openmmobject.dof, separator=",")
+        )
+        if self.dataoutputoption != stdout:
+            self._rpmd_reporters.append(
+                _RPMDStateDataReporter(
+                    self.dataoutputoption,
+                    self.rpmd_report_copy,
+                    self.openmmobject.dof,
+                    separator=",",
+                    append=restart,
+                )
+            )
+
+        if self.trajectory_file_option == "PDB":
+            self._rpmd_reporters.append(
+                openmm.app.PDBReporter(
+                    self.trajfilename + ".pdb", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
+                )
+            )
+        elif self.trajectory_file_option == "DCD":
+            if restart and not os.path.isfile(f"{self.trajfilename}.dcd"):
+                logger.warning("Restart requested without an existing DCD trajectory; creating a new file")
+                restart = False
+            self._rpmd_reporters.append(
+                openmm.app.DCDReporter(
+                    self.trajfilename + ".dcd",
+                    self.traj_frequency,
+                    append=restart,
+                    enforcePeriodicBox=self.enforce_periodic_box,
+                )
+            )
+        elif self.trajectory_file_option == "NetCDFReporter":
+            mdtraj = mdtraj_load()
+            self._rpmd_reporters.append(mdtraj.reporters.NetCDFReporter(self.trajfilename + ".nc", self.traj_frequency))
+        elif self.trajectory_file_option == "HDF5Reporter":
+            mdtraj = mdtraj_load()
+            self._rpmd_reporters.append(
+                mdtraj.reporters.HDF5Reporter(
+                    self.trajfilename + ".lh5", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
+                )
+            )
+
+        if self.force_file_option is not None:
+            self._rpmd_reporters.append(
+                ForceReporter(
+                    self.trajfilename + "_force.txt",
+                    self.traj_frequency,
+                    atomic_units=self.atomic_units_force_reporter,
+                )
+            )
+        logger.info("RPMD restart data will be written to %s", RPMD_RESTART_FILENAME)
+
+    def _report_rpmd_state(self):
+        state = self.simulation.integrator.getState(
+            self.rpmd_report_copy,
+            getPositions=True,
+            getVelocities=True,
+            getForces=self.force_file_option is not None,
+            getEnergy=True,
+            enforcePeriodicBox=self.enforce_periodic_box,
+        )
+        for reporter in self._rpmd_reporters:
+            reporter.report(self.simulation, state)
+
+    def _run_rpmd_mm(self, simulation_steps):
+        target_step = self.simulation.currentStep + simulation_steps
+        while self.simulation.currentStep < target_step:
+            current_step = self.simulation.currentStep
+            steps_to_event = [target_step - current_step]
+            if self.traj_frequency > 0:
+                steps_to_event.append(self.traj_frequency - current_step % self.traj_frequency)
+            if self.restartfile_frequency > 0:
+                steps_to_event.append(self.restartfile_frequency - current_step % self.restartfile_frequency)
+            self.simulation.integrator.step(min(steps_to_event))
+
+            current_step = self.simulation.currentStep
+            if self.traj_frequency > 0 and current_step % self.traj_frequency == 0:
+                self._report_rpmd_state()
+            if self.restartfile_frequency > 0 and current_step % self.restartfile_frequency == 0:
+                self.write_state_and_chk_files(current_step)
+
+    def _save_rpmd_restart(self, filename):
+        integrator = self.simulation.integrator
+        num_copies = integrator.getNumCopies()
+        positions = []
+        velocities = []
+        for copy_index in range(num_copies):
+            state = integrator.getState(copy_index, getPositions=True, getVelocities=True)
+            positions.append(state.getPositions(asNumpy=True).value_in_unit(openmm.unit.nanometer))
+            velocities.append(
+                state.getVelocities(asNumpy=True).value_in_unit(openmm.unit.nanometer / openmm.unit.picosecond)
+            )
+
+        report_state = integrator.getState(self.rpmd_report_copy)
+        box_vectors = report_state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(openmm.unit.nanometer)
+        simulation_time = report_state.getTime().value_in_unit(openmm.unit.picosecond)
+        with open(filename, "wb") as restart_file:
+            np.savez(
+                restart_file,
+                format_version=RPMD_RESTART_FORMAT_VERSION,
+                num_copies=num_copies,
+                positions_nm=np.asarray(positions),
+                velocities_nm_per_ps=np.asarray(velocities),
+                box_vectors_nm=np.asarray(box_vectors),
+                current_step=self.simulation.currentStep,
+                time_ps=simulation_time,
+            )
+        logger.info("Saved all %s RPMD copies to %s", num_copies, filename)
+
+    def _load_rpmd_restart(self, filename):
+        try:
+            with np.load(filename, allow_pickle=False) as restart:
+                format_version = int(restart["format_version"])
+                num_copies = int(restart["num_copies"])
+                positions = np.array(restart["positions_nm"])
+                velocities = np.array(restart["velocities_nm_per_ps"])
+                box_vectors = np.array(restart["box_vectors_nm"])
+                current_step = int(restart["current_step"])
+                simulation_time = float(restart["time_ps"])
+        except (KeyError, OSError, TypeError, ValueError) as error:
+            raise InputError(f"Invalid RPMD restart file '{filename}': {error}") from error
+
+        integrator = self.simulation.integrator
+        expected_copies = integrator.getNumCopies()
+        expected_particles = self.openmmobject.system.getNumParticles()
+        if format_version != RPMD_RESTART_FORMAT_VERSION:
+            raise InputError(
+                f"Unsupported RPMD restart format version {format_version}; expected {RPMD_RESTART_FORMAT_VERSION}."
+            )
+        if num_copies != expected_copies:
+            raise InputError(f"RPMD restart contains {num_copies} copies, but this simulation uses {expected_copies}.")
+        if positions.shape != (expected_copies, expected_particles, 3) or velocities.shape != positions.shape:
+            raise InputError("RPMD restart positions or velocities have incompatible dimensions.")
+
+        for copy_index in range(expected_copies):
+            copy_positions = [openmm.Vec3(*xyz) for xyz in positions[copy_index]] * openmm.unit.nanometer
+            copy_velocities = [openmm.Vec3(*xyz) for xyz in velocities[copy_index]] * (
+                openmm.unit.nanometer / openmm.unit.picosecond
+            )
+            integrator.setPositions(copy_index, copy_positions)
+            integrator.setVelocities(copy_index, copy_velocities)
+        if box_vectors.shape == (3, 3):
+            vectors = [openmm.Vec3(*vector) for vector in box_vectors] * openmm.unit.nanometer
+            self.simulation.context.setPeriodicBoxVectors(*vectors)
+        self.simulation.context.setStepCount(current_step)
+        self.simulation.context.setTime(simulation_time * openmm.unit.picosecond)
+        logger.info("Restored all %s RPMD copies from %s", expected_copies, filename)
+
     # Set sim reporters. Needs to be done after simulation is created and not modified anymore
     def set_sim_reporters(self, simulation, restart=False):
-        """Attach the trajectory, state-data and checkpoint reporters to the simulation."""
+        """Configure trajectory, state-data, and restart reporting for the simulation."""
+        if self._is_rpmd_simulation(simulation):
+            self._set_rpmd_reporters(simulation, restart=restart)
+            return
+
         logger.info("Creating CheckpointReporter that will write a restartable checkpointfile every X steps")
         checkpointfilename = "OpenMM_MD.chk"
         simulation.reporters.append(openmm.app.CheckpointReporter(checkpointfilename, self.traj_frequency * 1))
@@ -592,7 +815,12 @@ class MolecularDynamicsEngine:
         logger.debug("Simulation reporters: %s", simulation.reporters)
 
     def write_state_and_chk_files(self, step):
-        """Write the OpenMM state (XML) and checkpoint files so a run can be restarted."""
+        """Write restart data for the current integrator."""
+        if self._is_rpmd_simulation(self.simulation):
+            logger.info("Step %s. Saving all RPMD copy positions and velocities", step)
+            self._save_rpmd_restart(RPMD_RESTART_FILENAME)
+            return
+
         logger.info(
             f"Step {step}. Saving a statefile and checkpointfile : OpenMM_MD_state.xml and OpenMM_MD_checkpoint.chk"
         )
@@ -644,20 +872,30 @@ class MolecularDynamicsEngine:
 
         if chkfile is not None:
             self.simulation = self.openmmobject.create_simulation()
-            logger.info("Checkpoint file provided. Restarting simulation using position and velocity data in file")
-            state = self.simulation.context.getState(getVelocities=True)
-            logger.info("Simulation velocities before: %s", state.getVelocities(asNumpy=True))
-            self.simulation.loadCheckpoint(chkfile)
-            state = self.simulation.context.getState(getVelocities=True)
-            logger.info("Simulation velocities after loading checkpoint file: %s", state.getVelocities(asNumpy=True))
+            if self._is_rpmd_simulation(self.simulation):
+                logger.info("RPMD restart file provided via chkfile")
+                self._load_rpmd_restart(chkfile)
+            else:
+                logger.info("Checkpoint file provided. Restarting simulation using position and velocity data in file")
+                state = self.simulation.context.getState(getVelocities=True)
+                logger.info("Simulation velocities before: %s", state.getVelocities(asNumpy=True))
+                self.simulation.loadCheckpoint(chkfile)
+                state = self.simulation.context.getState(getVelocities=True)
+                logger.info(
+                    "Simulation velocities after loading checkpoint file: %s", state.getVelocities(asNumpy=True)
+                )
         elif statefile is not None:
             self.simulation = self.openmmobject.create_simulation()
-            logger.info("State file provided. Restarting simulation using position and velocity data in file")
-            state = self.simulation.context.getState(getVelocities=True)
-            logger.info("Simulation velocities before: %s", state.getVelocities(asNumpy=True))
-            self.simulation.loadState(statefile)
-            state = self.simulation.context.getState(getVelocities=True)
-            logger.info("Simulation velocities after loading statefile: %s", state.getVelocities(asNumpy=True))
+            if self._is_rpmd_simulation(self.simulation):
+                logger.info("RPMD restart file provided via statefile")
+                self._load_rpmd_restart(statefile)
+            else:
+                logger.info("State file provided. Restarting simulation using position and velocity data in file")
+                state = self.simulation.context.getState(getVelocities=True)
+                logger.info("Simulation velocities before: %s", state.getVelocities(asNumpy=True))
+                self.simulation.loadState(statefile)
+                state = self.simulation.context.getState(getVelocities=True)
+                logger.info("Simulation velocities after loading statefile: %s", state.getVelocities(asNumpy=True))
         elif restart is True:
             logger.info("Restart true. Reusing already-defined simulation object")
         else:
@@ -677,7 +915,7 @@ class MolecularDynamicsEngine:
 
         if self.openmmobject.periodic is True:
             logger.info("Checking Initial PBC vectors.")
-            self.state = self.simulation.context.getState()
+            self.state = self._get_simulation_state()
             a, b, c = self.state.getPeriodicBoxVectors()
             logger.info("A:  %s", a)
             logger.info("B:  %s", b)
@@ -733,7 +971,7 @@ class MolecularDynamicsEngine:
                     raise MissingDependencyError(
                         "Error: mdtraj not found, needs to be installed (pip install mdtraj)"
                     ) from None
-                boxvectors = self.simulation.context.getState().getPeriodicBoxVectors(asNumpy=True)
+                boxvectors = self._get_simulation_state().getPeriodicBoxVectors(asNumpy=True)
                 mdtrajtopology = mdtraj.Topology.from_openmm(self.openmmobject.topology)
                 if self.wrapping_atoms is None:
                     logger.info("No wrapping_atoms keyword has been set to center on.")
@@ -754,7 +992,7 @@ class MolecularDynamicsEngine:
 
         pdb_filename = self.trajfilename + "_firstframe.pdb"
         logger.info("Writing intial frame to disk as PDB-file: %s", pdb_filename)
-        blastate = self.simulation.context.getState(
+        blastate = self._get_simulation_state(
             getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=self.enforce_periodic_box
         )
         with open(pdb_filename, "w") as f:
@@ -921,8 +1159,11 @@ class MolecularDynamicsEngine:
                 log_time_since(checkpoint, "OpenMM sim step")
                 log_time_since(checkpoint_begin_step, "Total sim step")
         elif self.theory_runtype == "MM":
-            logger.info("Regular classical OpenMM MD option chosen.")
-            self.simulation.step(simulation_steps)
+            logger.info("OpenMM MM dynamics option chosen.")
+            if self._is_rpmd_simulation(self.simulation):
+                self._run_rpmd_mm(simulation_steps)
+            else:
+                self.simulation.step(simulation_steps)
         else:
             raise InputError(
                 f"Error: Unrecognized Theory runtype ({self.theory_runtype}) for MD. This might mean that this theory "
@@ -939,7 +1180,7 @@ class MolecularDynamicsEngine:
         if self.datafilename is not None:
             self.dataoutputoption.close()
 
-        self.state = self.simulation.context.getState(
+        self.state = self._get_simulation_state(
             getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=self.enforce_periodic_box
         )
 
@@ -975,17 +1216,24 @@ class MolecularDynamicsEngine:
             )
         logger.info(f"Trajectory : {self.trajfilename}.{self.trajectory_file_option}")
 
-        # Can be used to restart using statefile option
-        logger.info(
-            "Saving a statefile and checkpointfile of the final frame of the simulation: OpenMM_MD_final_state.xml and "
-            "OpenMM_MD_final_checkpoint.chk"
-        )
-        logger.info(
-            "These file can be used to restart a simulation (statefile and chkfile keywords) using the same "
-            "coordinates and velocities."
-        )
-        self.simulation.saveState("OpenMM_MD_final_state.xml")
-        self.simulation.saveCheckpoint("OpenMM_MD_final_checkpoint.chk")
+        if self._is_rpmd_simulation(self.simulation):
+            logger.info("Saving all RPMD copies to %s", RPMD_FINAL_RESTART_FILENAME)
+            self._save_rpmd_restart(RPMD_FINAL_RESTART_FILENAME)
+            old_reporters = self._rpmd_reporters
+            self._rpmd_reporters = []
+            old_reporters.clear()
+        else:
+            # Can be used to restart using statefile option
+            logger.info(
+                "Saving a statefile and checkpointfile of the final frame of the simulation: "
+                "OpenMM_MD_final_state.xml and OpenMM_MD_final_checkpoint.chk"
+            )
+            logger.info(
+                "These files can be used to restart a simulation (statefile and chkfile keywords) using the same "
+                "coordinates and velocities."
+            )
+            self.simulation.saveState("OpenMM_MD_final_state.xml")
+            self.simulation.saveCheckpoint("OpenMM_MD_final_checkpoint.chk")
 
         newcoords = self.state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom)
         logger.info("Updating coordinates in fragment.")
