@@ -4,7 +4,15 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from openmmqmmm import Fragment, MolecularDynamicsEngine, OpenMMTheory, openmm_md, openmm_modeller, single_point
+from openmmqmmm import (
+    Fragment,
+    MolecularDynamicsEngine,
+    OpenMMTheory,
+    QMMMTheory,
+    openmm_md,
+    openmm_modeller,
+    single_point,
+)
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
 
@@ -173,6 +181,23 @@ def test_md_engine_rejects_rpmd_with_barostat_before_adding_force():
 
     force_names = {force.__class__.__name__ for force in theory.system.getForces()}
     assert "MonteCarloBarostat" not in force_names
+
+
+def test_md_engine_rejects_qmmm_rpmd_before_mutating_qmmm_object():
+    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
+    qmmm = QMMMTheory.__new__(QMMMTheory)
+
+    with pytest.raises(InputError, match="QM/MM and external-QM forces cannot be applied independently"):
+        MolecularDynamicsEngine(
+            fragment=fragment,
+            theory=qmmm,
+            charge=0,
+            mult=1,
+            integrator="RPMDIntegrator",
+        )
+
+    assert not hasattr(qmmm, "openmm_externalforce")
+    assert not hasattr(qmmm, "exit_after_customexternalforce_update")
 
 
 def test_rpmd_restart_round_trip_preserves_every_copy(tmp_path):

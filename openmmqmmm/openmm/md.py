@@ -236,6 +236,13 @@ class MolecularDynamicsEngine:
             raise InputError("No fragment object. Exiting.")
         self.fragment = fragment
 
+        if integrator == "RPMDIntegrator" and not isinstance(theory, OpenMMTheory):
+            raise InputError(
+                "RPMDIntegrator currently supports only pure-MM OpenMMTheory dynamics. QM/MM and external-QM "
+                "forces cannot be applied independently to each RPMD bead. Use a classical integrator for QM/MM "
+                "dynamics."
+            )
+
         self.charge, self.mult = check_charge_mult(
             charge, mult, theory.theorytype, fragment, "OpenMM_MD", theory=theory
         )
