@@ -8,6 +8,8 @@ dependencies:
   # The OpenMM stack comes from conda-forge (pdbfixer's only binary route)
   - python>=3.10
   - pip
+  # Atomic Simulation Environment integration
+  - ase
   # openmm-plumed's newest builds target openmm 8.4, which caps the whole stack
   - openmm >=8
   - pdbfixer

@@ -71,6 +71,7 @@ jobs:
         run: |
           pip install --force-reinstall --no-deps dist/*.whl
           cd "$(mktemp -d)"  # import from outside the source tree
+          python -c "import ase"
           python -c "import openmmqmmm; print(openmmqmmm.__version__)"
           python -c "import importlib.resources as r; assert r.files('openmmqmmm').joinpath('log.ini').is_file()"
           python -c "import importlib.resources as r; assert r.files('openmmqmmm').joinpath('py.typed').is_file()"

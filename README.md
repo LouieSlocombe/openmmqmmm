@@ -23,8 +23,8 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 
 - Linux or macOS, Python ≥ 3.10
 - Every Python dependency is required — there are no feature-gated extras. `pip install .` pulls
-  the full set (OpenMM, PDBFixer, mdtraj, ParmEd, RDKit, openmmforcefields, OpenBabel, geomeTRIC,
-  rmsd, multiprocess, numpy, scipy, packaging)
+  the full set (ASE, OpenMM, PDBFixer, mdtraj, ParmEd, RDKit, openmmforcefields, OpenBabel,
+  geomeTRIC, rmsd, multiprocess, numpy, scipy, packaging)
 - Two of them are not on PyPI and must come from conda-forge, which is why the conda route below
   is the recommended one: **openff-toolkit** (needed by `small_molecule_parameterizer`) and
   **openmm-plumed** (needed by `openmm_md_plumed`). A pip-only install leaves those two
@@ -51,7 +51,7 @@ without reinstalling. Use `pip install .` for a regular install.
 **Installing into an existing environment**
 
 ```sh
-conda install -c conda-forge "openmm>=8" pdbfixer mdtraj parmed rdkit openmmforcefields openff-toolkit openmm-plumed multiprocess rmsd
+conda install -c conda-forge ase "openmm>=8" pdbfixer mdtraj parmed rdkit openmmforcefields openff-toolkit openmm-plumed multiprocess rmsd
 pip install .
 ```
 
