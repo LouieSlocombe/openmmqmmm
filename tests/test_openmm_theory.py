@@ -130,6 +130,41 @@ def test_energy_decomposition_covers_the_total(solvated_fragment):
     assert components_kj / 2625.4996394799 == pytest.approx(total, rel=1e-4)
 
 
+def test_set_positions_initializes_every_rpmd_copy():
+    import openmm
+    import openmm.app
+
+    num_copies = 4
+    system = openmm.System()
+    system.addParticle(1.0)
+    topology = openmm.app.Topology()
+    chain = topology.addChain()
+    residue = topology.addResidue("X", chain)
+    topology.addAtom("H", openmm.app.Element.getByAtomicNumber(1), residue)
+    integrator = openmm.RPMDIntegrator(
+        num_copies,
+        300 * openmm.unit.kelvin,
+        1 / openmm.unit.picosecond,
+        0.001 * openmm.unit.picoseconds,
+    )
+    simulation = openmm.app.Simulation(
+        topology,
+        system,
+        integrator,
+        openmm.Platform.getPlatformByName("Reference"),
+    )
+    coords = np.array([[1.25, -2.5, 3.75]])
+
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.set_positions(coords, simulation)
+
+    expected_nm = coords * 0.1
+    for copy_index in range(num_copies):
+        state = integrator.getState(copy_index, getPositions=True)
+        actual_nm = state.getPositions(asNumpy=True).value_in_unit(openmm.unit.nanometer)
+        assert actual_nm == pytest.approx(expected_nm)
+
+
 def test_write_pdbfile_uses_the_positions_it_is_given(tmp_path, solvated_fragment):
     """An explicit positions argument must win over the object's own coordinates."""
     import openmm

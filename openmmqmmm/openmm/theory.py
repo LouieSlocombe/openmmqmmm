@@ -894,13 +894,18 @@ class OpenMMTheory:
 
     # To set positions in OpenMMobject (in nm) from np-array (Angstrom)
     def set_positions(self, coords, simulation):
-        """Load coordinates into a simulation context."""
+        """Load coordinates into an OpenMM simulation."""
         logger.info("Setting coordinates of OpenMM object")
         coords_nm = coords * 0.1  # converting from Angstrom to nm
         pos = [
             openmm.Vec3(coords_nm[i, 0], coords_nm[i, 1], coords_nm[i, 2]) for i in range(len(coords_nm))
         ] * openmm.unit.nanometer
-        simulation.context.setPositions(pos)
+        if isinstance(simulation.integrator, openmm.RPMDIntegrator):
+            for copy_index in range(simulation.integrator.getNumCopies()):
+                simulation.integrator.setPositions(copy_index, pos)
+            logger.info("Coordinates set for all %s RPMD copies", simulation.integrator.getNumCopies())
+        else:
+            simulation.context.setPositions(pos)
         logger.info("Coordinates set")
 
     # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
@@ -1482,14 +1487,7 @@ class OpenMMTheory:
         logger.info("Updating coordinates.")
         timeA = time.time()
 
-        current_coords_nm = current_coords * 0.1  # converting from Angstrom to nm
-        pos = [
-            openmm.Vec3(current_coords_nm[i, 0], current_coords_nm[i, 1], current_coords_nm[i, 2])
-            for i in range(len(current_coords_nm))
-        ] * openmm.unit.nanometer
-        log_time_since(timeA, "Creating pos array")
-        timeA = time.time()
-        simulation.context.setPositions(pos)
+        self.set_positions(current_coords, simulation)
 
         log_time_since(timeA, "Updating MM positions")
         timeA = time.time()
