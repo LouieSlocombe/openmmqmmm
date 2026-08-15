@@ -301,13 +301,6 @@ class MolecularDynamicsEngine:
                         "QM/MM RPMD does not support update_qm_region_charges because one shared MM charge set "
                         "cannot represent every bead."
                     )
-                if special_wrapping or special_wrapping_updatepos:
-                    raise InputError(
-                        "QM/MM RPMD does not support special_wrapping. Use OpenMM periodic wrapping through the "
-                        "PythonForce callback instead."
-                    )
-                if dummyatomrestraint:
-                    raise InputError("QM/MM RPMD does not support dummyatomrestraint.")
 
             # Making sure QM/MM object will exit before calculating MM part
             self.QM_MM_object.exit_after_customexternalforce_update = True
@@ -332,6 +325,15 @@ class MolecularDynamicsEngine:
             self.QM_MM_object = None
             self.qmtheory = theory
             self.theory_runtype = "QM"
+
+        if is_rpmd and self.theory_runtype in {"QMMM", "QM"}:
+            if special_wrapping or special_wrapping_updatepos:
+                raise InputError(
+                    "RPMD does not support special_wrapping. Use OpenMM periodic wrapping through the "
+                    "PythonForce callback instead."
+                )
+            if dummyatomrestraint:
+                raise InputError("RPMD does not support dummyatomrestraint.")
 
         if integrator in NUCLEAR_QUANTUM_INTEGRATORS:
             self.openmmobject._disable_hydrogen_mass_repartitioning()

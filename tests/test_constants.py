@@ -21,6 +21,7 @@ from openmmqmmm import constants
         (constants.BOHR_TO_M * 1e10, constants.BOHR_TO_ANG),
         (constants.ANG_TO_M * 1e10, 1.0),
         (constants.HARTREE_TO_KCAL_PER_MOL * constants.KCAL_TO_KJ, constants.HARTREE_TO_KJ_PER_MOL),
+        (constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM * constants.BOHR_TO_NM, constants.HARTREE_TO_KJ_PER_MOL),
         (
             constants.GAS_CONSTANT_HARTREE_PER_K * constants.HARTREE_TO_KCAL_PER_MOL,
             constants.GAS_CONSTANT_KCAL_PER_MOL_K,

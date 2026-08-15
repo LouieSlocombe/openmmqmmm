@@ -52,8 +52,18 @@ def test_qm_mm_orca_openmm_meoh_h2o():
     assert np.isclose(result.energy, ref_energy, atol=2e-6), "Energy is not correct"
     assert np.allclose(result.gradient, ref_gradient, atol=1e-5), "Gradient is not correct"
 
+    # Second, displaced geometry moving both the QM region and the MM point-charge field.
+    # Its reference must be computed before MolecularDynamicsEngine construction, which
+    # switches the QMMM object into external-force mode.
+    displaced_coords = H2O_MeOH.coords.copy()
+    displaced_coords[0] += [0.04, -0.02, 0.03]
+    displaced_coords[4] += [-0.03, 0.02, -0.04]
+    displaced_fragment = Fragment(elems=H2O_MeOH.elems, coords=displaced_coords, charge=0, mult=1)
+    result_displaced = single_point(theory=QMMMobject, fragment=displaced_fragment, charge=0, mult=1, grad=True)
+    assert not np.allclose(result_displaced.gradient, result.gradient, atol=1e-4)
+
     # The same physical energy and total gradient must be assembled when OpenMM evaluates
-    # the QM/MM correction from inside an RPMD bead through PythonForce.
+    # the QM/MM correction from inside an RPMD bead through PythonForce, bead by bead.
     import openmm
 
     from openmmqmmm import constants
@@ -69,18 +79,22 @@ def test_qm_mm_orca_openmm_meoh_h2o():
     )
     simulation = MMpart.create_simulation()
     MMpart.set_positions(H2O_MeOH.coords, simulation)
-    state = simulation.integrator.getState(0, getEnergy=True, getForces=True)
-    rpmd_energy = (
-        state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole) / constants.HARTREE_TO_KJ_PER_MOL
-    )
-    rpmd_gradient = (
-        -np.asarray(
-            state.getForces(asNumpy=True).value_in_unit(openmm.unit.kilojoules_per_mole / openmm.unit.nanometer)
+    displaced_nm = displaced_coords * 0.1
+    simulation.integrator.setPositions(1, [openmm.Vec3(*row) for row in displaced_nm] * openmm.unit.nanometer)
+
+    for copy, reference in enumerate((result, result_displaced)):
+        state = simulation.integrator.getState(copy, getEnergy=True, getForces=True)
+        rpmd_energy = (
+            state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole) / constants.HARTREE_TO_KJ_PER_MOL
         )
-        / constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
-    )
-    assert rpmd_energy == pytest.approx(result.energy, abs=2e-6)
-    assert rpmd_gradient == pytest.approx(result.gradient, abs=1e-5)
+        rpmd_gradient = (
+            -np.asarray(
+                state.getForces(asNumpy=True).value_in_unit(openmm.unit.kilojoules_per_mole / openmm.unit.nanometer)
+            )
+            / constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
+        )
+        assert rpmd_energy == pytest.approx(reference.energy, abs=2e-6), f"RPMD copy {copy} energy mismatch"
+        assert rpmd_gradient == pytest.approx(reference.gradient, abs=1e-5), f"RPMD copy {copy} gradient mismatch"
 
 
 def test_qm_mm_orca_openmm_lysozyme():

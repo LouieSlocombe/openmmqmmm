@@ -11,6 +11,8 @@ from openmmqmmm.exceptions import InputError, InternalError, MissingDependencyEr
 
 logger = logging.getLogger(__name__)
 
+RPMD_PYTHON_FORCE_NAME = "openmmqmmm bead-specific external force"
+
 
 class _RPMDPythonForceProvider:
     """Evaluate an external theory for the coordinates OpenMM is currently processing."""
@@ -135,13 +137,20 @@ def add_rpmd_python_force(system, provider, *, periodic=False):
     if not hasattr(openmm, "PythonForce"):
         raise MissingDependencyError("QM/MM RPMD requires OpenMM 8.5 or newer with openmm.PythonForce support.")
 
+    if any(force.getName() == RPMD_PYTHON_FORCE_NAME for force in system.getForces()):
+        raise InputError(
+            "This OpenMM System already carries the openmmqmmm bead-specific PythonForce from a previous "
+            "MolecularDynamicsEngine. A second one would silently double the QM force; reuse the existing "
+            "engine's run() for more steps or build a fresh theory object."
+        )
+
     used_groups = {force.getForceGroup() for force in system.getForces()}
     force_group = next((group for group in range(31, -1, -1) if group not in used_groups), None)
     if force_group is None:
         raise InputError("QM/MM RPMD requires a dedicated OpenMM force group, but all 32 groups are already used.")
 
     force = openmm.PythonForce(provider)
-    force.setName("openmmqmmm bead-specific external force")
+    force.setName(RPMD_PYTHON_FORCE_NAME)
     force.setForceGroup(force_group)
     force.setUsesPeriodicBoundaryConditions(bool(periodic))
     system.addForce(force)
