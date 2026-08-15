@@ -180,6 +180,59 @@ def test_rpmd_rejects_constrained_system_before_context_creation():
         theory.create_integrator()
 
 
+@pytest.mark.parametrize("integrator_name", ["RPMDIntegrator", "QTBIntegrator"])
+def test_nuclear_quantum_integrators_disable_hydrogen_mass_repartitioning(integrator_name):
+    import openmm
+    import openmm.app
+
+    topology = openmm.app.Topology()
+    chain = topology.addChain()
+    residue = topology.addResidue("MOL", chain)
+    carbon = topology.addAtom("C", openmm.app.Element.getByAtomicNumber(6), residue)
+    hydrogen = topology.addAtom("H", openmm.app.Element.getByAtomicNumber(1), residue)
+    topology.addBond(carbon, hydrogen)
+
+    physical_carbon_mass = carbon.element.mass
+    physical_hydrogen_mass = hydrogen.element.mass
+    repartitioned_hydrogen_mass = 1.5 * openmm.unit.dalton
+    transferred_mass = repartitioned_hydrogen_mass - physical_hydrogen_mass
+
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.topology = topology
+    theory.system = openmm.System()
+    theory.system.addParticle(physical_carbon_mass - transferred_mass)
+    theory.system.addParticle(repartitioned_hydrogen_mass)
+    theory.system_masses_original = [theory.system.getParticleMass(i) for i in range(2)]
+    theory.hydrogenmass = repartitioned_hydrogen_mass
+
+    total_mass_before = sum(theory.system.getParticleMass(i).value_in_unit(openmm.unit.dalton) for i in range(2))
+    theory.set_simulation_parameters(integrator=integrator_name)
+
+    assert theory.hydrogenmass is None
+    assert theory.system.getParticleMass(0).value_in_unit(openmm.unit.dalton) == pytest.approx(
+        physical_carbon_mass.value_in_unit(openmm.unit.dalton)
+    )
+    assert theory.system.getParticleMass(1).value_in_unit(openmm.unit.dalton) == pytest.approx(
+        physical_hydrogen_mass.value_in_unit(openmm.unit.dalton)
+    )
+    assert sum(theory.system.getParticleMass(i).value_in_unit(openmm.unit.dalton) for i in range(2)) == pytest.approx(
+        total_mass_before
+    )
+
+
+def test_qtb_integrator_is_created():
+    import openmm
+
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.system = openmm.System()
+    theory.system.addParticle(1.0)
+    theory.set_simulation_parameters(integrator="QTBIntegrator")
+
+    theory.create_integrator()
+
+    assert isinstance(theory.integrator, openmm.QTBIntegrator)
+
+
 @pytest.mark.parametrize("num_copies", [0, -1, 1.5, True, "8"])
 def test_rpmd_copy_count_must_be_a_positive_integer(num_copies):
     theory = OpenMMTheory.__new__(OpenMMTheory)

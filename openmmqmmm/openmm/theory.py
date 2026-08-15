@@ -66,6 +66,11 @@ NONBONDED_METHODS_NO_PBC = {
     "CutoffNonPeriodic": openmm.app.CutoffNonPeriodic,
 }
 
+# Both integrators approximate nuclear quantum effects and therefore require the
+# physical particle masses rather than masses altered to permit longer classical
+# MD timesteps.
+NUCLEAR_QUANTUM_INTEGRATORS = frozenset({"RPMDIntegrator", "QTBIntegrator"})
+
 
 class OpenMMTheory:
     """Interface to the OpenMM molecular-mechanics library."""
@@ -1197,6 +1202,73 @@ class OpenMMTheory:
         self.coupling_frequency = coupling_frequency
         self.temperature = temperature
         self.integrator_name = integrator
+        if integrator in NUCLEAR_QUANTUM_INTEGRATORS:
+            self._disable_hydrogen_mass_repartitioning()
+
+    def _disable_hydrogen_mass_repartitioning(self):
+        """Restore physical masses before a nuclear-quantum simulation."""
+        repartitioned_hydrogen_mass = getattr(self, "hydrogenmass", None)
+        if repartitioned_hydrogen_mass is None or not hasattr(self, "system") or not hasattr(self, "topology"):
+            return
+
+        original_masses = list(
+            getattr(
+                self,
+                "system_masses_original",
+                [self.system.getParticleMass(i) for i in range(self.system.getNumParticles())],
+            )
+        )
+        physical_masses = list(original_masses)
+        target_mass = repartitioned_hydrogen_mass.value_in_unit(openmm.unit.dalton)
+        restored_hydrogens = 0
+
+        def is_hydrogen(atom):
+            return atom.element is not None and atom.element.atomic_number == 1
+
+        for bonded_atom1, bonded_atom2 in self.topology.bonds():
+            heavy_atom, hydrogen_atom = bonded_atom1, bonded_atom2
+            if is_hydrogen(heavy_atom):
+                heavy_atom, hydrogen_atom = hydrogen_atom, heavy_atom
+            if heavy_atom.element is None or is_hydrogen(heavy_atom) or not is_hydrogen(hydrogen_atom):
+                continue
+
+            hydrogen_mass = original_masses[hydrogen_atom.index]
+            if not np.isclose(hydrogen_mass.value_in_unit(openmm.unit.dalton), target_mass, rtol=0.0, atol=1e-8):
+                # This particle was not changed to the automatic HMR target.
+                continue
+
+            physical_hydrogen_mass = hydrogen_atom.element.mass
+            transferred_mass = hydrogen_mass - physical_hydrogen_mass
+            physical_masses[hydrogen_atom.index] = physical_hydrogen_mass
+            physical_masses[heavy_atom.index] += transferred_mass
+            restored_hydrogens += 1
+
+        # Preserve explicit changed_masses and frozen particles.  system_masses_original
+        # is still updated so a later unfreeze restores physical, not repartitioned,
+        # masses.
+        for index, (current_mass, original_mass, physical_mass) in enumerate(
+            zip(
+                (self.system.getParticleMass(i) for i in range(self.system.getNumParticles())),
+                original_masses,
+                physical_masses,
+                strict=False,
+            )
+        ):
+            if np.isclose(
+                current_mass.value_in_unit(openmm.unit.dalton),
+                original_mass.value_in_unit(openmm.unit.dalton),
+                rtol=0.0,
+                atol=1e-8,
+            ):
+                self.system.setParticleMass(index, physical_mass)
+
+        self.system_masses_original = physical_masses
+        self.hydrogenmass = None
+        if restored_hydrogens:
+            logger.info(
+                "Disabled hydrogen mass repartitioning and restored physical masses for %s hydrogens",
+                restored_hydrogens,
+            )
 
     def set_rpmd_num_copies(self, num_copies):
         """Set the number of ring-polymer copies (beads) used by RPMD."""
@@ -1266,6 +1338,13 @@ class OpenMMTheory:
                 self.timestep * openmm.unit.picoseconds,
                 4,
             )
+        elif self.integrator_name == "QTBIntegrator":
+            logger.info("QTBIntegrator (adaptive quantum thermal bath) will be used")
+            self.integrator = openmm.QTBIntegrator(
+                self.temperature * openmm.unit.kelvin,
+                self.coupling_frequency / openmm.unit.picosecond,
+                self.timestep * openmm.unit.picoseconds,
+            )
         elif self.integrator_name == "RPMDIntegrator":
             logger.info("RPMDIntegrator will be used")
             num_constraints = self.system.getNumConstraints()
@@ -1292,7 +1371,7 @@ class OpenMMTheory:
             raise InputError(
                 "Unknown integrator.\n Valid integrator keywords are: VerletIntegrator, VariableVerletIntegrator, "
                 "LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VariableLangevinIntegrator, "
-                "RPMDIntegrator"
+                "QTBIntegrator, RPMDIntegrator"
             )
 
     def create_simulation(self, internal=False):

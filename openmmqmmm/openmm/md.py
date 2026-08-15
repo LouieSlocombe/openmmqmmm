@@ -31,7 +31,7 @@ from openmmqmmm.openmm.rpmd_force import (
     add_rpmd_python_force,
 )
 from openmmqmmm.openmm.systemsetup import openmm_minimize
-from openmmqmmm.openmm.theory import ForceReporter, OpenMMTheory
+from openmmqmmm.openmm.theory import NUCLEAR_QUANTUM_INTEGRATORS, ForceReporter, OpenMMTheory
 from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
     create_conn_dict,
@@ -332,6 +332,9 @@ class MolecularDynamicsEngine:
             self.QM_MM_object = None
             self.qmtheory = theory
             self.theory_runtype = "QM"
+
+        if integrator in NUCLEAR_QUANTUM_INTEGRATORS:
+            self.openmmobject._disable_hydrogen_mass_repartitioning()
 
         if rpmd_num_copies is not None:
             self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)

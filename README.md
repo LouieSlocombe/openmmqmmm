@@ -235,6 +235,12 @@ for every bead.
 for QM/MM RPMD because their current state is shared across beads. Standard OpenMM periodic
 wrapping remains available through the `PythonForce` state.
 
+RPMD and the adaptive quantum thermal bath require physical nuclear masses. Selecting either
+`RPMDIntegrator` or `QTBIntegrator` therefore disables OpenMM's automatic hydrogen-mass
+repartitioning and restores the mass transferred from each bonded heavy atom. For adQTB dynamics,
+select `integrator="QTBIntegrator"`; it uses the same temperature, coupling-frequency and timestep
+options as the Langevin integrators.
+
 Runnable scripts, including a gas-phase ORCA example, live in [examples/](examples/):
 
 ```sh
