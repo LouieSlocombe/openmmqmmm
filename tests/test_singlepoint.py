@@ -3,6 +3,8 @@ import pytest
 
 from openmmqmmm import (
     Fragment,
+    OpenMMTheory,
+    QMMMTheory,
     Reaction,
     ZeroTheory,
     reaction_energy,
@@ -20,6 +22,31 @@ HF_COORDS = "H 0.0 0.0 0.0\nF 0.0 0.0 0.95\n"
 @pytest.fixture
 def hydrogen_fluoride():
     return Fragment(coordsstring=HF_COORDS, charge=0, mult=1)
+
+
+def _dummy_qmmm(**kwargs):
+    """A cheap real QM/MM object: two well-separated H atoms, QM region is atom 0."""
+    fragment = Fragment(elems=["H", "H"], coords=[[1.0, 0, 0], [5.0, 0, 0]], charge=0, mult=1, conncalc=False)
+    mm_theory = OpenMMTheory(
+        fragment=fragment,
+        dummysystem=True,
+        platform="Reference",
+        autoconstraints=None,
+        rigidwater=False,
+        hydrogenmass=None,
+    )
+    qmmm = QMMMTheory(
+        fragment=fragment,
+        qm_theory=ZeroTheory(),
+        mm_theory=mm_theory,
+        qmatoms=[0],
+        embedding="elstat",
+        qm_charge=0,
+        qm_mult=1,
+        dipole_correction=False,
+        **kwargs,
+    )
+    return qmmm, fragment
 
 
 def _labelled_fragments(count=3):
@@ -68,6 +95,37 @@ def test_single_point_theories_with_explicit_charge_and_mult():
     result = single_point_theories(theories=[ZeroTheory()], fragment=fragment, charge=0, mult=1)
 
     assert result.energies == [0.0]
+
+
+def test_qmmm_theory_carries_a_label():
+    """The energy tables read theory.label, so every theory class must define one."""
+    qmmm, _fragment = _dummy_qmmm()
+
+    assert qmmm.label == "QM/MM"
+
+
+def test_qmmm_theory_label_can_be_overridden():
+    qmmm, _fragment = _dummy_qmmm(label="active-site")
+
+    assert qmmm.label == "active-site"
+
+
+def test_single_point_theories_completes_with_a_qmmm_theory():
+    """The summary table runs after every energy, so a missing label would waste the whole job."""
+    qmmm, fragment = _dummy_qmmm()
+
+    result = single_point_theories(theories=[qmmm, ZeroTheory()], fragment=fragment)
+
+    assert result.energies == [0.0, 0.0]
+
+
+def test_single_point_fragments_and_theories_completes_with_a_qmmm_theory():
+    qmmm, fragment = _dummy_qmmm()
+    fragment.label = "frag0"
+
+    result = single_point_fragments_and_theories(theories=[qmmm], fragments=[fragment])
+
+    assert result.energies == [[0.0]]
 
 
 def test_single_point_fragments():

@@ -32,6 +32,7 @@ class QMMMTheory:
         charges=None,
         embedding="elstat",
         numcores=1,
+        label="QM/MM",
         excludeboundaryatomlist=None,
         unusualboundary=False,
         openmm_externalforce=False,
@@ -63,6 +64,7 @@ class QMMMTheory:
 
         self.theorytype = "QM/MM"
         self.theorynamelabel = "QMMMTheory"
+        self.label = label
 
         # External force energy. Zero except when using openmm_externalforce
         self.extforce_energy = 0.0
