@@ -10,6 +10,7 @@ import numpy as np
 import openmmqmmm.constants
 from openmmqmmm.coords import (
     _print_internal_coordinate_table,
+    _qm_region_owner,
     check_charge_mult,
     fullindex_to_actindex,
     print_coords_for_atoms,
@@ -606,8 +607,12 @@ class GeometricOptimizer:
         self.cleanup()  # NOTE: This deletes constraintsfile
 
         charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "geomeTRICOptimizer", theory=theory)
-        fragment.charge = charge
-        fragment.mult = mult
+        # For QM/MM the resolved values describe the QM region, not this whole-system fragment, and
+        # an MM theory resolves both to None. Stamping either onto the fragment would be written out
+        # by write_xyzfile/print_system below and read back as the fragment's own charge.
+        if charge is not None and mult is not None and _qm_region_owner(theory) is None:
+            fragment.charge = charge
+            fragment.mult = mult
 
         # If constraints not directly provided to run method, then we look at self.constraints and then
         # fragment.constraints

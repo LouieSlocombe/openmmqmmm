@@ -87,11 +87,13 @@ def single_point_theories(theories=None, fragment=None, charge=None, mult=None) 
     energies = []
 
     for theory in theories:
-        charge, mult = check_charge_mult(
+        # Resolved per theory from the original arguments: rebinding charge here would carry one
+        # theory's resolved value (e.g. a QM/MM region charge) into the next theory in the list.
+        theory_charge, theory_mult = check_charge_mult(
             charge, mult, theory.theorytype, fragment, "Singlepoint_theories", theory=theory
         )
 
-        result = single_point(theory=theory, fragment=fragment, charge=charge, mult=mult)
+        result = single_point(theory=theory, fragment=fragment, charge=theory_charge, mult=theory_mult)
 
         calc_label = "Frag_" + theory.__class__.__name__ + "_"
         with contextlib.suppress(OSError, AttributeError):

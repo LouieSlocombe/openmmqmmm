@@ -88,6 +88,7 @@ class QMMMTheory:
             linkatom_forceproj_method = "none"
 
         self.runcalls = 0
+        self.qm_charge_consistency_logged = False
 
         # NOTE: affects runmode
         self.openmm_externalforce = openmm_externalforce
@@ -583,6 +584,61 @@ class QMMMTheory:
             logger.error("Could not grab polarizability from QM-part of QM/MM theory.")
         return polarizability
 
+    def resolve_qm_charge_mult(self, *, charge=None, mult=None) -> tuple[int, int]:
+        """Resolve the charge and multiplicity of the QM region."""
+        return (
+            self._resolve_qm_electronic_state("charge", charge),
+            self._resolve_qm_electronic_state("mult", mult),
+        )
+
+    def _resolve_qm_electronic_state(self, name, supplied_value):
+        theory_value = getattr(self, f"qm_{name}")
+        if theory_value is not None:
+            # Equality rather than presence: one job resolves 2-3 times on its way down to run()
+            if supplied_value is not None and supplied_value != theory_value:
+                raise InputError(f"{name}={supplied_value} conflicts with QMMMTheory.qm_{name}={theory_value}")
+            return theory_value
+
+        if supplied_value is not None:
+            return supplied_value
+
+        # self.fragment is the whole system, so its net charge is the QM region's only when the
+        # two regions coincide. Checked after the None-test so that it is never reached for a
+        # fragment carrying no charge at all.
+        fragment_value = getattr(self.fragment, name, None)
+        if fragment_value is not None:
+            if set(self.qmatoms) == set(self.allatoms):
+                logger.info(f"QM region is the whole system. Using fragment {name}={fragment_value}")
+                return fragment_value
+            raise InputError(
+                f"Fragment {name}={fragment_value} describes all {self.num_allatoms} atoms, not the "
+                f"{len(self.qmatoms)}-atom QM region. Set QMMMTheory(qm_{name}=...) or pass {name}= to the job"
+            )
+
+        raise InputError(f"QM-region {name} is undefined. Set QMMMTheory(qm_{name}=...) or pass {name}= to the job")
+
+    def _log_qm_charge_consistency(self, charge):
+        mm_sum = float(np.sum(np.asarray(self.charges)[self.qmatoms]))
+        deviation = mm_sum - round(mm_sum)
+        if self.linkatoms:
+            # Link atoms and charge shifting redistribute charge across the boundary by design,
+            # so the MM sum over qmatoms is not expected to reproduce the QM-region charge.
+            logger.info(
+                f"Sum of MM charges over the QM region: {mm_sum:.4f} (QM-region charge: {charge}). Link atoms "
+                f"present, so a difference is expected."
+            )
+            return
+        if abs(deviation) > 0.01:
+            logger.warning(
+                f"Sum of MM charges over the QM region is {mm_sum:.4f}, not an integer. The QM region may cut "
+                f"through a molecule without a covalent boundary being detected."
+            )
+        elif round(mm_sum) != charge:
+            logger.warning(
+                f"QM-region charge is {charge} but the MM charges it replaces sum to {mm_sum:.4f}. One of the two "
+                f"is wrong."
+            )
+
     def run(
         self,
         *,
@@ -608,20 +664,12 @@ class QMMMTheory:
         if self.exit_after_customexternalforce_update is True:
             exit_after_customexternalforce_update = self.exit_after_customexternalforce_update
 
-        # OPTION: QM-region charge/mult from QMMMTheory definition
-        # If qm_charge/qm_mult defined then we use. Otherwise charge/mult may have been defined by jobtype-function and
-        # passed on via run
-        if self.qm_charge is not None:
-            logger.info("Charge provided from QMMMTheory object:  %s", self.qm_charge)
-            charge = self.qm_charge
-        if self.qm_mult is not None:
-            logger.info("Mult provided from QMMMTheory object:  %s", self.qm_mult)
-            mult = self.qm_mult
-
-        if charge is None or mult is None:
-            raise InputError("Error. charge and mult has not been defined for QMMMTheory.run method")
-
+        charge, mult = self.resolve_qm_charge_mult(charge=charge, mult=mult)
         logger.info(f"QM-region Charge: {charge} Mult: {mult}")
+
+        if not self.qm_charge_consistency_logged:
+            self.qm_charge_consistency_logged = True
+            self._log_qm_charge_consistency(charge)
 
         # pbcmm-elstat differs only in that the QM charges have not been zeroed in the MM
         # program, so it double-counts short-range QM-QM and QM-MM and elstat_run applies

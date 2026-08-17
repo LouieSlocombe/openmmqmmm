@@ -12,6 +12,7 @@ from ase.calculators.calculator import (
 from ase.symbols import symbols2numbers
 from ase.utils import workdir
 
+from openmmqmmm.exceptions import InputError
 from openmmqmmm.qmmm import QMMMTheory
 
 
@@ -33,33 +34,15 @@ class OpenMMQMMMCalculator(Calculator):
             raise CalculatorSetupError("qmmm_theory must be an openmmqmmm.QMMMTheory object")
 
         self.qmmm_theory = qmmm_theory
-        self.charge = self._resolve_electronic_state("charge", charge)
-        self.mult = self._resolve_electronic_state("mult", mult)
+        try:
+            self.charge, self.mult = qmmm_theory.resolve_qm_charge_mult(charge=charge, mult=mult)
+        except InputError as err:
+            raise CalculatorSetupError(str(err)) from err
         self._expected_symbols = tuple(qmmm_theory.elems)
         self._expected_numbers = np.asarray(symbols2numbers(self._expected_symbols))
         self._reference_cell = None
         self._reference_pbc = None
         super().__init__(**kwargs)
-
-    def _resolve_electronic_state(self, name: str, supplied_value: int | None) -> int:
-        theory_value = getattr(self.qmmm_theory, f"qm_{name}", None)
-        if theory_value is not None:
-            if supplied_value is not None and supplied_value != theory_value:
-                raise CalculatorSetupError(
-                    f"{name}={supplied_value} conflicts with QMMMTheory.qm_{name}={theory_value}"
-                )
-            return theory_value
-
-        if supplied_value is not None:
-            return supplied_value
-
-        fragment_value = getattr(self.qmmm_theory.fragment, name, None)
-        if fragment_value is not None:
-            return fragment_value
-
-        raise CalculatorSetupError(
-            f"QM-region {name} is undefined; set QMMMTheory.qm_{name} or pass {name}= to the calculator"
-        )
 
     def _validate_atoms(self, atoms: Atoms, system_changes: list[str]) -> np.ndarray:
         first_calculation = self._reference_cell is None

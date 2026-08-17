@@ -297,7 +297,6 @@ def worker_par(
     optimizer=None,
     version="multiprocessing",
 ):
-    charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Worker_par", theory=theory)
     logger.info("Fragment: %s", fragment)
     logger.info("fragmentfile: %s", fragmentfile)
     logger.info("Theory: %s", theory)
@@ -309,6 +308,12 @@ def worker_par(
     if fragmentfile is not None:
         logger.info("Reading fragmentfile from disk")
         fragment = Fragment(fragfile=fragmentfile)
+
+    # Resolved after the load: job_parallel submits fragmentfile= without fragment=, so a resolution
+    # before this point sees no fragment at all.
+    if fragment is None:
+        raise InputError("Worker_par requires either a fragment or a fragmentfile")
+    charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Worker_par", theory=theory)
 
     # Making label flexible. Can be tuple but inputfilename is converted to string below
     logger.info(f"label: {label} (type {type(label)})")

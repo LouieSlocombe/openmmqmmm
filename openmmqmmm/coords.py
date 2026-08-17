@@ -2189,9 +2189,27 @@ def get_water_constraints(openmmtheoryobject=None, atomlist=None, watermodel="ti
     return waterconstraints
 
 
-# Only done for QM theories not MM. Passing theorytype string (e.g. from theory.theorytype if available)
+def _qm_region_owner(theory, max_depth=4):
+    # A job may be handed a wrapper (NumGrad) whose theorytype is that of no particular theory,
+    # so the object owning the QM-region charge is found by capability, not by that string.
+    for _ in range(max_depth):
+        if theory is None:
+            return None
+        if hasattr(theory, "resolve_qm_charge_mult"):
+            return theory
+        theory = getattr(theory, "theory", None)
+    return None
+
+
 def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None):
+    """Resolve the charge and multiplicity a theory should be run with."""
+    qm_region = _qm_region_owner(theory)
+    if qm_region is not None:
+        return qm_region.resolve_qm_charge_mult(charge=charge, mult=mult)
+
     if theorytype == "QM":
+        # A plain QM theory treats the whole fragment as its system, so the fragment's own
+        # charge/mult are the right fallback here.
         if charge is None or mult is None:
             logger.warning(f"Charge/mult was not provided to {jobtype}")
             if fragment.charge is not None and fragment.mult is not None:
@@ -2204,29 +2222,10 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None):
             else:
                 raise InputError("No charge/mult information present in fragment either. Exiting.")
     elif theorytype == "QM/MM":
-        if charge is None or mult is None:
-            logger.warning(f"Charge/mult was not provided to {jobtype}")
-            logger.info("Checking if present in QM/MM object")
-            if theory.qm_charge is not None and theory.qm_mult is not None:
-                charge = theory.qm_charge
-                mult = theory.qm_mult
-                logger.info("Found qm_charge and qm_mult attributes.")
-                logger.info(f"Using charge={charge} and mult={mult}")
-            elif fragment.charge is not None and fragment.mult is not None:
-                logger.warning(
-                    f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult} Using "
-                    f"this instead"
-                )
-                logger.warning("Make sure this is what you want!")
-                charge = fragment.charge
-                mult = fragment.mult
-            else:
-                raise InputError("No charge/mult information present in fragment either. Exiting.")
-    elif theorytype == "ONIOM":
-        logger.info("Checking if charge/mult information present in ONIOM object")
-        if theory.fullregion_charge is not None and theory.fullregion_mult is not None:
-            logger.info("Found fullregion_charge and fullregion_mult attributes.")
-            logger.info("All good, continuing\n")
+        raise InternalError(
+            f"{jobtype} was given a QM/MM theory that cannot resolve its QM-region charge. A QM/MM theory must "
+            f"provide a resolve_qm_charge_mult method."
+        )
     elif theorytype == "MM":
         charge = None
         mult = None
