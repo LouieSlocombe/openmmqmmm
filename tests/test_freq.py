@@ -4,7 +4,9 @@ import math
 import numpy as np
 import pytest
 
+import openmmqmmm.freq
 from openmmqmmm import Fragment, ZeroTheory, analytic_frequencies, constants, numerical_frequencies
+from openmmqmmm.exceptions import InputError
 from openmmqmmm.freq import (
     approximate_full_hessian_from_smaller,
     calc_rotational_constants,
@@ -163,6 +165,80 @@ def test_approximate_full_hessian_embeds_the_small_one():
     assert full.shape == (12, 12), "3N x 3N for the whole fragment"
     assert np.allclose(full[:9, :9], small), "The computed block is kept exactly"
     assert np.allclose(full, full.T), "The result must stay symmetric"
+
+
+def test_sub_region_hessian_fragment_does_not_inherit_the_whole_system_charge(monkeypatch):
+    """A model Hessian over part of a fragment must not be run with the whole fragment's charge."""
+    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=-1, mult=1)
+    seen = {}
+
+    def fake_model_hessian(subfragment, model="Almloef", *, charge=None, mult=None):
+        seen["subfragment_charge"] = subfragment.charge
+        seen["charge"] = charge
+        return np.zeros((9, 9))
+
+    monkeypatch.setattr(openmmqmmm.freq, "calc_model_hessian_orca", fake_model_hessian)
+    rng = np.random.default_rng(1)
+    small = rng.random((9, 9))
+    small = small + small.T
+
+    approximate_full_hessian_from_smaller(
+        fragment, small, [0, 1, 2], large_atomindices=[0, 1, 2], rest_hessian="Almloef", charge=0, mult=1
+    )
+
+    assert seen["subfragment_charge"] is None, "The sub-region fragment carries no charge of its own"
+    assert seen["charge"] == 0, "The explicitly supplied sub-region charge is what gets used"
+
+
+def test_sub_region_model_hessian_without_a_charge_is_rejected():
+    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=-1, mult=1)
+    rng = np.random.default_rng(1)
+    small = rng.random((9, 9))
+    small = small + small.T
+
+    with pytest.raises(InputError, match="describe the whole system"):
+        approximate_full_hessian_from_smaller(
+            fragment, small, [0, 1, 2], large_atomindices=[0, 1, 2], rest_hessian="Almloef"
+        )
+
+
+def test_whole_fragment_model_hessian_may_use_the_fragment_charge(monkeypatch):
+    """With no sub-region there is no region confusion, so the fragment's charge is correct."""
+    fragment = Fragment(coordsstring=WATER_COORDS, charge=-1, mult=2)
+    seen = {}
+
+    def fake_model_hessian(subfragment, model="Almloef", *, charge=None, mult=None):
+        seen["charge"], seen["mult"] = charge, mult
+        return np.zeros((9, 9))
+
+    monkeypatch.setattr(openmmqmmm.freq, "calc_model_hessian_orca", fake_model_hessian)
+    rng = np.random.default_rng(1)
+    small = rng.random((9, 9))
+    small = small + small.T
+
+    approximate_full_hessian_from_smaller(fragment, small, [0, 1, 2], rest_hessian="Almloef")
+
+    assert (seen["charge"], seen["mult"]) == (-1, 2)
+
+
+def test_model_hessian_does_not_mutate_the_callers_fragment(monkeypatch):
+    fragment = Fragment(coordsstring=WATER_COORDS, charge=-1, mult=2)
+    monkeypatch.setattr(openmmqmmm.freq, "calc_model_hessian_orca", lambda *_a, **_kw: np.zeros((9, 9)))
+    rng = np.random.default_rng(1)
+    small = rng.random((9, 9))
+    small = small + small.T
+
+    approximate_full_hessian_from_smaller(fragment, small, [0, 1, 2], rest_hessian="Almloef", charge=0, mult=1)
+
+    assert (fragment.charge, fragment.mult) == (-1, 2), "The supplied Hessian charge must not overwrite the fragment"
+
+
+def test_analytic_frequencies_rejects_a_theory_without_an_analytic_hessian():
+    """QMMMTheory and the wrapper theories never define analytic_hessian at all."""
+    fragment = Fragment(coordsstring=WATER_COORDS, charge=0, mult=1)
+
+    with pytest.raises(InputError, match="numerical_frequencies"):
+        analytic_frequencies(fragment=fragment, theory=ZeroTheory(), charge=0, mult=1)
 
 
 def test_numerical_frequencies_on_a_flat_surface():

@@ -57,7 +57,9 @@ def analytic_frequencies(
     if masses is None:
         masses = fragment.list_of_masses
 
-    if theory.analytic_hessian:
+    # Only theories that actually provide a Hessian set analytic_hessian; QMMMTheory and the
+    # wrapper theories never define it at all.
+    if getattr(theory, "analytic_hessian", False):
         logger.info(f"Requesting analytical Hessian calculation from {theory.theorynamelabel}")
         logger.info("")
         charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "AnFreq", theory=theory)
@@ -136,7 +138,9 @@ def analytic_frequencies(
         result.write_to_disk(filename="results_anfreq.json")
         return result
 
-    raise InputError("Analytical frequencies not available for theory. Exiting.")
+    raise InputError(
+        f"Analytical frequencies are not available for {theory.__class__.__name__}. Use numerical_frequencies instead."
+    )
 
 
 # ORCA uses 0.005 Bohr = 0.0026458861 Ang, CHemshell uses 0.01 Bohr = 0.00529 Ang
@@ -1191,7 +1195,7 @@ def calc_rotational_constants(frag) -> list[float]:
     return rot_constants_cm
 
 
-def calc_model_hessian_orca(fragment, model="Almloef"):
+def calc_model_hessian_orca(fragment, model="Almloef", *, charge=None, mult=None):
     # Run ORCA dummy job to get Almloef/Lindh/Schlegel Hessian
     orcasimple = "! hf"
     extraline = "!noiter opt"
@@ -1202,7 +1206,7 @@ def calc_model_hessian_orca(fragment, model="Almloef"):
     end
 """
     orcadummycalc = openmmqmmm.orca.ORCATheory(orcasimpleinput=orcasimple, orcablocks=orcablocks, extraline=extraline)
-    openmmqmmm.single_point(theory=orcadummycalc, fragment=fragment, charge=fragment.charge, mult=fragment.mult)
+    openmmqmmm.single_point(theory=orcadummycalc, fragment=fragment, charge=charge, mult=mult)
     hesstake = False
     j = 0
     # Different from orca.hess apparently
@@ -1283,7 +1287,9 @@ def approximate_full_hessian_from_smaller(
         correct_small_atomindices = [large_atomindices.index(i) for i in small_atomindices]
         logger.info("correct_small_atomindices: %s", correct_small_atomindices)
         subcoords, subelems = fragment.get_coords_for_atoms(large_atomindices)
-        usedfragment = openmmqmmm.Fragment(elems=subelems, coords=subcoords, charge=fragment.charge, mult=fragment.mult)
+        # No charge/mult: this is a sub-region of fragment, so the fragment's whole-system values
+        # do not describe it. A model Hessian over this region takes them as arguments instead.
+        usedfragment = openmmqmmm.Fragment(elems=subelems, coords=subcoords)
     else:
         raise InputError(
             f"small_atomindices: {small_atomindices}\nlarge_atomindices: {large_atomindices}\nSomething went wrong"
@@ -1300,12 +1306,20 @@ def approximate_full_hessian_from_smaller(
     if rest_hessian in {"Almloef", "Lindh", "Schlegel", "Swart"}:
         logger.info("restHessian: %s", rest_hessian)
         if charge is None or mult is None:
-            raise InputError(
-                "Error: For this restHessian option we require charge and multiplicity information to be provided"
-            )
-        usedfragment.charge = charge
-        usedfragment.mult = mult
-        fullhessian = calc_model_hessian_orca(usedfragment, model=rest_hessian)
+            # A sub-region has no derivable net charge, so only a Hessian region spanning the whole
+            # fragment may fall back to the fragment's own values.
+            if usedfragment.numatoms != fragment.numatoms:
+                raise InputError(
+                    f"A model Hessian over a {usedfragment.numatoms}-atom region of a {fragment.numatoms}-atom "
+                    f"fragment needs charge= and mult= passed explicitly; the fragment's own values describe the "
+                    f"whole system"
+                )
+            if fragment.charge is None or fragment.mult is None:
+                raise InputError("A model Hessian needs a charge and mult, and the fragment carries neither")
+            charge = fragment.charge
+            mult = fragment.mult
+            logger.info(f"Model Hessian spans the whole fragment. Using charge={charge} mult={mult}")
+        fullhessian = calc_model_hessian_orca(usedfragment, model=rest_hessian, charge=charge, mult=mult)
     elif rest_hessian == "xtb":
         raise InputError(
             "Error: restHessian='xtb' is not available in this ORCA+OpenMM build. Use an ORCA model Hessian, 'unit' or "
