@@ -884,7 +884,8 @@ def _parameterize_nonstandard_residues(
     except ImportError:
         raise MissingDependencyError(
             "parameterize_nonstandard=True requires the forcefill package, which is not on PyPI.\n"
-            'Install it with: pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"'
+            "The installers in build_tools/ clone it next to this repository and install it editable; by hand:\n"
+            "  git clone https://github.com/LouieSlocombe/forcefill.git && pip install --no-deps -e forcefill"
         ) from None
 
     base_forcefield = [x for x in (xmlfile, extraxmlfile, waterxmlfile) if x is not None]

@@ -53,15 +53,18 @@ finishes with import checks. It is equivalent to running, from this directory:
 ```bash
 conda env create -f environment.yml
 conda activate openmmqmmm
+# Both build functions leave the shell in ${src_dir}, so hold on to this directory.
+here="${PWD}"
 src_dir="$(mktemp -d)"
 source build_plumed.sh && build_plumed "${src_dir}" && build_py_plumed "${src_dir}"
-pip install -e .. --no-deps
-source editable_repos.sh && install_editable_repos ../..
+pip install -e "${here}/.." --no-deps
+source "${here}/editable_repos.sh" && install_editable_repos "${here}/../.."
 ```
 
 (`build_plumed.sh` and `editable_repos.sh` are function libraries rather than scripts.
 `build_py_plumed` reuses the plumed2 checkout that `build_plumed` leaves behind, so both
-take the same working directory, and the PLUMED version is pinned there in one place.)
+take the same working directory, and the PLUMED version is pinned there in one place. The
+installers are immune to that `cd` — they resolve everything from `${BASH_SOURCE[0]}`.)
 
 `--no-deps` on the editable installs is deliberate: `environment.yml` is the authority on
 the dependency set, and letting pip re-resolve risks pulling PyPI wheels over the conda
