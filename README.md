@@ -25,16 +25,18 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 - Every Python dependency is required — there are no feature-gated extras. `pip install .` pulls
   the full set (ASE, OpenMM, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd, multiprocess,
   numpy, scipy, packaging)
-- **[forcefill](https://github.com/LouieSlocombe/forcefill)** is not on PyPI: install it after the
-  environment exists with
+- **[forcefill](https://github.com/LouieSlocombe/forcefill)** is not on PyPI: `conda_install.sh`
+  adds it with
   `pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"`.
   Without it `openmm_modeller(parameterize_nonstandard=True)` raises `MissingDependencyError`;
   everything else except the PLUMED integration works. Its dependency stack (openff-toolkit,
-  openmmforcefields, RDKit, AmberTools) comes from conda-forge via `environment.yml` —
-  openff-toolkit is not on PyPI, which is why the conda route below is recommended
-- `openmm_md_plumed` also requires **openmm-plumed**. The conda-forge binary requires OpenMM
-  `<8.5`, so it must not be installed here; build the latest GitHub `master` source against
-  OpenMM 8.5.2 using the instructions below
+  openmmforcefields, RDKit, AmberTools) comes from conda-forge via
+  `build_tools/environment.yml` — openff-toolkit is not on PyPI, which is why the conda route
+  below is recommended
+- `openmm_md_plumed` also requires **PLUMED** and **openmm-plumed**, neither of which can come
+  from conda-forge: that `openmm-plumed` binary requires OpenMM `<8.5`, and that PLUMED build
+  omits the `opes` module. `conda_install.sh` compiles both from source (PLUMED 2.10.1, plugin
+  `master`) into the environment
 - [ORCA](https://www.faccts.de/orca/) — installed separately (free for academic use); required for
   `ORCATheory` and QM/MM, not for the pure-MM/OpenMM functionality
 
@@ -46,60 +48,19 @@ which pulls PyTorch and CUDA.
 From the repository root:
 
 ```sh
-conda env create -f environment.yml
-conda activate openmmqmmm
-pip install -e .
-pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"
+bash build_tools/conda_install.sh
 ```
 
-`pip install -e .` is an editable (development) install: changes to the source tree take effect
-without reinstalling. Use `pip install .` for a regular install.
+One command: it creates the `openmmqmmm` conda environment from
+`build_tools/environment.yml`, compiles PLUMED 2.10.1 (with the `opes` module), the
+OpenMM-PLUMED plugin and the PLUMED Python bindings into it, installs this package in
+editable mode along with forcefill, and verifies each piece by importing it. The
+environment is removed and recreated on every run; set `ENV_NAME` to build into a
+different one.
 
-**Building the latest OpenMM-PLUMED from GitHub for OpenMM 8.5.2**
-
-The `environment.yml` file installs PLUMED 2.9.2, CMake, SWIG, Make and the Conda C++ compiler,
-but deliberately does not install conda-forge's ABI-incompatible `openmm-plumed` binary. After
-activating the environment, clone and build the current upstream `master` in a temporary working
-directory:
-
-```sh
-git clone --branch master --depth 1 https://github.com/openmm/openmm-plumed.git
-git -C openmm-plumed rev-parse HEAD
-cmake -S openmm-plumed -B openmm-plumed/build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_COMPILER="$CONDA_PREFIX/bin/c++" \
-  -DOPENMM_DIR="$CONDA_PREFIX" \
-  -DPLUMED_INCLUDE_DIR="$CONDA_PREFIX/include/plumed" \
-  -DPLUMED_LIBRARY_DIR="$CONDA_PREFIX/lib" \
-  -DCMAKE_INSTALL_PREFIX="$CONDA_PREFIX"
-cmake --build openmm-plumed/build --parallel
-ctest --test-dir openmm-plumed/build --output-on-failure
-cmake --install openmm-plumed/build
-swig -python -c++ \
-  -o openmm-plumed/build/python/PlumedPluginWrapper.cpp \
-  -I"$CONDA_PREFIX/include" \
-  openmm-plumed/python/plumedplugin.i
-python -m pip install --no-build-isolation openmm-plumed/build/python
-python -c "import openmm, openmmplumed; print(openmm.__version__, openmmplumed.PlumedForce)"
-```
-
-The `rev-parse` output records the exact source revision because `master` moves; the revision
-verified on 14 August 2026 is `6a4752fa49810fc598d9316c5469254868f71546`. The upstream Python
-package metadata still reports version 2.1 on this commit. `--no-build-isolation` lets its legacy
-wrapper build use NumPy from the active environment. Rebuild and reinstall OpenMM-PLUMED after
-changing the OpenMM version so the native ABIs match.
-
-**Installing into an existing environment**
-
-```sh
-conda install -c conda-forge ase "openmm=8.5.2" "plumed=2.9.2" cmake make swig cxx-compiler pdbfixer mdtraj parmed rdkit openmmforcefields openff-toolkit multiprocess rmsd
-pip install .
-```
-
-`pip install .` then adds OpenBabel and geomeTRIC. OpenBabel has to come from PyPI: conda-forge
-has no build for Python 3.13 or newer. Add forcefill with
-`pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"`, then
-follow the OpenMM-PLUMED source-build steps above.
+[build_tools/README.md](build_tools/README.md) is the full installation guide — the other
+two routes (Sol cluster, source-built OpenMM), what to do with an environment that already
+exists, and the equivalent commands run by hand.
 
 **Configuring ORCA**
 

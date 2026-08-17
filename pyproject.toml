@@ -38,10 +38,11 @@ dependencies = [
 # Development tooling only. Every runtime dependency is required above, with two
 # exceptions that pip cannot express: openmm-plumed and forcefill are not published to
 # PyPI, so a pip-only install leaves openmm_md_plumed and
-# openmm_modeller(parameterize_nonstandard=True) unavailable. environment.yml pulls
-# forcefill's dependency stack (openff-toolkit, openmmforcefields, rdkit) and the
-# OpenMM-PLUMED source-build prerequisites from conda-forge; README.md documents the
-# forcefill pip command and the OpenMM-PLUMED source build against OpenMM 8.5.2.
+# openmm_modeller(parameterize_nonstandard=True) unavailable. build_tools/ covers both:
+# environment.yml pulls forcefill's dependency stack (openff-toolkit, openmmforcefields,
+# rdkit) and the PLUMED source-build prerequisites from conda-forge, and
+# conda_install.sh compiles PLUMED and OpenMM-PLUMED against OpenMM 8.5.2 and pip-installs
+# forcefill from git.
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts

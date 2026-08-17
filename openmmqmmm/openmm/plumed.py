@@ -71,8 +71,9 @@ def openmm_md_plumed(
     except ModuleNotFoundError:
         raise MissingDependencyError(
             "openmmplumed module plugin not found. The current conda-forge build requires OpenMM <8.5 and is "
-            "incompatible with this project's OpenMM 8.5.2 requirement. Build the latest OpenMM-PLUMED GitHub "
-            "master against the active environment as documented in README.md. See "
+            "incompatible with this project's OpenMM 8.5.2 requirement. Install from scratch with "
+            "`bash build_tools/conda_install.sh`, or build it into the active environment with the "
+            "build_plumed function in build_tools/build_plumed.sh; see build_tools/README.md and "
             "https://github.com/openmm/openmm-plumed"
         ) from None
 

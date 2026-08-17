@@ -1,0 +1,54 @@
+# Dependencies for the source-build route (custom_install.sh), which compiles OpenMM
+# itself. Kept separate from environment.yml so a source build cannot disturb a working
+# openmmqmmm environment. See README.md in this directory.
+name: openmmqmmm_custom
+channels:
+  - conda-forge
+dependencies:
+  # The OpenMM stack comes from conda-forge (pdbfixer's only binary route)
+  - python>=3.10
+  - pip
+  # Atomic Simulation Environment integration
+  - ase
+  # Pinned even though custom_install.sh replaces it: pdbfixer, openmmforcefields and
+  # openff-toolkit all depend on openmm, so conda installs one either way, and pinning
+  # keeps that solve identical to the conda route. `make install` and `make PythonInstall`
+  # then overwrite it in place with the source build.
+  - openmm =8.5.2
+  # PLUMED itself is absent on purpose: build_plumed.sh compiles it into the same
+  # prefix, so a conda-forge copy would be silently overwritten by `make install`,
+  # and that build omits the opes module openmm_md_plumed needs. These are the
+  # source-build prerequisites for it, for the openmm-plumed plugin and for OpenMM.
+  - cmake
+  - make
+  - swig
+  - cxx-compiler
+  - doxygen
+  # build_py_plumed regenerates the py-plumed C extension from its .pyx source.
+  - cython
+  - pdbfixer
+  - mdtraj
+  - numpy
+  - scipy
+  - packaging
+  # Amber/CHARMM/GROMACS topology handling in OpenMMTheory
+  - parmed
+  # forcefill's dependency stack (openmm_modeller parameterize_nonstandard=True; see README.md).
+  # forcefill itself is on neither index, so custom_install.sh pip-installs it from git.
+  # openff-toolkit pulls ambertools (antechamber for the GAFF backend), which pulls
+  # pytorch + CUDA (several GB).
+  - openmmforcefields
+  - openff-toolkit
+  - rdkit
+  # Alternative multiprocessing backend for job_parallel
+  - multiprocess
+  # flexible_align(reordering=True)
+  - rmsd
+  - pytest
+  - pytest-cov
+  - python-build
+  - pip:
+      - geometric >=1.0.1
+      # Fragment(smiles=...) and xyz_to_pdb_with_connectivity. Not from conda-forge:
+      # it has no build past python 3.12. PyPI ships linux-x86_64 and macOS-arm64 wheels.
+      - openbabel

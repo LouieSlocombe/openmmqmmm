@@ -1,7 +1,10 @@
-#   conda env create -f environment.yml && conda activate openmmqmmm && pip install -e .
-#   pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"
+#   bash conda_install.sh
 #
-# ORCA is not packaged here — install it separately and set OPENMMQMMM_ORCADIR. See README.md.
+# That script creates this environment, compiles PLUMED, the OpenMM-PLUMED plugin and
+# py-plumed into it, and adds forcefill. See README.md in this directory for the other
+# two routes and for what to do with an environment that already exists.
+#
+# ORCA is not packaged here — install it separately and set OPENMMQMMM_ORCADIR.
 name: openmmqmmm
 channels:
   - conda-forge
@@ -12,13 +15,17 @@ dependencies:
   # Atomic Simulation Environment integration
   - ase
   - openmm =8.5.2
-  # conda-forge's openmm-plumed binary requires OpenMM <8.5. These packages
-  # support the latest GitHub master source build documented in README.md.
-  - plumed =2.9.2
+  # PLUMED itself is absent on purpose: build_plumed.sh compiles it into the same
+  # prefix, so a conda-forge copy would be silently overwritten by `make install`,
+  # and that build omits the opes module openmm_md_plumed needs. These are the
+  # source-build prerequisites for it and for the openmm-plumed plugin.
   - cmake
   - make
   - swig
   - cxx-compiler
+  - doxygen
+  # build_py_plumed regenerates the py-plumed C extension from its .pyx source.
+  - cython
   - pdbfixer
   - mdtraj
   - numpy
@@ -27,7 +34,7 @@ dependencies:
   # Amber/CHARMM/GROMACS topology handling in OpenMMTheory
   - parmed
   # forcefill's dependency stack (openmm_modeller parameterize_nonstandard=True; see README.md).
-  # forcefill itself is not on PyPI or conda-forge — install it with the pip command above.
+  # forcefill itself is on neither index, so conda_install.sh pip-installs it from git.
   # openff-toolkit pulls ambertools (antechamber for the GAFF backend), which pulls
   # pytorch + CUDA (several GB).
   - openmmforcefields

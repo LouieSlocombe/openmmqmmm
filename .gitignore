@@ -10,6 +10,9 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
+# PLUMED/OpenMM sources cloned by build_tools/conda_install.sh, wiped on each run
+build_tools/sources/
+
 # Coverage output
 .coverage
 coverage.xml
