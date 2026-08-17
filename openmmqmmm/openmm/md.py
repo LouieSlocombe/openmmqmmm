@@ -959,7 +959,14 @@ class MolecularDynamicsEngine:
 
             logger.info("Plumed active. Adding Plumedforce to system")
             logger.info("plumedinput: %s", plumedinput)
-            self.openmmobject.system.addForce(openmmplumed.PlumedForce(plumedinput))
+            plumed_force = openmmplumed.PlumedForce(plumedinput)
+            # The plugin defaults to -1 K, which it reports to PLUMED as "undefined". Every
+            # quantity PLUMED derives from kT then breaks: OPES_METAD's default
+            # BIASFACTOR=BARRIER/kT becomes infinite and aborts, and reweighting goes wrong
+            # silently.
+            plumed_force.setTemperature(self.temperature)
+            logger.info("Plumed temperature: %s K", self.temperature)
+            self.openmmobject.system.addForce(plumed_force)
 
         if restraints is not None:
             logger.info("Adding restraints")

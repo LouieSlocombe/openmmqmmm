@@ -1,5 +1,6 @@
 import importlib.util
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from openmmqmmm import (
     OpenMMTheory,
     QMMMTheory,
     openmm_md,
+    openmm_md_plumed,
     openmm_modeller,
     single_point,
 )
@@ -255,6 +257,103 @@ def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):
     assert fragment.coords.shape == starting_coords.shape
     assert not np.allclose(fragment.coords, starting_coords), "MD must advance the coordinates"
     assert np.all(np.isfinite(fragment.coords))
+
+
+def _write_plumed_test_system():
+    """The h2o_MeOH system used by the MD tests, written to the current directory."""
+    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
+    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
+    theory = OpenMMTheory(
+        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
+        pdbfile="h2o_MeOH.pdb",
+        autoconstraints=None,
+        rigidwater=False,
+    )
+    return fragment, theory
+
+
+def test_openmm_md_plumed_passes_the_run_temperature(tmp_path, monkeypatch):
+    """PlumedForce defaults to -1 K, which PLUMED reads as "no kT" and every kT-derived value breaks."""
+    import openmm
+
+    forces = []
+
+    class _FakePlumedForce(openmm.CustomExternalForce):
+        """Contributes no energy; records what the engine configures on it."""
+
+        def __init__(self, script):
+            super().__init__("0")
+            self.script = script
+            self.temperature = None
+            forces.append(self)
+
+        def setTemperature(self, temperature):  # noqa: N802
+            self.temperature = temperature
+
+    monkeypatch.setitem(sys.modules, "openmmplumed", SimpleNamespace(PlumedForce=_FakePlumedForce))
+    monkeypatch.chdir(tmp_path)
+    fragment, theory = _write_plumed_test_system()
+
+    openmm_md_plumed(
+        fragment=fragment,
+        theory=theory,
+        timestep=0.0005,
+        simulation_steps=2,
+        traj_frequency=2,
+        temperature=350,
+        plumed_input_string="d1: DISTANCE ATOMS=1,4\n",
+    )
+
+    assert len(forces) == 1, "openmm_md_plumed should add exactly one PlumedForce"
+    assert forces[0].temperature == 350, "The run temperature has to reach PLUMED, or kT is undefined there"
+
+
+def _plumed_has_opes():
+    """conda-forge's PLUMED build omits opes; only a source build (see build_tools/) has it."""
+    plumed = shutil.which("plumed")
+    if plumed is None:
+        return False
+    probe = subprocess.run(
+        [plumed, "--no-mpi", "config", "-q", "module", "opes"],
+        check=False,
+        capture_output=True,
+    )
+    return probe.returncode == 0
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("openmmplumed") is None or not _plumed_has_opes(),
+    reason="needs the openmm-plumed plugin and a PLUMED built with the opes module",
+)
+def test_openmm_md_plumed_opes_default_biasfactor(tmp_path, monkeypatch):
+    """OPES leaves BIASFACTOR at BARRIER/kT, so the value it records shows whether PLUMED got a kT.
+
+    With no temperature the default is infinite, and OPES either aborts outright (adaptive SIGMA)
+    or silently biases towards a uniform target. SIGMA is explicit here only so that kernels — and
+    with them the biasfactor header — are written without waiting out the adaptive-SIGMA warmup.
+    """
+    monkeypatch.chdir(tmp_path)
+    fragment, theory = _write_plumed_test_system()
+
+    openmm_md_plumed(
+        fragment=fragment,
+        theory=theory,
+        timestep=0.0005,
+        simulation_steps=10,
+        traj_frequency=10,
+        temperature=300,
+        plumed_input_string=(
+            "d1: DISTANCE ATOMS=1,4\n"
+            "opes: OPES_METAD ARG=d1 PACE=5 BARRIER=10 SIGMA=0.05 FILE=KERNELS\n"
+            "PRINT ARG=d1,opes.bias FILE=COLVAR STRIDE=5\n"
+        ),
+    )
+
+    kernels = (tmp_path / "KERNELS").read_text()
+    header = next((line for line in kernels.splitlines() if "biasfactor" in line), None)
+    assert header is not None, f"OPES recorded no biasfactor: {kernels!r}"
+    # BARRIER/kT at 300 K, the value that is infinite when PLUMED has no temperature.
+    assert float(header.split()[-1]) == pytest.approx(4.009, abs=0.01)
 
 
 def test_openmm_md_requires_a_run_length():

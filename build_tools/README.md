@@ -18,16 +18,6 @@ enhanced-sampling route in this package.
 
 None of the routes install ORCA — see [Configuring ORCA](#configuring-orca) below.
 
-One thing to know when writing an OPES input for `openmm_md_plumed`: set `TEMP` explicitly
-on the bias action. `openmm_md_plumed` does not pass a temperature to `PlumedForce`, which
-leaves PLUMED's default of `-1`, so an `OPES_METAD` that relies on `BIASFACTOR=BARRIER/kT`
-aborts with `cannot use BIASFACTOR=inf with adaptive SIGMA`. Anything else that derives a
-value from kT is affected the same way.
-
-```
-opes: OPES_METAD ARG=d1 PACE=5 BARRIER=10 TEMP=300
-```
-
 ## Prerequisites
 
 - A compatible operating system: Linux, macOS, or Windows via WSL.
