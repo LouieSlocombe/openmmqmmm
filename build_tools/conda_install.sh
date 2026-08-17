@@ -2,7 +2,7 @@
 # One-command install of the openmmqmmm conda environment: creates the environment
 # from environment.yml, compiles PLUMED (with the opes module), the OpenMM-PLUMED
 # plugin and the PLUMED Python bindings (py-plumed) into it, then installs
-# openmmqmmm and forcefill and verifies the result.
+# openmmqmmm and its git dependencies in editable mode and verifies the result.
 #
 #   bash conda_install.sh
 #
@@ -11,6 +11,11 @@
 # Set ENV_NAME to install into a differently named environment instead:
 #
 #   ENV_NAME=openmmqmmm2 bash conda_install.sh
+#
+# forcefill is cloned next to this repository and installed editable. An existing
+# checkout is used as it is, never wiped. Set SRC_DIR to keep it somewhere else:
+#
+#   SRC_DIR="${HOME}/src" bash conda_install.sh
 #
 # ORCA is licensed separately and is not installed here; see the end of this script.
 
@@ -23,9 +28,14 @@ ENV_NAME="${ENV_NAME:-openmmqmmm}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORK_DIR="${SCRIPT_DIR}/sources"
+# Alongside the repository, so the checkouts survive the wipe WORK_DIR gets.
+SRC_DIR="${SRC_DIR:-$(dirname "${REPO_DIR}")}"
 
 # Pulls in build_plumed() and build_py_plumed(), with the PLUMED versions they pin.
 source "${SCRIPT_DIR}/build_plumed.sh"
+# Pulls in install_editable_repos() and check_editable_repos(), with the git
+# dependencies they clone.
+source "${SCRIPT_DIR}/editable_repos.sh"
 
 echo "=== Initializing Conda Environment ==="
 source "$(conda info --base)/etc/profile.d/conda.sh"
@@ -50,11 +60,10 @@ build_py_plumed "${WORK_DIR}"
 echo "=== Installing openmmqmmm (editable) ==="
 pip install -e "${REPO_DIR}" --no-deps
 
-# Not on PyPI or conda-forge, so it cannot go in environment.yml; without it
+# forcefill is on neither index, so it cannot go in environment.yml; without it
 # openmm_modeller(parameterize_nonstandard=True) raises MissingDependencyError. Its
 # dependency stack (openff-toolkit, openmmforcefields, rdkit) came from environment.yml.
-echo "=== Installing forcefill ==="
-pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"
+install_editable_repos "${SRC_DIR}"
 
 echo "=== Verifying Installation ==="
 cd "${REPO_DIR}"
@@ -64,13 +73,14 @@ python -c "import plumed; plumed.Plumed()"
 echo "py-plumed kernel load: OK"
 python -c "from openmmplumed import PlumedForce"
 echo "openmm-plumed: OK"
-python -c "import forcefill"
-echo "forcefill: OK"
+check_editable_repos "${SRC_DIR}"
+echo "editable dependencies: OK"
 python -c "import openmmqmmm"
 echo "openmmqmmm: OK"
 
 echo "=== Build Complete! ==="
 echo "Activate with: conda activate ${ENV_NAME}"
+echo "Checkouts: ${SRC_DIR}"
 echo
 echo "ORCA is not installed by this script. Install it separately (free for academic"
 echo "use) and point openmmqmmm at it, for example:"

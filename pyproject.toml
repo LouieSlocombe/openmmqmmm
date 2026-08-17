@@ -41,8 +41,8 @@ dependencies = [
 # openmm_modeller(parameterize_nonstandard=True) unavailable. build_tools/ covers both:
 # environment.yml pulls forcefill's dependency stack (openff-toolkit, openmmforcefields,
 # rdkit) and the PLUMED source-build prerequisites from conda-forge, and
-# conda_install.sh compiles PLUMED and OpenMM-PLUMED against OpenMM 8.5.2 and pip-installs
-# forcefill from git.
+# conda_install.sh compiles PLUMED and OpenMM-PLUMED against OpenMM 8.5.2 and installs
+# forcefill editable from a checkout next to this repository.
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts

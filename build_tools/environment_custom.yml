@@ -34,7 +34,9 @@ dependencies:
   # Amber/CHARMM/GROMACS topology handling in OpenMMTheory
   - parmed
   # forcefill's dependency stack (openmm_modeller parameterize_nonstandard=True; see README.md).
-  # forcefill itself is on neither index, so custom_install.sh pip-installs it from git.
+  # forcefill itself is on neither index, so custom_install.sh clones it next to this
+  # repository and installs it editable (see editable_repos.sh). Creating this environment
+  # on its own leaves it out.
   # openff-toolkit pulls ambertools (antechamber for the GAFF backend), which pulls
   # pytorch + CUDA (several GB).
   - openmmforcefields

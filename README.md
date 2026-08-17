@@ -26,8 +26,8 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
   the full set (ASE, OpenMM, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd, multiprocess,
   numpy, scipy, packaging)
 - **[forcefill](https://github.com/LouieSlocombe/forcefill)** is not on PyPI: `conda_install.sh`
-  adds it with
-  `pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"`.
+  clones it next to this repository and installs it in editable mode, so a `git pull` in that
+  checkout is enough to update it.
   Without it `openmm_modeller(parameterize_nonstandard=True)` raises `MissingDependencyError`;
   everything else except the PLUMED integration works. Its dependency stack (openff-toolkit,
   openmmforcefields, RDKit, AmberTools) comes from conda-forge via
@@ -53,10 +53,11 @@ bash build_tools/conda_install.sh
 
 One command: it creates the `openmmqmmm` conda environment from
 `build_tools/environment.yml`, compiles PLUMED 2.10.1 (with the `opes` module), the
-OpenMM-PLUMED plugin and the PLUMED Python bindings into it, installs this package in
-editable mode along with forcefill, and verifies each piece by importing it. The
+OpenMM-PLUMED plugin and the PLUMED Python bindings into it, installs this package and
+forcefill in editable mode, and verifies each piece by importing it. The
 environment is removed and recreated on every run; set `ENV_NAME` to build into a
-different one.
+different one. The forcefill checkout it clones alongside this repository is left alone —
+set `SRC_DIR` to keep it elsewhere.
 
 [build_tools/README.md](build_tools/README.md) is the full installation guide — the other
 two routes (Sol cluster, source-built OpenMM), what to do with an environment that already

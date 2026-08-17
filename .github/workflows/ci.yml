@@ -42,6 +42,9 @@ jobs:
           create-args: python=${{ matrix.python }}
           cache-environment: true
       - run: pip install -e . --no-deps
+      # The installers in build_tools/ clone forcefill next to the repository and install
+      # it editable; a runner has only this repository checked out, so CI takes it from
+      # GitHub instead.
       - run: pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git"
       - run: python -c "import openmmqmmm"
       # The no-ORCA number is 53% (57% with ORCA); the floor sits well below it so
