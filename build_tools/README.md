@@ -111,6 +111,26 @@ Do **not** install conda-forge's `plumed` or `openmm-plumed` packages here — t
 has no `opes` module and would be overwritten in place by `build_plumed`'s `make install`,
 and the second requires `openmm <8.5`.
 
+### One environment for openmmqmmm + openmmnqe
+
+The QM/MM-through-openmmnqe workflows (see the main README) need both packages importable
+from one interpreter. The `openmmnqe` environment is the superset — it already carries
+OpenMM 8.5.2, openmm-ml, OpenMM-PLUMED, and the shared editable checkouts — so add this
+package to it rather than the other way around:
+
+```bash
+conda activate openmmnqe
+pip install -e /path/to/skunkworks/openmmqmmm --no-deps
+python -c "import openmm, openmmqmmm, openmmnqe; assert hasattr(openmm, 'PythonForce')"
+```
+
+`--no-deps` for the same reason the installers use it: the openmmnqe environment files are
+the authority on dependencies, and anything genuinely missing surfaces at the import
+check. `editable_repos.sh` stays unchanged in both repositories — neither package joins
+the other's editable list, because the two are composed by user scripts, not by imports.
+With both installed, `pytest tests/test_nqe_interop.py` in this repository runs the
+cross-package tests; without openmmnqe it skips them.
+
 ## Sol cluster
 
 `custom_install_sol.sh` builds the `openmmqmmm` environment on Sol. Most dependencies

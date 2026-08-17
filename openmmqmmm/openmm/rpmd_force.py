@@ -140,8 +140,8 @@ def add_rpmd_python_force(system, provider, *, periodic=False):
     if any(force.getName() == RPMD_PYTHON_FORCE_NAME for force in system.getForces()):
         raise InputError(
             "This OpenMM System already carries the openmmqmmm bead-specific PythonForce from a previous "
-            "MolecularDynamicsEngine. A second one would silently double the QM force; reuse the existing "
-            "engine's run() for more steps or build a fresh theory object."
+            "MolecularDynamicsEngine or export_rpmd_potential call. A second one would silently double the "
+            "QM force; reuse the existing engine or export, or build a fresh theory object."
         )
 
     used_groups = {force.getForceGroup() for force in system.getForces()}

@@ -7,12 +7,14 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from conftest import _AnalyticQM, _make_analytic_qmmm
 
 from openmmqmmm import (
     Fragment,
     MolecularDynamicsEngine,
     OpenMMTheory,
-    QMMMTheory,
+    export_rpmd_potential,
+    modeller_from_topology,
     openmm_md,
     openmm_md_plumed,
     openmm_modeller,
@@ -22,64 +24,6 @@ from openmmqmmm.exceptions import InputError, MissingDependencyError
 from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
 
 TEST_DIR = Path(__file__).parent
-
-
-class _AnalyticQM:
-    """Small deterministic QM stand-in used to exercise PythonForce without ORCA."""
-
-    def __init__(self, force_constant=0.01):
-        self.numcores = 1
-        self.theorytype = "QM"
-        self.theorynamelabel = "AnalyticQM"
-        self.force_constant = force_constant
-        self.calls = []
-
-    def run(self, *, current_coords=None, current_mm_coords=None, grad=False, pc=False, **_kwargs):
-        from openmmqmmm import constants
-
-        qm_bohr = np.asarray(current_coords) * constants.ANG_TO_BOHR
-        mm_bohr = (
-            np.asarray(current_mm_coords) * constants.ANG_TO_BOHR if current_mm_coords is not None else np.zeros((0, 3))
-        )
-        energy = 0.5 * self.force_constant * (np.sum(qm_bohr * qm_bohr) + np.sum(mm_bohr * mm_bohr))
-        qm_gradient = self.force_constant * qm_bohr
-        mm_gradient = self.force_constant * mm_bohr
-        self.calls.append(np.asarray(current_coords).copy())
-        if not grad:
-            return energy
-        if pc:
-            return energy, qm_gradient, mm_gradient
-        return energy, qm_gradient
-
-
-def _make_analytic_qmmm(embedding="mech", **kwargs):
-    if embedding == "mech":
-        fragment = Fragment(elems=["H", "H"], coords=[[-0.5, 0, 0], [0.5, 0, 0]], charge=0, mult=1)
-        qmatoms = [0, 1]
-    else:
-        fragment = Fragment(elems=["H", "H"], coords=[[1.0, 0, 0], [5.0, 0, 0]], charge=0, mult=1, conncalc=False)
-        qmatoms = [0]
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
-    qm = _AnalyticQM()
-    qmmm = QMMMTheory(
-        fragment=fragment,
-        qm_theory=qm,
-        mm_theory=mm,
-        qmatoms=qmatoms,
-        embedding=embedding,
-        qm_charge=0,
-        qm_mult=1,
-        dipole_correction=False,
-        **kwargs,
-    )
-    return qmmm, fragment, qm
 
 
 def _make_minimal_rpmd_simulation(num_copies):
@@ -533,6 +477,104 @@ def test_qmmm_rpmd_pythonforce_system_round_trips_through_xml():
     assert [force.__class__.__name__ for force in restored.getForces()].count("PythonForce") == 1
 
 
+def test_export_rpmd_potential_wires_pythonforce():
+    import openmm
+
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    export = export_rpmd_potential(theory=qmmm, num_beads=4)
+
+    assert export.system is qmmm.mm_theory.system
+    force_names = [force.__class__.__name__ for force in export.system.getForces()]
+    assert force_names.count("PythonForce") == 1
+    assert export.python_force.getForceGroup() == export.force_group
+    assert export.num_beads == 4
+    assert export.provider.cache_size == 2 * 4 + 4
+    assert qmmm.openmm_externalforce is True
+    assert qmmm.exit_after_customexternalforce_update is True
+    assert export.modeller.topology.getNumAtoms() == 2
+    positions_nm = np.asarray(export.modeller.positions.value_in_unit(openmm.unit.nanometer))
+    assert positions_nm == pytest.approx(np.asarray(fragment.coords) * 0.1)
+
+
+def test_export_rpmd_potential_energy_matches_analytic():
+    import openmm
+    import openmm.app
+
+    from openmmqmmm import constants
+
+    qmmm, _fragment, qm = _make_analytic_qmmm()
+    export = export_rpmd_potential(theory=qmmm, num_beads=2)
+
+    integrator = openmm.RPMDIntegrator(
+        2, 300 * openmm.unit.kelvin, 1 / openmm.unit.picosecond, 0.0005 * openmm.unit.picoseconds
+    )
+    simulation = openmm.app.Simulation(
+        export.modeller.topology,
+        export.system,
+        integrator,
+        openmm.Platform.getPlatformByName("Reference"),
+    )
+    bead_positions_nm = np.array(
+        [
+            [[-0.05, 0.01, 0.02], [0.05, -0.03, 0.04]],
+            [[-0.15, 0.02, -0.01], [0.16, 0.03, -0.02]],
+        ]
+    )
+    for copy, positions in enumerate(bead_positions_nm):
+        simulation.integrator.setPositions(copy, [openmm.Vec3(*row) for row in positions] * openmm.unit.nanometer)
+
+    for copy, positions_nm in enumerate(bead_positions_nm):
+        state = simulation.integrator.getState(copy, getEnergy=True, groups={export.force_group})
+        coords_bohr = positions_nm * 10.0 * constants.ANG_TO_BOHR
+        expected_energy = 0.5 * qm.force_constant * np.sum(coords_bohr**2) * constants.HARTREE_TO_KJ_PER_MOL
+        energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole)
+        assert energy == pytest.approx(expected_energy, rel=1e-9)
+
+
+def test_export_rpmd_potential_rejects_second_export_and_engine():
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    export_rpmd_potential(theory=qmmm, num_beads=2)
+
+    with pytest.raises(InputError, match="already carries"):
+        export_rpmd_potential(theory=qmmm, num_beads=2)
+    with pytest.raises(InputError, match="already carries"):
+        MolecularDynamicsEngine(
+            fragment=fragment,
+            theory=qmmm,
+            charge=0,
+            mult=1,
+            integrator="RPMDIntegrator",
+            rpmd_num_copies=2,
+        )
+    force_names = [force.__class__.__name__ for force in qmmm.mm_theory.system.getForces()]
+    assert force_names.count("PythonForce") == 1
+
+
+def test_export_rpmd_potential_rejects_non_qmmm_theory():
+    with pytest.raises(InputError, match="requires a QMMMTheory"):
+        export_rpmd_potential(theory=_AnalyticQM(), num_beads=2)
+
+
+def test_export_rpmd_potential_validates_num_beads():
+    qmmm, _fragment, _qm = _make_analytic_qmmm()
+    with pytest.raises(InputError, match="num_beads must be a positive integer"):
+        export_rpmd_potential(theory=qmmm, num_beads=0)
+    force_names = [force.__class__.__name__ for force in qmmm.mm_theory.system.getForces()]
+    assert "PythonForce" not in force_names
+
+
+def test_modeller_from_topology_converts_angstrom_to_nm():
+    import openmm
+
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    modeller = modeller_from_topology(topology=qmmm.mm_theory.topology, coords_angstrom=fragment.coords)
+
+    positions_nm = np.asarray(modeller.positions.value_in_unit(openmm.unit.nanometer))
+    assert positions_nm == pytest.approx(np.asarray(fragment.coords) * 0.1)
+    with pytest.raises(InputError, match="shape"):
+        modeller_from_topology(topology=qmmm.mm_theory.topology, coords_angstrom=[[0.0, 0.0, 0.0]])
+
+
 def test_qmmm_rpmd_step_evaluates_and_caches_each_final_bead():
     import openmm
 
@@ -594,6 +636,64 @@ def test_qmmm_rpmd_engine_run_reports_and_restarts_all_beads():
 
     engine.finalize_simulation()
     assert Path(RPMD_FINAL_RESTART_FILENAME).exists()
+
+
+class _RecordingReporter:
+    """Minimal OpenMM-protocol reporter that records the step of every report call."""
+
+    def __init__(self):
+        self.reports = []
+
+    def describeNextReport(self, simulation):  # noqa: N802 - OpenMM reporter API, do not rename
+        return (1, False, False, False, False)
+
+    def report(self, simulation, state):
+        self.reports.append(simulation.currentStep)
+
+
+def test_rpmd_run_invokes_pre_dynamics_hook_and_extra_reporters():
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        timestep=0.000001,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+        traj_frequency=1,
+    )
+    recorder = _RecordingReporter()
+    hook_steps = []
+
+    def seed_hook(md):
+        assert md is engine
+        assert md.simulation is not None
+        hook_steps.append(md.simulation.currentStep)
+
+    engine.run(simulation_steps=2, extra_reporters=[recorder], pre_dynamics_hook=seed_hook)
+
+    assert hook_steps == [0], "The hook must run once, before any dynamics"
+    assert recorder in engine._rpmd_reporters
+    assert recorder.reports == [1, 2], "The RPMD event loop must drive extra reporters at traj_frequency"
+
+
+def test_classical_run_attaches_extra_reporters_natively():
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        timestep=0.000001,
+        traj_frequency=1,
+    )
+    recorder = _RecordingReporter()
+
+    engine.run(simulation_steps=1, extra_reporters=[recorder])
+
+    assert recorder in engine.simulation.reporters
+    assert recorder.reports, "Native OpenMM scheduling must call the extra reporter"
 
 
 def test_qmmm_rpmd_electrostatic_pythonforce_returns_physical_qm_energy():

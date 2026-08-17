@@ -10,6 +10,11 @@ from openmmqmmm.openmm.md import (
     print_current_step_info,
     read_npt_statefile,
 )
+from openmmqmmm.openmm.nqe_export import (
+    RPMDPotentialExport,
+    export_rpmd_potential,
+    modeller_from_topology,
+)
 from openmmqmmm.openmm.plumed import openmm_md_plumed
 from openmmqmmm.openmm.systemsetup import (
     find_alternate_locations_residues,
@@ -33,12 +38,15 @@ __all__ = [
     "ForceReporter",
     "MolecularDynamicsEngine",
     "OpenMMTheory",
+    "RPMDPotentialExport",
     "check_gradient_for_bad_atoms",
     "clean_up_constraints_list",
     "diff_wrap_box_coords",
+    "export_rpmd_potential",
     "find_alternate_locations_residues",
     "gentle_warmup_md",
     "merge_pdb_files",
+    "modeller_from_topology",
     "openmm_add_bonds_to_topology",
     "openmm_box_equilibration",
     "openmm_md",

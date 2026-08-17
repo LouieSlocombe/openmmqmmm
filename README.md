@@ -203,11 +203,63 @@ repartitioning and restores the mass transferred from each bonded heavy atom. Fo
 select `integrator="QTBIntegrator"`; it uses the same temperature, coupling-frequency and timestep
 options as the Langevin integrators.
 
+#### Running the QM/MM potential through openmmnqe
+
+The sibling [openmmnqe](https://github.com/LouieSlocombe/openmmnqe) package provides staged NQE
+workflows (RPMD equilibration/production, adQTB) and ring-polymer reporters. Neither package
+imports the other: they meet at plain OpenMM objects. `export_rpmd_potential` hands over the MM
+System with the bead-specific `PythonForce` already attached plus a matching `Modeller`, and
+openmmnqe's `PreparedSystem` routes that System through its stages unchanged:
+
+```py
+export = export_rpmd_potential(theory=qm_mm, num_beads=32)
+prepared = openmmnqe.PreparedSystem(export.system)
+
+openmmnqe.run_openmm_rpmd_equilibration(export.modeller, prepared, n_beads=32)
+openmmnqe.run_openmm_rpmd_prod(
+    export.modeller, prepared, checkpoint_file="rpmd_ready.chk", n_beads=32, barostat_freq=None
+)
+```
+
+Always pass `barostat_freq=None` to the openmmnqe production stages (a barostat cannot be combined
+with QM/MM RPMD), build a fresh export for each stage that mutates the System (barostat, PLUMED
+bias, deuteration), and never run an exported System through `run_openmm_rpmd_contracted`, whose
+force-group reassignment folds the QM `PythonForce` into a contracted group. Use openmmqmmm's own
+`rpmd_qm_num_copies` for QM-force contraction instead. Start openmmnqe's classical preparation
+stages from a plain force field and bridge into the QM/MM RPMD stages through the stage-final PDB
+(binary checkpoints do not survive the System change; the bead archive does).
+
+The reverse direction also works: `MolecularDynamicsEngine.run` takes `extra_reporters` (attached
+alongside the engine's own; in RPMD runs they are driven every `traj_frequency` steps) and
+`pre_dynamics_hook` (called once with the engine after the Simulation exists, before dynamics), so
+openmmnqe's utilities plug into an openmmqmmm-driven run:
+
+```py
+modeller = modeller_from_topology(topology=omm.topology, coords_angstrom=fragment.coords)
+openmmnqe.deuterate_system(modeller, omm.system, option="water")
+engine = MolecularDynamicsEngine(fragment=fragment, theory=qm_mm, integrator="RPMDIntegrator", rpmd_num_copies=32)
+engine.run(
+    simulation_steps=1000,
+    extra_reporters=[
+        openmmnqe.RPMDCentroidReporter(
+            topology=modeller.topology, file_name="centroid.pdb", reportInterval=100, num_beads=32
+        )
+    ],
+    pre_dynamics_hook=lambda md: openmmnqe.init_beads(modeller, md.simulation, 32),
+)
+```
+
+Do not seed beads from the hook when restarting from a checkpoint — it would overwrite the loaded
+bead state. The ORCA-free pattern for all of this is in
+[tests/test_nqe_interop.py](tests/test_nqe_interop.py), which runs whenever both packages share an
+environment (see [build_tools/README.md](build_tools/README.md)).
+
 Runnable scripts, including a gas-phase ORCA example, live in [examples/](examples/):
 
 ```sh
 python examples/gasphase_hf.py
 python examples/qmmm_optimization.py system.pdb
+python examples/qmmm_rpmd_nqe_stages.py system.pdb
 ```
 
 ## Errors

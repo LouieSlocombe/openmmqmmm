@@ -25,9 +25,9 @@ from openmmqmmm.exceptions import (
     MissingDependencyError,
 )
 from openmmqmmm.mdtraj import mdtraj_image_trajectory, mdtraj_load, mdtraj_rmsf
+from openmmqmmm.openmm.nqe_export import attach_qmmm_rpmd_force
 from openmmqmmm.openmm.rpmd_force import (
     RPMDExternalQMForceProvider,
-    RPMDQMMMForceProvider,
     add_rpmd_python_force,
 )
 from openmmqmmm.openmm.systemsetup import openmm_minimize
@@ -290,18 +290,6 @@ class MolecularDynamicsEngine:
             self.openmmobject = theory.mm_theory
             self.theory_runtype = "QMMM"
 
-            if is_rpmd:
-                if self.QM_MM_object.truncated_pc:
-                    raise InputError(
-                        "QM/MM RPMD does not support truncated_pc because its correction history is shared across "
-                        "beads. Disable truncated_pc for bead-resolved dynamics."
-                    )
-                if self.QM_MM_object.update_qm_region_charges:
-                    raise InputError(
-                        "QM/MM RPMD does not support update_qm_region_charges because one shared MM charge set "
-                        "cannot represent every bead."
-                    )
-
             # Making sure QM/MM object will exit before calculating MM part
             self.QM_MM_object.exit_after_customexternalforce_update = True
             logger.info("Turning on externalforce option.")
@@ -360,15 +348,18 @@ class MolecularDynamicsEngine:
 
         if self.theory_runtype in {"QMMM", "QM"}:
             if is_rpmd:
-                cache_size = 2 * self.rpmd_num_copies + 4
                 if self.theory_runtype == "QMMM":
-                    self.rpmd_force_provider = RPMDQMMMForceProvider(
-                        self.QM_MM_object,
-                        self.fragment.elems,
-                        self.charge,
-                        self.mult,
+                    (
+                        self.rpmd_force_provider,
+                        self.rpmd_python_force,
+                        self.rpmd_external_force_group,
+                    ) = attach_qmmm_rpmd_force(
+                        theory=self.QM_MM_object,
+                        elems=self.fragment.elems,
+                        charge=self.charge,
+                        mult=self.mult,
+                        num_beads=self.rpmd_num_copies,
                         periodic=self.openmmobject.periodic,
-                        cache_size=cache_size,
                     )
                 else:
                     self.rpmd_force_provider = RPMDExternalQMForceProvider(
@@ -377,13 +368,13 @@ class MolecularDynamicsEngine:
                         self.charge,
                         self.mult,
                         periodic=self.openmmobject.periodic,
-                        cache_size=cache_size,
+                        cache_size=2 * self.rpmd_num_copies + 4,
                     )
-                self.rpmd_python_force, self.rpmd_external_force_group = add_rpmd_python_force(
-                    self.openmmobject.system,
-                    self.rpmd_force_provider,
-                    periodic=self.openmmobject.periodic,
-                )
+                    self.rpmd_python_force, self.rpmd_external_force_group = add_rpmd_python_force(
+                        self.openmmobject.system,
+                        self.rpmd_force_provider,
+                        periodic=self.openmmobject.periodic,
+                    )
                 if self.rpmd_qm_num_copies < self.rpmd_num_copies:
                     contractions = dict(getattr(self.openmmobject, "rpmd_contractions", {}))
                     contractions[self.rpmd_external_force_group] = self.rpmd_qm_num_copies
@@ -935,8 +926,21 @@ class MolecularDynamicsEngine:
         restart=False,
         chkfile=None,
         statefile=None,
+        *,
+        extra_reporters=None,
+        pre_dynamics_hook=None,
     ):
-        """Run the molecular dynamics simulation."""
+        """Run the molecular dynamics simulation.
+
+        extra_reporters is an iterable of OpenMM-protocol reporters attached for this
+        run only: in RPMD runs the engine calls them directly every traj_frequency
+        steps (describeNextReport scheduling is not consulted), classically they join
+        simulation.reporters with native scheduling. pre_dynamics_hook is called once
+        with the engine after the Simulation exists, positions are set, and any
+        restart data is loaded, but before dynamics -- the place to seed RPMD bead
+        distributions from an external tool. The hook also runs on restarts, so skip
+        bead seeding when continuing from chkfile/statefile.
+        """
         module_init_time = time.time()
         logger.info(main_header("OpenMM Molecular Dynamics Run"))
 
@@ -1054,6 +1058,19 @@ class MolecularDynamicsEngine:
 
             self.openmmobject.set_positions(self.positions, self.simulation)
         logger.info("")
+
+        if extra_reporters is not None:
+            extra_reporters = list(extra_reporters)
+            if self._is_rpmd_simulation(self.simulation):
+                # The RPMD event loop drives these at traj_frequency alongside the
+                # engine's own reporters; describeNextReport is not consulted.
+                self._rpmd_reporters.extend(extra_reporters)
+            else:
+                self.simulation.reporters.extend(extra_reporters)
+            logger.info("Attached %s extra reporter(s)", len(extra_reporters))
+        if pre_dynamics_hook is not None:
+            logger.info("Calling pre_dynamics_hook before dynamics")
+            pre_dynamics_hook(self)
 
         if self.openmmobject.periodic is True:
             logger.info("Periodic Boundary Conditions used.")
