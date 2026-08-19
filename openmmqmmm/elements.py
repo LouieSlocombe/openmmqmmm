@@ -5,6 +5,8 @@ import numpy as np
 
 @dataclass(frozen=True)
 class Element:
+    """One periodic-table entry: name, symbol and atomic number."""
+
     name: str
     symbol: str
     atomnumber: int

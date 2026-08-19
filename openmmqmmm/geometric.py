@@ -73,6 +73,8 @@ CONVERGENCE_PRESETS = {
 
 @dataclass
 class Constraints:
+    """The geomeTRIC constraint lists: bonds, angles, dihedrals and Cartesian freezes."""
+
     bond: list | None = None
     angle: list | None = None
     dihedral: list | None = None
@@ -117,7 +119,7 @@ def optimize_geometry(
     force_no_pbc=False,
     pbc_format_option="CIF",
 ) -> "Results":
-    """Wrapper function around the GeometricOptimizer class."""
+    """Optimize the geometry of a fragment with a given theory, using geomeTRIC."""
     timeA = time.time()
 
     if theory is None or fragment is None:
@@ -798,6 +800,8 @@ class GeometricOptimizer:
 
 
 class GeometricArgs:
+    """Argument bundle handed to geomeTRIC as ``**vars()``; the attribute names are geomeTRIC's."""
+
     def __init__(
         self,
         eng,
@@ -850,6 +854,8 @@ class GeometricArgs:
 
 
 class GeometricEngine:
+    """Adapter presenting an openmmqmmm theory as a geomeTRIC engine (energies and gradients)."""
+
     def __init__(
         self,
         geometric_molf,

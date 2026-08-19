@@ -537,7 +537,7 @@ class QMMMTheory:
     def calculate_trunc_pc_gradient_correction(
         self, QMgradient_full, PCgradient_full, QMgradient_trunc, PCgradient_trunc
     ):
-        """Compute the correction between full and truncated point-charge gradients."""
+        """Compute the QM and point-charge gradient corrections for PC truncation and store them."""
         qm_difference = (
             QMgradient_full[: len(QMgradient_full) - self.num_linkatoms]
             - QMgradient_trunc[: len(QMgradient_full) - self.num_linkatoms]

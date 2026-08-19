@@ -24,7 +24,7 @@ def mdtraj_load():
 def mdtraj_rmsf(
     trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True
 ) -> list[int]:
-    """Compute per-atom root-mean-square fluctuations of a trajectory via mdtraj."""
+    """Return the indices of the atoms fluctuating most in a trajectory (per-atom RMSF via mdtraj)."""
     logger.info("Inside MDtraj_RMSF")
     mdtraj = mdtraj_load()
 
@@ -55,8 +55,8 @@ def mdtraj_rmsf(
 # anchor_molecules. Use if automatic guess fails
 def mdtraj_image_trajectory(
     trajectory, pdbtopology, traj_format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
-) -> str:
-    """Re-image (wrap) a periodic trajectory so molecules stay whole, via mdtraj."""
+) -> np.ndarray:
+    """Re-image a periodic trajectory so molecules stay whole, returning the last frame's coordinates."""
     traj_basename = os.path.splitext(trajectory)[0]
     pdb_basename = os.path.splitext(pdbtopology)[0]
 

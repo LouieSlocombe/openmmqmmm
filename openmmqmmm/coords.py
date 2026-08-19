@@ -488,7 +488,7 @@ class Fragment:
         self.energy = float(energy)
 
     def get_coordinate_center(self):
-        """Return the geometric centre of the coordinates (unweighted by mass)."""
+        """Return the mean position of all atoms as a list (unweighted by mass)."""
         center_x = np.mean(self.coords[:, 0])
         center_y = np.mean(self.coords[:, 1])
         center_z = np.mean(self.coords[:, 2])
@@ -526,7 +526,7 @@ class Fragment:
             )
 
     def get_centroid(self):
-        """Return the centroid (mean position) of all atoms."""
+        """Return the mean position of all atoms as an array (unweighted by mass)."""
         return np.mean(self.coords, axis=0)
 
     def write_pdbfile(self, filename="Fragment"):

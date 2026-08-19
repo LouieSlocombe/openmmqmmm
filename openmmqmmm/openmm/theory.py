@@ -1462,7 +1462,7 @@ class OpenMMTheory:
         log_time_since(timeA, "energy decomposition")
 
     def compute_dof(self):
-        """Return the number of degrees of freedom, accounting for constraints and frozen atoms."""
+        """Compute the degrees of freedom, accounting for constraints and frozen atoms, into self.dof."""
         dof = 0
         for i in range(self.system.getNumParticles()):
             if self.system.getParticleMass(i) > 0 * openmm.unit.dalton:
@@ -1857,6 +1857,8 @@ class OpenMMTheory:
 
 
 class ForceReporter:
+    """Write the energy and forces of every reported frame to a text file."""
+
     def __init__(self, file, report_interval, atomic_units=False):
         self._out = open(file, "w")  # noqa: SIM115 - reporter handle, closed in __del__
         self._reportInterval = report_interval

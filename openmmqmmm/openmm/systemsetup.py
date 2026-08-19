@@ -133,6 +133,8 @@ def openmm_minimize(
     if version.parse(openmm.__version__) >= version.parse("8.1") and use_reporter is True:
 
         class Reporter(openmm.openmm.MinimizationReporter):
+            """Log minimizer progress; the OpenMM reporter hook exists only from 8.1 on."""
+
             def report(self, iteration, x, grad, args):
                 if not hasattr(self, "totaliter"):
                     self.totaliter = -1

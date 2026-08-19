@@ -14,7 +14,7 @@ timings_logger = logging.getLogger("openmmqmmm.timings")
 
 
 def configure_logging(level="INFO", file=None, fmt="%(message)s") -> logging.Logger:
-    """Configure output for openmmqmmm calculations."""
+    """Configure console (and optional file) output; OPENMMQMMM_LOGLEVEL overrides level."""
     package_logger = logging.getLogger("openmmqmmm")
     env_level = os.environ.get("OPENMMQMMM_LOGLEVEL")
     if env_level:

@@ -1174,7 +1174,7 @@ def inertia(elems, coords, center):
 
 
 def calc_rotational_constants(frag) -> list[float]:
-    """Calculate rotational constants (GHz and cm**-1) for a fragment."""
+    """Return a fragment's rotational constants in cm**-1 (the GHz values are logged as well)."""
     coords = frag.coords
     elems = frag.elems
     center = get_center(coords, elems=elems)

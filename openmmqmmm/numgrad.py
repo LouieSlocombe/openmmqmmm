@@ -36,7 +36,7 @@ class NumGrad:
         self.numcores = numcores
 
     def cleanup(self):
-        """No-op: NumGrad leaves cleanup of scratch files to the wrapped theory."""
+        """Do nothing: NumGrad has no scratch files and does not clean up the wrapped theory's."""
         logger.info("Cleanup method called but not yet implemented for Numgrad")
 
     def run(
