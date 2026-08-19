@@ -19,6 +19,7 @@ from conftest import _make_analytic_qmmm
 openmmnqe = pytest.importorskip("openmmnqe")
 
 from openmmqmmm import (  # noqa: E402 - imports valid only after the importorskip gate
+    Fragment,
     MolecularDynamicsEngine,
     export_rpmd_potential,
     modeller_from_topology,
@@ -138,6 +139,99 @@ def test_nqe_deuteration_applies_to_qmmm_system():
 
     engine.run(simulation_steps=2)
     assert engine.simulation.currentStep == 2
+
+
+def test_contracted_stage_preserves_exported_force_group():
+    qmmm, _fragment, _qm = _make_analytic_qmmm()
+    export = export_rpmd_potential(theory=qmmm, num_beads=NUM_BEADS)
+    prepared = openmmnqe.PreparedSystem(export.system)
+
+    openmmnqe.run_openmm_rpmd_equilibration(
+        export.modeller,
+        prepared,
+        n_beads=NUM_BEADS,
+        n_1=2,
+        n_2=2,
+        n_report=2,
+        platform_name="Reference",
+        seed=5,
+    )
+    evaluations_after_equilibration = export.provider.evaluation_count
+
+    openmmnqe.run_openmm_rpmd_contracted(
+        export.modeller,
+        prepared,
+        checkpoint_file="rpmd_ready.chk",
+        n_beads=NUM_BEADS,
+        steps=2,
+        n_report=2,
+        barostat_freq=None,
+        contractions={},
+        platform_name="Reference",
+    )
+
+    assert export.python_force.getForceGroup() == export.force_group, (
+        "the contracted stage must leave the QM PythonForce in its dedicated group"
+    )
+    assert export.provider.evaluation_count > evaluations_after_equilibration
+
+
+def test_rpmd_prod_rejects_barostat_on_exported_system():
+    qmmm, _fragment, _qm = _make_analytic_qmmm()
+    export = export_rpmd_potential(theory=qmmm, num_beads=NUM_BEADS)
+    prepared = openmmnqe.PreparedSystem(export.system)
+    force_count = export.system.getNumForces()
+
+    with pytest.raises(ValueError, match="PythonForce"):
+        openmmnqe.run_openmm_rpmd_prod(
+            export.modeller,
+            prepared,
+            n_beads=NUM_BEADS,
+            platform_name="Reference",
+        )
+
+    assert export.system.getNumForces() == force_count, "no barostat may be added to the exported System"
+
+
+def test_pdb_bridge_from_classical_stage_into_rpmd():
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    export = export_rpmd_potential(theory=qmmm, num_beads=1)
+    prepared = openmmnqe.PreparedSystem(export.system)
+
+    openmmnqe.run_openmm_prod(
+        export.modeller,
+        prepared,
+        barostat_freq=None,
+        steps=5,
+        n_report=5,
+        platform_name="Reference",
+    )
+
+    bridged = Fragment(pdbfile="prod.pdb")
+    assert bridged.coords.shape == (fragment.numatoms, 3)
+    assert np.isfinite(bridged.coords).all()
+    assert not np.allclose(bridged.coords, np.asarray(fragment.coords), atol=1e-3), (
+        "the stage-final PDB must carry the propagated coordinates, not the input ones"
+    )
+
+    qmmm2, _fragment2, _qm2 = _make_analytic_qmmm(coords=bridged.coords)
+    export2 = export_rpmd_potential(theory=qmmm2, num_beads=NUM_BEADS)
+    openmmnqe.run_openmm_rpmd_equilibration(
+        export2.modeller,
+        openmmnqe.PreparedSystem(export2.system),
+        n_beads=NUM_BEADS,
+        n_1=2,
+        n_2=2,
+        n_report=2,
+        platform_name="Reference",
+        seed=7,
+    )
+
+    assert export2.provider.evaluation_count > 0
+    with np.load("rpmd_ready.chk", allow_pickle=False) as archive:
+        assert archive["num_beads"].item() == NUM_BEADS
+        assert archive["step_count"].item() == 4
+        assert np.isfinite(archive["positions_nm"]).all()
 
 
 def test_prepared_system_rejects_foreign_topology():

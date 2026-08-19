@@ -221,13 +221,16 @@ openmmnqe.run_openmm_rpmd_prod(
 )
 ```
 
-Always pass `barostat_freq=None` to the openmmnqe production stages (a barostat cannot be combined
-with QM/MM RPMD), build a fresh export for each stage that mutates the System (barostat, PLUMED
-bias, deuteration), and never run an exported System through `run_openmm_rpmd_contracted`, whose
-force-group reassignment folds the QM `PythonForce` into a contracted group. Use openmmqmmm's own
-`rpmd_qm_num_copies` for QM-force contraction instead. Start openmmnqe's classical preparation
-stages from a plain force field and bridge into the QM/MM RPMD stages through the stage-final PDB
-(binary checkpoints do not survive the System change; the bead archive does).
+Always pass `barostat_freq=None` to the openmmnqe RPMD and adQTB production stages: their defaults
+add a barostat, and openmmnqe refuses one on a System carrying a `PythonForce`. Build a fresh
+export for each stage that mutates the System (barostat, PLUMED bias, deuteration). The export
+restores physical hydrogen masses and rejects a constrained System for `num_beads > 1`, so build
+the underlying `OpenMMTheory` with `autoconstraints=None` and `rigidwater=False`.
+`run_openmm_rpmd_contracted` leaves the QM `PythonForce` in its own group, evaluated on every
+bead; use openmmqmmm's own `rpmd_qm_num_copies` for QM-force contraction instead. Start
+openmmnqe's classical preparation stages from a plain force field and bridge into the QM/MM RPMD
+stages through the stage-final PDB (binary checkpoints do not survive the System change; the bead
+archive does).
 
 The reverse direction also works: `MolecularDynamicsEngine.run` takes `extra_reporters` (attached
 alongside the engine's own; in RPMD runs they are driven every `traj_frequency` steps) and

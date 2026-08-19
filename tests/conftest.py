@@ -38,9 +38,11 @@ class _AnalyticQM:
         return energy, qm_gradient
 
 
-def _make_analytic_qmmm(embedding="mech", **kwargs):
+def _make_analytic_qmmm(embedding="mech", coords=None, **kwargs):
     if embedding == "mech":
-        fragment = Fragment(elems=["H", "H"], coords=[[-0.5, 0, 0], [0.5, 0, 0]], charge=0, mult=1)
+        if coords is None:
+            coords = [[-0.5, 0, 0], [0.5, 0, 0]]
+        fragment = Fragment(elems=["H", "H"], coords=coords, charge=0, mult=1)
         qmatoms = [0, 1]
     else:
         fragment = Fragment(elems=["H", "H"], coords=[[1.0, 0, 0], [5.0, 0, 0]], charge=0, mult=1, conncalc=False)
