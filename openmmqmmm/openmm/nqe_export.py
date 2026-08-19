@@ -12,10 +12,12 @@ Exporting configures the theory for external-force MD, the same state
 geometry optimization on the same theory object would skip the MM part
 afterwards, so build a fresh theory for those. Build a fresh export per
 driver stage that mutates the System (a barostat, PLUMED bias, or
-deuteration), pass ``barostat_freq=None`` to openmmnqe RPMD production
-stages, and do not run the exported System through openmmnqe's
-``run_openmm_rpmd_contracted``: its force-group reassignment folds the
-PythonForce into a contracted group and silently averages the QM force.
+deuteration), and pass ``barostat_freq=None`` to openmmnqe's RPMD and adQTB
+production stages: their defaults add a barostat, which openmmnqe refuses on
+a System carrying a ``PythonForce``. openmmnqe's ``run_openmm_rpmd_contracted``
+leaves the PythonForce in its own group, so the QM force is evaluated on
+every bead; contract the QM force through ``MolecularDynamicsEngine``'s
+``rpmd_qm_num_copies`` instead.
 """
 
 import dataclasses
@@ -66,8 +68,9 @@ def attach_qmmm_rpmd_force(*, theory, elems, charge, mult, num_beads, periodic, 
     """Attach the bead-specific QM/MM ``PythonForce`` to the theory's MM System.
 
     Shared wiring between ``MolecularDynamicsEngine`` and ``export_rpmd_potential``:
-    validates RPMD-incompatible theory options, switches the theory into
-    external-force mode, and returns ``(provider, python_force, force_group)``.
+    validates RPMD-incompatible theory options (including System constraints for
+    ``num_beads > 1``), restores physical hydrogen masses, switches the theory
+    into external-force mode, and returns ``(provider, python_force, force_group)``.
     """
     if theory.truncated_pc:
         raise InputError(
@@ -82,6 +85,16 @@ def attach_qmmm_rpmd_force(*, theory, elems, charge, mult, num_beads, periodic, 
     if isinstance(num_beads, bool) or not isinstance(num_beads, Integral) or num_beads < 1:
         raise InputError("num_beads must be a positive integer matching the RPMD copy count the System will run under.")
     num_beads = int(num_beads)
+
+    num_constraints = theory.mm_theory.system.getNumConstraints()
+    if num_beads > 1 and num_constraints:
+        raise InputError(
+            f"RPMDIntegrator does not support constraints, but the OpenMM System contains "
+            f"{num_constraints}. Create OpenMMTheory with autoconstraints=None, rigidwater=False, "
+            "and without bondconstraints."
+        )
+    # NQE drivers need physical nuclear masses.
+    theory.mm_theory._disable_hydrogen_mass_repartitioning()
 
     # The provider evaluates only the QM and coupling terms; these flags make
     # QMMMTheory.run skip the MM part, which the System's native forces own.
@@ -111,9 +124,11 @@ def export_rpmd_potential(
 
     The returned System is ``theory.mm_theory.system`` itself, carrying the
     QM/MM ``PythonForce`` in its own force group; the Modeller pairs the MM
-    topology with the fragment coordinates. ``num_beads`` must match the RPMD
-    copy count the external driver will run (it sizes the provider's
-    coordinate cache); use ``num_beads=1`` for classical or adQTB drivers.
+    topology with the fragment coordinates. Exporting restores physical
+    hydrogen masses and, for ``num_beads > 1``, rejects a System that carries
+    constraints. ``num_beads`` must match the RPMD copy count the external
+    driver will run (it sizes the provider's coordinate cache); use
+    ``num_beads=1`` for classical or adQTB drivers.
     """
     if not isinstance(theory, QMMMTheory):
         raise InputError(

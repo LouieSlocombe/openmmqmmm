@@ -550,6 +550,70 @@ def test_export_rpmd_potential_rejects_second_export_and_engine():
     assert force_names.count("PythonForce") == 1
 
 
+_WATER_DIMER_PDB = """CRYST1   20.000   20.000   20.000  90.00  90.00  90.00 P 1           1
+ATOM      1  O   HOH A   1       0.000   0.000   0.000  1.00  0.00           O
+ATOM      2  H1  HOH A   1       0.957   0.000   0.000  1.00  0.00           H
+ATOM      3  H2  HOH A   1      -0.240   0.927   0.000  1.00  0.00           H
+ATOM      4  O   HOH A   2       3.000   0.000   0.000  1.00  0.00           O
+ATOM      5  H1  HOH A   2       3.957   0.000   0.000  1.00  0.00           H
+ATOM      6  H2  HOH A   2       2.760   0.927   0.000  1.00  0.00           H
+END
+"""
+
+
+def _make_water_dimer_qmmm(**mm_kwargs):
+    from openmmqmmm import QMMMTheory
+
+    Path("dimer.pdb").write_text(_WATER_DIMER_PDB)
+    fragment = Fragment(pdbfile="dimer.pdb")
+    mm = OpenMMTheory(
+        xmlfiles=["amber14-all.xml", "amber14/tip3p.xml"],
+        pdbfile="dimer.pdb",
+        platform="Reference",
+        **mm_kwargs,
+    )
+    qmmm = QMMMTheory(
+        fragment=fragment,
+        qm_theory=_AnalyticQM(),
+        mm_theory=mm,
+        qmatoms=[0, 1, 2],
+        embedding="mech",
+        qm_charge=0,
+        qm_mult=1,
+        dipole_correction=False,
+    )
+    return qmmm, mm
+
+
+def test_export_rpmd_potential_restores_physical_hydrogen_masses():
+    import openmm.unit
+
+    qmmm, mm = _make_water_dimer_qmmm(autoconstraints=None, rigidwater=False, hydrogenmass=1.5)
+    repartitioned = [mm.system.getParticleMass(i).value_in_unit(openmm.unit.dalton) for i in range(6)]
+    assert repartitioned == pytest.approx([15.015, 1.5, 1.5] * 2, abs=0.01), "the build must start repartitioned"
+
+    export_rpmd_potential(theory=qmmm, num_beads=4)
+
+    restored = [mm.system.getParticleMass(i).value_in_unit(openmm.unit.dalton) for i in range(6)]
+    assert restored == pytest.approx([15.999, 1.008, 1.008] * 2, abs=0.01), (
+        "export must hand external NQE drivers physical nuclear masses"
+    )
+
+
+def test_export_rpmd_potential_rejects_constrained_system_for_beads():
+    qmmm, mm = _make_water_dimer_qmmm(autoconstraints=None, rigidwater=True, hydrogenmass=None)
+    assert mm.system.getNumConstraints() == 3, "the MM water's rigid-water constraints must survive"
+
+    with pytest.raises(InputError, match="does not support constraints"):
+        export_rpmd_potential(theory=qmmm, num_beads=4)
+
+    force_names = [force.__class__.__name__ for force in mm.system.getForces()]
+    assert force_names.count("PythonForce") == 0, "the rejection must fire before the force is attached"
+
+    export = export_rpmd_potential(theory=qmmm, num_beads=1)
+    assert export.num_beads == 1
+
+
 def test_export_rpmd_potential_rejects_non_qmmm_theory():
     with pytest.raises(InputError, match="requires a QMMMTheory"):
         export_rpmd_potential(theory=_AnalyticQM(), num_beads=2)
