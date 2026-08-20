@@ -251,22 +251,11 @@ class Fragment:
         self.constraints = None
 
     def __repr__(self):
-        logger.info("Fragment object")
-        logger.info(f"Number of Atoms in fragment: {self.numatoms}")
-        logger.info(f"Formula: {self.prettyformula}")
-        logger.info(f"Label: {self.label}")
-        logger.info(f"Charge: {self.charge} Mult: {self.mult}")
-        logger.info("Do fragment.info() for more info on fragment")
-        return "fragment"
+        label = f" {self.label!r}" if self.label is not None else ""
+        chargemult = f"charge={self.charge} mult={self.mult}"
+        return f"<Fragment{label}: {self.prettyformula}, {self.numatoms} atoms, {chargemult}>"
 
-    def __str__(self):
-        logger.info("Fragment object")
-        logger.info(f"Number of Atoms in fragment: {self.numatoms}")
-        logger.info(f"Formula: {self.prettyformula}")
-        logger.info(f"Label: {self.label}")
-        logger.info(f"Charge: {self.charge} Mult: {self.mult}")
-        logger.info("Do fragment.info() for more info on fragment")
-        return "fragment"
+    __str__ = __repr__
 
     def info(self):
         """Log a summary of the fragment: formula, atom count, charge and multiplicity."""
@@ -1763,6 +1752,32 @@ def flexible_align_pdb(
     fragment_a.write_pdbfile_openmm(filename=f"{pdbfileA.replace('.pdb', '')}_aligned")  # Now write out
 
 
+def _resolve_alignment_subsets(fragment_a, fragment_b, subset, heavyatomsonly=False):
+    """Return the (coords, elems) of each fragment that a superposition should be fitted on."""
+    if subset is None:
+        if heavyatomsonly is not True:
+            return fragment_a.coords, fragment_a.elems, fragment_b.coords, fragment_b.elems
+        indices_a = fragment_a.get_non_h_atomindices()
+        indices_b = fragment_b.get_non_h_atomindices()
+        coords_a, elems_a = fragment_a.get_coords_for_atoms(indices_a)
+        coords_b, elems_b = fragment_b.get_coords_for_atoms(indices_b)
+        return coords_a, elems_a, coords_b, elems_b
+
+    if any(isinstance(el, list) for el in subset):
+        subset_a, subset_b = subset[0], subset[1]
+        if len(subset_a) != len(subset_b):
+            raise InputError("Length of subsets not equal. This is not allowed. Exiting.")
+    else:
+        # One index list for both fragments; only correct when their atom order matches
+        subset_a = subset_b = subset
+
+    coords_a, elems_a = fragment_a.get_coords_for_atoms(subset_a)
+    coords_b, elems_b = fragment_b.get_coords_for_atoms(subset_b)
+    logger.debug("Alignment subset A: %s %s", elems_a, coords_a)
+    logger.debug("Alignment subset B: %s %s", elems_b, coords_b)
+    return coords_a, elems_a, coords_b, elems_b
+
+
 def flexible_align(
     fragment_a,
     fragment_b,
@@ -1776,34 +1791,9 @@ def flexible_align(
     logger.info("flexible_align function")
     import geometric
 
-    if subset is not None:
-        logger.info("Subset option chosen")
-        if any(isinstance(el, list) for el in subset) is True:
-            logger.info("Subset is a list of lists")
-            logger.info("Subset for A: %s", subset[0])
-            logger.info("Subset for B: %s", subset[1])
-            if len(subset[0]) != len(subset[1]):
-                raise InputError("Length of subsets not equal. This is not allowed. Exiting.")
-            logger.info("Will align using each list of indices for each fragment")
-            subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset[0])
-            subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset[1])
-        else:
-            logger.info("Subset is a list of indices")
-            logger.info(
-                "Will align using the same indices in both fragments (will only work if both fragments have the same "
-                "atom order)"
-            )
-            subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset)
-            subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset)
-
-        logger.info("subsetA_elems: %s", subsetA_elems)
-        logger.info("subsetA_coords: %s", subsetA_coords)
-
-        logger.info("subsetB_elems: %s", subsetB_elems)
-        logger.info("subsetB_coords: %s", subsetB_coords)
-    else:
-        subsetA_coords = fragment_a.coords
-        subsetB_coords = fragment_b.coords
+    subsetA_coords, subsetA_elems, subsetB_coords, subsetB_elems = _resolve_alignment_subsets(
+        fragment_a, fragment_b, subset
+    )
 
     if reordering is True:
         logger.info("Reordering atoms in fragmentB for better alignment (may not always work)")
@@ -1867,36 +1857,9 @@ def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, wr
     """Return the RMSD between two fragments after optimal superposition."""
     logger.info("calculate_RMSD function")
 
-    if subset is not None:
-        logger.info("Subset option chosen")
-        if any(isinstance(el, list) for el in subset) is True:
-            logger.info("Subset is a list of lists")
-            logger.info("Subset for A: %s", subset[0])
-            logger.info("Subset for B: %s", subset[1])
-            if len(subset[0]) != len(subset[1]):
-                raise InputError("Length of subsets not equal. This is not allowed. Exiting.")
-            logger.info("Will align using each list of indices for each fragment")
-            subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset[0])
-            subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset[1])
-        else:
-            logger.info("Subset is a list of indices")
-            logger.info(
-                "Will align using the same indices in both fragments (will only work if both fragments have the same "
-                "atom order)"
-            )
-            subsetA_coords, subsetA_elems = fragment_a.get_coords_for_atoms(subset)
-            subsetB_coords, subsetB_elems = fragment_b.get_coords_for_atoms(subset)
-
-        logger.debug("subsetA_elems: %s", subsetA_elems)
-        logger.debug("subsetA_coords: %s", subsetA_coords)
-        logger.debug("subsetB_elems: %s", subsetB_elems)
-        logger.debug("subsetB_coords: %s", subsetB_coords)
-    elif heavyatomsonly is True:
-        subsetA_coords = fragment_a.coords[fragment_a.get_non_h_atomindices()]
-        subsetB_coords = fragment_b.coords[fragment_b.get_non_h_atomindices()]
-    else:
-        subsetA_coords = fragment_a.coords
-        subsetB_coords = fragment_b.coords
+    subsetA_coords, _elems_a, subsetB_coords, _elems_b = _resolve_alignment_subsets(
+        fragment_a, fragment_b, subset, heavyatomsonly=heavyatomsonly
+    )
 
     import geometric
 

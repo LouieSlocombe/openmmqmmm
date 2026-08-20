@@ -1008,7 +1008,6 @@ class MolecularDynamicsEngine:
             logger.info("Restart false and no chkfile/statefile set. This is a new simulation")
             self.simulation = self.openmmobject.create_simulation()
             logger.info("Simulation created.")
-        forceclassnames = [i.__class__.__name__ for i in self.openmmobject.system.getForces()]
         logger.info(small_header("MD run parameters"))
         logger.info(f"Simulation time: {simulation_time} ps")
         logger.info(f"Simulation steps: {simulation_steps}")
@@ -1032,20 +1031,9 @@ class MolecularDynamicsEngine:
             logger.info("System is not periodic")
 
         # Make sure file associated with StateDataReporter is open
-        if restart is True:
-            logger.info("Restart true. Reusing simulation reporters")
-            # Seems to be necessary to do this again after restart
-            # restart option means that StateDatareport and DCDReporter will append to files
-            self.set_sim_reporters(self.simulation, restart=True)
-        elif statefile is not None:
-            logger.info("statefile is used")
-            # Seems to be necessary to do this again after restart
-            # restart option means that StateDatareport and DCDReporter will append to files
-            self.set_sim_reporters(self.simulation, restart=True)
-        elif chkfile is not None:
-            logger.info("chkfile is used")
-            # Seems to be necessary to do this again after restart
-            # restart option means that StateDatareport and DCDReporter will append to files
+        if restart is True or statefile is not None or chkfile is not None:
+            logger.info("Continuing a previous run. Reusing simulation reporters")
+            # Reporters must be rebuilt after a restart so StateDataReporter and DCDReporter append
             self.set_sim_reporters(self.simulation, restart=True)
         else:
             logger.info("Restart false")
@@ -1164,8 +1152,8 @@ class MolecularDynamicsEngine:
                 log_time_since(checkpoint, "get OpenMM state")
                 checkpoint = time.time()
                 current_coords = np.array(current_state.getPositions(asNumpy=True)) * 10
-                checkpoint = time.time()
                 log_time_since(checkpoint, "get current_coords")
+                checkpoint = time.time()
 
                 if self.openmmobject.periodic is True and self.special_wrapping is True:
                     logger.info("special_wrapping is True. Wrapping handled by mdtraj")
