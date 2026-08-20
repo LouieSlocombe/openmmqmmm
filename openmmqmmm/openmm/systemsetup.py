@@ -259,6 +259,88 @@ def openmm_minimize(
     return fragment
 
 
+def _resolve_named_forcefield(forcefield, watermodel, waterxmlfile):
+    """Map a forcefield name onto its XML file and the water model that pairs with it."""
+    logger.info("Forcefield: %s", forcefield)
+    try:
+        xmlfile = FORCEFIELD_XMLFILES[forcefield]
+    except (KeyError, TypeError):
+        raise InputError("Unknown forcefield") from None
+
+    if "CHARMM" in forcefield:
+        if watermodel is None and waterxmlfile is None:
+            logger.info("No watermodel or waterxmlfile selected. Using recommended CHARMM-style TIP3P")
+            watermodel = "tip3p"
+        # CHARMM36 ships its own TIP3P parameters
+        if watermodel is not None and watermodel.lower() == "tip3p":
+            waterxmlfile = "charmm36/water.xml"
+    elif "Amber" in forcefield:
+        if watermodel is None and waterxmlfile is None:
+            logger.info("No watermodel or waterxmlfile selected. Using TIP3P-FB, a reparameterized TIP3P")
+            watermodel = "tip3pfb"
+        model = watermodel.lower() if watermodel is not None else None
+        if model in {"tip3pfb", "tip3p-fb"}:
+            waterxmlfile = "amber14/tip3pfb.xml"
+        elif model == "tip3p":
+            waterxmlfile = "amber14/tip3p.xml" if forcefield == "Amber14" else "tip3p.xml"
+
+    logger.info("watermodel: %s. Waterxmlfile selected: %s", watermodel, waterxmlfile)
+    return xmlfile, watermodel, waterxmlfile
+
+
+def _build_forcefield_object(*, xmlfile, forcefield_object, extraxmlfile, waterxmlfile, watermodel):
+    """Return the OpenMM ForceField, built from XML files or taken from the caller."""
+    if xmlfile is None:
+        if forcefield_object is None:
+            raise InputError("You must provide a forcefield name, forcefieldobject or xmlfile keywords!")
+        logger.info("Using forcefield object provided")
+        if waterxmlfile is not None:
+            logger.warning("Ignoring waterxmlfile: a forcefield_object was supplied")
+        if watermodel is not None:
+            logger.info("Water model selects the solvent box geometry used by Modeller: %s", watermodel)
+        return forcefield_object
+
+    logger.info("XMLfile: %s. Water model: %s. Water xmlfile: %s", xmlfile, watermodel, waterxmlfile)
+    if extraxmlfile is not None:
+        logger.info("Using extra XML file: %s", extraxmlfile)
+        if os.path.isfile(extraxmlfile) is not True:
+            raise InputError(f"File {extraxmlfile} can not be found. Exiting.")
+    logger.info("Now creating forcefield object")
+    files = [f for f in (xmlfile, extraxmlfile, waterxmlfile) if f is not None]
+    return openmm_app.forcefield.ForceField(*files)
+
+
+def _run_pdbfixer(pdbfile):
+    """Add the missing residues and atoms PDBFixer can find, and return the repaired PDB path."""
+    try:
+        import pdbfixer
+    except ImportError:
+        raise MissingDependencyError(
+            "Problem importing pdbfixer. Install first via conda:\nconda install -c conda-forge pdbfixer"
+        ) from None
+
+    logger.info("\nRunning PDBFixer")
+    fixer = pdbfixer.PDBFixer(pdbfile)
+    fixer.findMissingResidues()
+    logger.info("Found missing residues: %s", fixer.missingResidues)
+    fixer.findNonstandardResidues()
+    logger.info("Found non-standard residues: %s", fixer.nonstandardResidues)
+    fixer.findMissingAtoms()
+    logger.info("Found missing atoms: %s", fixer.missingAtoms)
+    logger.info("Found missing terminals: %s", fixer.missingTerminals)
+    fixer.addMissingAtoms()
+    logger.info("Added missing atoms.")
+
+    with open("system_afterfixes.pdb", "w") as pdbfh:
+        openmm_app.PDBFile.writeFile(fixer.topology, fixer.positions, pdbfh)
+    logger.warning(
+        "PDBFixer can create unreasonable orientations of residues if residues are missing or "
+        "multiple occupancies are present.\n         You should inspect the created PDB-file to be sure."
+    )
+    logger.info("PDBFixer done. Wrote PDBfile: system_afterfixes.pdb")
+    return "system_afterfixes.pdb"
+
+
 def openmm_modeller(
     *,
     pdbfile=None,
@@ -300,13 +382,6 @@ def openmm_modeller(
             "OpenMM requires installing the OpenMM package. Try: 'conda install -c conda-forge openmm'  \
             Also see http://docs.openmm.org/latest/userguide/application.html"
         ) from None
-    try:
-        import pdbfixer
-    except ImportError:
-        raise MissingDependencyError(
-            "Problem importing pdbfixer. Install first via conda:\nconda install -c conda-forge pdbfixer"
-        ) from None
-
     if pdbfile is None:
         raise InputError("You must provide a pdbfile keyword argument")
 
@@ -314,74 +389,20 @@ def openmm_modeller(
         residue_variants = {}
 
     if forcefield is not None:
-        logger.info("Forcefield: %s", forcefield)
-        try:
-            xmlfile = FORCEFIELD_XMLFILES[forcefield]
-        except (KeyError, TypeError):
-            raise InputError("Unknown forcefield") from None
-
-        if "CHARMM" in forcefield:
-            # Using specific CHARMM36 version of TIP3P
-            if watermodel is None:
-                logger.info("No watermodel selected.")
-                if waterxmlfile is None:
-                    logger.info("No waterxmlfile selected either")
-                    logger.info("Selecting automatically recommended CHARMM-style TIP3P")
-                    watermodel = "tip3p"
-
-            logger.info("watermodel: %s", watermodel)
-            if watermodel is not None and watermodel.lower() == "tip3p":
-                waterxmlfile = "charmm36/water.xml"
-            logger.info("Waterxmlfile selected: %s", waterxmlfile)
-
-        if "Amber" in forcefield:
-            if watermodel is None:
-                logger.info("No watermodel selected.")
-                if waterxmlfile is None:
-                    logger.info("No waterxmlfile selected either")
-                    logger.info("Selecting automatically recommended TIP3P-4B (watermodel='tip3pfb')")
-                    logger.info("This is a reparameterized version of TIP3P")
-                    watermodel = "tip3pfb"
-            logger.info("watermodel: %s", watermodel)
-            # Using specific Amber FB version of TIP3P
-            if watermodel is not None and watermodel.lower() in {"tip3pfb", "tip3p-fb"}:
-                waterxmlfile = "amber14/tip3pfb.xml"  # NOTE: this is not actually TIP3P but a reparaterized version
-            elif watermodel is not None and watermodel.lower() == "tip3p":
-                waterxmlfile = "amber14/tip3p.xml" if forcefield == "Amber14" else "tip3p.xml"
-            logger.info("Waterxmlfile selected: %s", waterxmlfile)
+        xmlfile, watermodel, waterxmlfile = _resolve_named_forcefield(forcefield, watermodel, waterxmlfile)
 
     # OpenMM defaults addSolvent() to TIP3P when no model is specified. Resolve
     # that default explicitly so the xmlfile= and forcefield_object= routes, as
     # well as non-TIP3P models, always pass a defined value to the helper below.
     modeller_solvent_name = _normalise_modeller_solvent_name(watermodel)
 
-    if xmlfile is not None:
-        logger.info("XMfile: %s", xmlfile)
-        logger.info("Water model: %s", watermodel)
-        logger.info("Water xmlfile: %s", waterxmlfile)
-        if extraxmlfile is not None:
-            logger.info("Using extra XML file: %s", extraxmlfile)
-            if os.path.isfile(extraxmlfile) is not True:
-                raise InputError(f"File {extraxmlfile} can not be found. Exiting.")
-        logger.info("Now creating forcefield object")
-        if extraxmlfile is None and waterxmlfile is None:
-            forcefield_obj = openmm_app.forcefield.ForceField(xmlfile)
-        elif extraxmlfile is not None and waterxmlfile is None:
-            forcefield_obj = openmm_app.forcefield.ForceField(xmlfile, extraxmlfile)
-        elif extraxmlfile is None and waterxmlfile is not None:
-            forcefield_obj = openmm_app.forcefield.ForceField(xmlfile, waterxmlfile)
-        elif extraxmlfile is not None and waterxmlfile is not None:
-            forcefield_obj = openmm_app.forcefield.ForceField(xmlfile, extraxmlfile, waterxmlfile)
-    elif forcefield_object is not None:
-        logger.info("Using forcefield object provided")
-        forcefield_obj = forcefield_object
-
-        if waterxmlfile is not None:
-            logger.warning("Ignoring waterxmlfile: a forcefield_object was supplied")
-        if watermodel is not None:
-            logger.info("Water model selects the solvent box geometry used by Modeller: %s", watermodel)
-    else:
-        raise InputError("You must provide a forcefield name, forcefieldobject or xmlfile keywords!")
+    forcefield_obj = _build_forcefield_object(
+        xmlfile=xmlfile,
+        forcefield_object=forcefield_object,
+        extraxmlfile=extraxmlfile,
+        waterxmlfile=waterxmlfile,
+        watermodel=watermodel,
+    )
 
     if parameterize_nonstandard is True and forcefield_object is not None:
         raise InputError(
@@ -406,32 +427,7 @@ def openmm_modeller(
 
     # Fix basic mistakes in PDB by PDBFixer
     # This will e.g. fix bad terminii
-    if use_pdbfixer is True:
-        logger.info("\nRunning PDBFixer")
-        fixer = pdbfixer.PDBFixer(pdbfile)
-        fixer.findMissingResidues()
-        logger.info("Found missing residues: %s", fixer.missingResidues)
-        fixer.findNonstandardResidues()
-        logger.info("Found non-standard residues: %s", fixer.nonstandardResidues)
-        fixer.findMissingAtoms()
-        logger.info("Found missing atoms: %s", fixer.missingAtoms)
-        logger.info("Found missing terminals: %s", fixer.missingTerminals)
-        fixer.addMissingAtoms()
-        logger.info("Added missing atoms.")
-
-        with open("system_afterfixes.pdb", "w") as pdbfh:
-            openmm_app.PDBFile.writeFile(fixer.topology, fixer.positions, pdbfh)
-        logger.info("PDBFixer done.")
-        logger.warning(
-            "Warning: PDBFixer can create unreasonable orientations of residues if residues "
-            "are missing or multiple occupancies are present.\n         "
-            "You should inspect the created PDB-file to be sure."
-        )
-        logger.info("Wrote PDBfile: system_afterfixes.pdb")
-        pdbfile_for_modeller = "system_afterfixes.pdb"
-    else:
-        logger.info("Skipping PDBFixer")
-        pdbfile_for_modeller = pdbfile
+    pdbfile_for_modeller = _run_pdbfixer(pdbfile) if use_pdbfixer is True else pdbfile
 
     nonstandard_xmlfile = None
     if parameterize_nonstandard is True:

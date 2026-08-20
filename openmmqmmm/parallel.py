@@ -72,6 +72,25 @@ def import_mp(version="multiprocessing"):
 # The latter uses dill serialization and should be more reliable
 
 
+def _resolve_theory_parallelization(theory, numcores, allow_theory_parallelization):
+    """Decide whether each parallel job may also use the theory's own cores."""
+    if theory.numcores == 1:
+        return
+    logger.warning("Theory numcores set to: %s", theory.numcores)
+    if allow_theory_parallelization is True:
+        logger.warning(
+            f"allow_theory_parallelization is True. Each job can use {theory.numcores} CPU cores, thus up to "
+            f"{numcores * theory.numcores} CPU cores can be running simultaneously. Make sure that that's how "
+            f"many slots are available."
+        )
+        return
+    logger.warning(
+        "allow_theory_parallelization is False. Now turning off theory.parallelization (setting theory "
+        "numcores to 1)\nThis can be overriden by: Job_parallel(allow_theory_parallelization=True)\n"
+    )
+    theory.numcores = 1
+
+
 def job_parallel(
     *,
     fragments=None,
@@ -173,22 +192,7 @@ def job_parallel(
         logger.info("Job_parallel numcores set to: %s", numcores)
         logger.info(f"openmmqmmm will run {numcores} jobs simultaneously")
 
-        if theory.numcores != 1:
-            logger.warning("Theory numcores set to: %s", theory.numcores)
-            if allow_theory_parallelization is True:
-                totnumcores = numcores * theory.numcores
-                logger.warning("allow_theory_parallelization is True.")
-                logger.warning(
-                    f"Each job can use {theory.numcores} CPU cores, thus up to {totnumcores} CPU cores can be running "
-                    f"simultaneously. Make sure that that's how many slots are available."
-                )
-            else:
-                logger.warning(
-                    "allow_theory_parallelization is False. Now turning off theory.parallelization (setting theory "
-                    "numcores to 1)"
-                )
-                logger.warning("This can be overriden by: Job_parallel(allow_theory_parallelization=True)\n")
-                theory.numcores = 1
+        _resolve_theory_parallelization(theory, numcores, allow_theory_parallelization)
 
         if len(fragments) > 0:
             logger.info("fragments: %s", fragments)
