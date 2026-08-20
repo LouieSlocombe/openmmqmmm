@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 import copy
 import logging
 import os
 import shutil
 import subprocess as sp
 import time
+from collections.abc import Sequence
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, TypeAlias
+
+import numpy as np
 
 from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.exceptions import (
@@ -16,10 +23,17 @@ from openmmqmmm.qmmm import QMMMTheory
 from openmmqmmm.results import Results
 from openmmqmmm.utils import sub_header
 
+if TYPE_CHECKING:
+    from openmmqmmm.geometric import GeometricOptimizer
+
 logger = logging.getLogger(__name__)
 
+StrPath: TypeAlias = str | os.PathLike[str]
+Label: TypeAlias = StrPath | float | tuple[object, ...]
+ParallelBackend: TypeAlias = Literal["multiprocessing", "multiprocess"]
 
-def check_openmpi():
+
+def check_openmpi() -> None:
     try:
         openmpibindir = os.path.dirname(shutil.which("mpirun"))
     except TypeError:
@@ -30,7 +44,7 @@ def check_openmpi():
     _verify_openmpi()
 
 
-def _verify_openmpi():
+def _verify_openmpi() -> None:
     logger.info("Testing that mpirun is executable...")
     p = sp.Popen(["mpirun", "-V"], stdout=sp.PIPE)
     out, _err = p.communicate()
@@ -39,7 +53,7 @@ def _verify_openmpi():
     logger.info("OpenMPI version (mpirun -V): %s", mpiversion)
 
 
-def _import_mp(version="multiprocessing"):
+def _import_mp(version: ParallelBackend = "multiprocessing") -> tuple[ModuleType, type[Any]]:
     # NOTE: Python 3.8 and higher use spawn in MacOS (openmmqmmm import problems). Unix/Linux uses fork
     if version == "multiprocessing":
         logger.info("Using version: multiprocessing")
@@ -72,7 +86,7 @@ def _import_mp(version="multiprocessing"):
 # The latter uses dill serialization and should be more reliable
 
 
-def _resolve_theory_parallelization(theory, numcores, allow_theory_parallelization):
+def _resolve_theory_parallelization(theory: Any, numcores: int, allow_theory_parallelization: bool) -> None:
     """Decide whether each parallel job may also use the theory's own cores."""
     if theory.numcores == 1:
         return
@@ -93,18 +107,18 @@ def _resolve_theory_parallelization(theory, numcores, allow_theory_parallelizati
 
 def job_parallel(
     *,
-    fragments=None,
-    fragmentfiles=None,
-    theories=None,
-    numcores=None,
-    mofilesdir=None,
-    allow_theory_parallelization=False,
-    grad=False,
-    copytheory=False,
-    version="multiprocessing",
-    opt=False,
-    optimizer=None,
-) -> "Results":
+    fragments: Sequence[Fragment] | None = None,
+    fragmentfiles: Sequence[StrPath] | None = None,
+    theories: Sequence[Any] | None = None,
+    numcores: int | None = None,
+    mofilesdir: str | None = None,
+    allow_theory_parallelization: bool = False,
+    grad: bool = False,
+    copytheory: bool = False,
+    version: ParallelBackend = "multiprocessing",
+    opt: bool = False,
+    optimizer: GeometricOptimizer | None = None,
+) -> Results:
     """Carry out multiple single-point or optimization calculations in parallel."""
     logger.info(sub_header("Job_parallel function"))
 
@@ -153,7 +167,7 @@ def job_parallel(
 
     mp, Pool = _import_mp(version=version)
 
-    def terminate_pool_processes(message):
+    def terminate_pool_processes(message: BaseException) -> NoReturn:
         logger.error("Terminating Pool processes due to exception")
         logger.error("Exception message: %s", message)
         pool.terminate()
@@ -166,7 +180,7 @@ def job_parallel(
 
     results = []
 
-    def submit(**job):
+    def submit(**job: Any) -> None:
         results.append(
             pool.apply_async(
                 worker_par,
@@ -286,19 +300,19 @@ def job_parallel(
 # NOTE: Version intended for apply_async
 def worker_par(
     *,
-    fragment=None,
-    fragmentfile=None,
-    theory=None,
-    label=None,
-    mofilesdir=None,
-    event=None,
-    charge=None,
-    mult=None,
-    grad=False,
-    copytheory=False,
-    optimizer=None,
-    version="multiprocessing",
-):
+    fragment: Fragment | None = None,
+    fragmentfile: StrPath | None = None,
+    theory: Any | None = None,
+    label: Label | None = None,
+    mofilesdir: str | None = None,
+    event: Any | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
+    grad: bool = False,
+    copytheory: bool = False,
+    optimizer: GeometricOptimizer | None = None,
+    version: ParallelBackend = "multiprocessing",
+) -> tuple[Label, float, np.ndarray, str, dict[str, Any]] | tuple[Label, float, str, dict[str, Any]]:
     logger.info("Fragment: %s", fragment)
     logger.info("fragmentfile: %s", fragmentfile)
     logger.info("Theory: %s", theory)

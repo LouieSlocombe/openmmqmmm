@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import copy
 import logging
 import math
 import os
 import time
 from collections import Counter, defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from math import sqrt
+from typing import TYPE_CHECKING, Any, Literal, TextIO, TypeVar
 
 import numpy as np
 
@@ -31,6 +35,14 @@ from openmmqmmm.utils import (
     sub_header_end,
 )
 
+if TYPE_CHECKING:
+    from openmm.app import Topology
+
+    from openmmqmmm.openmm.theory import OpenMMTheory
+    from openmmqmmm.qmmm import QMMMTheory
+
+_T = TypeVar("_T")
+
 logger = logging.getLogger(__name__)
 
 CONNECTIVITY_SCALE = 1.0
@@ -40,7 +52,13 @@ CONNECTIVITY_TOL = 0.1
 class Reaction:
     """A reaction: an ordered list of fragments with stoichiometry (and optional energies)."""
 
-    def __init__(self, fragments, stoichiometry, label=None, unit="eV"):
+    def __init__(
+        self,
+        fragments: Sequence[Fragment],
+        stoichiometry: Sequence[float],
+        label: str | None = None,
+        unit: str = "eV",
+    ) -> None:
         logger.info(sub_header("New reaction"))
 
         self.fragments = fragments
@@ -60,12 +78,12 @@ class Reaction:
         self.orbital_dictionary = defaultdict(list)
         self.properties = defaultdict(list)
 
-    def reset_energies(self):
+    def reset_energies(self) -> None:
         """Discard the stored fragment energies and reaction energy."""
         self.energies = []
         self.reaction_energy = None
 
-    def check_fragments(self):
+    def check_fragments(self) -> None:
         """Validate the reaction definition."""
         for frag in self.fragments:
             if frag.charge is None or frag.mult is None:
@@ -78,7 +96,7 @@ class Reaction:
                 f"{len(self.fragments)} fragments. One signed coefficient per fragment is required."
             )
 
-    def calculate_reaction_energy(self):
+    def calculate_reaction_energy(self) -> None:
         """Combine the stored fragment energies into the reaction energy."""
         if len(self.energies) == len(self.fragments):
             self.reaction_energy = openmmqmmm.reaction_energy(
@@ -98,34 +116,34 @@ class Fragment:
     def __init__(
         self,
         *,
-        fragments=None,
-        coordsstring=None,
-        fragfile=None,
-        xyzfile=None,
-        pdbfile=None,
-        pdbxfile=None,
-        grofile=None,
-        amber_inpcrdfile=None,
-        amber_prmtopfile=None,
-        smiles=None,
-        chemshellfile=None,
-        coords=None,
-        elems=None,
-        connectivity=None,
-        atom=None,
-        diatomic=None,
-        diatomic_bondlength=None,
-        bondlength=None,
-        atomcharges=None,
-        atomtypes=None,
-        conncalc=False,
-        scale=None,
-        tol=None,
-        charge=None,
-        mult=None,
-        label=None,
-        readchargemult=False,
-    ):
+        fragments: Sequence[Fragment] | None = None,
+        coordsstring: str | None = None,
+        fragfile: str | None = None,
+        xyzfile: str | None = None,
+        pdbfile: str | None = None,
+        pdbxfile: str | None = None,
+        grofile: str | None = None,
+        amber_inpcrdfile: str | None = None,
+        amber_prmtopfile: str | None = None,
+        smiles: str | None = None,
+        chemshellfile: str | None = None,
+        coords: np.ndarray | list[list[float]] | None = None,
+        elems: list[str] | None = None,
+        connectivity: list[list[int]] | None = None,
+        atom: str | None = None,
+        diatomic: str | None = None,
+        diatomic_bondlength: float | None = None,
+        bondlength: float | None = None,
+        atomcharges: list[float] | None = None,
+        atomtypes: list[str] | None = None,
+        conncalc: bool = False,
+        scale: float | None = None,
+        tol: float | None = None,
+        charge: int | None = None,
+        mult: int | None = None,
+        label: str | None = None,
+        readchargemult: bool = False,
+    ) -> None:
         self.charge = None
         self.mult = None
 
@@ -250,19 +268,19 @@ class Fragment:
         # Populated by calc_surface relaxed para
         self.constraints = None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         label = f" {self.label!r}" if self.label is not None else ""
         chargemult = f"charge={self.charge} mult={self.mult}"
         return f"<Fragment{label}: {self.prettyformula}, {self.numatoms} atoms, {chargemult}>"
 
     __str__ = __repr__
 
-    def info(self):
+    def info(self) -> None:
         """Log a summary of the fragment: formula, atom count, charge and multiplicity."""
         logger.info("Fragment object")
         logger.info("%s", self.__dict__)
 
-    def update_attributes(self):
+    def update_attributes(self) -> None:
         """Recompute the derived attributes after the coordinates or elements change."""
         logger.debug("Creating/Updating fragment attributes...")
         if len(self.coords) == 0:
@@ -306,7 +324,13 @@ class Fragment:
         logger.info(f"Charge: {self.charge} Mult: {self.mult}")
         logger.info(sub_header_end())
 
-    def add_coords_from_string(self, coordsstring, scale=None, tol=None, conncalc=False):
+    def add_coords_from_string(
+        self,
+        coordsstring: str,
+        scale: float | None = None,
+        tol: float | None = None,
+        conncalc: bool = False,
+    ) -> None:
         """Append atoms parsed from a multi-line "El x y z" coordinate string."""
         logger.debug("Getting coordinates from string: %s", coordsstring)
         if len(self.coords) > 0:
@@ -322,7 +346,7 @@ class Fragment:
         self.coords = _reformat_list_to_array(tempcoords)
         self.label = "".join(self.elems)
 
-    def create_coords_from_smiles(self, smiles):
+    def create_coords_from_smiles(self, smiles: str) -> None:
         """Generate 3D coordinates from a SMILES string (requires OpenBabel)."""
         logger.debug("Creating coordinates from SMILES string: %s", smiles)
         from openmmqmmm.openbabel import smiles_to_coords
@@ -332,7 +356,14 @@ class Fragment:
         self.coords = _reformat_list_to_array(coords)
         self.update_attributes()
 
-    def replace_coords(self, elems, coords, conn=False, scale=None, tol=None):
+    def replace_coords(
+        self,
+        elems: list[str],
+        coords: np.ndarray | list[list[float]],
+        conn: bool = False,
+        scale: float | None = None,
+        tol: float | None = None,
+    ) -> None:
         """Replace the elements and coordinates with a new set."""
         logger.info("Replacing coordinates in fragment.")
 
@@ -342,11 +373,11 @@ class Fragment:
         if conn is True:
             self.calc_connectivity(scale=scale, tol=tol)
 
-    def get_non_h_atomindices(self):
+    def get_non_h_atomindices(self) -> list[int]:
         """Return the indices of all atoms that are not hydrogen."""
         return [index for index, el in enumerate(self.elems) if el != "H"]
 
-    def delete_atom(self, atomindex):
+    def delete_atom(self, atomindex: int) -> None:
         """Remove one atom and refresh the derived attributes."""
         self.coords = np.delete(self.coords, atomindex, axis=0)
         self.elems.pop(atomindex)
@@ -356,18 +387,23 @@ class Fragment:
 
         self.update_attributes()
 
-    def print_coords(self):
+    def print_coords(self) -> None:
         """Log the coordinates of every atom in the fragment."""
         logger.info("Cartesian coordinates (Å):")
         for i, (el, c) in enumerate(zip(self.elems, self.coords, strict=False)):
             line = f" {i:<4} {el:4} {c[0]:>12.6f} {c[1]:>12.6f} {c[2]:>12.6f}"
             logger.info("%s", line)
 
-    def print_coords_for_atoms(self, members, labels=None):
+    def print_coords_for_atoms(self, members: Sequence[int], labels: Sequence[str | int] | None = None) -> None:
         """Log the coordinates of selected atoms."""
         print_coords_for_atoms(self.coords, self.elems, members, labels=labels)
 
-    def read_amberfile(self, inpcrdfile=None, prmtopfile=None, conncalc=False):
+    def read_amberfile(
+        self,
+        inpcrdfile: str | None = None,
+        prmtopfile: str | None = None,
+        conncalc: bool = False,
+    ) -> None:
         """Read coordinates and topology from Amber inpcrd/prmtop files."""
         logger.info(
             f"Reading coordinates from Amber INPCRD file: '{inpcrdfile}' and PRMTOP file: '{prmtopfile}' into fragment."
@@ -379,7 +415,13 @@ class Fragment:
         self.coords = _reformat_list_to_array(coords)
         self.elems = elems
 
-    def read_grofile(self, filename, conncalc=False, scale=None, tol=None):
+    def read_grofile(
+        self,
+        filename: str,
+        conncalc: bool = False,
+        scale: float | None = None,
+        tol: float | None = None,
+    ) -> None:
         """Read coordinates from a GROMACS .gro file."""
         logger.info(f"Reading coordinates from Gromacs GRO file '{filename}' into fragment")
         try:
@@ -389,7 +431,13 @@ class Fragment:
         self.coords = coords
         self.elems = elems
 
-    def read_chemshellfile(self, filename, conncalc=False, scale=None, tol=None):
+    def read_chemshellfile(
+        self,
+        filename: str,
+        conncalc: bool = False,
+        scale: float | None = None,
+        tol: float | None = None,
+    ) -> None:
         """Read coordinates from a ChemShell fragment file (Bohr units)."""
         logger.info(f"Reading coordinates from Chemshell file '{filename}' into fragment.")
         try:
@@ -399,7 +447,7 @@ class Fragment:
         self.coords = coords
         self.elems = elems
 
-    def read_pdbfile_openmm(self, filename):
+    def read_pdbfile_openmm(self, filename: str) -> None:
         """Read a PDB file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbfile_openmm: Reading coordinates from PDB file '{filename}' into fragment.")
         try:
@@ -423,7 +471,7 @@ class Fragment:
 
         self.pdb_topology = pdb.topology
 
-    def read_pdbxfile(self, filename):
+    def read_pdbxfile(self, filename: str) -> None:
         """Read a PDBx/mmCIF file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbxfile: Reading coordinates from PDBX file '{filename}' into fragment.")
         try:
@@ -438,7 +486,14 @@ class Fragment:
 
         self.pdb_topology = pdb.topology
 
-    def read_xyzfile(self, filename, scale=None, tol=None, readchargemult=False, conncalc=True):
+    def read_xyzfile(
+        self,
+        filename: str,
+        scale: float | None = None,
+        tol: float | None = None,
+        readchargemult: bool = False,
+        conncalc: bool = True,
+    ) -> None:
         """Read coordinates from an XYZ file."""
         logger.info(f"Reading coordinates from XYZ file '{filename}' into fragment.")
         coords = []
@@ -472,24 +527,24 @@ class Fragment:
         if self.numatoms != len(self.coords):
             raise FileFormatError("Number of atoms in header not equal to number of coordinate-lines. Check XYZ file!")
 
-    def set_energy(self, energy):
+    def set_energy(self, energy: float) -> None:
         """Store a total energy on the fragment."""
         self.energy = float(energy)
 
-    def get_coordinate_center(self):
+    def get_coordinate_center(self) -> list[float]:
         """Return the mean position of all atoms as a list (unweighted by mass)."""
         center_x = np.mean(self.coords[:, 0])
         center_y = np.mean(self.coords[:, 1])
         center_z = np.mean(self.coords[:, 2])
         return [center_x, center_y, center_z]
 
-    def get_coords_for_atoms(self, atoms):
+    def get_coords_for_atoms(self, atoms: Sequence[int]) -> tuple[np.ndarray, list[str]]:
         """Return the coordinates and elements of a subset of atoms."""
         subcoords = np.take(self.coords, atoms, axis=0)
         subelems = [self.elems[i] for i in atoms]
         return subcoords, subelems
 
-    def calc_connectivity(self, conndepth=99, scale=None, tol=None):
+    def calc_connectivity(self, conndepth: int = 99, scale: float | None = None, tol: float | None = None) -> None:
         """Compute the connectivity table and store it on the fragment."""
         logger.info("Calculating connectivity.")
         if len(self.coords) > 10000:
@@ -513,11 +568,11 @@ class Fragment:
                 f"{conn_number_sum}\nself numatoms {self.numatoms}"
             )
 
-    def get_centroid(self):
+    def get_centroid(self) -> np.ndarray:
         """Return the mean position of all atoms as an array (unweighted by mass)."""
         return np.mean(self.coords, axis=0)
 
-    def write_pdbfile(self, filename="Fragment"):
+    def write_pdbfile(self, filename: str = "Fragment") -> str:
         """Write a PDB file using the fragment's own stored PDB information."""
         logger.info("Fragment.write_pdbfile method called")
         filename = filename.replace(".pdb", "")
@@ -541,7 +596,7 @@ class Fragment:
         )
         return f"{filename}.pdb"
 
-    def define_topology(self, scale=1.0, tol=0.1, resname="MOL"):
+    def define_topology(self, scale: float = 1.0, tol: float = 0.1, resname: str = "MOL") -> Topology:
         """Build an OpenMM topology for the fragment from its connectivity."""
         try:
             import openmm.app
@@ -581,8 +636,13 @@ class Fragment:
         return self.pdb_topology
 
     def write_pdbfile_openmm(
-        self, filename="Fragment", calc_connectivity=False, pdb_topology=None, skip_connectivity=False, resname="MOL"
-    ):
+        self,
+        filename: str = "Fragment",
+        calc_connectivity: bool = False,
+        pdb_topology: Topology | None = None,
+        skip_connectivity: bool = False,
+        resname: str = "MOL",
+    ) -> str:
         """Write a PDB file via OpenMM, building a topology if none is defined."""
         logger.info("write_pdbfile_openmm\n")
         try:
@@ -624,8 +684,12 @@ class Fragment:
         return filename
 
     def write_xyzfile(
-        self, xyzfilename="Fragment-xyzfile.xyz", writemode="w", write_chargemult=True, write_energy=True
-    ):
+        self,
+        xyzfilename: str = "Fragment-xyzfile.xyz",
+        writemode: str = "w",
+        write_chargemult: bool = True,
+        write_energy: bool = True,
+    ) -> str:
         """Write the coordinates to an XYZ file."""
         with open(xyzfilename, writemode) as ofile:
             ofile.write(str(len(self.elems)) + "\n")
@@ -640,7 +704,7 @@ class Fragment:
         logger.info("Wrote XYZ file:  %s", xyzfilename)
         return xyzfilename
 
-    def write_xyz_for_atoms(self, xyzfilename="Fragment-subset.xyz", atoms=None):
+    def write_xyz_for_atoms(self, xyzfilename: str = "Fragment-subset.xyz", atoms: Sequence[int] | None = None) -> None:
         """Write an XYZ file containing only the selected atoms."""
         subset_elems = [self.elems[i] for i in atoms]
         subset_coords = np.take(self.coords, atoms, axis=0)
@@ -651,7 +715,7 @@ class Fragment:
                 line = f"{el:4} {c[0]:>12.6f} {c[1]:>12.6f} {c[2]:>12.6f}"
                 ofile.write(line + "\n")
 
-    def print_system(self, filename="fragment.frag"):
+    def print_system(self, filename: str = "fragment.frag") -> None:
         """Write the full fragment (coordinates, charge, mult, connectivity) to a .frag file."""
         logger.info("Printing fragment to disk:  %s", filename)
         logger.debug("len(self.atomlist):  %s", len(self.atomlist))
@@ -720,7 +784,7 @@ class Fragment:
             outfile.write(f"connectivity: {self.connectivity}\n")
             outfile.write(f"Centralmainfrag: {self.Centralmainfrag}\n")
 
-    def read_fragment_from_file(self, fragfile):
+    def read_fragment_from_file(self, fragfile: str) -> None:
         """Load a fragment previously written by print_system."""
         logger.info("Reading fragment from file: %s", fragfile)
         coordgrab = False
@@ -783,7 +847,7 @@ class Fragment:
         self.Centralmainfrag = Centralmainfrag
 
 
-def _reformat_list_to_array(data):
+def _reformat_list_to_array(data: np.ndarray | list[list[float]]) -> np.ndarray:
     if isinstance(data, np.ndarray):
         return data
     if isinstance(data, list):
@@ -796,7 +860,7 @@ def _reformat_list_to_array(data):
     )
 
 
-def reformat_element(elem, isatomnum=False):
+def reformat_element(elem: str | int, isatomnum: bool = False) -> str:
     if isatomnum is True:
         try:
             el_correct = openmmqmmm.elements.element_dict_atnum[elem].symbol
@@ -818,7 +882,9 @@ _DEFAULT_RADIUS = 1.50  # fallback for elements missing from eldict_covrad
 _CONNECTIVITY_TOLERANCE = 0.40  # Angstrom added to sum of covalent radii
 
 
-def _build_connectivity(coords, elems, atom_indices=None):
+def _build_connectivity(
+    coords: np.ndarray, elems: Sequence[str], atom_indices: Sequence[int] | None = None
+) -> list[set[int]]:
     coords = np.asarray(coords)
     n = len(elems)
 
@@ -853,17 +919,23 @@ def _build_connectivity(coords, elems, atom_indices=None):
     return conn
 
 
-def _print_internal_coordinate_table(fragment, actatoms=None):
-    def _measure_bond(coords, i, j):
+def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int] | None = None) -> None:
+    def _measure_bond(coords: np.ndarray, i: int, j: int) -> float:
         return float(np.linalg.norm(coords[i] - coords[j]))
 
-    def _measure_angle(coords, i, j, k):
+    def _measure_angle(coords: np.ndarray, i: int, j: int, k: int) -> float:
         v1 = coords[i] - coords[j]
         v2 = coords[k] - coords[j]
         cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
         return float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
 
-    def _measure_dihedral(coords, i, j, k, l):  # noqa: E741 - dihedral atoms i-j-k-l
+    def _measure_dihedral(
+        coords: np.ndarray,
+        i: int,
+        j: int,
+        k: int,
+        l: int,  # noqa: E741 - dihedral atoms i-j-k-l
+    ) -> float:
         b1 = coords[j] - coords[i]
         b2 = coords[k] - coords[j]
         b3 = coords[l] - coords[k]
@@ -929,7 +1001,7 @@ def _print_internal_coordinate_table(fragment, actatoms=None):
     logger.info("%s", "-" * 60)
 
 
-def print_internal_coordinate_table(fragment, actatoms=None) -> None:
+def print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int] | None = None) -> None:
     """Log a table of bonds, angles and dihedrals for a fragment."""
     timeA = time.time()
     logger.info("\nPrinting internal coordinate table")
@@ -984,7 +1056,12 @@ def print_internal_coordinate_table(fragment, actatoms=None) -> None:
     log_time_since(timeA, "print internal coordinate table")
 
 
-def print_coords_for_atoms(coords, elems, members, labels=None):
+def print_coords_for_atoms(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    members: Sequence[int],
+    labels: Sequence[str | int] | None = None,
+) -> None:
     if labels is not None and len(labels) != len(members):
         raise InputError("Problem. Length of Labels note equal to length of members list")
     label = ""
@@ -994,7 +1071,7 @@ def print_coords_for_atoms(coords, elems, members, labels=None):
         logger.info(f"{label:>4} {elems[m]:>4} {coords[m][0]:>12.8f}  {coords[m][1]:>12.8f}  {coords[m][2]:>12.8f}")
 
 
-def write_xyz_for_atoms(coords, elems, members, name):
+def write_xyz_for_atoms(coords: np.ndarray, elems: Sequence[str], members: Sequence[int], name: str) -> None:
     subset_elems = [elems[i] for i in members]
     subset_coords = np.take(coords, members, axis=0)
     with open(name + ".xyz", "w") as ofile:
@@ -1005,7 +1082,13 @@ def write_xyz_for_atoms(coords, elems, members, name):
             ofile.write(line + "\n")
 
 
-def print_coords_all(coords, elems, indices=None, labels=None, labels2=None):
+def print_coords_all(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    indices: Sequence[int] | None = None,
+    labels: Sequence[str | int] | None = None,
+    labels2: Sequence[str | int] | None = None,
+) -> None:
     if indices is None:
         if labels is None:
             for i in range(len(elems)):
@@ -1040,12 +1123,28 @@ def print_coords_all(coords, elems, indices=None, labels=None, labels2=None):
             )
 
 
-def write_coords_all(coords, elems, indices=None, labels=None, labels2=None, file="file", description="description"):
+def write_coords_all(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    indices: Sequence[int] | None = None,
+    labels: Sequence[str | int] | None = None,
+    labels2: Sequence[str | int] | None = None,
+    file: str = "file",
+    description: str = "description",
+) -> None:
     with open(file, "w") as f:
         _write_coords_lines(f, coords, elems, indices, labels, labels2, description)
 
 
-def _write_coords_lines(f, coords, elems, indices, labels, labels2, description):
+def _write_coords_lines(
+    f: TextIO,
+    coords: np.ndarray,
+    elems: Sequence[str],
+    indices: Sequence[int] | None,
+    labels: Sequence[str | int] | None,
+    labels2: Sequence[str | int] | None,
+    description: str,
+) -> None:
     f.write(f"#{description}\n")
     if indices is None:
         if labels is None:
@@ -1083,11 +1182,11 @@ def _write_coords_lines(f, coords, elems, indices, labels, labels2, description)
         )
 
 
-def distance(A, B):
+def distance(A: Sequence[float] | np.ndarray, B: Sequence[float] | np.ndarray) -> float:
     return sqrt((A[0] - B[0]) ** 2 + (A[1] - B[1]) ** 2 + (A[2] - B[2]) ** 2)  # fastest
 
 
-def angle(A, B, C):
+def angle(A: np.ndarray, B: np.ndarray, C: np.ndarray) -> float:
     AB = A - B
     CB = C - B
     dot_product = np.dot(AB, CB)
@@ -1097,7 +1196,7 @@ def angle(A, B, C):
     return np.degrees(angle_rad)
 
 
-def dihedral(A, B, C, D):
+def dihedral(A: np.ndarray, B: np.ndarray, C: np.ndarray, D: np.ndarray) -> float:
     v1 = B - A
     v2 = C - B
     v3 = D - C
@@ -1114,24 +1213,24 @@ def dihedral(A, B, C, D):
     return dihedral_angle * 180 / np.pi
 
 
-def distance_between_atoms(fragment=None, atoms=None) -> float:
+def distance_between_atoms(fragment: Fragment | None = None, atoms: Sequence[int] | None = None) -> float:
     """Return the distance between two atoms of a fragment."""
     return distance(fragment.coords[atoms[0]], fragment.coords[atoms[1]])
 
 
-def angle_between_atoms(fragment=None, atoms=None) -> float:
+def angle_between_atoms(fragment: Fragment | None = None, atoms: Sequence[int] | None = None) -> float:
     """Return the A-B-C angle spanned by three atoms of a fragment."""
     return angle(fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]])
 
 
-def dihedral_between_atoms(fragment=None, atoms=None) -> float:
+def dihedral_between_atoms(fragment: Fragment | None = None, atoms: Sequence[int] | None = None) -> float:
     """Return the A-B-C-D dihedral angle spanned by four atoms of a fragment."""
     return dihedral(
         fragment.coords[atoms[0]], fragment.coords[atoms[1]], fragment.coords[atoms[2]], fragment.coords[atoms[3]]
     )
 
 
-def get_centroid(coords):
+def get_centroid(coords: Sequence[Sequence[float]] | np.ndarray) -> list[float]:
     sum_x = 0
     sum_y = 0
     sum_z = 0
@@ -1142,11 +1241,13 @@ def get_centroid(coords):
     return [sum_x / len(coords), sum_y / len(coords), sum_z / len(coords)]
 
 
-def threshold_conn(elA, elB, scale, tol):
+def threshold_conn(elA: str, elB: str, scale: float, tol: float) -> float:
     return scale * (eldict_covrad[elA] + eldict_covrad[elB]) + tol
 
 
-def _calc_conn_py(coords, elems, conndepth, scale, tol):
+def _calc_conn_py(
+    coords: np.ndarray, elems: Sequence[str], conndepth: int, scale: float, tol: float
+) -> list[list[int]]:
     found_atoms = []
     fraglist = []
     for atom in range(len(elems)):
@@ -1160,7 +1261,9 @@ def _calc_conn_py(coords, elems, conndepth, scale, tol):
 
 # Uses slow for-loop structure with distance-function call
 # Don't use unless system is small
-def get_connected_atoms(coords, elems, scale, tol, atomindex):
+def get_connected_atoms(
+    coords: np.ndarray, elems: Sequence[str], scale: float, tol: float, atomindex: int
+) -> list[int]:
     connatoms = []
     coords_ref = coords[atomindex]
     elem_ref = elems[atomindex]
@@ -1171,13 +1274,15 @@ def get_connected_atoms(coords, elems, scale, tol, atomindex):
 
 
 # https://semantive.com/pl/blog/high-performance-computation-in-python-numpy/
-def _einsum_mat(mat_v, mat_u):
+def _einsum_mat(mat_v: np.ndarray, mat_u: np.ndarray) -> np.ndarray:
     mat_z = mat_v - mat_u
     return np.sqrt(np.einsum("ij,ij->i", mat_z, mat_z))
 
 
 # https://semantive.com/pl/blog/high-performance-computation-in-python-numpy/
-def _get_connected_atoms_np(coords, elems, scale, tol, atomindex):
+def _get_connected_atoms_np(
+    coords: np.ndarray, elems: Sequence[str], scale: float, tol: float, atomindex: int
+) -> list[int]:
     compcoords = np.tile(coords[atomindex], (len(coords), 1))
     distances = _einsum_mat(coords, compcoords)
     el_covrad_ref = eldict_covrad[elems[atomindex]]
@@ -1190,7 +1295,9 @@ def _get_connected_atoms_np(coords, elems, scale, tol, atomindex):
     return np.where(diff < 0)[0].tolist()
 
 
-def get_connected_atoms_dict(coords, elems, scale, tol):
+def get_connected_atoms_dict(
+    coords: np.ndarray, elems: Sequence[str], scale: float, tol: float
+) -> dict[int, list[int]]:
     conndict = {}
     for c in range(len(coords)):
         conn = _get_connected_atoms_np(coords, elems, scale, tol, c)
@@ -1202,7 +1309,15 @@ def get_connected_atoms_dict(coords, elems, scale, tol):
 # Version 2 never goes through same atom
 
 
-def _get_molecule_members_np(coords, elems, loopnumber, scale, tol, atomindex=None, membs=None):
+def _get_molecule_members_np(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    loopnumber: int,
+    scale: float,
+    tol: float,
+    atomindex: int | None = None,
+    membs: list[int] | int | None = None,
+) -> list[int]:
     if membs is None:
         membs = []
         membs.append(atomindex)
@@ -1224,7 +1339,7 @@ def _get_molecule_members_np(coords, elems, loopnumber, scale, tol, atomindex=No
     return finalmembs
 
 
-def elems_to_formula(elems):
+def elems_to_formula(elems: Sequence[str]) -> str:
     # Counting once per unique element rather than per atom: elems can be very long
     counts = Counter(elems)
     ordered = []
@@ -1236,7 +1351,7 @@ def elems_to_formula(elems):
     return "".join(f"{element}{counts[element]}" for element in ordered)
 
 
-def _formula_to_elem_list(formulastring):
+def _formula_to_elem_list(formulastring: str) -> list[str]:
     el = ""
     diff = ""
     els = []
@@ -1269,7 +1384,7 @@ def _formula_to_elem_list(formulastring):
     return atoms
 
 
-def read_xyzfile(filename) -> tuple[list[str], np.ndarray]:
+def read_xyzfile(filename: str) -> tuple[list[str], list[list[float]]]:
     """Read elements and coordinates from an XYZ file."""
     logger.info(f"Reading coordinates from XYZ file '{filename}'.")
     coords = []
@@ -1297,7 +1412,7 @@ def read_xyzfile(filename) -> tuple[list[str], np.ndarray]:
     return elems, coords
 
 
-def read_xyzfiles(xyzdir, readchargemult=False) -> list:
+def read_xyzfiles(xyzdir: str, readchargemult: bool = False) -> list[Fragment]:
     """Create a Fragment for every XYZ file in a directory."""
     logger.info("read_xyzfiles function")
     logger.info("Note: will read XYZ-files in directory using natural sorting")
@@ -1314,7 +1429,13 @@ def read_xyzfiles(xyzdir, readchargemult=False) -> list:
     return fragments
 
 
-def write_xyzfile(elems, coords, name, writemode="w", title="title") -> None:
+def write_xyzfile(
+    elems: Sequence[str],
+    coords: Sequence[Sequence[float]] | np.ndarray,
+    name: str,
+    writemode: str = "w",
+    title: str = "title",
+) -> None:
     """Write elements and coordinates to an XYZ file."""
     header = [f"{len(elems)}\n", f"{title}\n"]
     atomlines = [f"{el:4} {c[0]:16.12f} {c[1]:16.12f} {c[2]:16.12f}\n" for el, c in zip(elems, coords, strict=False)]
@@ -1325,7 +1446,12 @@ def write_xyzfile(elems, coords, name, writemode="w", title="title") -> None:
 
 
 # Also grabs last word in title line. Typically an energy (has to be converted to float outside)
-def split_multimolxyzfile(file, writexyz=False, skipindex=1, return_fragments=False) -> list | tuple[list, list, list]:
+def split_multimolxyzfile(
+    file: str,
+    writexyz: bool = False,
+    skipindex: int = 1,
+    return_fragments: bool = False,
+) -> list[Fragment] | tuple[list[list[str]], list[list[list[float]]], list[list[str] | str]]:
     """Split a multi-molecule XYZ file (trajectory, conformer set) into its frames."""
     all_coords = []
     all_elems = []
@@ -1379,7 +1505,7 @@ def split_multimolxyzfile(file, writexyz=False, skipindex=1, return_fragments=Fa
     return all_elems, all_coords, all_titles
 
 
-def _read_chemshellfragfile_xyz(fragfile):
+def _read_chemshellfragfile_xyz(fragfile: str) -> tuple[list[str], np.ndarray]:
     pathtofragfile = fragfile.split(".")[0] + ".c"
     coords = []
     elems = []
@@ -1398,7 +1524,7 @@ def _read_chemshellfragfile_xyz(fragfile):
     return elems, coords
 
 
-def _conv_atomtypes_elems(atomtype):
+def _conv_atomtypes_elems(atomtype: str) -> str:
     try:
         return openmmqmmm.elements.atomtypes_dict[atomtype]
     except KeyError:
@@ -1414,7 +1540,7 @@ def _conv_atomtypes_elems(atomtype):
             ) from None
 
 
-def read_gromacsfile(grofile) -> tuple[list[str], np.ndarray, list]:
+def read_gromacsfile(grofile: str) -> tuple[list[str], np.ndarray, list[float] | None]:
     """Read a GROMACS .gro coordinate file."""
     elems = []
     coords = []
@@ -1459,7 +1585,9 @@ def read_gromacsfile(grofile) -> tuple[list[str], np.ndarray, list]:
     return elems, npcoords, box_dims
 
 
-def read_ambercoordinates(prmtopfile=None, inpcrdfile=None) -> tuple[list[str], np.ndarray, list]:
+def read_ambercoordinates(
+    prmtopfile: str | None = None, inpcrdfile: str | None = None
+) -> tuple[list[str], list[list[float]], list[float]]:
     """Read an Amber inpcrd/rst coordinate file, taking elements from the prmtop."""
     elems = []
     coords = []
@@ -1511,18 +1639,18 @@ def read_ambercoordinates(prmtopfile=None, inpcrdfile=None) -> tuple[list[str], 
 
 
 def write_pdbfile(
-    fragment,
+    fragment: Fragment,
     *,
-    outputname="fragment",
-    openmmobject=None,
-    atomnames=None,
-    resnames=None,
-    residlabels=None,
-    chainlabels=None,
-    segmentlabels=None,
-    dummyname="DUM",
-    charges_column=None,
-    conect_lines=None,
+    outputname: str = "fragment",
+    openmmobject: OpenMMTheory | None = None,
+    atomnames: Sequence[str] | None = None,
+    resnames: Sequence[str] | None = None,
+    residlabels: Sequence[int | str] | None = None,
+    chainlabels: Sequence[str] | None = None,
+    segmentlabels: Sequence[str] | None = None,
+    dummyname: str = "DUM",
+    charges_column: Sequence[str] | None = None,
+    conect_lines: Sequence[str] | None = None,
 ) -> str:
     """Write a fragment to a PDB file."""
     logger.info("Writing PDB-file...")
@@ -1632,7 +1760,7 @@ def write_pdbfile(
     return outputname + ".pdb"
 
 
-def total_nuclear_charge(ellist):
+def total_nuclear_charge(ellist: Sequence[str]) -> float:
     totnuccharge = 0
     warning_issued = False
     for e in ellist:
@@ -1648,7 +1776,7 @@ def total_nuclear_charge(ellist):
     return totnuccharge
 
 
-def elems_to_nuclear_charges(ellist):
+def elems_to_nuclear_charges(ellist: Sequence[str]) -> list[int]:
     nuccharges = []
     for e in ellist:
         atcharge = elematomnumbers[e.lower()]
@@ -1656,11 +1784,11 @@ def elems_to_nuclear_charges(ellist):
     return nuccharges
 
 
-def total_mass(ellist):
+def total_mass(ellist: Sequence[str]) -> float:
     return sum(list_of_masses(ellist))
 
 
-def list_of_masses(ellist):
+def list_of_masses(ellist: Sequence[str]) -> list[float]:
     masses = []
     warning_issued = False
     for e in ellist:
@@ -1691,7 +1819,13 @@ def list_of_masses(ellist):
 
 
 def flexible_align_xyz(
-    xyzfile_a, xyzfile_b, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
+    xyzfile_a: str,
+    xyzfile_b: str,
+    rotate_only: bool = False,
+    translate_only: bool = False,
+    reordering: bool = False,
+    reorder_method: str = "brute",
+    subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> None:
     """Align the molecule in one XYZ file onto the molecule in another."""
     logger.debug(f"Will align molecule in file {xyzfile_a} onto molecule in file {xyzfile_b}")
@@ -1712,7 +1846,13 @@ def flexible_align_xyz(
 
 
 def flexible_align_pdb(
-    pdbfileA, pdbfileB, rotate_only=False, translate_only=False, reordering=False, reorder_method="brute", subset=None
+    pdbfileA: str,
+    pdbfileB: str,
+    rotate_only: bool = False,
+    translate_only: bool = False,
+    reordering: bool = False,
+    reorder_method: str = "brute",
+    subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> None:
     """Align the molecule in one PDB file onto the molecule in another."""
     logger.debug(f"Will align molecule in file {pdbfileA} onto molecule in file {pdbfileB}")
@@ -1733,7 +1873,12 @@ def flexible_align_pdb(
     fragment_a.write_pdbfile_openmm(filename=f"{pdbfileA.replace('.pdb', '')}_aligned")  # Now write out
 
 
-def _resolve_alignment_subsets(fragment_a, fragment_b, subset, heavyatomsonly=False):
+def _resolve_alignment_subsets(
+    fragment_a: Fragment,
+    fragment_b: Fragment,
+    subset: Sequence[int] | Sequence[Sequence[int]] | None,
+    heavyatomsonly: bool = False,
+) -> tuple[np.ndarray, list[str], np.ndarray, list[str]]:
     """Return the (coords, elems) of each fragment that a superposition should be fitted on."""
     if subset is None:
         if heavyatomsonly is not True:
@@ -1760,14 +1905,14 @@ def _resolve_alignment_subsets(fragment_a, fragment_b, subset, heavyatomsonly=Fa
 
 
 def flexible_align(
-    fragment_a,
-    fragment_b,
-    rotate_only=False,
-    translate_only=False,
-    reordering=False,
-    reorder_method="brute",
-    subset=None,
-) -> "Fragment":
+    fragment_a: Fragment,
+    fragment_b: Fragment,
+    rotate_only: bool = False,
+    translate_only: bool = False,
+    reordering: bool = False,
+    reorder_method: str = "brute",
+    subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
+) -> Fragment:
     """Align one fragment onto another (Kabsch superposition, optional reordering)."""
     logger.info("flexible_align function")
     import geometric
@@ -1834,7 +1979,13 @@ def flexible_align(
 
 
 # NOTE: no reordering
-def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, write_aligned_structure=False) -> float:
+def calculate_rmsd(
+    fragment_a: Fragment,
+    fragment_b: Fragment,
+    subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
+    heavyatomsonly: bool = False,
+    write_aligned_structure: bool = False,
+) -> float:
     """Return the RMSD between two fragments after optimal superposition."""
     logger.info("calculate_RMSD function")
 
@@ -1859,11 +2010,11 @@ def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, wr
     return rmsdval
 
 
-def _centroid(X):
+def _centroid(X: np.ndarray) -> np.ndarray:
     return X.mean(axis=0)
 
 
-def get_partial_list(allatoms, partialatoms, full_list):
+def get_partial_list(allatoms: Sequence[int], partialatoms: Sequence[int], full_list: list[_T]) -> list[_T]:
     newlist = copy.copy(full_list)  # Otherwise object may be updated
     otheratoms = listdiff(allatoms, partialatoms)
     otheratoms.reverse()
@@ -1872,7 +2023,13 @@ def get_partial_list(allatoms, partialatoms, full_list):
     return newlist
 
 
-def _reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
+def _reorder(
+    reorder_method: Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray],
+    p_coord: np.ndarray,
+    q_coord: np.ndarray,
+    p_atoms: np.ndarray,
+    q_atoms: np.ndarray,
+) -> list[int]:
     p_cent = _centroid(p_coord)
     q_cent = _centroid(q_coord)
     p_coord -= p_cent
@@ -1885,7 +2042,11 @@ def _reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
     return [q_review.tolist()][0]
 
 
-def expand_qm_region(fragment=None, initial_atoms=None, radius=None) -> list[int]:
+def expand_qm_region(
+    fragment: Fragment | None = None,
+    initial_atoms: Sequence[int] | None = None,
+    radius: float | None = None,
+) -> list[int]:
     """Expand a QM region outward to include whole molecules within a distance cutoff."""
     scale = CONNECTIVITY_SCALE
     tol = CONNECTIVITY_TOL
@@ -1915,7 +2076,9 @@ def expand_qm_region(fragment=None, initial_atoms=None, radius=None) -> list[int
     return np.unique(atomlist).tolist()
 
 
-def expand_qm_pc_region(theory=None, fragment=None, thresh=5e-4) -> list[int]:
+def expand_qm_pc_region(
+    theory: QMMMTheory | None = None, fragment: Fragment | None = None, thresh: float = 5e-4
+) -> np.ndarray:
     """Expand a QM region based on the QM/MM pointcharge-gradient magnitude."""
     if theory is None and fragment is None:
         raise InputError("QMPC_fragexpand requires fragment and theory")
@@ -1945,7 +2108,15 @@ def expand_qm_pc_region(theory=None, fragment=None, thresh=5e-4) -> list[int]:
     return new_expansion
 
 
-def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomlist=None, unusualboundary=False):
+def get_boundary_atoms(
+    qmatoms: Sequence[int],
+    coords: np.ndarray,
+    elems: Sequence[str],
+    scale: float,
+    tol: float,
+    excludeboundaryatomlist: Sequence[int] | None = None,
+    unusualboundary: bool = False,
+) -> dict[int, list[int]]:
     timeA = time.time()
     logger.info("Determining QM-MM/HL-LL boundary")
     logger.info("Parameters determing connectivity:")
@@ -2007,15 +2178,15 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
 # from equilibrium distances (not ready)
 # Using linkatom distance of 1.09 Å for now as default. Makes sense for C-H link atoms.
 def get_linkatom_positions(
-    qm_mm_boundary_dict,
-    coords,
-    elems,
-    linkatom_method="simple",
-    linkatom_type="H",
-    linkatom_simple_distance=None,
-    bondpairs_eq_dict=None,
-    linkatom_ratio=0.723,
-):
+    qm_mm_boundary_dict: Mapping[int, Sequence[int]],
+    coords: np.ndarray,
+    elems: Sequence[str],
+    linkatom_method: str = "simple",
+    linkatom_type: str = "H",
+    linkatom_simple_distance: float | None = None,
+    bondpairs_eq_dict: Mapping[tuple[str, str], float] | None = None,
+    linkatom_ratio: float | Literal["Auto"] = 0.723,
+) -> dict[tuple[int, int], np.ndarray | list[float]]:
     logger.info("Inside get_linkatom_positions")
     logger.info("linkatom_type: %s", linkatom_type)
     logger.info("linkatom_method: %s", linkatom_method)
@@ -2075,7 +2246,9 @@ def get_linkatom_positions(
     return linkatoms_dict
 
 
-def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=False) -> list:
+def get_molecules_from_trajectory(
+    file: str, writexyz: bool = False, skipindex: int = 1, conncalc: bool = False
+) -> list[Fragment]:
     """Create a Fragment for every snapshot in a multi-molecule XYZ trajectory."""
     logger.info(small_header("Get molecules from trajectory"))
     logger.info("Finding molecules/snapshots in multi-XYZ trajectory file and creating fragments...")
@@ -2092,7 +2265,11 @@ def get_molecules_from_trajectory(file, writexyz=False, skipindex=1, conncalc=Fa
     return list_of_molecules
 
 
-def get_water_constraints(openmmtheoryobject=None, atomlist=None, watermodel="tip3p") -> list:
+def get_water_constraints(
+    openmmtheoryobject: OpenMMTheory | None = None,
+    atomlist: Sequence[int] | None = None,
+    watermodel: str = "tip3p",
+) -> list[list[int]]:
     """Return bond constraints for every water molecule in an OpenMM system."""
     logger.info("Inside getwaterconstraintslist")
     if openmmtheoryobject is None or atomlist is None:
@@ -2124,7 +2301,7 @@ def get_water_constraints(openmmtheoryobject=None, atomlist=None, watermodel="ti
     return waterconstraints
 
 
-def _qm_region_owner(theory, max_depth=4):
+def _qm_region_owner(theory: Any, max_depth: int = 4) -> Any | None:
     # A job may be handed a wrapper (NumGrad) whose theorytype is that of no particular theory,
     # so the object owning the QM-region charge is found by capability, not by that string.
     for _ in range(max_depth):
@@ -2136,7 +2313,14 @@ def _qm_region_owner(theory, max_depth=4):
     return None
 
 
-def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None):
+def check_charge_mult(
+    charge: int | None,
+    mult: int | None,
+    theorytype: str,
+    fragment: Fragment,
+    jobtype: str,
+    theory: Any | None = None,
+) -> tuple[int | None, int | None]:
     """Resolve the charge and multiplicity a theory should be run with."""
     qm_region = _qm_region_owner(theory)
     if qm_region is not None:
@@ -2167,7 +2351,9 @@ def check_charge_mult(charge, mult, theorytype, fragment, jobtype, theory=None):
     return charge, mult
 
 
-def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000) -> list[int]:
+def check_gradient_for_bad_atoms(
+    fragment: Fragment | None = None, gradient: np.ndarray | None = None, threshold: float = 45000
+) -> list[int]:
     """Report atoms with unusually large gradient components (useful for spotting clashes)."""
     indices = []
     logger.info("Checking system total gradient for bad atoms")
@@ -2193,7 +2379,11 @@ def check_gradient_for_bad_atoms(fragment=None, gradient=None, threshold=45000) 
     return indices
 
 
-def define_xh_constraints(fragment, actatoms=None, excludeatoms=None) -> list:
+def define_xh_constraints(
+    fragment: Fragment,
+    actatoms: Sequence[int] | None = None,
+    excludeatoms: Sequence[int] | None = None,
+) -> list[list[int]]:
     """Return X-H bond constraints for a fragment or a region of it."""
     logger.info("Inside define_XH_constraints function")
     if actatoms is None:
@@ -2232,16 +2422,18 @@ def define_xh_constraints(fragment, actatoms=None, excludeatoms=None) -> list:
     return final_list
 
 
-def fullindex_to_actindex(fullindex, actatoms):
+def fullindex_to_actindex(fullindex: int, actatoms: Sequence[int]) -> int:
     return actatoms.index(fullindex)
 
 
-def _actindex_to_fullindex(actindex, actatoms):
+def _actindex_to_fullindex(actindex: int, actatoms: Sequence[int]) -> int:
     return actatoms[actindex]
 
 
 # Limitation: Assumes all waters from starting index to end and that waters are ordered: O H H
-def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False) -> list:
+def simple_get_water_constraints(
+    fragment: Fragment, starting_index: int | None = None, onlyHH: bool = False
+) -> list[list[int]]:
     """Return water bond constraints by position, without residue information."""
     logger.info("Inside simple_get_water_constraints function")
     logger.warning(
@@ -2272,7 +2464,7 @@ def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False) ->
     return constraints
 
 
-def _combine_and_place_fragments(ref_frag, trans_frag):
+def _combine_and_place_fragments(ref_frag: Fragment, trans_frag: Fragment) -> Fragment:
     for displacement in [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0]:
         trans_frag.coords[:, -1] += displacement
         members = _get_molecule_members_np(
@@ -2295,19 +2487,19 @@ def _combine_and_place_fragments(ref_frag, trans_frag):
 # Currently using 0.4 as default based on threonine in acetonitrile example
 def insert_solute_into_solvent(
     *,
-    solute=None,
-    solute2=None,
-    solvent=None,
-    scale=1.0,
-    tol=0.4,
-    write_pdb=False,
-    write_solute_connectivity=True,
-    solute_pdb=None,
-    solute2_pdb=None,
-    solvent_pdb=None,
-    outputname="solution.pdb",
-    write_pbc_info=True,
-) -> "Fragment":
+    solute: Fragment | None = None,
+    solute2: Fragment | None = None,
+    solvent: Fragment | None = None,
+    scale: float = 1.0,
+    tol: float = 0.4,
+    write_pdb: bool = False,
+    write_solute_connectivity: bool = True,
+    solute_pdb: str | None = None,
+    solute2_pdb: str | None = None,
+    solvent_pdb: str | None = None,
+    outputname: str = "solution.pdb",
+    write_pbc_info: bool = True,
+) -> Fragment:
     """Insert one or two solute molecules into a solvent box, removing clashes."""
     logger.info("\ninsert_solute_into_solvent\n")
     if write_pdb:
@@ -2428,7 +2620,7 @@ def insert_solute_into_solvent(
 
 
 # Assumes coords in Angstrom
-def nuc_nuc_repulsion(coords, charges) -> float:
+def nuc_nuc_repulsion(coords: np.ndarray, charges: Sequence[float] | np.ndarray) -> float:
     """Return the classical nucleus-nucleus repulsion energy of a set of point charges."""
     charges = np.array(charges)  # Ensure charges is a numpy array
     coords_b = coords * openmmqmmm.constants.ANG_TO_BOHR
@@ -2438,7 +2630,7 @@ def nuc_nuc_repulsion(coords, charges) -> float:
     return 0.5 * np.sum(charges[:, None] * charges[None, :] / distances)
 
 
-def define_dummy_topology(elems, resname="MOL"):
+def define_dummy_topology(elems: Sequence[str], resname: str = "MOL") -> Topology:
     try:
         import openmm.app
     except ImportError:

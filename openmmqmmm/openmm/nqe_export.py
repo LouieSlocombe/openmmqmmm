@@ -20,16 +20,20 @@ every bead; contract the QM force through ``MolecularDynamicsEngine``'s
 ``rpmd_qm_num_copies`` instead.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import logging
+from collections.abc import Sequence
 from numbers import Integral
 
 import numpy as np
+import numpy.typing as npt
 import openmm
 import openmm.app
 import openmm.unit
 
-from openmmqmmm.coords import check_charge_mult
+from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.openmm.rpmd_force import RPMDQMMMForceProvider, add_rpmd_python_force
 from openmmqmmm.qmmm import QMMMTheory
@@ -44,12 +48,12 @@ class RPMDPotentialExport:
     system: openmm.System
     modeller: openmm.app.Modeller
     provider: RPMDQMMMForceProvider
-    python_force: "openmm.PythonForce"
+    python_force: openmm.PythonForce
     force_group: int
     num_beads: int
 
 
-def modeller_from_topology(*, topology, coords_angstrom) -> openmm.app.Modeller:
+def modeller_from_topology(*, topology: openmm.app.Topology, coords_angstrom: npt.ArrayLike) -> openmm.app.Modeller:
     """Build an ``openmm.app.Modeller`` from an OpenMM topology and coordinates in Å."""
     coords = np.asarray(coords_angstrom, dtype=np.float64)
     num_atoms = topology.getNumAtoms()
@@ -64,7 +68,16 @@ def modeller_from_topology(*, topology, coords_angstrom) -> openmm.app.Modeller:
     return openmm.app.Modeller(topology, positions)
 
 
-def attach_qmmm_rpmd_force(*, theory, elems, charge, mult, num_beads, periodic, cache_size=None):
+def attach_qmmm_rpmd_force(
+    *,
+    theory: QMMMTheory,
+    elems: Sequence[str],
+    charge: int,
+    mult: int,
+    num_beads: int,
+    periodic: bool,
+    cache_size: int | None = None,
+) -> tuple[RPMDQMMMForceProvider, openmm.PythonForce, int]:
     """Attach the bead-specific QM/MM ``PythonForce`` to the theory's MM System.
 
     Shared wiring between ``MolecularDynamicsEngine`` and ``export_rpmd_potential``:
@@ -118,7 +131,13 @@ def attach_qmmm_rpmd_force(*, theory, elems, charge, mult, num_beads, periodic, 
 
 
 def export_rpmd_potential(
-    *, theory, num_beads, fragment=None, charge=None, mult=None, cache_size=None
+    *,
+    theory: QMMMTheory,
+    num_beads: int,
+    fragment: Fragment | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
+    cache_size: int | None = None,
 ) -> RPMDPotentialExport:
     """Export a QM/MM theory as a System, Modeller, and attached ``PythonForce``.
 

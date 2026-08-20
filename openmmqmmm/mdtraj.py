@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 import logging
 import os
+from collections.abc import Sequence
+from types import ModuleType
 
 import numpy as np
 
@@ -10,7 +14,7 @@ from openmmqmmm.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def mdtraj_load():
+def mdtraj_load() -> ModuleType:
     logger.debug("Importing mdtraj (https://www.mdtraj.org)")
     try:
         import mdtraj
@@ -22,8 +26,13 @@ def mdtraj_load():
 
 
 def mdtraj_rmsf(
-    trajectory, pdbtopology, print_largest_values=True, threshold=0.005, largest_values=10, parallel=True
-) -> list[int]:
+    trajectory: str,
+    pdbtopology: str,
+    print_largest_values: bool = True,
+    threshold: float = 0.005,
+    largest_values: int = 10,
+    parallel: bool = True,
+) -> np.ndarray:
     """Return the indices of the atoms fluctuating most in a trajectory (per-atom RMSF via mdtraj)."""
     logger.info("Inside MDtraj_RMSF")
     mdtraj = mdtraj_load()
@@ -54,7 +63,12 @@ def mdtraj_rmsf(
 
 # anchor_molecules. Use if automatic guess fails
 def mdtraj_image_trajectory(
-    trajectory, pdbtopology, traj_format="DCD", unitcell_lengths=None, unitcell_angles=None, solute_anchor=None
+    trajectory: str,
+    pdbtopology: str,
+    traj_format: str = "DCD",
+    unitcell_lengths: Sequence[float] | None = None,
+    unitcell_angles: Sequence[float] | None = None,
+    solute_anchor: bool | None = None,
 ) -> np.ndarray:
     """Re-image a periodic trajectory so molecules stay whole, returning the last frame's coordinates."""
     traj_basename = os.path.splitext(trajectory)[0]

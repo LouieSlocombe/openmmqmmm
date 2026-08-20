@@ -25,7 +25,7 @@ class InternalError(OpenMMQMMMError, RuntimeError):
     """An internal consistency check failed ("should never happen")."""
 
 
-def require(module_name, hint=None, feature=None) -> ModuleType:
+def require(module_name: str, hint: str | None = None, feature: str | None = None) -> ModuleType:
     """Import and return an optional dependency, or raise MissingDependencyError."""
     import importlib
 

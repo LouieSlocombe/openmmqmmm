@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 
@@ -9,7 +11,7 @@ from openmmqmmm.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
+def xyz_to_pdb_with_connectivity(file: str, resname: str = "UNL") -> str:
     logger.info("xyz_to_pdb_with_connectivity function:")
     try:
         from openbabel import openbabel, pybel
@@ -40,7 +42,7 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
     return os.path.splitext(file)[0] + ".pdb"
 
 
-def smiles_to_coords(smiles_string):
+def smiles_to_coords(smiles_string: str) -> tuple[list[str], list[list[float]]]:
     try:
         from openbabel import openbabel, pybel
     except ModuleNotFoundError:

@@ -282,9 +282,8 @@ exiting the interpreter. Job functions are snake_case (`single_point`, `optimize
 writes its `Results` object to a `results_*.json` file — for example `results_singlepoint.json`,
 `results_optimizer.json`, `results_numfreq.json`.
 
-The package is deliberately untyped and ships no `py.typed` marker: annotations cover only a
-handful of return types, so a type checker would infer `Any` almost everywhere. Claiming to be
-typed would hide that rather than fix it.
+The package ships inline type annotations and a `py.typed` marker, so type checkers use its
+function and method signatures when checking downstream code.
 
 ## ASE calculator
 

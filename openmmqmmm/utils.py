@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import logging
 import os
 import re
 import time
+from collections.abc import Iterable, Sequence
+from os import PathLike
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -13,7 +18,14 @@ logger = logging.getLogger(__name__)
 timings_logger = logging.getLogger("openmmqmmm.timings")
 
 
-def configure_logging(level="INFO", file=None, fmt="%(message)s") -> logging.Logger:
+_T = TypeVar("_T")
+
+
+def configure_logging(
+    level: int | str = "INFO",
+    file: str | PathLike[str] | None = None,
+    fmt: str = "%(message)s",
+) -> logging.Logger:
     """Configure console (and optional file) output; OPENMMQMMM_LOGLEVEL overrides level."""
     package_logger = logging.getLogger("openmmqmmm")
     env_level = os.environ.get("OPENMMQMMM_LOGLEVEL")
@@ -37,12 +49,12 @@ def configure_logging(level="INFO", file=None, fmt="%(message)s") -> logging.Log
     return package_logger
 
 
-def log_time_since(timestamp, label="step"):
+def log_time_since(timestamp: float, label: str = "step") -> None:
     secs = time.time() - timestamp
     timings_logger.debug("Time to calculate step (%s): %.3f seconds, %.1f minutes", label, secs, secs / 60)
 
 
-def main_header(text):
+def main_header(text: str) -> str:
     width = len(text) + 12
     edge = "#" * width
     mid = "#" + " " * (width - 2) + "#"
@@ -50,25 +62,29 @@ def main_header(text):
     return "\n".join(["\n", edge.center(80), mid.center(80), inner.center(80), mid.center(80), edge.center(80)])
 
 
-def sub_header(text):
+def sub_header(text: str) -> str:
     rule = "-" * 80
     return f"\n{rule}\n{text.center(80)}\n{rule}\n"
 
 
-def sub_header_end():
+def sub_header_end() -> str:
     return "\n" + "-" * 80
 
 
-def small_header(text):
+def small_header(text: str) -> str:
     rule = "-" * len(text)
     return f"\n{rule}\n{text}\n{rule}"
 
 
-def basename(filename):
+def basename(filename: str | PathLike[str]) -> str:
     return os.path.splitext(filename)[0]
 
 
-def pygrep(string, file, errors=None):
+def pygrep(
+    string: str,
+    file: str | PathLike[str],
+    errors: str | None = None,
+) -> list[str] | None:
     with open(file, errors=errors) as f:
         for line in f:
             if string in line:
@@ -76,7 +92,12 @@ def pygrep(string, file, errors=None):
     return None
 
 
-def pygrep2(string, file, print_output=False, errors=None):
+def pygrep2(
+    string: str,
+    file: str | PathLike[str],
+    print_output: bool = False,
+    errors: str | None = None,
+) -> list[str]:
     with open(file, errors=errors) as f:
         matches = [line for line in f if string in line]
     if print_output is True:
@@ -84,7 +105,11 @@ def pygrep2(string, file, print_output=False, errors=None):
     return matches
 
 
-def find_replace_string_in_file(file, findstring, replstring):
+def find_replace_string_in_file(
+    file: str | PathLike[str],
+    findstring: str,
+    replstring: str,
+) -> None:
     with open(file) as f:
         filedata = f.read()
     filedata = filedata.replace(findstring, replstring)
@@ -92,13 +117,18 @@ def find_replace_string_in_file(file, findstring, replstring):
         f.write(filedata)
 
 
-def listdiff(list1, list2):
+def listdiff(list1: Iterable[_T], list2: Iterable[_T]) -> list[_T]:
     diff = list(set(list1) - set(list2))
     diff.sort()
     return diff
 
 
-def insert_line_into_file(file, string, addedstring, once=True):
+def insert_line_into_file(
+    file: str | PathLike[str],
+    string: str,
+    addedstring: str,
+    once: bool = True,
+) -> None:
     added = False
     with open(file) as ffr:
         contents = ffr.readlines()
@@ -111,7 +141,7 @@ def insert_line_into_file(file, string, addedstring, once=True):
                     added = True
 
 
-def isint(s):
+def isint(s: object) -> bool:
     try:
         int(s)
         return True
@@ -121,11 +151,11 @@ def isint(s):
         return False
 
 
-def search_list_of_lists_for_index(i, list_of_lists):
+def search_list_of_lists_for_index(i: _T, list_of_lists: Sequence[Sequence[_T]]) -> int | None:
     return next((c for c, f in enumerate(list_of_lists) if i in f), None)
 
 
-def read_intlist_from_file(filename, offset=0):
+def read_intlist_from_file(filename: str | PathLike[str], offset: int = 0) -> list[int]:
     intlist = []
     try:
         with open(filename) as f:
@@ -140,27 +170,35 @@ def read_intlist_from_file(filename, offset=0):
     return intlist
 
 
-def write_string_to_file(string, file, writemode="w"):
+def write_string_to_file(
+    string: str,
+    file: str | PathLike[str],
+    writemode: str = "w",
+) -> None:
     with open(file, writemode) as f:
         f.write(string)
 
 
-def write_list_to_file(pylist, file, separator=" "):
+def write_list_to_file(
+    pylist: Iterable[object],
+    file: str | PathLike[str],
+    separator: str = " ",
+) -> None:
     with open(file, "w") as f:
         f.writelines(str(item) + separator for item in pylist)
     logger.info("Wrote list to file: %s", file)
 
 
-def natural_sort(items):
-    def alphanum_key(key):
+def natural_sort(items: Iterable[str]) -> list[str]:
+    def alphanum_key(key: str) -> list[int | str]:
         return [int(part) if part.isdigit() else part.lower() for part in re.split("([0-9]+)", key)]
 
     return sorted(items, key=alphanum_key)
 
 
-def clean_number(number):
+def clean_number(number: Any) -> Any:
     return np.real_if_close(number)
 
 
-def column(matrix, i):
+def column(matrix: Iterable[Sequence[_T]], i: int) -> list[_T]:
     return [row[i] for row in matrix]

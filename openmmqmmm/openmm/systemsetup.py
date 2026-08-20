@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import contextlib
 import logging
 import os
 import time
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import openmm
@@ -65,19 +69,19 @@ def _normalise_modeller_solvent_name(watermodel: str | None) -> str:
     return model
 
 
-def print_systemsize(modeller):
+def print_systemsize(modeller: openmm.app.Modeller) -> None:
     logger.info(f"System size: {len(modeller.getPositions())} atoms\n")
 
 
 def openmm_minimize(
-    fragment=None,
-    theory=None,
-    maxiter=1000,
-    tolerance=1,
-    enforce_periodic_box=True,
-    traj_frequency=100,
-    use_reporter=True,
-) -> "Fragment | bool":
+    fragment: Fragment | None = None,
+    theory: OpenMMTheory | None = None,
+    maxiter: int = 1000,
+    tolerance: float = 1,
+    enforce_periodic_box: bool = True,
+    traj_frequency: int = 100,
+    use_reporter: bool = True,
+) -> Fragment:
     """Minimize the MM energy of a fragment with OpenMM's L-BFGS minimizer."""
     module_init_time = time.time()
     logger.info(main_header("OpenMM Optimization"))
@@ -135,7 +139,13 @@ def openmm_minimize(
         class Reporter(openmm.openmm.MinimizationReporter):
             """Log minimizer progress; the OpenMM reporter hook exists only from 8.1 on."""
 
-            def report(self, iteration, x, grad, args):
+            def report(
+                self,
+                iteration: int,
+                x: Sequence[float],
+                grad: Sequence[float],
+                args: Mapping[str, float],
+            ) -> bool:
                 if not hasattr(self, "totaliter"):
                     self.totaliter = -1
 
@@ -158,7 +168,7 @@ def openmm_minimize(
 
                 return False
 
-            def write_traj(self, x):
+            def write_traj(self, x: Sequence[float]) -> None:
                 if self.totaliter % traj_frequency == 0:
                     logger.info("%s", "-" * 40)
                     logger.info("Now writing to trajectory file")
@@ -166,7 +176,7 @@ def openmm_minimize(
                     pos = 10 * np.array(x).reshape(-1, 3)
                     write_xyzfile(fragment.elems, pos, "OpenMMOpt_traj", writemode="a")
 
-            def print_energy(self, args):
+            def print_energy(self, args: Mapping[str, float]) -> None:
                 system_energy = args["system energy"] / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
                 restraint_energy = args["restraint energy"] / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
                 logger.info("System energy: %s", system_energy)
@@ -174,14 +184,14 @@ def openmm_minimize(
                 logger.info("Restraint strength: %s", args["restraint strength"])
                 logger.info("Max constraint error: %s", args["max constraint error"])
 
-            def get_forces(self, grad):
+            def get_forces(self, grad: Sequence[float]) -> None:
                 g = np.array(grad).reshape(-1, 3)  # To confirm
                 kjmolnm_to_atomic_factor = -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
                 self.forces_init = g / kjmolnm_to_atomic_factor
                 self.rms_force = np.sqrt(sum(n * n for n in self.forces_init.flatten()) / len(forces_init.flatten()))
                 self.max_force = self.forces_init.max()
 
-            def print_forces(self):
+            def print_forces(self) -> None:
                 logger.info(f"RMS force (w restraints): {self.rms_force} Eh/Bohr")
                 logger.info(f"Max force (w restraints): {self.max_force} Eh/Bohr\n")
 
@@ -254,7 +264,9 @@ def openmm_minimize(
     return fragment
 
 
-def _resolve_named_forcefield(forcefield, watermodel, waterxmlfile):
+def _resolve_named_forcefield(
+    forcefield: str, watermodel: str | None, waterxmlfile: str | None
+) -> tuple[str, str | None, str | None]:
     """Map a forcefield name onto its XML file and the water model that pairs with it."""
     logger.info("Forcefield: %s", forcefield)
     try:
@@ -283,7 +295,14 @@ def _resolve_named_forcefield(forcefield, watermodel, waterxmlfile):
     return xmlfile, watermodel, waterxmlfile
 
 
-def _build_forcefield_object(*, xmlfile, forcefield_object, extraxmlfile, waterxmlfile, watermodel):
+def _build_forcefield_object(
+    *,
+    xmlfile: str | None,
+    forcefield_object: openmm.app.ForceField | None,
+    extraxmlfile: str | None,
+    waterxmlfile: str | None,
+    watermodel: str | None,
+) -> openmm.app.ForceField:
     """Return the OpenMM ForceField, built from XML files or taken from the caller."""
     if xmlfile is None:
         if forcefield_object is None:
@@ -305,7 +324,7 @@ def _build_forcefield_object(*, xmlfile, forcefield_object, extraxmlfile, waterx
     return openmm_app.forcefield.ForceField(*files)
 
 
-def _run_pdbfixer(pdbfile):
+def _run_pdbfixer(pdbfile: str | os.PathLike[str]) -> str:
     """Add the missing residues and atoms PDBFixer can find, and return the repaired PDB path."""
     try:
         import pdbfixer
@@ -338,35 +357,35 @@ def _run_pdbfixer(pdbfile):
 
 def openmm_modeller(
     *,
-    pdbfile=None,
-    forcefield_object=None,
-    forcefield=None,
-    xmlfile=None,
-    waterxmlfile=None,
-    watermodel=None,
-    ph=7.0,
-    solvent_padding=10.0,
-    solvent_boxdims=None,
-    extraxmlfile=None,
-    residue_variants=None,
-    ionicstrength=0.1,
-    pos_iontype="Na+",
-    neg_iontype="Cl-",
-    use_higher_occupancy=False,
-    platform="CPU",
-    use_pdbfixer=True,
-    implicit=False,
-    implicit_solvent_xmlfile=None,
-    membrane=False,
-    membrane_lipidtype="POPC",
-    membrane_padding=10.0,
-    membrane_center_z=0.0,
-    residuetemplate_choice=None,
-    parameterize_nonstandard=False,
-    ligand_files=None,
-    net_charges=None,
-    ligand_backend="gaff",
-) -> tuple:
+    pdbfile: str | os.PathLike[str] | None = None,
+    forcefield_object: openmm.app.ForceField | None = None,
+    forcefield: str | None = None,
+    xmlfile: str | None = None,
+    waterxmlfile: str | None = None,
+    watermodel: str | None = None,
+    ph: float = 7.0,
+    solvent_padding: float = 10.0,
+    solvent_boxdims: Sequence[float] | None = None,
+    extraxmlfile: str | None = None,
+    residue_variants: Mapping[str, Mapping[int, str]] | None = None,
+    ionicstrength: float = 0.1,
+    pos_iontype: str = "Na+",
+    neg_iontype: str = "Cl-",
+    use_higher_occupancy: bool = False,
+    platform: str = "CPU",
+    use_pdbfixer: bool = True,
+    implicit: bool = False,
+    implicit_solvent_xmlfile: str | None = None,
+    membrane: bool = False,
+    membrane_lipidtype: str = "POPC",
+    membrane_padding: float = 10.0,
+    membrane_center_z: float = 0.0,
+    residuetemplate_choice: Mapping[str, str] | None = None,
+    parameterize_nonstandard: bool = False,
+    ligand_files: Mapping[str, str | os.PathLike[str]] | None = None,
+    net_charges: Mapping[str, int] | None = None,
+    ligand_backend: str = "gaff",
+) -> tuple[OpenMMTheory, Fragment]:
     """Prepare a protein system from a raw PDB file using pdbfixer."""
     module_init_time = time.time()
     logger.info(main_header("OpenMM Modeller"))
@@ -616,7 +635,12 @@ def openmm_modeller(
     return openmmobject, fragment
 
 
-def write_pdbfile_openmm_topology(topology, positions, filename, connectivity_dict=None):
+def write_pdbfile_openmm_topology(
+    topology: openmm.app.Topology,
+    positions: openmm.unit.Quantity | Sequence[openmm.Vec3],
+    filename: str | os.PathLike[str],
+    connectivity_dict: Mapping[int, Sequence[int]] | None = None,
+) -> None:
     if connectivity_dict is not None:
         logger.info("Connectivity passed to write_pdbfile_openMM")
         openmm_add_bonds_to_topology(topology, connectivity_dict)
@@ -626,7 +650,12 @@ def write_pdbfile_openmm_topology(topology, positions, filename, connectivity_di
     logger.info("Wrote PDB-file: %s", filename)
 
 
-def write_pdbxfile_openmm_topology(topology, positions, filename, connectivity_dict=None):
+def write_pdbxfile_openmm_topology(
+    topology: openmm.app.Topology,
+    positions: openmm.unit.Quantity | Sequence[openmm.Vec3],
+    filename: str | os.PathLike[str],
+    connectivity_dict: Mapping[int, Sequence[int]] | None = None,
+) -> None:
     if connectivity_dict is not None:
         logger.info("Connectivity passed to write_pdbxfile_openMM")
         openmm_add_bonds_to_topology(topology, connectivity_dict)
@@ -636,7 +665,7 @@ def write_pdbxfile_openmm_topology(topology, positions, filename, connectivity_d
     logger.info("Wrote PDBx-file: %s", filename)
 
 
-def openmm_add_bonds_to_topology(topology, connectivity):
+def openmm_add_bonds_to_topology(topology: openmm.app.Topology, connectivity: Mapping[int, Sequence[int]]) -> None:
     atoms = list(topology.atoms())
     for conatom, conlist in connectivity.items():
         for conl in conlist:
@@ -644,15 +673,15 @@ def openmm_add_bonds_to_topology(topology, connectivity):
 
 
 def solvate_small_molecule(
-    fragment=None,
-    charge=None,
-    mult=None,
-    watermodel=None,
-    solvent_boxdims=None,
-    xmlfile=None,
-    lj_treatment=None,
-    skip_xmlfile=False,
-) -> tuple:
+    fragment: Fragment | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
+    watermodel: str | None = None,
+    solvent_boxdims: Sequence[float] | None = None,
+    xmlfile: str | os.PathLike[str] | None = None,
+    lj_treatment: str | None = None,
+    skip_xmlfile: bool = False,
+) -> tuple[openmm.app.ForceField, openmm.app.Topology, Fragment]:
     """Solvate a small molecule in a water box (Amber- or CHARMM-style forcefield XML)."""
     if solvent_boxdims is None:
         solvent_boxdims = [70.0, 70.0, 70.0]
@@ -756,7 +785,7 @@ def solvate_small_molecule(
     return forcefield, modeller.topology, newfragment
 
 
-def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
+def find_alternate_locations_residues(pdbfile: str | os.PathLike[str], use_higher_occupancy: bool = False) -> str:
     if use_higher_occupancy is True:
         logger.debug("Will keep higher occupancy atoms for alternate locations")
 
@@ -791,7 +820,7 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
             else:
                 pdb_atomlines.append(line)
 
-    def find_index_of_sublist_with_max_col(rows, index):
+    def find_index_of_sublist_with_max_col(rows: Sequence[Sequence[Any]], index: int) -> int | None:
         max_val = 0
         result = None
         for i, s in enumerate(rows):
@@ -841,7 +870,11 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
     return pdbfile
 
 
-def merge_pdb_files(pdbfile_1, pdbfile_2, outputname="merged.pdb") -> str:
+def merge_pdb_files(
+    pdbfile_1: str | os.PathLike[str],
+    pdbfile_2: str | os.PathLike[str],
+    outputname: str | os.PathLike[str] = "merged.pdb",
+) -> str | os.PathLike[str]:
     """Merge two PDB files into one (e.g. protein plus ligand)."""
     pdb1 = openmm.app.PDBFile(pdbfile_1)
     pdb2 = openmm.app.PDBFile(pdbfile_2)
@@ -857,15 +890,15 @@ def merge_pdb_files(pdbfile_1, pdbfile_2, outputname="merged.pdb") -> str:
 
 
 def _parameterize_nonstandard_residues(
-    pdbfile_for_modeller,
+    pdbfile_for_modeller: str | os.PathLike[str],
     *,
-    forcefield_obj,
-    xmlfile,
-    waterxmlfile,
-    extraxmlfile,
-    ligand_files,
-    net_charges,
-    ligand_backend,
+    forcefield_obj: openmm.app.ForceField,
+    xmlfile: str | None,
+    waterxmlfile: str | None,
+    extraxmlfile: str | None,
+    ligand_files: Mapping[str, str | os.PathLike[str]] | None,
+    net_charges: Mapping[str, int] | None,
+    ligand_backend: str,
 ) -> str | None:
     """Generate a forcefill XML for unmatched residues and load it into the forcefield object."""
     try:
@@ -905,7 +938,10 @@ def _parameterize_nonstandard_residues(
     return result.forcefield_xml
 
 
-def _log_residue_table(modeller_residues, residue_variants):
+def _log_residue_table(
+    modeller_residues: Sequence[openmm.app.topology.Residue],
+    residue_variants: Mapping[str, Mapping[int, str]],
+) -> list[str | None]:
     current_chainindex = 0
     # Also using loop to get residue_states list that we pass on to modeller.addHydrogens
     residue_states = []
@@ -933,25 +969,25 @@ def _log_residue_table(modeller_residues, residue_variants):
 
 
 def _add_solvent_or_membrane(
-    modeller,
+    modeller: openmm.app.Modeller,
     *,
-    forcefield_obj,
-    implicit,
-    implicit_solvent_xmlfile,
-    membrane,
-    membrane_lipidtype,
-    membrane_padding,
-    membrane_center_z,
-    modeller_solvent_name,
-    watermodel,
-    waterxmlfile,
-    solvent_boxdims,
-    solvent_padding,
-    ionicstrength,
-    pos_iontype,
-    neg_iontype,
-    residue_templates,
-):
+    forcefield_obj: openmm.app.ForceField,
+    implicit: bool,
+    implicit_solvent_xmlfile: str | None,
+    membrane: bool,
+    membrane_lipidtype: str,
+    membrane_padding: float,
+    membrane_center_z: float,
+    modeller_solvent_name: str,
+    watermodel: str | None,
+    waterxmlfile: str | None,
+    solvent_boxdims: Sequence[float] | None,
+    solvent_padding: float,
+    ionicstrength: float,
+    pos_iontype: str,
+    neg_iontype: str,
+    residue_templates: Mapping[openmm.app.topology.Residue, str],
+) -> tuple[bool, Fragment, str | None]:
     if implicit is True:
         periodic = False
         logger.info("We are doing implicit solvation")
@@ -1032,8 +1068,15 @@ def _add_solvent_or_membrane(
 
 
 def _log_output_files_and_usage(
-    *, systemxmlfile, xmlfile, waterxmlfile, extraxmlfile, nonstandard_xmlfile, residuetemplate_choice, periodic
-):
+    *,
+    systemxmlfile: str | os.PathLike[str],
+    xmlfile: str | None,
+    waterxmlfile: str | None,
+    extraxmlfile: str | None,
+    nonstandard_xmlfile: str | None,
+    residuetemplate_choice: Mapping[str, str] | None,
+    periodic: bool,
+) -> None:
     logger.info("\n\nFiles written to disk:")
     logger.info("system_afteratlocfixes.pdb")
     logger.info("system_afterfixes.pdb")

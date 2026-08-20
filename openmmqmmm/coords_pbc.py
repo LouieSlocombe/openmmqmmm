@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import logging
+import os
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -9,7 +13,7 @@ from openmmqmmm.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def cell_params_to_vectors(parameters):
+def cell_params_to_vectors(parameters: Sequence[float]) -> np.ndarray:
     a, b, c, alpha, beta, gamma = parameters
     rad_a = np.radians(alpha)
     rad_b = np.radians(beta)
@@ -30,7 +34,7 @@ def cell_params_to_vectors(parameters):
     return np.array([[ax, ay, az], [bx, by, bz], [cx, cy, cz]])
 
 
-def cell_vectors_to_params(vectors):
+def cell_vectors_to_params(vectors: np.ndarray) -> list[float]:
     va, vb, vc = vectors[0], vectors[1], vectors[2]
 
     a = np.linalg.norm(va)
@@ -50,19 +54,25 @@ def cell_vectors_to_params(vectors):
     return [float(a), float(b), float(c), float(alpha), float(beta), float(gamma)]
 
 
-def cart_coords_to_fract(cart_coords, cellvectors):
+def cart_coords_to_fract(cart_coords: np.ndarray, cellvectors: np.ndarray) -> np.ndarray:
     M = np.array(cellvectors)
     return np.dot(cart_coords, np.linalg.inv(M))
 
 
-def cell_volume(vectors):
+def cell_volume(vectors: np.ndarray) -> float:
     a = vectors[0, :]
     b = vectors[1, :]
     c = vectors[2, :]
     return abs(np.dot(a, np.cross(b, c)))
 
 
-def write_poscar_file(coords, elems, cellvectors=None, celldimensions=None, filename="POSCAR"):
+def write_poscar_file(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    cellvectors: np.ndarray | None = None,
+    celldimensions: Sequence[float] | None = None,
+    filename: str | os.PathLike[str] = "POSCAR",
+) -> str | os.PathLike[str]:
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
@@ -91,7 +101,13 @@ def write_poscar_file(coords, elems, cellvectors=None, celldimensions=None, file
     return filename
 
 
-def write_xsf_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.xsf"):
+def write_xsf_file(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    cellvectors: np.ndarray | None = None,
+    celldimensions: Sequence[float] | None = None,
+    filename: str | os.PathLike[str] = "structure.xsf",
+) -> str | os.PathLike[str]:
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
@@ -116,7 +132,13 @@ def write_xsf_file(coords, elems, cellvectors=None, celldimensions=None, filenam
     return filename
 
 
-def write_cif_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.cif"):
+def write_cif_file(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    cellvectors: np.ndarray | None = None,
+    celldimensions: Sequence[float] | None = None,
+    filename: str | os.PathLike[str] = "structure.cif",
+) -> str | os.PathLike[str]:
     if cellvectors is None and celldimensions is None:
         raise InputError("Error: Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
@@ -157,7 +179,9 @@ def write_cif_file(coords, elems, cellvectors=None, celldimensions=None, filenam
     return filename
 
 
-def align_to_standard_orientation(fragment_coords, cell_vectors):
+def align_to_standard_orientation(
+    fragment_coords: np.ndarray, cell_vectors: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     # 1. Transpose cell_vectors because QR works on columns
     H = cell_vectors.T
 

@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import contextlib
 import logging
 import shutil
 import time
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
 import openmmqmmm
 import openmmqmmm.constants
-from openmmqmmm.coords import check_charge_mult
+from openmmqmmm.coords import Fragment, Reaction, check_charge_mult
 from openmmqmmm.exceptions import (
     InputError,
 )
@@ -17,20 +21,20 @@ from openmmqmmm.utils import log_time_since, main_header
 logger = logging.getLogger(__name__)
 
 
-def _cleanup_theory(theory):
+def _cleanup_theory(theory: Any) -> None:
     cleanup = getattr(theory, "cleanup", None)
     if callable(cleanup):
         cleanup()
 
 
 def single_point(
-    fragment=None,
-    theory=None,
+    fragment: Fragment | None = None,
+    theory: Any | None = None,
     grad: bool = False,
     charge: int | None = None,
     mult: int | None = None,
     result_write_to_disk: bool = True,
-) -> "Results":
+) -> Results:
     """Run a single-point energy (and optionally gradient) calculation."""
     logger.info(main_header("Singlepoint function"))
     module_init_time = time.time()
@@ -76,7 +80,12 @@ def single_point(
     return result
 
 
-def single_point_theories(theories=None, fragment=None, charge=None, mult=None) -> "Results":
+def single_point_theories(
+    theories: Sequence[Any] | None = None,
+    fragment: Fragment | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
+) -> Results:
     """Run single-point calculations of one fragment with multiple theories."""
     logger.info(main_header("Singlepoint_theories function"))
     module_init_time = time.time()
@@ -108,7 +117,13 @@ def single_point_theories(theories=None, fragment=None, charge=None, mult=None) 
     return result
 
 
-def _log_theories_table(theories, energies, fragment, charge=None, mult=None):
+def _log_theories_table(
+    theories: Sequence[Any],
+    energies: Sequence[float],
+    fragment: Fragment,
+    charge: int | None = None,
+    mult: int | None = None,
+) -> None:
     logger.info("%s", "=" * 70)
     logger.info("Singlepoint_theories: Table of energies of each theory:")
     logger.info("%s", "=" * 70)
@@ -126,7 +141,12 @@ def _log_theories_table(theories, energies, fragment, charge=None, mult=None):
         logger.info(f"{t.__class__.__name__:15} {t.label!s:15} {charge!s:>7} {mult!s:>7} {e:>20.10f}\n")
 
 
-def _log_fragments_table(fragments, energies, tabletitle="Singlepoint_fragments: ", unit="Eh"):
+def _log_fragments_table(
+    fragments: Sequence[Fragment],
+    energies: Sequence[float],
+    tabletitle: str = "Singlepoint_fragments: ",
+    unit: str = "Eh",
+) -> None:
     logger.info("%s", "=" * 100)
     logger.info(f"{tabletitle}Table of energies of each fragment:")
     logger.info("%s", "=" * 100)
@@ -140,8 +160,13 @@ def _log_fragments_table(fragments, energies, tabletitle="Singlepoint_fragments:
 # Assuming fragments have charge,mult info defined.
 # If stoichiometry provided then print reaction energy
 def single_point_fragments(
-    theory=None, fragments=None, stoichiometry=None, relative_energies=False, unit="kcal/mol", moreadfiles=None
-) -> "Results":
+    theory: Any | None = None,
+    fragments: Sequence[Fragment] | None = None,
+    stoichiometry: Sequence[float] | None = None,
+    relative_energies: bool = False,
+    unit: str = "kcal/mol",
+    moreadfiles: Sequence[str] | None = None,
+) -> Results:
     """Run single-point calculations of one theory over multiple fragments."""
     logger.info(main_header("Singlepoint_fragments function"))
     module_init_time = time.time()
@@ -198,7 +223,11 @@ def single_point_fragments(
 
 
 # Assuming fragments have charge,mult info defined.
-def single_point_fragments_and_theories(theories=None, fragments=None, stoichiometry=None) -> "Results":
+def single_point_fragments_and_theories(
+    theories: Sequence[Any] | None = None,
+    fragments: Sequence[Fragment] | None = None,
+    stoichiometry: Sequence[float] | None = None,
+) -> Results:
     """Run single-point calculations for every fragment with every theory."""
     logger.info(main_header("Singlepoint_fragments_and_theories"))
     module_init_time = time.time()
@@ -249,7 +278,11 @@ def single_point_fragments_and_theories(theories=None, fragments=None, stoichiom
 
 
 # Assuming fragments have charge,mult info defined.
-def single_point_reaction(theory=None, reaction=None, moreadfiles=None) -> "Results":
+def single_point_reaction(
+    theory: Any | None = None,
+    reaction: Reaction | None = None,
+    moreadfiles: str | Sequence[str] | None = None,
+) -> Results:
     """Run single-point calculations for all species of a Reaction and compute the reaction energy."""
     logger.info(main_header("Singlepoint_reaction function"))
     module_init_time = time.time()
@@ -303,7 +336,7 @@ def single_point_reaction(theory=None, reaction=None, moreadfiles=None) -> "Resu
 class ZeroTheory:
     """Dummy theory returning zero energy and a zero gradient (useful for testing workflows)."""
 
-    def __init__(self, fragment=None, numcores: int = 1, label: str | None = None):
+    def __init__(self, fragment: Fragment | None = None, numcores: int = 1, label: str | None = None) -> None:
         self.numcores = numcores
         self.label = label
         self.fragment = fragment
@@ -311,24 +344,24 @@ class ZeroTheory:
         self.theorynamelabel = "ZeroTheory"
         self.theorytype = "QM"
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """No files to clean up; present so ZeroTheory satisfies the theory contract."""
 
     def run(
         self,
         *,
-        current_coords=None,
-        elems=None,
-        grad=False,
-        pc=False,
-        numcores=None,
-        charge=None,
-        mult=None,
-        label=None,
-        current_mm_coords=None,
-        mm_charges=None,
-        qm_elems=None,
-    ):
+        current_coords: np.ndarray | None = None,
+        elems: Sequence[str] | None = None,
+        grad: bool = False,
+        pc: bool = False,
+        numcores: int | None = None,
+        charge: int | None = None,
+        mult: int | None = None,
+        label: str | None = None,
+        current_mm_coords: np.ndarray | None = None,
+        mm_charges: Sequence[float] | None = None,
+        qm_elems: Sequence[str] | None = None,
+    ) -> float | tuple[float, np.ndarray]:
         """Return zero energy and, if requested, a zero gradient."""
         self.energy = 0.0
         self.gradient = np.zeros((len(elems), 3))
@@ -338,14 +371,14 @@ class ZeroTheory:
 
 
 def reaction_energy(
-    list_of_energies=None,
-    stoichiometry=None,
-    list_of_fragments=None,
-    unit="kcal/mol",
-    label=None,
-    reference=None,
-    silent=False,
-    correction=0.0,
+    list_of_energies: Sequence[float] | None = None,
+    stoichiometry: Sequence[float] | None = None,
+    list_of_fragments: Sequence[Fragment] | None = None,
+    unit: str = "kcal/mol",
+    label: str | None = None,
+    reference: float | None = None,
+    silent: bool = False,
+    correction: float = 0.0,
 ) -> tuple[float, float | None]:
     """Calculate a reaction energy from energies (or fragments with energies) and stoichiometry."""
     if label is None:

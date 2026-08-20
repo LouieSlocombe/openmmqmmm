@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import logging
 import os
 import shutil
 import subprocess as sp
+from collections.abc import Sequence
 
 import numpy as np
 from scipy.special import erfinv
@@ -27,7 +30,7 @@ _CM5_PAIRS = {
 }
 
 
-def _distance_matrix_from_coords(coords):
+def _distance_matrix_from_coords(coords: np.ndarray) -> list[list[float]]:
     distmatrix = []
     for i in coords:
         dist_row = [openmmqmmm.coords.distance(i, j) for j in coords]
@@ -35,7 +38,11 @@ def _distance_matrix_from_coords(coords):
     return distmatrix
 
 
-def calc_cm5(atomic_numbers, coords, hirschfeldcharges):
+def calc_cm5(
+    atomic_numbers: Sequence[int] | np.ndarray,
+    coords: Sequence[Sequence[float]] | np.ndarray,
+    hirschfeldcharges: Sequence[float] | np.ndarray,
+) -> np.ndarray:
     coords = np.array(coords)
     atomic_numbers = np.array(atomic_numbers)
     # all matrices have the naming scheme matrix[k,k'] according to the paper
@@ -69,7 +76,13 @@ def calc_cm5(atomic_numbers, coords, hirschfeldcharges):
 
 
 # https://github.com/aoterodelaroza/postg
-def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
+def xdm_run(
+    wfxfile: str | None = None,
+    postgdir: str | None = None,
+    a1: float | None = None,
+    a2: float | None = None,
+    functional: str | None = None,
+) -> tuple[float, np.ndarray]:
     if postgdir is None:
         logger.info("postgdir keyword argument not provided to xdm_run. Trying to find postg in PATH")
         try:
@@ -130,7 +143,7 @@ def xdm_run(wfxfile=None, postgdir=None, a1=None, a2=None, functional=None):
     return dispenergy, dispgradient
 
 
-def get_ec_entropy(occ, sigma, method="fermi"):
+def get_ec_entropy(occ: np.ndarray, sigma: float, method: str = "fermi") -> np.floating:
     f = occ / 2.0
     f = f[(f > 0) & (f < 1)]
     mask = f > 0.5

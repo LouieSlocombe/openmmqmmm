@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import logging
+from collections.abc import Sequence
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 
 import openmmqmmm
 import openmmqmmm.constants
-from openmmqmmm.coords import print_coords_all
+from openmmqmmm.coords import Fragment, print_coords_all
 from openmmqmmm.exceptions import InputError
 
 logger = logging.getLogger(__name__)
@@ -12,11 +16,21 @@ logger = logging.getLogger(__name__)
 # ORCA's step of 0.005 Bohr, in Angstrom: displacements are given in Angstrom here.
 DEFAULT_DISPLACEMENT = 0.005 * openmmqmmm.constants.BOHR_TO_ANG
 
+Displacement: TypeAlias = tuple[int, int, Literal["+", "-"]] | Literal["Originalgeo"]
+RunMode: TypeAlias = Literal["serial", "parallel"]
+
 
 class NumGrad:
     """Wrapper theory computing gradients numerically by finite differences of energies."""
 
-    def __init__(self, theory, npoint=2, displacement=DEFAULT_DISPLACEMENT, runmode="serial", numcores=1):
+    def __init__(
+        self,
+        theory: Any,
+        npoint: int = 2,
+        displacement: float = DEFAULT_DISPLACEMENT,
+        runmode: RunMode = "serial",
+        numcores: int = 1,
+    ) -> None:
         logger.debug("Creating NumGrad wrapper object")
         # Only the 1- and 2-point stencils are implemented. Without this check any other
         # value skips gradient assembly entirely and returns a zero gradient, which an
@@ -31,31 +45,31 @@ class NumGrad:
         self.runmode = runmode
         self.numcores = numcores
 
-    def set_numcores(self, numcores):
+    def set_numcores(self, numcores: int) -> None:
         """Set the number of cores used for parallel displacement runs."""
         self.numcores = numcores
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Do nothing: NumGrad has no scratch files and does not clean up the wrapped theory's."""
         logger.info("Cleanup method called but not yet implemented for Numgrad")
 
     def run(
         self,
         *,
-        current_coords=None,
-        current_mm_coords=None,
-        mm_charges=None,
-        qm_elems=None,
-        elems=None,
-        grad=False,
-        hessian=False,
-        pc=False,
-        numcores=None,
-        restart=False,
-        label=None,
-        charge=None,
-        mult=None,
-    ):
+        current_coords: np.ndarray | None = None,
+        current_mm_coords: np.ndarray | None = None,
+        mm_charges: Sequence[float] | np.ndarray | None = None,
+        qm_elems: Sequence[str] | None = None,
+        elems: Sequence[str] | None = None,
+        grad: bool = False,
+        hessian: bool = False,
+        pc: bool = False,
+        numcores: int | None = None,
+        restart: bool = False,
+        label: str | float | tuple[object, ...] | None = None,
+        charge: int | None = None,
+        mult: int | None = None,
+    ) -> float | tuple[float, np.ndarray]:
         """Compute the energy and a finite-difference gradient of the wrapped theory."""
         logger.info(f"------------RUNNING {self.theorynamelabel} WRAPPER -------------")
 
@@ -128,7 +142,14 @@ class NumGrad:
         return self.energy
 
 
-def _create_displaced_geometries(current_coords, elems, displacement, npoint, charge, mult):
+def _create_displaced_geometries(
+    current_coords: np.ndarray,
+    elems: Sequence[str],
+    displacement: float,
+    npoint: int,
+    charge: int | None,
+    mult: int | None,
+) -> tuple[list[np.ndarray], list[Displacement], list[Fragment]]:
     displacement_bohr = displacement * openmmqmmm.constants.ANG_TO_BOHR
     logger.info(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
     logger.debug("Starting geometry:")

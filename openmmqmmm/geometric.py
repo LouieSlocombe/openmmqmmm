@@ -1,14 +1,19 @@
+from __future__ import annotations
+
 import contextlib
 import logging
 import os
 import shutil
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any, TypeAlias
 
 import numpy as np
 
 import openmmqmmm.constants
 from openmmqmmm.coords import (
+    Fragment,
     _print_internal_coordinate_table,
     _qm_region_owner,
     check_charge_mult,
@@ -41,6 +46,12 @@ from openmmqmmm.results import Results
 from openmmqmmm.utils import log_time_since, main_header, pygrep2, sub_header
 
 logger = logging.getLogger(__name__)
+
+ConstraintDict: TypeAlias = dict[str, list[Any]]
+ConvergenceCriteria: TypeAlias = dict[str, float]
+HessianOption: TypeAlias = np.ndarray | str | None
+StrPath: TypeAlias = str | os.PathLike[str]
+CalculationResult: TypeAlias = dict[str, float | np.ndarray]
 
 # Convergence thresholds by preset name. Every preset sets the same six, and cmax (the
 # constraint violation) is 1.0e-2 throughout because it is a tolerance on the constraints
@@ -89,36 +100,36 @@ class Constraints:
 
 def optimize_geometry(
     *,
-    theory=None,
-    fragment=None,
-    charge=None,
-    mult=None,
-    coordsystem="tric",
-    force_coordsystem=False,
-    frozenatoms=None,
-    constraints=None,
-    constraintsinputfile=None,
-    irc=False,
-    rigid=False,
-    enforce_constraints=None,
-    constrainvalue=False,
-    maxiter=250,
-    active_region=False,
-    actatoms=None,
-    num_grad=False,
-    convergence_setting=None,
-    conv_criteria=None,
-    print_atoms_list=None,
-    ts_opt=False,
-    hessian=None,
-    partial_hessian_atoms=None,
-    modelhessian=None,
-    subfrctor=1,
-    mm_pdb_traj_write=False,
-    result_write_to_disk=True,
-    force_no_pbc=False,
-    pbc_format_option="CIF",
-) -> "Results":
+    theory: Any = None,
+    fragment: Fragment | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
+    coordsystem: str = "tric",
+    force_coordsystem: bool = False,
+    frozenatoms: list[int] | None = None,
+    constraints: ConstraintDict | None = None,
+    constraintsinputfile: StrPath | None = None,
+    irc: bool = False,
+    rigid: bool = False,
+    enforce_constraints: float | None = None,
+    constrainvalue: bool = False,
+    maxiter: int = 250,
+    active_region: bool = False,
+    actatoms: list[int] | None = None,
+    num_grad: bool = False,
+    convergence_setting: str | None = None,
+    conv_criteria: Mapping[str, float] | None = None,
+    print_atoms_list: list[int] | None = None,
+    ts_opt: bool = False,
+    hessian: HessianOption = None,
+    partial_hessian_atoms: list[int] | None = None,
+    modelhessian: str | None = None,
+    subfrctor: float = 1,
+    mm_pdb_traj_write: bool = False,
+    result_write_to_disk: bool = True,
+    force_no_pbc: bool = False,
+    pbc_format_option: str = "CIF",
+) -> Results:
     """Optimize the geometry of a fragment with a given theory, using geomeTRIC."""
     timeA = time.time()
 
@@ -177,32 +188,32 @@ class GeometricOptimizer:
     def __init__(
         self,
         *,
-        theory=None,
-        charge=None,
-        mult=None,
-        coordsystem="tric",
-        frozenatoms=None,
-        maxiter=250,
-        active_region=False,
-        actatoms=None,
-        convergence_setting=None,
-        conv_criteria=None,
-        ts_opt=False,
-        hessian=None,
-        constraintsinputfile=None,
-        irc=False,
-        rigid=False,
-        enforce_constraints=None,
-        print_atoms_list=None,
-        partial_hessian_atoms=None,
-        modelhessian=None,
-        subfrctor=1,
-        mm_pdb_traj_write=False,
-        force_coordsystem=False,
-        result_write_to_disk=True,
-        force_no_pbc=False,
-        pbc_format_option="CIF",
-    ):
+        theory: Any = None,
+        charge: int | None = None,
+        mult: int | None = None,
+        coordsystem: str = "tric",
+        frozenatoms: list[int] | None = None,
+        maxiter: int = 250,
+        active_region: bool = False,
+        actatoms: list[int] | None = None,
+        convergence_setting: str | None = None,
+        conv_criteria: Mapping[str, float] | None = None,
+        ts_opt: bool = False,
+        hessian: HessianOption = None,
+        constraintsinputfile: StrPath | None = None,
+        irc: bool = False,
+        rigid: bool = False,
+        enforce_constraints: float | None = None,
+        print_atoms_list: list[int] | None = None,
+        partial_hessian_atoms: list[int] | None = None,
+        modelhessian: str | None = None,
+        subfrctor: float = 1,
+        mm_pdb_traj_write: bool = False,
+        force_coordsystem: bool = False,
+        result_write_to_disk: bool = True,
+        force_no_pbc: bool = False,
+        pbc_format_option: str = "CIF",
+    ) -> None:
         import time
 
         self.time_init = time.time()
@@ -286,7 +297,7 @@ class GeometricOptimizer:
         logger.info("Hessian Option: %s", self.hessian)
         logger.info("Convergence criteria: %s", self.conv_criteria)
 
-    def print_atoms_output_setting(self, theory, fragment):
+    def print_atoms_output_setting(self, theory: Any, fragment: Fragment) -> None:
         # What atoms to print in outputfile in each opt-step. Example choice: QM-region only
         # If not specified then active-region or all-atoms
         """Decide which atoms are printed in each optimization step's output."""
@@ -304,7 +315,7 @@ class GeometricOptimizer:
             else:
                 self.print_atoms_list = fragment.allatoms
 
-    def convergence_criteria(self, convergence_setting, userconv):
+    def convergence_criteria(self, convergence_setting: str | None, userconv: Mapping[str, float] | None) -> None:
         """Resolve the geomeTRIC convergence thresholds to use."""
         if convergence_setting is None:
             if userconv is None:
@@ -321,7 +332,7 @@ class GeometricOptimizer:
             logger.info("User-defined convergence criteria:")
             self.conv_criteria.update(userconv)
 
-    def define_constraints(self, constraints):
+    def define_constraints(self, constraints: ConstraintDict | None) -> Constraints:
         """Translate the user constraints dict into geomeTRIC's constraint lists."""
         logger.info("Inside define_constraints")
         logger.info("Constraints: %s", constraints)
@@ -349,7 +360,7 @@ class GeometricOptimizer:
             yz=constraints.get("yz"),
         )
 
-    def write_constraintsfile(self, frozenatoms, constraints, constrainvalue):
+    def write_constraintsfile(self, frozenatoms: Sequence[int], constraints: Constraints, constrainvalue: bool) -> None:
         """Write the geomeTRIC constraints.txt file."""
         logger.info("Inside write_constraintsfile")
 
@@ -400,7 +411,7 @@ class GeometricOptimizer:
             with open("constraints.txt", "w") as confile:
                 confile.write("\n".join(lines) + "\n")
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Delete the optimizer's scratch files, including any constraints.txt, before a run."""
         tmpfiles = [
             "geometric_OPTtraj.log",
@@ -428,7 +439,15 @@ class GeometricOptimizer:
             except NotADirectoryError:
                 os.remove(tmpfile)
 
-    def hessian_option(self, fragment, actatoms, theory, charge, mult, modelhessian):
+    def hessian_option(
+        self,
+        fragment: Fragment,
+        actatoms: list[int],
+        theory: Any,
+        charge: int | None,
+        mult: int | None,
+        modelhessian: str | None,
+    ) -> None:
         """Provide the starting Hessian geomeTRIC was asked for."""
         atomsused = fragment.allatoms if len(actatoms) == 0 else actatoms
 
@@ -575,7 +594,7 @@ class GeometricOptimizer:
         else:
             raise InputError("Unknown Hessian option")
 
-    def setup_active_region_geometry(self, fragment):
+    def setup_active_region_geometry(self, fragment: Fragment) -> None:
         """Build the reduced geometry and topology for an active-region optimization."""
         if len(self.actatoms) == 0:
             raise InputError("Error: List of active atoms (actatoms) provided is empty. This is not allowed.")
@@ -598,7 +617,15 @@ class GeometricOptimizer:
         # Writing act-region coords (only) of fragment to disk as XYZ file and reading into geomeTRIC
         write_xyzfile(actelems, actcoords, "initialxyzfiletric")
 
-    def run(self, theory=None, fragment=None, charge=None, mult=None, constraints=None, constrainvalue=False):
+    def run(
+        self,
+        theory: Any = None,
+        fragment: Fragment | None = None,
+        charge: int | None = None,
+        mult: int | None = None,
+        constraints: ConstraintDict | None = None,
+        constrainvalue: bool = False,
+    ) -> Results:
         """Optimize a geometry with geomeTRIC."""
         logger.info(sub_header("Running geomeTRIC object"))
         logger.debug(
@@ -797,21 +824,21 @@ class GeometricArgs:
 
     def __init__(
         self,
-        eng,
-        constraintsfile,
+        eng: GeometricEngine,
+        constraintsfile: StrPath | None,
         *,
-        coordsys,
-        maxiter,
-        conv_criteria,
-        transition,
-        hessian,
-        subfrctor,
-        verbose,
-        irc,
-        rigid,
-        enforce_constraints,
-        bothre,
-    ):
+        coordsys: str,
+        maxiter: int,
+        conv_criteria: Mapping[str, float],
+        transition: bool,
+        hessian: HessianOption,
+        subfrctor: float,
+        verbose: int,
+        irc: bool,
+        rigid: bool,
+        enforce_constraints: float | None,
+        bothre: float,
+    ) -> None:
         self.coordsys = coordsys
         self.maxiter = maxiter
         self.transition = transition
@@ -851,20 +878,20 @@ class GeometricEngine:
 
     def __init__(
         self,
-        geometric_molf,
-        theory,
+        geometric_molf: Any,
+        theory: Any,
         *,
-        active_region=False,
-        actatoms=None,
-        print_atoms_list=None,
-        charge=None,
-        mult=None,
-        conv_criteria=None,
-        fragment=None,
-        mm_pdb_traj_write=False,
-        maxiter=None,
-        pbc_active=False,
-    ):
+        active_region: bool = False,
+        actatoms: list[int] | None = None,
+        print_atoms_list: list[int] | None = None,
+        charge: int | None = None,
+        mult: int | None = None,
+        conv_criteria: ConvergenceCriteria | None = None,
+        fragment: Fragment | None = None,
+        mm_pdb_traj_write: bool = False,
+        maxiter: int | None = None,
+        pbc_active: bool = False,
+    ) -> None:
         # MM_PDB_traj_write on/off. Can be pretty big files
         self.mm_pdb_traj_write = mm_pdb_traj_write
         # Defining M attribute of engine object as geomeTRIC Molecule object
@@ -903,21 +930,21 @@ class GeometricEngine:
             self.M.xyzs = [np.concatenate((aligned_atom_coords, [[0.0, 0.0, 0.0]], aligned_vectors), axis=0)]
             self.M.elem = [*self.M.elem, "F", "F", "F", "F"]
 
-    def load_guess_files(self, dirname):
+    def load_guess_files(self, dirname: StrPath) -> None:
         logger.info("geometric called load_guess_files option for GeometricEngine.")
         logger.info("This option is currently not supported here. Continuing.")
 
-    def save_guess_files(self, dirname):
+    def save_guess_files(self, dirname: StrPath) -> None:
         logger.info("geometric called save_guess_files option option for GeometricEngine.")
         logger.info("This option is currently not supported here. Continuing.")
 
     # Optimizer may call this to see if the engine class is doing DFT with grid to print warning
-    def detect_dft(self):
+    def detect_dft(self) -> bool:
         logger.info("geometric called detect_dft option option for GeometricEngine.")
         return True
 
     # geometric checks if calc_bondorder method is implemented for the custom engine. Disabled until we implement this
-    def calc_bondorder(self, coords, dirname):
+    def calc_bondorder(self, coords: np.ndarray, dirname: StrPath) -> np.ndarray | None:
         logger.info("geometric called calc_bondorder option option for GeometricEngine.")
         if self.BOmatrix is not None:
             return self.BOmatrix
@@ -944,13 +971,13 @@ class GeometricEngine:
         logger.debug("No BO option implemented")
         return None
 
-    def clearCalcs(self):  # noqa: N802 - geomeTRIC engine API, do not rename
+    def clearCalcs(self) -> None:  # noqa: N802 - geomeTRIC engine API, do not rename
         logger.info("geometric called clearCalcs option for GeometricEngine.")
         logger.info("This option is currently not supported here. Continuing.")
 
     # Writing out trajectory file for full system in case of ActiveRegion. Note: Actregion coordinates are done done by
     # GeomeTRIC
-    def write_trajectory_full(self):
+    def write_trajectory_full(self) -> None:
         logger.info("Writing trajectory for Full system to file: geometric_OPTtraj_Full.xyz")
         with open("geometric_OPTtraj_Full.xyz", "a") as trajfile:
             trajfile.write(str(self.fragment.numatoms) + "\n")
@@ -960,7 +987,7 @@ class GeometricEngine:
                 for el, cor in zip(self.fragment.elems, self.full_current_coords, strict=False)
             )
 
-    def write_trajectory_qmregion(self):
+    def write_trajectory_qmregion(self) -> None:
         logger.info("Writing trajectory for QM-region to file: geometric_OPTtraj_QMregion.xyz")
         with open("geometric_OPTtraj_QMregion.xyz", "a") as trajfile:
             trajfile.write(str(len(self.theory.qmatoms)) + "\n")
@@ -971,7 +998,7 @@ class GeometricEngine:
                 for el, cor in zip(qm_elems, qm_coords, strict=False)
             )
 
-    def write_energy_logfile(self):
+    def write_energy_logfile(self) -> None:
         logger.info("Writing logfile with energies: optimization_energies.log")
         with open("optimization_energies.log", "a") as trajfile:
             if self.iteration_count == 0:
@@ -981,7 +1008,7 @@ class GeometricEngine:
                 f"{self.theory.QM_MM_energy}\n"
             )
 
-    def write_pdbtrajectory(self):
+    def write_pdbtrajectory(self) -> None:
         logger.info("Writing PDB-trajectory to file: geometric_OPTtraj-PDB.pdb")
         pdbtrajectoryfile = "geometric_OPTtraj-PDB.pdb"
         # STILL problem with PBC
@@ -993,7 +1020,13 @@ class GeometricEngine:
             self.theory.mm_theory.openmm.app.PDBFile.writeFile(self.theory.mm_theory.topology, newpos, file=pdbfh)
 
     # Read_data and copydir not used (dummy variables)
-    def calc(self, coords, tmp, read_data=None, copydir=None):
+    def calc(
+        self,
+        coords: np.ndarray,
+        tmp: StrPath,
+        read_data: bool | None = None,
+        copydir: StrPath | None = None,
+    ) -> CalculationResult:
         if self.iteration_count == self.maxiter:
             raise OpenMMQMMMError(
                 f"Geometry optimization stopped: maxiter ({self.maxiter}) reached without convergence"
@@ -1016,7 +1049,7 @@ class GeometricEngine:
 
         return egdict
 
-    def actregion_calc(self, currcoords):
+    def actregion_calc(self, currcoords: np.ndarray) -> CalculationResult:
         # Special act-region (for QM/MM) since GeomeTRIC does not handle huge system and constraints
         # The only caller already gates on this; kept as a guard so the method is safe alone.
         if self.active_region is not True:
@@ -1086,7 +1119,7 @@ class GeometricEngine:
 
         return {"energy": E, "gradient": Grad_act.flatten()}
 
-    def regular_calc(self, currcoords):
+    def regular_calc(self, currcoords: np.ndarray) -> CalculationResult:
         self.full_current_coords = currcoords
         self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
         self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
@@ -1104,7 +1137,7 @@ class GeometricEngine:
         self.energy = E
         return {"energy": E, "gradient": grad.flatten()}
 
-    def pbc_calc(self, currcoords):
+    def pbc_calc(self, currcoords: np.ndarray) -> CalculationResult:
         # Split  coords into atomic and lattic
         R_geo = currcoords[:-4]
         origin = currcoords[-4]
@@ -1172,7 +1205,7 @@ class GeometricEngine:
         return {"energy": E, "gradient": mod_gradient.flatten()}
 
 
-def _constraints_indices_convert(con, actatoms):
+def _constraints_indices_convert(con: ConstraintDict, actatoms: Sequence[int]) -> ConstraintDict:
     try:
         bondcons = con["bond"]
     except KeyError:

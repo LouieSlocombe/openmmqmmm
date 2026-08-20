@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import logging
 import os
 import time
+from collections.abc import Mapping, Sequence
 from numbers import Integral
 
 import numpy as np
+import numpy.typing as npt
 from packaging import version
 
 from openmmqmmm.exceptions import (
@@ -78,57 +82,57 @@ class OpenMMTheory:
     def __init__(
         self,
         *,
-        platform="CPU",
-        numcores=1,
-        topoforce=False,
-        forcefield=None,
-        topology=None,
-        charmm_files=False,
-        psffile=None,
-        charmmtopfile=None,
-        charmmprmfile=None,
-        label="OpenMM",
-        gromacs_files=False,
-        gromacstopfile=None,
-        grofile=None,
-        gromacstopdir=None,
-        amber_files=False,
-        amberprmtopfile=None,
-        properties=None,
-        nonbonded_method_no_pbc="NoCutoff",
-        nonbonded_cutoff_no_pbc=20,
-        xmlfiles=None,
-        pdbfile=None,
-        pdbxfile=None,
-        use_parmed=False,
-        xmlsystemfile=None,
-        do_energy_decomposition=False,
-        periodic=False,
-        periodic_cell_dimensions=None,
-        pbc_vectors=None,
-        periodic_cell_vectors=None,
-        charmm_periodic_cell_dimensions=None,
-        periodic_nonbonded_cutoff=12,
-        dispersion_correction=True,
-        nonbonded_method_pbc="PME",
-        switching_function_distance=10.0,
-        ewalderrortolerance=5e-4,
-        pme_parameters=None,
-        delete_qm1_mm1_bonded=False,
-        applyconstraints_in_run=False,
-        constraints=None,
-        bondconstraints=None,
-        restraints=None,
-        frozen_atoms=None,
-        fragment=None,
-        dummysystem=False,
-        autoconstraints="HBonds",
-        hydrogenmass=1.5,
-        rigidwater=True,
-        changed_masses=None,
-        residuetemplate_choice=None,
-        rpmd_num_copies=32,
-    ):
+        platform: str = "CPU",
+        numcores: int = 1,
+        topoforce: bool = False,
+        forcefield: openmm.app.ForceField | None = None,
+        topology: openmm.app.Topology | None = None,
+        charmm_files: bool = False,
+        psffile: str | os.PathLike[str] | None = None,
+        charmmtopfile: str | os.PathLike[str] | None = None,
+        charmmprmfile: str | os.PathLike[str] | None = None,
+        label: str = "OpenMM",
+        gromacs_files: bool = False,
+        gromacstopfile: str | os.PathLike[str] | None = None,
+        grofile: str | os.PathLike[str] | None = None,
+        gromacstopdir: str | os.PathLike[str] | None = None,
+        amber_files: bool = False,
+        amberprmtopfile: str | os.PathLike[str] | None = None,
+        properties: dict[str, str] | None = None,
+        nonbonded_method_no_pbc: str = "NoCutoff",
+        nonbonded_cutoff_no_pbc: float = 20,
+        xmlfiles: Sequence[str | os.PathLike[str]] | None = None,
+        pdbfile: str | os.PathLike[str] | None = None,
+        pdbxfile: str | os.PathLike[str] | None = None,
+        use_parmed: bool = False,
+        xmlsystemfile: str | os.PathLike[str] | None = None,
+        do_energy_decomposition: bool = False,
+        periodic: bool = False,
+        periodic_cell_dimensions: npt.ArrayLike | None = None,
+        pbc_vectors: npt.ArrayLike | None = None,
+        periodic_cell_vectors: npt.ArrayLike | None = None,
+        charmm_periodic_cell_dimensions: npt.ArrayLike | None = None,
+        periodic_nonbonded_cutoff: float = 12,
+        dispersion_correction: bool = True,
+        nonbonded_method_pbc: str = "PME",
+        switching_function_distance: float = 10.0,
+        ewalderrortolerance: float = 5e-4,
+        pme_parameters: tuple[float, int, int, int] | None = None,
+        delete_qm1_mm1_bonded: bool = False,
+        applyconstraints_in_run: bool = False,
+        constraints: Sequence[Sequence[float | int]] | None = None,
+        bondconstraints: Sequence[Sequence[float | int]] | None = None,
+        restraints: Sequence[Sequence[float | int]] | None = None,
+        frozen_atoms: Sequence[int] | None = None,
+        fragment: Fragment | None = None,
+        dummysystem: bool = False,
+        autoconstraints: str | None = "HBonds",
+        hydrogenmass: float | None = 1.5,
+        rigidwater: bool = True,
+        changed_masses: Mapping[int, float] | None = None,
+        residuetemplate_choice: Mapping[str, str] | None = None,
+        rpmd_num_copies: int = 32,
+    ) -> None:
         logger.info(main_header("OpenMM Theory"))
         module_init_time = time.time()
 
@@ -316,7 +320,7 @@ class OpenMMTheory:
 
         log_time_since(module_init_time, "OpenMM object creation")
 
-    def _configure_platform(self, platform, *, numcores, properties):
+    def _configure_platform(self, platform: str, *, numcores: int, properties: dict[str, str] | None) -> None:
         # OpenMM also honours $OPENMM_CPU_THREADS from the shell; numcores sets it here.
         os.environ["OMP_NUM_THREADS"] = str(numcores)
         os.environ["OPENMM_CPU_THREADS"] = str(numcores)
@@ -331,7 +335,9 @@ class OpenMMTheory:
         else:
             logger.info("Using platform: %s", self.platform_choice)
 
-    def _configure_constraint_defaults(self, *, autoconstraints, rigidwater, hydrogenmass):
+    def _configure_constraint_defaults(
+        self, *, autoconstraints: str | None, rigidwater: bool, hydrogenmass: float | None
+    ) -> None:
         if autoconstraints == "None":
             autoconstraints = None
         try:
@@ -350,7 +356,13 @@ class OpenMMTheory:
         self.hydrogenmass = None if hydrogenmass is None else hydrogenmass * openmm.unit.amu
         logger.info("Hydrogenmass option: %s", self.hydrogenmass)
 
-    def _apply_bondconstraints(self, bondconstraints, *, fragment, pdbfile):
+    def _apply_bondconstraints(
+        self,
+        bondconstraints: Sequence[Sequence[float | int]],
+        *,
+        fragment: Fragment | None,
+        pdbfile: str | os.PathLike[str] | None,
+    ) -> None:
         logger.info(f"Before adding user constraints, system contains {self.system.getNumConstraints()} constraints\n")
         if len(bondconstraints) < 50:
             logger.info("User-constraints to add (bond) %s", bondconstraints)
@@ -380,7 +392,7 @@ class OpenMMTheory:
         self.user_constraints = bondconstraints
         logger.info(f"{len(self.user_constraints)} user-defined constraints added.")
 
-    def _apply_frozen_atoms(self, frozen_atoms):
+    def _apply_frozen_atoms(self, frozen_atoms: Sequence[int]) -> None:
         self.user_frozen_atoms = frozen_atoms
         if len(self.user_frozen_atoms) < 50:
             logger.info("Frozen atoms to add: %s", str(frozen_atoms).strip("[]"))
@@ -388,7 +400,7 @@ class OpenMMTheory:
             logger.info(f"{len(self.user_frozen_atoms)} user-defined frozen atoms to add.")
         self.freeze_atoms(frozen_atoms=frozen_atoms)
 
-    def _apply_bondrestraints(self, restraints):
+    def _apply_bondrestraints(self, restraints: Sequence[Sequence[float | int]]) -> None:
         # [[atom_i, atom_j, d, k]], e.g. [[700, 701, 1.05, 5.0]]; Angstrom and kcal/mol/Angstrom^2
         self.user_restraints = restraints
         if len(self.user_restraints) < 50:
@@ -400,19 +412,19 @@ class OpenMMTheory:
     def _create_periodic_system(
         self,
         *,
-        periodic_cell_vectors,
-        pdb_pbc_vectors,
-        periodic_cell_dimensions,
-        periodic_nonbonded_cutoff,
-        switching_function_distance,
-        charmm_files,
-        gromacs_files,
-        amber_files,
-        use_parmed,
-        residue_templates,
-        dispersion_correction,
-        pme_parameters,
-    ):
+        periodic_cell_vectors: npt.ArrayLike | None,
+        pdb_pbc_vectors: Sequence[openmm.Vec3] | None,
+        periodic_cell_dimensions: npt.ArrayLike | None,
+        periodic_nonbonded_cutoff: float,
+        switching_function_distance: float,
+        charmm_files: bool,
+        gromacs_files: bool,
+        amber_files: bool,
+        use_parmed: bool,
+        residue_templates: Mapping[openmm.app.topology.Residue, str],
+        dispersion_correction: bool,
+        pme_parameters: tuple[float, int, int, int] | None,
+    ) -> None:
         logger.info("System is periodic.")
         logger.info(sub_header("Setting up periodicity."))
         # Necessary for system creation with periodics (otherwise failure)
@@ -490,7 +502,12 @@ class OpenMMTheory:
 
         self._log_nonbonded_force_settings(dispersion_correction=dispersion_correction, pme_parameters=pme_parameters)
 
-    def _log_nonbonded_force_settings(self, *, dispersion_correction, pme_parameters):
+    def _log_nonbonded_force_settings(
+        self,
+        *,
+        dispersion_correction: bool,
+        pme_parameters: tuple[float, int, int, int] | None,
+    ) -> None:
         logger.info(small_header("OpenMM Forces defined:"))
         for force in self.system.getForces():
             logger.info("%s", force.getName())
@@ -513,7 +530,7 @@ class OpenMMTheory:
                 logger.info("   Ewald error tolerance: %s", force.getEwaldErrorTolerance())
         logger.info(small_header("OpenMM system created."))
 
-    def _create_nonperiodic_system(self, *, charmm_files, amber_files, dummysystem):
+    def _create_nonperiodic_system(self, *, charmm_files: bool, amber_files: bool, dummysystem: bool) -> None:
         if self.nonbonded_method_no_pbc == "CutoffPeriodic":
             raise InputError("nonbondedMethod_noPBC with CutoffPeriodic not currently allowed")
         try:
@@ -545,7 +562,14 @@ class OpenMMTheory:
         logger.info(small_header("OpenMM system created."))
         logger.info("OpenMM Forces defined: %s", self.system.getForces())
 
-    def _load_charmm_files(self, psffile, charmmtopfile, charmmprmfile, *, use_parmed=False):
+    def _load_charmm_files(
+        self,
+        psffile: str | os.PathLike[str] | None,
+        charmmtopfile: str | os.PathLike[str] | None,
+        charmmprmfile: str | os.PathLike[str] | None,
+        *,
+        use_parmed: bool = False,
+    ) -> None:
         logger.info("Reading CHARMM files.")
         if use_parmed is True:
             import parmed
@@ -573,7 +597,14 @@ class OpenMMTheory:
         self.topology = self.psf.topology
         self.forcefield = self.psf
 
-    def _load_gromacs_files(self, grofile, gromacstopfile, gromacstopdir, *, use_parmed=False):
+    def _load_gromacs_files(
+        self,
+        grofile: str | os.PathLike[str] | None,
+        gromacstopfile: str | os.PathLike[str] | None,
+        gromacstopdir: str | os.PathLike[str] | None,
+        *,
+        use_parmed: bool = False,
+    ) -> None:
         logger.info("Reading Gromacs files.")
         if use_parmed is True:
             import parmed
@@ -608,12 +639,12 @@ class OpenMMTheory:
 
     def _load_amber_files(
         self,
-        amberprmtopfile,
+        amberprmtopfile: str | os.PathLike[str] | None,
         *,
-        use_parmed=False,
-        periodic_cell_vectors=None,
-        periodic_cell_dimensions=None,
-    ):
+        use_parmed: bool = False,
+        periodic_cell_vectors: npt.ArrayLike | None = None,
+        periodic_cell_dimensions: npt.ArrayLike | None = None,
+    ) -> None:
         logger.info("Reading Amber files.")
         logger.warning("Only new-style Amber7 prmtop-file will work.")
         logger.warning("Will take periodic boundary conditions from prmtop file.")
@@ -655,7 +686,12 @@ class OpenMMTheory:
         self.define_mm_elements(self.prmtop.topology)
         self.atomnames = [i.name for i in self.prmtop.topology.atoms()]
 
-    def _load_topology_forcefield(self, topology, forcefield, pdbfile):
+    def _load_topology_forcefield(
+        self,
+        topology: openmm.app.Topology | None,
+        forcefield: openmm.app.ForceField | None,
+        pdbfile: str | os.PathLike[str] | None,
+    ) -> Sequence[openmm.Vec3] | None:
         logger.info("Using forcefield info from topology and forcefield keyword.")
         pdb_pbc_vectors = None
         if topology is not None:
@@ -671,7 +707,11 @@ class OpenMMTheory:
         self.define_mm_elements(self.topology)
         return pdb_pbc_vectors
 
-    def _load_system_xml(self, xmlsystemfile, pdbfile):
+    def _load_system_xml(
+        self,
+        xmlsystemfile: str | os.PathLike[str],
+        pdbfile: str | os.PathLike[str] | None,
+    ) -> Sequence[openmm.Vec3] | None:
         logger.info("Reading system XML file: %s", xmlsystemfile)
         with open(xmlsystemfile) as xmlfh:
             xmlsystemfileobj = xmlfh.read()
@@ -686,7 +726,7 @@ class OpenMMTheory:
         self.define_mm_elements(self.topology)
         return pdb.topology.getPeriodicBoxVectors()
 
-    def _load_dummy_system(self, fragment):
+    def _load_dummy_system(self, fragment: Fragment) -> None:
         atomnames_full = [j + str(i) for i, j in enumerate(fragment.elems)]
 
         self.topology = define_dummy_topology(fragment.elems)
@@ -706,7 +746,12 @@ class OpenMMTheory:
         self.forcefield = openmm.app.ForceField(xmlfile)
         self.define_mm_elements(self.topology)
 
-    def _load_xml_forcefield(self, xmlfiles, pdbfile, pdbxfile):
+    def _load_xml_forcefield(
+        self,
+        xmlfiles: Sequence[str | os.PathLike[str]],
+        pdbfile: str | os.PathLike[str] | None,
+        pdbxfile: str | os.PathLike[str] | None,
+    ) -> Sequence[openmm.Vec3] | None:
         logger.info("Reading OpenMM XML forcefield files and PDB (or PDBx) file")
         logger.info("xmlfiles: %s", str(xmlfiles).strip("[]"))
         logger.info("pdbfile: %s", pdbfile)
@@ -729,7 +774,7 @@ class OpenMMTheory:
         self.define_mm_elements(self.topology)
         return pdb_pbc_vectors
 
-    def define_mm_elements(self, topology):
+    def define_mm_elements(self, topology: openmm.app.Topology) -> None:
         """Extract the element symbol of every atom from an OpenMM topology."""
         try:
             self.mm_elements = [i.element.symbol for i in topology.atoms()]
@@ -739,7 +784,11 @@ class OpenMMTheory:
             logger.info("mm_elements will be set to empty list")
             self.mm_elements = []
 
-    def write_pdbfile(self, positions=None, outputname="system"):
+    def write_pdbfile(
+        self,
+        positions: openmm.unit.Quantity | Sequence[openmm.Vec3] | None = None,
+        outputname: str | os.PathLike[str] = "system",
+    ) -> None:
         """Write a PDB file of the system using the stored OpenMM topology."""
         logger.info("Writing PDB-file using OpenMMTheory object")
         logger.debug("Will be using defined topology.")
@@ -767,8 +816,14 @@ class OpenMMTheory:
             raise InputError("Found neither system positions defined or an fragment file. Can not write PDB-file.")
 
     def set_periodics_before_system_creation(
-        self, periodic_cell_vectors, pdb_pbc_vectors, periodic_cell_dimensions, charmm_files, amber_files, use_parmed
-    ):
+        self,
+        periodic_cell_vectors: npt.ArrayLike | None,
+        pdb_pbc_vectors: Sequence[openmm.Vec3] | None,
+        periodic_cell_dimensions: npt.ArrayLike | None,
+        charmm_files: bool,
+        amber_files: bool,
+        use_parmed: bool,
+    ) -> None:
         """Resolve the periodic box from the various possible sources."""
         logger.info("Inspecting periodicity input before system creation")
         logger.info("periodic_cell_vectors: %s", periodic_cell_vectors)
@@ -878,7 +933,7 @@ class OpenMMTheory:
         else:
             raise FileFormatError("Found no PBC information, yet periodicity is requested. Exiting!")
 
-    def get_pbc_vectors(self):
+    def get_pbc_vectors(self) -> list[list[float]]:
         """Return the current periodic box vectors in Angstrom."""
         vectors_nm = list(self.topology.getPeriodicBoxVectors())
         a = list(vectors_nm[0].value_in_unit(openmm.unit.angstrom))
@@ -886,11 +941,11 @@ class OpenMMTheory:
         c = list(vectors_nm[2].value_in_unit(openmm.unit.angstrom))
         return [a, b, c]
 
-    def set_numcores(self, numcores):
+    def set_numcores(self, numcores: int) -> None:
         """Set the number of CPU threads OpenMM uses."""
         self.numcores = numcores
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """No-op: OpenMM keeps no scratch files that need removing between runs."""
         logger.info("Cleanup for OpenMMTheory called")
 
@@ -898,7 +953,7 @@ class OpenMMTheory:
     # https://github.com/openmm/openmm/issues/2568
 
     # To set positions in OpenMMobject (in nm) from np-array (Angstrom)
-    def set_positions(self, coords, simulation):
+    def set_positions(self, coords: npt.ArrayLike, simulation: openmm.app.Simulation) -> None:
         """Load coordinates into an OpenMM simulation."""
         logger.debug("Setting coordinates of OpenMM object")
         coords_nm = coords * 0.1  # converting from Angstrom to nm
@@ -915,7 +970,11 @@ class OpenMMTheory:
 
     # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
     # This method is called by Periodic optimizers
-    def update_cell(self, periodic_cell_vectors=None, periodic_cell_dimensions=None):
+    def update_cell(
+        self,
+        periodic_cell_vectors: npt.ArrayLike | None = None,
+        periodic_cell_dimensions: npt.ArrayLike | None = None,
+    ) -> None:
         """Change the periodic box of the existing system."""
         logger.debug("Updating cell vectors")
         logger.info("New periodic_cell_vectors are: %s", periodic_cell_vectors)
@@ -962,7 +1021,9 @@ class OpenMMTheory:
     # https://simtk.org/plugins/phpBB/viewtopicPhpbb.php?f=161&t=10049&p=0&start=0&view=&sid=b844250e55b14682fb21b5f66a4d810f
     # https://github.com/openmm/openmm/issues/2262
     # Helpful for NPT simulations when solute is fixed
-    def add_dummy_atom_to_restrain_solute(self, atomindices=None, forceconstant=100):
+    def add_dummy_atom_to_restrain_solute(
+        self, atomindices: Sequence[int] | None = None, forceconstant: float = 100
+    ) -> None:
         """Add a massless dummy atom, harmonically tethered to a group of atoms."""
         logger.info("num particles %s", self.system.getNumParticles())
         self.system.addParticle(0)
@@ -983,12 +1044,12 @@ class OpenMMTheory:
             logger.debug("Adding bond")
             self.restraint.addBond(i, dummyatomindex, 0, forceconstant)
 
-    def remove_force(self, forceindex):
+    def remove_force(self, forceindex: int) -> None:
         """Remove a force by its index in the system."""
         logger.debug(f"Removing force-index {forceindex}: {self.system.getForces()[forceindex].getName()}")
         self.system.removeForce(forceindex)
 
-    def add_custom_bond_force(self, i, j, value, forceconstant):
+    def add_custom_bond_force(self, i: int, j: int, value: float, forceconstant: float) -> None:
         """Restrain the distance between two atoms harmonically."""
         logger.debug(
             f"Adding custom bond force between atom index i={i} and j={j} with value: {value} Angstrom, "
@@ -1001,7 +1062,7 @@ class OpenMMTheory:
         bond_force.setUsesPeriodicBoundaryConditions(False)
         self.system.addForce(bond_force)
 
-    def add_custom_angle_force(self, i, j, k, value, forceconstant):
+    def add_custom_angle_force(self, i: int, j: int, k: int, value: float, forceconstant: float) -> None:
         """Restrain the i-j-k angle harmonically."""
         logger.debug(
             f"Adding custom angle force for atoms: {i}, {j}, {k}  with value: {value} radians with "
@@ -1014,7 +1075,15 @@ class OpenMMTheory:
         angle_force.setUsesPeriodicBoundaryConditions(False)
         self.system.addForce(angle_force)
 
-    def add_custom_torsion_force(self, i, j, k, l, value, forceconstant):  # noqa: E741 - torsion atoms i-j-k-l
+    def add_custom_torsion_force(
+        self,
+        i: int,
+        j: int,
+        k: int,
+        l: int,  # noqa: E741 - torsion atoms i-j-k-l
+        value: float,
+        forceconstant: float,
+    ) -> None:
         """Restrain the i-j-k-l dihedral harmonically."""
         import math
 
@@ -1033,7 +1102,13 @@ class OpenMMTheory:
 
     # This is custom external force that restrains group of atoms to center of system
     # Note: has flatbottom properties
-    def add_centerforce(self, center_coords=None, atomindices=None, forceconstant=1.0, distance=5.0):
+    def add_centerforce(
+        self,
+        center_coords: npt.ArrayLike | None = None,
+        atomindices: Sequence[int] | None = None,
+        forceconstant: float = 1.0,
+        distance: float = 5.0,
+    ) -> openmm.CustomExternalForce:
         """Tether atoms to a fixed point in space beyond a given distance."""
         logger.info("add_centerforce:")
         logger.info("Center coordinates: %s", center_coords)
@@ -1060,7 +1135,7 @@ class OpenMMTheory:
         logger.info("Added center force")
         return centerforce
 
-    def add_custom_external_force(self):
+    def add_custom_external_force(self) -> openmm.CustomExternalForce:
         """Add the per-atom external force that carries the QM/MM gradient."""
         customforce = openmm.CustomExternalForce("-x*fx -y*fy -z*fz")
         customforce.addPerParticleParameter("fx")
@@ -1075,7 +1150,12 @@ class OpenMMTheory:
         return customforce
 
     # NOTE: This setParticleParameters takes some time but not sure we can make this faster
-    def update_custom_external_force(self, customforce, gradient, simulation):
+    def update_custom_external_force(
+        self,
+        customforce: openmm.CustomExternalForce,
+        gradient: npt.ArrayLike,
+        simulation: openmm.app.Simulation,
+    ) -> None:
         """Push a new gradient into the QM/MM external force."""
         logger.debug("Updating custom external force")
         forces = -gradient * openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
@@ -1083,7 +1163,7 @@ class OpenMMTheory:
             customforce.setParticleParameters(i, i, f)
         customforce.updateParametersInContext(simulation.context)
 
-    def add_bondrestraints(self, restraints=None):
+    def add_bondrestraints(self, restraints: Sequence[Sequence[float | int]] | None = None) -> None:
         """Add harmonic distance restraints between atom pairs."""
         logger.debug("Adding restraints: %s", restraints)
 
@@ -1098,19 +1178,19 @@ class OpenMMTheory:
             )
         self.system.addForce(new_restraints)
 
-    def add_bondconstraints(self, constraints=None):
+    def add_bondconstraints(self, constraints: Sequence[Sequence[float | int]] | None = None) -> None:
         """Constrain bond lengths rigidly (not harmonically)."""
         for i, j, d in constraints:
             logger.debug(f"Adding bond constraint between atoms {i} and {j}. Distance value: {d:.4f} Å")
             self.system.addConstraint(i, j, d * openmm.unit.angstroms)
 
-    def remove_all_constraints(self):
+    def remove_all_constraints(self) -> None:
         """Remove every distance constraint from the system."""
         # Removing in reverse: each removal renumbers the constraints above it
         for index in reversed(range(self.system.getNumConstraints())):
             self.system.removeConstraint(index)
 
-    def remove_constraints_for_atoms(self, atoms):
+    def remove_constraints_for_atoms(self, atoms: Sequence[int]) -> None:
         """Remove every constraint involving any of the given atoms."""
         logger.debug("Removing constraints in OpenMM object for atoms: %s", atoms)
         todelete = []
@@ -1123,7 +1203,7 @@ class OpenMMTheory:
 
     # Function to freeze atoms during OpenMM MD simulation. Sets masses to zero. Does not modify potential
     # energy-function.
-    def freeze_atoms(self, frozen_atoms=None):
+    def freeze_atoms(self, frozen_atoms: Sequence[int] | None = None) -> None:
         """Freeze atoms by setting their mass to zero."""
         logger.info(f"Freezing {len(frozen_atoms)} atoms by setting particles masses to zero.")
 
@@ -1138,19 +1218,19 @@ class OpenMMTheory:
         )
         self.addexceptions(frozen_atoms)
 
-    def modify_masses(self, changed_masses=None):
+    def modify_masses(self, changed_masses: Mapping[int, float] | None = None) -> None:
         """Set new masses for selected atoms, e.g. for hydrogen-mass repartitioning."""
         logger.info("Modify masses according:  %s", changed_masses)
         for am in changed_masses:
             self.system.setParticleMass(am, changed_masses[am] * openmm.unit.daltons)
 
-    def unfreeze_atoms(self):
+    def unfreeze_atoms(self) -> None:
         """Restore the masses of atoms previously frozen by freeze_atoms."""
         for atom, mass in zip(self.allatoms, self.system_masses_original, strict=False):
             self.system.setParticleMass(atom, mass)
 
     # This removes interactions between particles in a region (e.g. QM-QM or frozen-frozen pairs)
-    def addexceptions(self, atomlist):
+    def addexceptions(self, atomlist: Sequence[int]) -> None:
         """Exclude the listed atoms from all nonbonded interactions with each other."""
         timeA = time.time()
         logger.info("Add exceptions/exclusions. Removing i-j interactions for list: %s atoms", len(atomlist))
@@ -1193,8 +1273,12 @@ class OpenMMTheory:
         log_time_since(timeA, "add exceptions")
 
     def set_simulation_parameters(
-        self, timestep=0.001, coupling_frequency=1, temperature=300, integrator="VerletIntegrator"
-    ):
+        self,
+        timestep: float = 0.001,
+        coupling_frequency: float = 1,
+        temperature: float = 300,
+        integrator: str = "VerletIntegrator",
+    ) -> None:
         """Set the integrator and thermostat parameters used by create_simulation."""
         self.timestep = timestep
         self.coupling_frequency = coupling_frequency
@@ -1203,7 +1287,7 @@ class OpenMMTheory:
         if integrator in NUCLEAR_QUANTUM_INTEGRATORS:
             self._disable_hydrogen_mass_repartitioning()
 
-    def _disable_hydrogen_mass_repartitioning(self):
+    def _disable_hydrogen_mass_repartitioning(self) -> None:
         """Restore physical masses before a nuclear-quantum simulation."""
         repartitioned_hydrogen_mass = getattr(self, "hydrogenmass", None)
         if repartitioned_hydrogen_mass is None or not hasattr(self, "system") or not hasattr(self, "topology"):
@@ -1220,7 +1304,7 @@ class OpenMMTheory:
         target_mass = repartitioned_hydrogen_mass.value_in_unit(openmm.unit.dalton)
         restored_hydrogens = 0
 
-        def is_hydrogen(atom):
+        def is_hydrogen(atom: openmm.app.topology.Atom) -> bool:
             return atom.element is not None and atom.element.atomic_number == 1
 
         for bonded_atom1, bonded_atom2 in self.topology.bonds():
@@ -1268,13 +1352,13 @@ class OpenMMTheory:
                 restored_hydrogens,
             )
 
-    def set_rpmd_num_copies(self, num_copies):
+    def set_rpmd_num_copies(self, num_copies: int) -> None:
         """Set the number of ring-polymer copies (beads) used by RPMD."""
         if isinstance(num_copies, bool) or not isinstance(num_copies, Integral) or num_copies < 1:
             raise InputError("rpmd_num_copies must be a positive integer.")
         self.rpmd_num_copies = int(num_copies)
 
-    def set_rpmd_contractions(self, contractions):
+    def set_rpmd_contractions(self, contractions: Mapping[int, int] | None) -> None:
         """Set force-group ring-polymer contractions for the next RPMD integrator."""
         validated = {}
         for group, num_copies in ({} if contractions is None else dict(contractions)).items():
@@ -1292,7 +1376,7 @@ class OpenMMTheory:
             validated[int(group)] = int(num_copies)
         self.rpmd_contractions = validated
 
-    def create_integrator(self):
+    def create_integrator(self) -> None:
         # NOTE: Integrator definition has to be here (instead of set_simulation_parameters) as it has to be recreated
         # for each updated simulation
         # Integrators: LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VerletIntegrator,
@@ -1372,7 +1456,7 @@ class OpenMMTheory:
                 "QTBIntegrator, RPMDIntegrator"
             )
 
-    def create_simulation(self, internal=False):
+    def create_simulation(self, internal: bool = False) -> openmm.app.Simulation | None:
         """Build the OpenMM Simulation from the current system, topology and integrator."""
         timeA = time.time()
 
@@ -1408,7 +1492,7 @@ class OpenMMTheory:
         log_time_since(timeA, "creating/updating simulation")
         return simulation
 
-    def forcegroupify(self):
+    def forcegroupify(self) -> None:
         """Assign each force its own force group so their energies can be separated."""
         self.forcegroups = {}
         logger.info("inside forcegroupify")
@@ -1419,14 +1503,14 @@ class OpenMMTheory:
             force.setForceGroup(i)
             self.forcegroups[force] = i
 
-    def get_energy_decomposition(self, context):
+    def get_energy_decomposition(self, context: openmm.Context) -> dict[openmm.Force, openmm.unit.Quantity]:
         """Return the potential energy of each force group."""
         energies = {}
         for f, i in self.forcegroups.items():
             energies[f] = context.getState(getEnergy=True, groups=2**i).getPotentialEnergy()
         return energies
 
-    def print_energy_decomposition(self, simulation):
+    def print_energy_decomposition(self, simulation: openmm.app.Simulation) -> None:
         """Log the per-force energy breakdown of the current state."""
         timeA = time.time()
         # NOTE: Calling this is expensive (seconds)as the energy has to be recalculated.
@@ -1456,7 +1540,7 @@ class OpenMMTheory:
         openmm_energy["Sum"] = sumofallcomponents
         log_time_since(timeA, "energy decomposition")
 
-    def compute_dof(self):
+    def compute_dof(self) -> None:
         """Compute the degrees of freedom, accounting for constraints and frozen atoms, into self.dof."""
         dof = 0
         for i in range(self.system.getNumParticles()):
@@ -1473,7 +1557,7 @@ class OpenMMTheory:
             dof -= 3
         self.dof = dof
 
-    def compute_cell_gradient_fd(self, context, eps=1e-4):
+    def compute_cell_gradient_fd(self, context: openmm.Context, eps: float = 1e-4) -> npt.NDArray[np.float64]:
         """Compute the gradient with respect to the cell vectors by finite differences."""
         KJMOL_TO_EH = 1.0 / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
         eps_nm = eps * openmmqmmm.constants.BOHR_TO_NM
@@ -1499,7 +1583,7 @@ class OpenMMTheory:
             context.setPeriodicBoxVectors(*box)  # restore
         return grad  # Eh/Bohr
 
-    def get_cell_gradient(self):
+    def get_cell_gradient(self) -> npt.NDArray[np.float64]:
         """Return the most recently computed cell gradient."""
         logger.info("Inside get_cell_gradient")
         # Using self.stored_context (should have been defined by .run call)
@@ -1511,20 +1595,20 @@ class OpenMMTheory:
     def run(
         self,
         *,
-        current_coords=None,
-        elems=None,
-        grad=False,
-        fragment=None,
-        qmatoms=None,
-        label=None,
-        charge=None,
-        mult=None,
-        pc=False,
-        current_mm_coords=None,
-        mm_charges=None,
-        qm_elems=None,
-        numcores=1,
-    ):
+        current_coords: npt.ArrayLike | None = None,
+        elems: Sequence[str] | None = None,
+        grad: bool = False,
+        fragment: Fragment | None = None,
+        qmatoms: Sequence[int] | None = None,
+        label: str | None = None,
+        charge: int | None = None,
+        mult: int | None = None,
+        pc: bool = False,
+        current_mm_coords: npt.ArrayLike | None = None,
+        mm_charges: Sequence[float] | None = None,
+        qm_elems: Sequence[str] | None = None,
+        numcores: int = 1,
+    ) -> float | tuple[float, npt.NDArray[np.float64]]:
         """Compute the MM energy (and gradient) of a geometry."""
         module_init_time = time.time()
         timeA = time.time()
@@ -1643,7 +1727,7 @@ class OpenMMTheory:
             return self.energy, self.gradient
         return self.energy
 
-    def getatomcharges(self):
+    def getatomcharges(self) -> list[float]:
         """Return the partial charge of every atom, in elementary charges."""
         chargelist = []
         for force in self.system.getForces():
@@ -1657,7 +1741,7 @@ class OpenMMTheory:
         return chargelist
 
     # Used to delete Coulomb interactions involving QM-QM and QM-MM atoms
-    def delete_exceptions(self, atomlist):
+    def delete_exceptions(self, atomlist: Sequence[int]) -> None:
         """Remove the nonbonded exceptions previously added for the listed atoms."""
         timeA = time.time()
         logger.debug("Deleting Coulombexceptions for atomlist: %s", atomlist)
@@ -1672,7 +1756,7 @@ class OpenMMTheory:
 
     # Updating LJ interactions in OpenMM object. Used to set LJ sites to zero e.g. so that they do not contribute
     # Can be used to get QM-MM LJ interaction energy
-    def update_lj_epsilons(self, atomlist, epsilons):
+    def update_lj_epsilons(self, atomlist: Sequence[int], epsilons: Sequence[float]) -> None:
         """Set new Lennard-Jones epsilon values for selected atoms."""
         timeA = time.time()
         logger.debug("Updating LJ interaction strengths in OpenMM object.")
@@ -1690,7 +1774,7 @@ class OpenMMTheory:
 
     # Taking list of atom-indices and list of charges (usually zero) and setting new charge
     # Note: Exceptions also needs to be dealt with (see delete_exceptions)
-    def update_charges(self, atomlist, atomcharges):
+    def update_charges(self, atomlist: Sequence[int], atomcharges: Sequence[float]) -> None:
         """Set new partial charges for selected atoms."""
         timeA = time.time()
         logger.info("Updating charges in OpenMM object.")
@@ -1710,7 +1794,7 @@ class OpenMMTheory:
         logger.debug("Forces in system after charge update: %s", self.system.getForces())
         log_time_since(timeA, "update_charges")
 
-    def modify_bonded_forces(self, atomlist):
+    def modify_bonded_forces(self, atomlist: Sequence[int]) -> None:
         """Zero the bonded terms that lie entirely inside the given atom set."""
         timeA = time.time()
         logger.info("Modifying bonded forces.\n")
@@ -1851,19 +1935,26 @@ class OpenMMTheory:
 class ForceReporter:
     """Write the energy and forces of every reported frame to a text file."""
 
-    def __init__(self, file, report_interval, atomic_units=False):
+    def __init__(
+        self,
+        file: str | os.PathLike[str],
+        report_interval: int,
+        atomic_units: bool = False,
+    ) -> None:
         self._out = open(file, "w")  # noqa: SIM115 - reporter handle, closed in __del__
         self._reportInterval = report_interval
         self.atomic_units = atomic_units
 
-    def __del__(self):
+    def __del__(self) -> None:
         self._out.close()
 
-    def describeNextReport(self, simulation):  # noqa: N802 - OpenMM reporter API, do not rename
+    def describeNextReport(  # noqa: N802 - OpenMM reporter API, do not rename
+        self, simulation: openmm.app.Simulation
+    ) -> tuple[int, bool, bool, bool, bool, None]:
         steps = self._reportInterval - simulation.currentStep % self._reportInterval
         return (steps, False, False, True, False, None)
 
-    def report(self, simulation, state):
+    def report(self, simulation: openmm.app.Simulation, state: openmm.State) -> None:
         energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
         forces = state.getForces().value_in_unit(openmm.unit.kilojoules / openmm.unit.mole / openmm.unit.nanometer)
         if self.atomic_units:
@@ -1875,7 +1966,10 @@ class ForceReporter:
         self._out.flush()
 
 
-def clean_up_constraints_list(fragment=None, constraints=None):
+def clean_up_constraints_list(
+    fragment: Fragment | None = None,
+    constraints: Sequence[Sequence[float | int]] | None = None,
+) -> list[list[float | int]]:
     logger.debug("Checking defined constraints.")
     newconstraints = []
     for con in constraints:
@@ -1891,20 +1985,20 @@ def clean_up_constraints_list(fragment=None, constraints=None):
 
 def write_xmlfile_nonbonded(
     *,
-    resnames=None,
-    atomnames_per_res=None,
-    atomtypes_per_res=None,
-    elements_per_res=None,
-    masses_per_res=None,
-    charges_per_res=None,
-    sigmas_per_res=None,
-    epsilons_per_res=None,
-    filename="system.xml",
-    coulomb14scale=0.833333,
-    lj14scale=0.5,
-    skip_nb=False,
-    charmm=False,
-):
+    resnames: Sequence[str] | None = None,
+    atomnames_per_res: Sequence[Sequence[str]] | None = None,
+    atomtypes_per_res: Sequence[Sequence[str]] | None = None,
+    elements_per_res: Sequence[Sequence[str]] | None = None,
+    masses_per_res: Sequence[Sequence[float]] | None = None,
+    charges_per_res: Sequence[Sequence[float]] | None = None,
+    sigmas_per_res: Sequence[Sequence[float]] | None = None,
+    epsilons_per_res: Sequence[Sequence[float]] | None = None,
+    filename: str | os.PathLike[str] = "system.xml",
+    coulomb14scale: float = 0.833333,
+    lj14scale: float = 0.5,
+    skip_nb: bool = False,
+    charmm: bool = False,
+) -> str | os.PathLike[str]:
     logger.info("Inside write_xmlfile_nonbonded")
 
     if not (len(resnames) == len(atomnames_per_res) == len(atomtypes_per_res)):

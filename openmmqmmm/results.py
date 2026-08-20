@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
+from os import PathLike
 
 import numpy as np
 
@@ -53,7 +56,7 @@ class Results:
     displacement_dipole_dictionary: dict | None = None
     displacement_polarizability_dictionary: dict | None = None
 
-    def write_to_disk(self, filename="results.json"):
+    def write_to_disk(self, filename: str | PathLike[str] = "results.json") -> None:
         """Write the defined attributes to a JSON file."""
         import json
 
@@ -100,7 +103,7 @@ class Results:
             return
 
 
-def read_results_from_file(filename="results.json") -> "Results":
+def read_results_from_file(filename: str | PathLike[str] = "results.json") -> Results:
     """Read a Results object from a JSON file written by Results.write_to_disk."""
     import json
     from dataclasses import fields

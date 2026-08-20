@@ -1,8 +1,13 @@
+from __future__ import annotations
+
 import logging
 import threading
 from collections import OrderedDict
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import openmm
 import openmm.unit
 
@@ -17,7 +22,16 @@ RPMD_PYTHON_FORCE_NAME = "openmmqmmm bead-specific external force"
 class _RPMDPythonForceProvider:
     """Evaluate an external theory for the coordinates OpenMM is currently processing."""
 
-    def __init__(self, theory, elems, charge, mult, *, periodic=False, cache_size=64):
+    def __init__(
+        self,
+        theory: Any,
+        elems: Sequence[str],
+        charge: int,
+        mult: int,
+        *,
+        periodic: bool = False,
+        cache_size: int = 64,
+    ) -> None:
         self.theory = theory
         self.elems = tuple(elems)
         self.charge = charge
@@ -30,29 +44,29 @@ class _RPMDPythonForceProvider:
         self._cache = OrderedDict()
         self._lock = threading.RLock()
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
         state.pop("_lock", None)
         # Cached force arrays are disposable and can make serialized Systems very large.
         state["_cache"] = OrderedDict()
         return state
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._cache = OrderedDict(self._cache)
         self._lock = threading.RLock()
 
-    def _evaluate(self, coords_angstrom):
+    def _evaluate(self, coords_angstrom: npt.NDArray[np.float64]) -> tuple[float, npt.ArrayLike]:
         raise NotImplementedError
 
-    def _cache_key(self, state, positions_nm):
+    def _cache_key(self, state: openmm.State, positions_nm: npt.NDArray[np.float64]) -> tuple[bytes, ...]:
         key = [np.ascontiguousarray(positions_nm, dtype=np.float64).tobytes()]
         if self.periodic:
             box_nm = state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(openmm.unit.nanometer)
             key.append(np.ascontiguousarray(box_nm, dtype=np.float64).tobytes())
         return tuple(key)
 
-    def __call__(self, state):
+    def __call__(self, state: openmm.State) -> tuple[float, npt.NDArray[np.float64]]:
         positions_nm = np.asarray(
             state.getPositions(asNumpy=True).value_in_unit(openmm.unit.nanometer), dtype=np.float64
         )
@@ -98,7 +112,7 @@ class _RPMDPythonForceProvider:
                 self._cache.popitem(last=False)
             return energy_kj_mol, forces_kj_mol_nm
 
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         """Discard cached coordinate evaluations without resetting lifetime statistics."""
         with self._lock:
             self._cache.clear()
@@ -107,7 +121,7 @@ class _RPMDPythonForceProvider:
 class RPMDQMMMForceProvider(_RPMDPythonForceProvider):
     """Provide bead-specific QM/MM energies and gradients to ``openmm.PythonForce``."""
 
-    def _evaluate(self, coords_angstrom):
+    def _evaluate(self, coords_angstrom: npt.NDArray[np.float64]) -> tuple[float, npt.ArrayLike]:
         return self.theory.run_openmm_python_force(
             current_coords=coords_angstrom,
             elems=self.elems,
@@ -119,7 +133,7 @@ class RPMDQMMMForceProvider(_RPMDPythonForceProvider):
 class RPMDExternalQMForceProvider(_RPMDPythonForceProvider):
     """Provide bead-specific full-QM energies and gradients to ``openmm.PythonForce``."""
 
-    def _evaluate(self, coords_angstrom):
+    def _evaluate(self, coords_angstrom: npt.NDArray[np.float64]) -> tuple[float, npt.ArrayLike]:
         result = self.theory.run(
             current_coords=coords_angstrom,
             elems=self.elems,
@@ -132,7 +146,12 @@ class RPMDExternalQMForceProvider(_RPMDPythonForceProvider):
         return result
 
 
-def add_rpmd_python_force(system, provider, *, periodic=False):
+def add_rpmd_python_force(
+    system: openmm.System,
+    provider: _RPMDPythonForceProvider,
+    *,
+    periodic: bool = False,
+) -> tuple[openmm.PythonForce, int]:
     """Add an isolated-force-group ``PythonForce`` and return it with its group index."""
     if not hasattr(openmm, "PythonForce"):
         raise MissingDependencyError("QM/MM RPMD requires OpenMM 8.5 or newer with openmm.PythonForce support.")

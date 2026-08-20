@@ -56,10 +56,10 @@ Upstream = "https://github.com/RagnarB83/ash"
 where = ["."]
 include = ["openmmqmmm*"]
 
-# Wheels ship the geomeTRIC logging config. Test data (~2.5 MB under tests/) is
-# repository-only — run the suite from a checkout.
+# Wheels ship the geomeTRIC logging config and the PEP 561 marker. Test data
+# (~2.5 MB under tests/) is repository-only — run the suite from a checkout.
 [tool.setuptools.package-data]
-openmmqmmm = ["log.ini"]
+openmmqmmm = ["log.ini", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -96,6 +96,8 @@ select = [
     "ICN", "TID", "PYI", "RSE", "FA", "PGH", "DTZ", "EXE", "INT", "ISC", "ERA",
     "PLR2044",
     "RET", "PERF", "PLR1714", "PLR5501", "PLR1711", "PLC1802",
+    # Keep the package's inline type annotations complete.
+    "ANN",
 ]
 ignore = [
     # f-strings in log calls are fine: the messages are the calculation record
@@ -107,12 +109,15 @@ ignore = [
     # Formatter-incompatible. Implicit concatenation keeps long output templates
     # under line-length; do not add COM or Q here for the same reason.
     "ISC001",
+    # Dynamic theory adapters and third-party scientific APIs do not always expose
+    # a useful common protocol, so Any remains valid at those integration seams.
+    "ANN401",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests and the runnable examples may print.
-"tests/*" = ["T20"]
-"examples/*" = ["T20"]
+"tests/*" = ["T20", "ANN"]
+"examples/*" = ["T20", "ANN"]
 # __all__ is grouped semantically, not alphabetically
 "openmmqmmm/__init__.py" = ["RUF022"]
 # Mathematical/physics argument notation (A, B, C, T, Qcoord, Lgrad, ...)

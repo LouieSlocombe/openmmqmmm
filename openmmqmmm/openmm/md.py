@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 import contextlib
 import inspect
 import logging
 import os
 import time
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from numbers import Integral
 from sys import stdout
+from typing import Any, TextIO
 
 import numpy as np
+import numpy.typing as npt
 import openmm
 import openmm.app
 import openmm.unit
@@ -14,6 +19,7 @@ import openmm.unit
 import openmmqmmm
 import openmmqmmm.constants
 from openmmqmmm.coords import (
+    Fragment,
     check_charge_mult,
     check_gradient_for_bad_atoms,
     get_centroid,
@@ -48,14 +54,21 @@ RPMD_RESTART_FORMAT_VERSION = 1
 class _RPMDStateDataReporter:
     """Write state data for one RPMD copy plus the full ring-polymer energy."""
 
-    def __init__(self, output, copy_index, degrees_of_freedom, separator=",", append=False):
+    def __init__(
+        self,
+        output: TextIO,
+        copy_index: int,
+        degrees_of_freedom: int | None,
+        separator: str = ",",
+        append: bool = False,
+    ) -> None:
         self._output = output
         self._copy_index = copy_index
         self._degrees_of_freedom = degrees_of_freedom
         self._separator = separator
         self._header_written = append
 
-    def report(self, simulation, state):
+    def report(self, simulation: openmm.app.Simulation, state: openmm.State) -> None:
         if not self._header_written:
             headers = (
                 "Step",
@@ -94,12 +107,12 @@ class _RPMDStateDataReporter:
         self._output.flush()
 
 
-def engine_kwargs_from(caller_locals, **overrides):
+def engine_kwargs_from(caller_locals: Mapping[str, Any], **overrides: Any) -> dict[str, Any]:
     engine_parameters = set(inspect.signature(MolecularDynamicsEngine.__init__).parameters) - {"self"}
     return {name: value for name, value in caller_locals.items() if name in engine_parameters} | overrides
 
 
-def read_npt_statefile(npt_output):
+def read_npt_statefile(npt_output: str | os.PathLike[str]) -> dict[str, npt.NDArray[np.generic]]:
     import csv
     from collections import defaultdict
 
@@ -119,53 +132,53 @@ def read_npt_statefile(npt_output):
 
 def openmm_md(
     *,
-    fragment=None,
-    theory=None,
-    timestep=0.001,
-    simulation_steps=None,
-    simulation_time=None,
-    traj_frequency=1000,
-    restartfile_frequency=1000,
-    temperature=300,
-    integrator="LangevinMiddleIntegrator",
-    rpmd_num_copies=None,
-    rpmd_qm_num_copies=None,
-    barostat=None,
-    pressure=1,
-    trajectory_file_option="DCD",
-    trajfilename="trajectory",
-    specialtraj_frequency=1000,
-    specialatoms=None,
-    energy_file_option=None,
-    force_file_option=None,
-    atomic_units_force_reporter=False,
-    coupling_frequency=1,
-    charge=None,
-    mult=None,
-    hydrogenmass=1.5,
-    force_periodic=None,
-    periodic_cell_dimensions=None,
-    anderson_thermostat=False,
-    platform="CPU",
-    constraints=None,
-    restraints=None,
-    enforce_periodic_box=True,
-    special_wrapping=False,
-    special_wrapping_updatepos=False,
-    wrapping_atoms=None,
-    dummyatomrestraint=False,
-    center_on_atoms=None,
-    solute_indices=None,
-    datafilename=None,
-    dummy_mm=False,
-    add_centerforce=False,
-    centerforce_atoms=None,
-    centerforce_constant=1.0,
-    centerforce_distance=10.0,
-    centerforce_center=None,
-    barostat_frequency=25,
-    chkfile=None,
-    statefile=None,
+    fragment: Fragment | None = None,
+    theory: Any = None,
+    timestep: float = 0.001,
+    simulation_steps: int | None = None,
+    simulation_time: float | None = None,
+    traj_frequency: int = 1000,
+    restartfile_frequency: int = 1000,
+    temperature: float = 300,
+    integrator: str = "LangevinMiddleIntegrator",
+    rpmd_num_copies: int | None = None,
+    rpmd_qm_num_copies: int | None = None,
+    barostat: str | None = None,
+    pressure: float = 1,
+    trajectory_file_option: str = "DCD",
+    trajfilename: str = "trajectory",
+    specialtraj_frequency: int = 1000,
+    specialatoms: Sequence[int] | None = None,
+    energy_file_option: str | os.PathLike[str] | None = None,
+    force_file_option: str | os.PathLike[str] | None = None,
+    atomic_units_force_reporter: bool = False,
+    coupling_frequency: float = 1,
+    charge: int | None = None,
+    mult: int | None = None,
+    hydrogenmass: float | None = 1.5,
+    force_periodic: bool | None = None,
+    periodic_cell_dimensions: npt.ArrayLike | None = None,
+    anderson_thermostat: bool = False,
+    platform: str = "CPU",
+    constraints: Sequence[Sequence[float | int]] | None = None,
+    restraints: Sequence[Sequence[float | int]] | None = None,
+    enforce_periodic_box: bool = True,
+    special_wrapping: bool = False,
+    special_wrapping_updatepos: bool = False,
+    wrapping_atoms: Sequence[int] | None = None,
+    dummyatomrestraint: bool = False,
+    center_on_atoms: Sequence[int] | None = None,
+    solute_indices: Sequence[int] | None = None,
+    datafilename: str | os.PathLike[str] | None = None,
+    dummy_mm: bool = False,
+    add_centerforce: bool = False,
+    centerforce_atoms: Sequence[int] | None = None,
+    centerforce_constant: float = 1.0,
+    centerforce_distance: float = 10.0,
+    centerforce_center: npt.ArrayLike | None = None,
+    barostat_frequency: int = 25,
+    chkfile: str | os.PathLike[str] | None = None,
+    statefile: str | os.PathLike[str] | None = None,
 ) -> None:
     """Run molecular dynamics of a fragment with OpenMM (also drives QM/MM MD)."""
     engine_kwargs = engine_kwargs_from(locals())
@@ -188,52 +201,52 @@ class MolecularDynamicsEngine:
     def __init__(
         self,
         *,
-        fragment=None,
-        theory=None,
-        charge=None,
-        mult=None,
-        timestep=0.001,
-        traj_frequency=1000,
-        restartfile_frequency=1000,
-        temperature=300,
-        integrator="LangevinMiddleIntegrator",
-        rpmd_num_copies=None,
-        rpmd_qm_num_copies=None,
-        barostat=None,
-        pressure=1,
-        trajectory_file_option="DCD",
-        trajfilename="trajectory",
-        specialtraj_frequency=1000,
-        specialatoms=None,
-        energy_file_option=None,
-        force_file_option=None,
-        atomic_units_force_reporter=False,
-        coupling_frequency=1,
-        platform="CPU",
-        anderson_thermostat=False,
-        hydrogenmass=1.5,
-        constraints=None,
-        restraints=None,
-        force_periodic=False,
-        periodic_cell_dimensions=None,
-        enforce_periodic_box=True,
-        special_wrapping=False,
-        special_wrapping_updatepos=False,
-        wrapping_atoms=None,
-        dummyatomrestraint=False,
-        center_on_atoms=None,
-        solute_indices=None,
-        datafilename=None,
-        dummy_mm=False,
-        add_centerforce=False,
-        centerforce_atoms=None,
-        centerforce_constant=1.0,
-        centerforce_distance=10.0,
-        centerforce_center=None,
-        barostat_frequency=25,
-        chkfile=None,
-        statefile=None,
-    ):
+        fragment: Fragment | None = None,
+        theory: Any = None,
+        charge: int | None = None,
+        mult: int | None = None,
+        timestep: float = 0.001,
+        traj_frequency: int = 1000,
+        restartfile_frequency: int = 1000,
+        temperature: float = 300,
+        integrator: str = "LangevinMiddleIntegrator",
+        rpmd_num_copies: int | None = None,
+        rpmd_qm_num_copies: int | None = None,
+        barostat: str | None = None,
+        pressure: float = 1,
+        trajectory_file_option: str = "DCD",
+        trajfilename: str = "trajectory",
+        specialtraj_frequency: int = 1000,
+        specialatoms: Sequence[int] | None = None,
+        energy_file_option: str | os.PathLike[str] | None = None,
+        force_file_option: str | os.PathLike[str] | None = None,
+        atomic_units_force_reporter: bool = False,
+        coupling_frequency: float = 1,
+        platform: str = "CPU",
+        anderson_thermostat: bool = False,
+        hydrogenmass: float | None = 1.5,
+        constraints: Sequence[Sequence[float | int]] | None = None,
+        restraints: Sequence[Sequence[float | int]] | None = None,
+        force_periodic: bool | None = False,
+        periodic_cell_dimensions: npt.ArrayLike | None = None,
+        enforce_periodic_box: bool = True,
+        special_wrapping: bool = False,
+        special_wrapping_updatepos: bool = False,
+        wrapping_atoms: Sequence[int] | None = None,
+        dummyatomrestraint: bool = False,
+        center_on_atoms: Sequence[int] | None = None,
+        solute_indices: Sequence[int] | None = None,
+        datafilename: str | os.PathLike[str] | None = None,
+        dummy_mm: bool = False,
+        add_centerforce: bool = False,
+        centerforce_atoms: Sequence[int] | None = None,
+        centerforce_constant: float = 1.0,
+        centerforce_distance: float = 10.0,
+        centerforce_center: npt.ArrayLike | None = None,
+        barostat_frequency: int = 25,
+        chkfile: str | os.PathLike[str] | None = None,
+        statefile: str | os.PathLike[str] | None = None,
+    ) -> None:
         module_init_time = time.time()
 
         logger.info(main_header("OpenMM Molecular Dynamics Initialization"))
@@ -378,15 +391,15 @@ class MolecularDynamicsEngine:
         log_time_since(module_init_time, "OpenMM_MD setup")
 
     @staticmethod
-    def _is_rpmd_simulation(simulation):
+    def _is_rpmd_simulation(simulation: openmm.app.Simulation) -> bool:
         return isinstance(simulation.integrator, openmm.RPMDIntegrator)
 
-    def _get_simulation_state(self, **kwargs):
+    def _get_simulation_state(self, **kwargs: Any) -> openmm.State:
         if self._is_rpmd_simulation(self.simulation):
             return self.simulation.integrator.getState(self.rpmd_report_copy, **kwargs)
         return self.simulation.context.getState(**kwargs)
 
-    def _set_rpmd_reporters(self, simulation, restart=False):
+    def _set_rpmd_reporters(self, simulation: openmm.app.Simulation, restart: bool = False) -> None:
         old_reporters = self._rpmd_reporters
         self._rpmd_reporters = []
         old_reporters.clear()
@@ -445,7 +458,7 @@ class MolecularDynamicsEngine:
             )
         logger.info("RPMD restart data will be written to %s", RPMD_RESTART_FILENAME)
 
-    def _report_rpmd_state(self):
+    def _report_rpmd_state(self) -> None:
         state = self.simulation.integrator.getState(
             self.rpmd_report_copy,
             getPositions=True,
@@ -457,7 +470,7 @@ class MolecularDynamicsEngine:
         for reporter in self._rpmd_reporters:
             reporter.report(self.simulation, state)
 
-    def _run_rpmd_mm(self, simulation_steps):
+    def _run_rpmd_mm(self, simulation_steps: int) -> None:
         target_step = self.simulation.currentStep + simulation_steps
         while self.simulation.currentStep < target_step:
             current_step = self.simulation.currentStep
@@ -479,7 +492,7 @@ class MolecularDynamicsEngine:
             if self.restartfile_frequency > 0 and current_step % self.restartfile_frequency == 0:
                 self.write_state_and_chk_files(current_step)
 
-    def _save_rpmd_restart(self, filename):
+    def _save_rpmd_restart(self, filename: str | os.PathLike[str]) -> None:
         integrator = self.simulation.integrator
         num_copies = integrator.getNumCopies()
         positions = []
@@ -507,7 +520,7 @@ class MolecularDynamicsEngine:
             )
         logger.info("Saved all %s RPMD copies to %s", num_copies, filename)
 
-    def _load_rpmd_restart(self, filename):
+    def _load_rpmd_restart(self, filename: str | os.PathLike[str]) -> None:
         try:
             with np.load(filename, allow_pickle=False) as restart:
                 format_version = int(restart["format_version"])
@@ -549,7 +562,7 @@ class MolecularDynamicsEngine:
         logger.info("Restored all %s RPMD copies from %s", expected_copies, filename)
 
     # Set sim reporters. Needs to be done after simulation is created and not modified anymore
-    def set_sim_reporters(self, simulation, restart=False):
+    def set_sim_reporters(self, simulation: openmm.app.Simulation, restart: bool = False) -> None:
         """Configure trajectory, state-data, and restart reporting for the simulation."""
         if self._is_rpmd_simulation(simulation):
             self._set_rpmd_reporters(simulation, restart=restart)
@@ -645,7 +658,7 @@ class MolecularDynamicsEngine:
                 os.remove(self.energy_file_option)
         logger.debug("Simulation reporters: %s", simulation.reporters)
 
-    def write_state_and_chk_files(self, step):
+    def write_state_and_chk_files(self, step: int) -> None:
         """Write restart data for the current integrator."""
         if self._is_rpmd_simulation(self.simulation):
             logger.info("Step %s. Saving all RPMD copy positions and velocities", step)
@@ -662,7 +675,16 @@ class MolecularDynamicsEngine:
         self.simulation.saveState("OpenMM_MD_state.xml")
         self.simulation.saveCheckpoint("OpenMM_MD_checkpoint.chk")
 
-    def _resolve_theory(self, theory, *, platform, hydrogenmass, constraints, force_periodic, periodic_cell_dimensions):
+    def _resolve_theory(
+        self,
+        theory: Any,
+        *,
+        platform: str,
+        hydrogenmass: float | None,
+        constraints: Sequence[Sequence[float | int]] | None,
+        force_periodic: bool | None,
+        periodic_cell_dimensions: npt.ArrayLike | None,
+    ) -> None:
         """Classify the theory object and bind the OpenMM system this engine will drive."""
         self.openmmobject = None
         self.QM_MM_object = None
@@ -707,7 +729,9 @@ class MolecularDynamicsEngine:
         self.qmtheory = theory
         self.theory_runtype = "QM"
 
-    def _configure_rpmd_copies(self, *, is_rpmd, rpmd_num_copies, rpmd_qm_num_copies):
+    def _configure_rpmd_copies(
+        self, *, is_rpmd: bool, rpmd_num_copies: int | None, rpmd_qm_num_copies: int | None
+    ) -> None:
         """Resolve the bead count and how many beads the QM force is evaluated on."""
         if rpmd_num_copies is not None:
             self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)
@@ -729,7 +753,7 @@ class MolecularDynamicsEngine:
             )
         self.rpmd_qm_num_copies = int(rpmd_qm_num_copies)
 
-    def _attach_qm_force(self, is_rpmd):
+    def _attach_qm_force(self, is_rpmd: bool) -> None:
         """Give OpenMM access to the QM gradient, bead-resolved for RPMD and frozen otherwise."""
         if self.theory_runtype not in {"QMMM", "QM"}:
             return
@@ -772,7 +796,7 @@ class MolecularDynamicsEngine:
             self.openmmobject.set_rpmd_contractions(contractions)
             logger.info("QM force contracted from %s to %s RPMD copies", self.rpmd_num_copies, self.rpmd_qm_num_copies)
 
-    def _add_restraints(self, restraints):
+    def _add_restraints(self, restraints: Sequence[Sequence[float | int]] | None) -> None:
         """Add the user's bond, angle and torsion restraints to the OpenMM system."""
         if restraints is None:
             return
@@ -792,7 +816,9 @@ class MolecularDynamicsEngine:
             logger.info("%s restraint assumed. Atoms/value/force-constant: %s (%s)", kind, restraint, unit)
             add_force(*restraint)
 
-    def _log_system_parameters(self, *, anderson_thermostat, barostat, special_wrapping_updatepos):
+    def _log_system_parameters(
+        self, *, anderson_thermostat: bool, barostat: str | None, special_wrapping_updatepos: bool
+    ) -> None:
         """Echo the resolved MD system parameters so the log is a record of what actually ran."""
         logger.info(small_header("MD system parameters"))
         logger.info(
@@ -825,7 +851,7 @@ class MolecularDynamicsEngine:
             f"wrapping_atoms: {self.wrapping_atoms}\n"
         )
 
-    def _set_initial_positions(self, *, dummyatomrestraint, solute_indices):
+    def _set_initial_positions(self, *, dummyatomrestraint: bool, solute_indices: Sequence[int] | None) -> None:
         """Take the starting positions from the fragment, adding the restraint dummy atom if asked."""
         logger.debug("Defining atom positions from fragment")
         # self.positions rather than the fragment's, because a dummy atom may be appended below
@@ -846,7 +872,7 @@ class MolecularDynamicsEngine:
         self.positions = np.append(self.positions, [dummypos], axis=0)
         self.openmmobject.add_dummy_atom_to_restrain_solute(atomindices=solute_indices)
 
-    def _configure_integrator_and_barostat(self, *, barostat, anderson_thermostat):
+    def _configure_integrator_and_barostat(self, *, barostat: str | None, anderson_thermostat: bool) -> None:
         """Add or drop the barostat/thermostat, then hand the integrator settings to OpenMM."""
         forceclassnames = [force.__class__.__name__ for force in self.openmmobject.system.getForces()]
         if barostat is not None:
@@ -886,7 +912,7 @@ class MolecularDynamicsEngine:
         )
         self.volume = self.density = barostat is not None
 
-    def _open_data_output(self, datafilename):
+    def _open_data_output(self, datafilename: str | os.PathLike[str] | None) -> None:
         """Point the StateDataReporter at stdout, or at a freshly-truncated append-mode file."""
         self.datafilename = datafilename
         if datafilename is None:
@@ -899,7 +925,14 @@ class MolecularDynamicsEngine:
         self.dataoutputoption = open(datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
         logger.info("Will write data to file: %s", datafilename)
 
-    def _add_centerforce(self, *, centerforce_atoms, centerforce_center, centerforce_constant, centerforce_distance):
+    def _add_centerforce(
+        self,
+        *,
+        centerforce_atoms: Sequence[int] | None,
+        centerforce_center: npt.ArrayLike | None,
+        centerforce_constant: float,
+        centerforce_distance: float,
+    ) -> None:
         """Add the flat-bottom force that keeps the solute near a chosen centre."""
         logger.info("Centerforce option active")
         if centerforce_atoms is None:
@@ -915,7 +948,7 @@ class MolecularDynamicsEngine:
             distance=centerforce_distance,
         )
 
-    def _log_run_parameters(self, simulation_time, simulation_steps):
+    def _log_run_parameters(self, simulation_time: float, simulation_steps: int) -> None:
         """Log the run-level parameters and the forces the System carries."""
         logger.info(small_header("MD run parameters"))
         logger.info(
@@ -926,7 +959,7 @@ class MolecularDynamicsEngine:
         forceclassnames = [force.__class__.__name__ for force in self.openmmobject.system.getForces()]
         logger.info("OpenMM System forces present before run: %s", forceclassnames)
 
-    def _attach_reporters(self, continuing, extra_reporters):
+    def _attach_reporters(self, continuing: bool, extra_reporters: Iterable[Any] | None) -> None:
         """Attach the state and trajectory reporters, plus any caller-supplied extras."""
         if continuing:
             logger.debug("Continuing a previous run. Reusing simulation reporters")
@@ -953,7 +986,12 @@ class MolecularDynamicsEngine:
             self.simulation.reporters.extend(extra_reporters)
         logger.info("Attached %s extra reporter(s)", len(extra_reporters))
 
-    def _restart_from_file(self, restart_file, description, load):
+    def _restart_from_file(
+        self,
+        restart_file: str | os.PathLike[str],
+        description: str,
+        load: Callable[[openmm.app.Simulation, str | os.PathLike[str]], None],
+    ) -> None:
         """Create the Simulation and restore positions and velocities from a restart file."""
         self.simulation = self.openmmobject.create_simulation()
         if self._is_rpmd_simulation(self.simulation):
@@ -972,7 +1010,9 @@ class MolecularDynamicsEngine:
             self.simulation.context.getState(getVelocities=True).getVelocities(asNumpy=True),
         )
 
-    def _prepare_wrapping(self):
+    def _prepare_wrapping(
+        self,
+    ) -> tuple[openmm.unit.Quantity | None, Any | None, Sequence[int] | None]:
         """Return the (box vectors, mdtraj topology, wrapping atoms) that per-step wrapping needs."""
         if self.openmmobject.periodic is not True:
             logger.info("System is not periodic")
@@ -1013,7 +1053,7 @@ class MolecularDynamicsEngine:
         logger.info("wrapping_atoms have been set to: %s", wrapping_atoms)
         return boxvectors, mdtrajtopology, wrapping_atoms
 
-    def _write_first_frame(self):
+    def _write_first_frame(self) -> None:
         """Write the initial frame next to the trajectory as both PDB and PDBx/mmCIF."""
         state = self._get_simulation_state(
             getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=self.enforce_periodic_box
@@ -1034,7 +1074,7 @@ class MolecularDynamicsEngine:
             openmm.app.pdbxfile.PDBxFile.writeHeader(topology, f)
             openmm.app.pdbxfile.PDBxFile.writeModel(topology, positions, f)
 
-    def _finish_rpmd_run(self, simulation_steps, description, module_init_time):
+    def _finish_rpmd_run(self, simulation_steps: int, description: str, module_init_time: float) -> None:
         """Run the bead-resolved PythonForce path and log its evaluation statistics."""
         logger.debug("Running bead-resolved %s through OpenMM PythonForce", description)
         self._run_rpmd_mm(simulation_steps)
@@ -1047,7 +1087,13 @@ class MolecularDynamicsEngine:
         logger.info(small_header("OpenMM MD simulation finished!"))
         log_time_since(module_init_time, "OpenMM_MD run")
 
-    def _current_step_coords(self, checkpoint, boxvectors, mdtrajtopology, wrapping_atoms):
+    def _current_step_coords(
+        self,
+        checkpoint: float,
+        boxvectors: openmm.unit.Quantity | None,
+        mdtrajtopology: Any | None,
+        wrapping_atoms: Sequence[int] | None,
+    ) -> tuple[openmm.State, npt.NDArray[np.float64]]:
         """Return this step's OpenMM state and its coordinates in Angstrom, wrapped if requested."""
         current_state = self.simulation.context.getState(
             getPositions=True, enforcePeriodicBox=self.enforce_periodic_box, getEnergy=True
@@ -1069,7 +1115,7 @@ class MolecularDynamicsEngine:
                 log_time_since(checkpoint, "set positions update")
         return current_state, current_coords
 
-    def _write_special_atoms_frame(self, step, current_coords):
+    def _write_special_atoms_frame(self, step: int, current_coords: npt.ArrayLike) -> None:
         """Append this step's special-atom subset to its own XYZ trajectory."""
         if self.specialatoms is None or step % self.specialtraj_frequency != 0:
             return
@@ -1080,17 +1126,17 @@ class MolecularDynamicsEngine:
 
     def run(
         self,
-        simulation_steps=None,
-        simulation_time=None,
-        plumedinput=None,
-        restraints=None,
-        restart=False,
-        chkfile=None,
-        statefile=None,
+        simulation_steps: int | None = None,
+        simulation_time: float | None = None,
+        plumedinput: str | None = None,
+        restraints: Sequence[Sequence[float | int]] | None = None,
+        restart: bool = False,
+        chkfile: str | os.PathLike[str] | None = None,
+        statefile: str | os.PathLike[str] | None = None,
         *,
-        extra_reporters=None,
-        pre_dynamics_hook=None,
-    ):
+        extra_reporters: Iterable[Any] | None = None,
+        pre_dynamics_hook: Callable[[MolecularDynamicsEngine], None] | None = None,
+    ) -> None:
         """Run the molecular dynamics simulation.
 
         extra_reporters is an iterable of OpenMM-protocol reporters attached for this
@@ -1284,7 +1330,7 @@ class MolecularDynamicsEngine:
         logger.info(small_header("OpenMM MD simulation finished!"))
         log_time_since(module_init_time, "OpenMM_MD run")
 
-    def finalize_simulation(self):
+    def finalize_simulation(self) -> None:
         """Write the final structure and trajectory files and log the timing summary."""
         logger.info("Finalizing simulation data")
 
@@ -1355,26 +1401,26 @@ class MolecularDynamicsEngine:
 
 def openmm_box_equilibration(
     *,
-    fragment=None,
-    theory=None,
-    datafilename="nptsim.csv",
-    numsteps_per_npt=10000,
-    max_npt_cycles=10,
-    pressure=1,
-    volume_threshold=1.3,
-    density_threshold=0.005,
-    temperature=300,
-    timestep=0.001,
-    traj_frequency=100,
-    trajfilename="equilibration_NPT",
-    trajectory_file_option="DCD",
-    coupling_frequency=1,
-    enforce_periodic_box=True,
-    use_mdtraj=True,
-    dummyatomrestraint=False,
-    solute_indices=None,
-    barostat_frequency=25,
-) -> list:
+    fragment: Fragment | None = None,
+    theory: OpenMMTheory | None = None,
+    datafilename: str | os.PathLike[str] = "nptsim.csv",
+    numsteps_per_npt: int = 10000,
+    max_npt_cycles: int = 10,
+    pressure: float = 1,
+    volume_threshold: float = 1.3,
+    density_threshold: float = 0.005,
+    temperature: float = 300,
+    timestep: float = 0.001,
+    traj_frequency: int = 100,
+    trajfilename: str = "equilibration_NPT",
+    trajectory_file_option: str = "DCD",
+    coupling_frequency: float = 1,
+    enforce_periodic_box: bool = True,
+    use_mdtraj: bool = True,
+    dummyatomrestraint: bool = False,
+    solute_indices: Sequence[int] | None = None,
+    barostat_frequency: int = 25,
+) -> tuple[openmm.Vec3, openmm.Vec3, openmm.Vec3]:
     """Run NPT simulations in cycles until box volume and density stop changing."""
     # Captured before any local is bound, so this is the caller's arguments and nothing
     # else. The integrator and barostat are fixed by what this function does: NPT cycles.
@@ -1481,7 +1527,9 @@ def openmm_box_equilibration(
     return md.state.getPeriodicBoxVectors()
 
 
-def print_current_step_info(step, state, openmmobject, qm_energy=None):
+def print_current_step_info(
+    step: int, state: openmm.State, openmmobject: OpenMMTheory, qm_energy: float | None = None
+) -> None:
     kinetic_energy = state.getKineticEnergy()
     kinetic_energy_eh = (
         kinetic_energy.value_in_unit(openmm.unit.kilojoules_per_mole) / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
@@ -1511,19 +1559,19 @@ def print_current_step_info(step, state, openmmobject, qm_energy=None):
 
 def gentle_warmup_md(
     *,
-    theory=None,
-    fragment=None,
-    time_steps=None,
-    steps=None,
-    temperatures=None,
-    check_gradient_first=True,
-    gradient_threshold=100,
-    use_mdtraj=True,
-    trajfilename="warmup_MD",
-    initial_opt=True,
-    traj_frequencies=None,
-    maxoptsteps=10,
-    coupling_frequency=1,
+    theory: OpenMMTheory | None = None,
+    fragment: Fragment | None = None,
+    time_steps: Sequence[float] | None = None,
+    steps: Sequence[int] | None = None,
+    temperatures: Sequence[float] | None = None,
+    check_gradient_first: bool = True,
+    gradient_threshold: float = 100,
+    use_mdtraj: bool = True,
+    trajfilename: str = "warmup_MD",
+    initial_opt: bool = True,
+    traj_frequencies: Sequence[int] | None = None,
+    maxoptsteps: int = 10,
+    coupling_frequency: float = 1,
 ) -> None:
     """Gradually warm up an MD system in stages (short timesteps first, then longer)."""
     if traj_frequencies is None:
@@ -1615,7 +1663,12 @@ def gentle_warmup_md(
     log_time_since(module_init_time, "Gentle_warm_up_MD")
 
 
-def diff_wrap_box_coords(coords_nm, boxvectors, mdtrajtopology, anchoratoms):
+def diff_wrap_box_coords(
+    coords_nm: npt.ArrayLike,
+    boxvectors: npt.ArrayLike,
+    mdtrajtopology: Any,
+    anchoratoms: Sequence[int],
+) -> npt.NDArray[np.float64]:
     import mdtraj
 
     traj = mdtraj.Trajectory(coords_nm, mdtrajtopology)

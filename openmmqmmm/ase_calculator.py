@@ -1,4 +1,4 @@
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 from ase import Atoms, units
@@ -28,7 +28,7 @@ class OpenMMQMMMCalculator(Calculator):
         *,
         charge: int | None = None,
         mult: int | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         if not isinstance(qmmm_theory, QMMMTheory):
             raise CalculatorSetupError("qmmm_theory must be an openmmqmmm.QMMMTheory object")

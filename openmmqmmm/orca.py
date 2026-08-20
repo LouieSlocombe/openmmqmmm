@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 import glob
 import logging
@@ -5,6 +7,8 @@ import os
 import shutil
 import subprocess as sp
 import time
+from collections.abc import Mapping, Sequence
+from typing import Any, TextIO, TypeAlias
 
 import numpy as np
 
@@ -12,7 +16,7 @@ import openmmqmmm.constants
 import openmmqmmm.coords
 import openmmqmmm.elstructure
 import openmmqmmm.parallel
-from openmmqmmm.coords import _print_internal_coordinate_table, check_charge_mult
+from openmmqmmm.coords import Fragment, _print_internal_coordinate_table, check_charge_mult
 from openmmqmmm.exceptions import (
     ExternalProgramError,
     FileFormatError,
@@ -30,6 +34,12 @@ from openmmqmmm.utils import (
 
 logger = logging.getLogger(__name__)
 
+StrPath: TypeAlias = str | os.PathLike[str]
+Coordinates: TypeAlias = np.ndarray | Sequence[Sequence[float]]
+AtomSpecificBasis: TypeAlias = Mapping[tuple[str, int], Sequence[str]]
+RunLabel: TypeAlias = str | float | tuple[object, ...]
+ORCARunResult: TypeAlias = float | tuple[float, np.ndarray] | tuple[float, np.ndarray, np.ndarray]
+
 
 class ORCATheory:
     """Interface to the ORCA quantum chemistry program."""
@@ -37,51 +47,51 @@ class ORCATheory:
     def __init__(
         self,
         *,
-        orcadir=None,
-        orcasimpleinput="",
-        basis_per_element=None,
-        extrabasisatoms=None,
-        extrabasis=None,
-        atom_specific_basis_dict=None,
-        ecp_dict=None,
-        tddft=False,
-        tddft_roots=5,
-        follow_root=1,
-        orcablocks="",
-        extraline="",
-        first_iteration_input=None,
-        brokensym=None,
-        hs_mult=None,
-        atomstoflip=None,
-        numcores=1,
-        nprocs=None,
-        label="ORCA",
-        moreadfile=None,
-        moreadfile_always=False,
-        bind_to_core_option=True,
-        ignore_orca_error=False,
-        autostart=True,
-        propertyblock=None,
-        save_output_with_label=False,
-        keep_each_run_output=False,
-        print_population_analysis=False,
-        filename="orca",
-        check_for_errors=True,
-        check_for_warnings=True,
-        fragment_indices=None,
-        xdm=False,
-        xdm_a1=None,
-        xdm_a2=None,
-        xdm_func=None,
-        nmf=False,
-        nmf_sigma=None,
-        cpcm_radii=None,
-        rohf_uhf_swap=False,
-        delta_scf=False,
-        delta_scf_pmom=False,
-        delta_scf_confline=None,
-        delta_scf_turn_off_automatically=True,
-    ):
+        orcadir: StrPath | None = None,
+        orcasimpleinput: str = "",
+        basis_per_element: Mapping[str, str] | None = None,
+        extrabasisatoms: Sequence[int] | None = None,
+        extrabasis: str | None = None,
+        atom_specific_basis_dict: AtomSpecificBasis | None = None,
+        ecp_dict: Mapping[str, Sequence[str]] | None = None,
+        tddft: bool = False,
+        tddft_roots: int = 5,
+        follow_root: int = 1,
+        orcablocks: str = "",
+        extraline: str = "",
+        first_iteration_input: str | None = None,
+        brokensym: bool | None = None,
+        hs_mult: int | None = None,
+        atomstoflip: Sequence[int] | None = None,
+        numcores: int = 1,
+        nprocs: int | None = None,
+        label: str | None = "ORCA",
+        moreadfile: StrPath | None = None,
+        moreadfile_always: bool = False,
+        bind_to_core_option: bool = True,
+        ignore_orca_error: bool = False,
+        autostart: bool = True,
+        propertyblock: str | None = None,
+        save_output_with_label: bool = False,
+        keep_each_run_output: bool = False,
+        print_population_analysis: bool = False,
+        filename: str = "orca",
+        check_for_errors: bool = True,
+        check_for_warnings: bool = True,
+        fragment_indices: Sequence[Sequence[int]] | None = None,
+        xdm: bool = False,
+        xdm_a1: float | None = None,
+        xdm_a2: float | None = None,
+        xdm_func: str | None = None,
+        nmf: bool = False,
+        nmf_sigma: float | None = None,
+        cpcm_radii: Sequence[float] | None = None,
+        rohf_uhf_swap: bool = False,
+        delta_scf: bool = False,
+        delta_scf_pmom: bool = False,
+        delta_scf_confline: str | None = None,
+        delta_scf_turn_off_automatically: bool = True,
+    ) -> None:
         logger.info(main_header("ORCATheory initialization"))
 
         self.theorynamelabel = "ORCA"
@@ -229,11 +239,11 @@ class ORCATheory:
         logger.info("%s", self.orcablocks)
         logger.info("\nORCATheory object created!")
 
-    def set_numcores(self, numcores):
+    def set_numcores(self, numcores: int) -> None:
         """Set how many cores ORCA is launched with."""
         self.numcores = numcores
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Delete the ORCA scratch and output files of the previous run."""
         logger.info("Cleaning up old ORCA files")
         list_files = []
@@ -257,7 +267,15 @@ class ORCATheory:
 
     # Do an ORCA-optimization instead of geomeTRIC optimization. Useful for gas-phase chemistry when ORCA-optimizer is
     # better than geomeTRIC
-    def opt(self, fragment=None, grad=None, hessian=None, numcores=None, charge=None, mult=None):
+    def opt(
+        self,
+        fragment: Fragment | None = None,
+        grad: bool | None = None,
+        hessian: bool | None = None,
+        numcores: int | None = None,
+        charge: int | None = None,
+        mult: int | None = None,
+    ) -> float:
         """Optimize the geometry with ORCA's own optimizer rather than geomeTRIC."""
         module_init_time = time.time()
         logger.info("------------RUNNING INTERNAL ORCA OPTIMIZATION-------------")
@@ -341,20 +359,20 @@ class ORCATheory:
         log_time_since(module_init_time, "ORCA Opt-run")
         return self.energy
 
-    def get_dipole_moment(self):
+    def get_dipole_moment(self) -> list[float]:
         """Read the dipole moment from the last ORCA output file."""
         dm = grab_dipole_moment(self.filename + ".out")
         logger.info("Dipole moment: %s", dm)
         return dm
 
-    def get_polarizability_tensor(self):
+    def get_polarizability_tensor(self) -> np.ndarray:
         """Read the static polarizability tensor from the last ORCA output file."""
         logger.debug("Reading polarizability from: %s", self.filename + ".out")
         polarizability, _diag_pz = _grab_polarizability_tensor(self.filename + ".out")
         logger.info("polarizability: %s", polarizability)
         return polarizability
 
-    def _reset_one_shot_options(self):
+    def _reset_one_shot_options(self) -> None:
         """Turn off the settings that only applied to the calculation just finished."""
         if self.rohf_uhf_swap:
             logger.info("\nROHF UHF swap feature active.")
@@ -398,7 +416,7 @@ class ORCATheory:
                 logger.debug("Now turning moreadfile option off.")
                 self.moreadfile = None
 
-    def _save_output_copies(self, charge, mult):
+    def _save_output_copies(self, charge: int, mult: int) -> None:
         """Keep the labelled, per-run and last copies of the ORCA output that were asked for."""
         if self.save_output_with_label is True:
             shutil.copy(self.filename + ".out", self.filename + f"_{self.label}_{charge}_{mult}.out")
@@ -416,7 +434,7 @@ class ORCATheory:
         # Save path to last GBW-file (used if the run changes directories, e.g. goes from NumFreq)
         self.path_to_last_gbwfile_used = f"{os.getcwd()}/{self.filename}.gbw"
 
-    def _log_population_analysis(self, qm_elems):
+    def _log_population_analysis(self, qm_elems: Sequence[str]) -> None:
         """Parse and report the Mulliken charges and spin populations."""
         logger.info("\nPrinting Mulliken Population analysis:")
         logger.info("%s", "-" * 30)
@@ -435,7 +453,7 @@ class ORCATheory:
         else:
             logger.warning("No charges or spinpops were found in ORCA output. Continuing")
 
-    def _append_optional_input_blocks(self, *, cpcm_radii):
+    def _append_optional_input_blocks(self, *, cpcm_radii: Sequence[float] | None) -> None:
         """Extend orcasimpleinput/orcablocks with the blocks the optional features need."""
         if self.nmf is True:
             if self.nmf_sigma is None:
@@ -461,7 +479,7 @@ class ORCATheory:
         if self.xdm:
             self.orcasimpleinput += " AIM"
 
-    def _collect_optional_properties(self, outfile):
+    def _collect_optional_properties(self, outfile: StrPath) -> None:
         """Parse the NMF, ICE-CI and TDDFT properties that only some ORCA outputs carry."""
         if self.nmf is True:
             logger.info("NMF option is active.")
@@ -499,19 +517,19 @@ class ORCATheory:
     def run(
         self,
         *,
-        current_coords=None,
-        charge=None,
-        mult=None,
-        current_mm_coords=None,
-        mm_charges=None,
-        qm_elems=None,
-        elems=None,
-        grad=False,
-        hessian=False,
-        pc=False,
-        numcores=None,
-        label=None,
-    ):
+        current_coords: Coordinates | None = None,
+        charge: int | None = None,
+        mult: int | None = None,
+        current_mm_coords: Coordinates | None = None,
+        mm_charges: Sequence[float] | np.ndarray | None = None,
+        qm_elems: Sequence[str] | None = None,
+        elems: Sequence[str] | None = None,
+        grad: bool = False,
+        hessian: bool = False,
+        pc: bool = False,
+        numcores: int | None = None,
+        label: RunLabel | None = None,
+    ) -> ORCARunResult:
         """Run an ORCA calculation and return the energy (and gradient)."""
         module_init_time = time.time()
         self.runcalls += 1
@@ -724,7 +742,7 @@ class ORCATheory:
         log_time_since(module_init_time, "ORCA run")
         return self.energy
 
-    def _append_basis_blocks(self):
+    def _append_basis_blocks(self) -> None:
         """Append per-element basis and ECP blocks to orcablocks, if not already present."""
         if self.basis_per_element is not None:
             basisstring = ""
@@ -749,7 +767,7 @@ end"""
             if ecpbasisblock not in self.orcablocks:
                 self.orcablocks = self.orcablocks + ecpbasisblock
 
-    def _prepare_orbital_guess(self):
+    def _prepare_orbital_guess(self) -> None:
         """Put a GBW file where ORCA will find it, or let it guess new orbitals."""
         if self.moreadfile is not None:
             logger.info(f"Moreadfile option active. File path: {self.moreadfile}")
@@ -798,14 +816,14 @@ end"""
             logger.info("Autostart feature is active. ORCA will read GBW-file present.")
 
 
-def _looks_like_orca_dir(directory):
+def _looks_like_orca_dir(directory: StrPath) -> bool:
     # A real ORCA installation ships the orca binary alongside orca_* helper
     # binaries (orca_scf, orca_gtoint, ...). Their absence identifies unrelated
     # programs that happen to be called orca (e.g. the GNOME screen reader).
     return os.path.isfile(os.path.join(directory, "orca")) and len(glob.glob(os.path.join(directory, "orca_*"))) > 0
 
 
-def _orca_binary_runs(directory):
+def _orca_binary_runs(directory: StrPath) -> bool:
     # Argument-less orca exits immediately asking for a parameterfile; the
     # timeout guards against non-ORCA programs that block (a daemon would
     # otherwise hang this probe forever).
@@ -822,7 +840,7 @@ def _orca_binary_runs(directory):
     return True
 
 
-def find_orca(orcadir=None, required=True):
+def find_orca(orcadir: StrPath | None = None, required: bool = True) -> str | None:
     for source, directory in (
         ("orcadir argument", orcadir),
         ("OPENMMQMMM_ORCADIR environment variable", os.environ.get("OPENMMQMMM_ORCADIR")),
@@ -857,14 +875,14 @@ def find_orca(orcadir=None, required=True):
 
 
 def _run_orca_sp_parallel(
-    orcadir,
-    inpfile,
-    numcores=1,
-    check_for_warnings=True,
-    check_for_errors=True,
-    bind_to_core_option=True,
-    ignore_orca_error=False,
-):
+    orcadir: str,
+    inpfile: str,
+    numcores: int = 1,
+    check_for_warnings: bool = True,
+    check_for_errors: bool = True,
+    bind_to_core_option: bool = True,
+    ignore_orca_error: bool = False,
+) -> None:
     if numcores > 1:
         palstring = f"%pal \nnprocs {numcores}\nend"
         with open(inpfile):
@@ -933,7 +951,12 @@ _BENIGN_ERROR_PREFIXES = (
 )
 
 
-def _report_matching_lines(filename, needles, benign_prefixes, headline):
+def _report_matching_lines(
+    filename: StrPath,
+    needles: Sequence[str],
+    benign_prefixes: str | tuple[str, ...],
+    headline: str,
+) -> None:
     with open(filename, errors="ignore") as f:
         matches = [
             line
@@ -945,13 +968,13 @@ def _report_matching_lines(filename, needles, benign_prefixes, headline):
         logger.info("%s", "".join(matches))
 
 
-def grab_orca_warnings(filename):
+def grab_orca_warnings(filename: StrPath) -> None:
     _report_matching_lines(
         filename, ("warning",), _BENIGN_WARNING_PREFIXES, "Found warning messages in ORCA outputfile:"
     )
 
 
-def grab_orca_errors(filename):
+def grab_orca_errors(filename: StrPath) -> None:
     _report_matching_lines(
         filename,
         ("error", "aborting"),
@@ -960,7 +983,7 @@ def grab_orca_errors(filename):
     )
 
 
-def check_orca_finished(file):
+def check_orca_finished(file: StrPath) -> tuple[bool, str | None]:
     scf_iterations = None
     with open(file, errors="ignore") as f:
         for line in f:
@@ -971,7 +994,7 @@ def check_orca_finished(file):
     return False, None
 
 
-def _check_orca_opt_finished(file):
+def _check_orca_opt_finished(file: StrPath) -> bool:
     converged = False
     with open(file, errors="ignore") as f:
         for line in f:
@@ -983,7 +1006,7 @@ def _check_orca_opt_finished(file):
         return converged
 
 
-def grab_orca_final_energy(file, errors="ignore"):
+def grab_orca_final_energy(file: StrPath, errors: str | None = "ignore") -> float | None:
     Energy = None
     with open(file, errors=errors) as f:
         for line in f:
@@ -1017,7 +1040,7 @@ ORCA_TIMING_LABELS = {
 }
 
 
-def _seconds_from_timing_line(line):
+def _seconds_from_timing_line(line: str) -> float | None:
     fields = line.split()
     for index, field in enumerate(fields):
         if field.startswith("sec") and index:
@@ -1028,7 +1051,7 @@ def _seconds_from_timing_line(line):
     return None
 
 
-def grab_orca_timings(file):
+def grab_orca_timings(file: StrPath) -> dict[str, float]:
     timings = {}  # in seconds
     try:
         with open(file, errors="ignore") as f:
@@ -1045,7 +1068,7 @@ def grab_orca_timings(file):
     return timings
 
 
-def grab_orca_gradient(engradfile):
+def grab_orca_gradient(engradfile: StrPath) -> np.ndarray:
     grab = False
     numatomsgrab = False
     row = 0
@@ -1073,7 +1096,7 @@ def grab_orca_gradient(engradfile):
     return gradient
 
 
-def grab_orca_pc_gradient(pcgradfile):
+def grab_orca_pc_gradient(pcgradfile: StrPath) -> np.ndarray:
     with open(pcgradfile) as pgradfile:
         for count, line in enumerate(pgradfile):
             if count == 0:
@@ -1087,7 +1110,7 @@ def grab_orca_pc_gradient(pcgradfile):
     return gradient
 
 
-def grab_dipole_moment(outfile):
+def grab_dipole_moment(outfile: StrPath) -> list[float]:
     dipole_moment = []
     with open(outfile) as f:
         for line in f:
@@ -1098,7 +1121,7 @@ def grab_dipole_moment(outfile):
     return dipole_moment
 
 
-def _grab_polarizability_tensor(outfile):
+def _grab_polarizability_tensor(outfile: StrPath) -> tuple[np.ndarray, list[float]]:
     pz_tensor = np.zeros((3, 3))
     diag_pz_tensor = []
     count = 0
@@ -1133,7 +1156,7 @@ def _grab_polarizability_tensor(outfile):
     return pz_tensor, diag_pz_tensor
 
 
-def _grab_tddft_transition_energies(file):
+def _grab_tddft_transition_energies(file: StrPath) -> list[float]:
     tddftstates = []
     tddft = True
     _grab_tddft_transition_energies = False
@@ -1149,7 +1172,7 @@ def _grab_tddft_transition_energies(file):
     return tddftstates
 
 
-def _grab_tddft_intensities(file):
+def _grab_tddft_intensities(file: StrPath) -> list[float]:
     intensities = []
     _grab_tddft_transition_energies = False
     with open(file) as f:
@@ -1164,7 +1187,7 @@ def _grab_tddft_intensities(file):
     return intensities
 
 
-def grab_ir_intensities(filename):
+def grab_ir_intensities(filename: StrPath) -> list[float]:
     grab = False
     intensities = []
     with open(filename) as f:
@@ -1177,7 +1200,13 @@ def grab_ir_intensities(filename):
     return intensities
 
 
-def write_orca_hessfile(hessian, coords, elems, masses, outputname):
+def write_orca_hessfile(
+    hessian: np.ndarray,
+    coords: Coordinates,
+    elems: Sequence[str],
+    masses: Sequence[float] | np.ndarray,
+    outputname: StrPath,
+) -> None:
     hessdim = hessian.shape[0]
     with open(outputname, "w") as orcahessfile:
         orcahessfile.write("$orca_hessian_file\n")
@@ -1241,7 +1270,7 @@ def write_orca_hessfile(hessian, coords, elems, masses, outputname):
     logger.info("ORCA-style Hessian written to: %s", outputname)
 
 
-def grab_hessian(hessfile):
+def grab_hessian(hessfile: StrPath) -> np.ndarray:
     hesstake = False
     j = 0
     orcacoldim = 5
@@ -1285,37 +1314,37 @@ def grab_hessian(hessfile):
         return hessarray2d
 
 
-def _write_input_block(orcafile, text):
+def _write_input_block(orcafile: TextIO, text: str) -> None:
     if text:
         orcafile.write(text.rstrip("\n") + "\n")
 
 
 def _create_orca_input(
-    name,
-    elems,
-    coords,
-    orcasimpleinput,
-    orcablockinput,
-    charge,
-    mult,
+    name: str,
+    elems: Sequence[str],
+    coords: Coordinates,
+    orcasimpleinput: str,
+    orcablockinput: str,
+    charge: int,
+    mult: int,
     *,
-    pcfile=None,
-    grad=False,
-    hessian=False,
-    extraline="",
-    hs_mult=None,
-    atomstoflip=None,
-    extrabasis=None,
-    extrabasisatoms=None,
-    atom_specific_basis_dict=None,
-    moreadfile=None,
-    propertyblock=None,
-    ghostatoms=None,
-    dummyatoms=None,
-    fragment_indices=None,
-    rohf_uhf_swap=False,
-    delta_scf_block=None,
-):
+    pcfile: str | None = None,
+    grad: bool = False,
+    hessian: bool = False,
+    extraline: str = "",
+    hs_mult: int | None = None,
+    atomstoflip: int | Sequence[int] | None = None,
+    extrabasis: str | None = None,
+    extrabasisatoms: Sequence[int] | None = None,
+    atom_specific_basis_dict: AtomSpecificBasis | None = None,
+    moreadfile: StrPath | None = None,
+    propertyblock: str | None = None,
+    ghostatoms: Sequence[int] | None = None,
+    dummyatoms: Sequence[int] | None = None,
+    fragment_indices: Sequence[Sequence[int]] | None = None,
+    rohf_uhf_swap: bool = False,
+    delta_scf_block: str | None = None,
+) -> None:
     if extrabasisatoms is None:
         extrabasisatoms = []
     if ghostatoms is None:
@@ -1389,17 +1418,35 @@ def _create_orca_input(
             orcafile.write("*\n")
 
 
-def create_orca_input_pc(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, **kwargs):
+def create_orca_input_pc(
+    name: str,
+    elems: Sequence[str],
+    coords: Coordinates,
+    orcasimpleinput: str,
+    orcablockinput: str,
+    charge: int,
+    mult: int,
+    **kwargs: Any,
+) -> None:
     _create_orca_input(
         name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, pcfile=name + ".pc", **kwargs
     )
 
 
-def create_orca_input_plain(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, **kwargs):
+def create_orca_input_plain(
+    name: str,
+    elems: Sequence[str],
+    coords: Coordinates,
+    orcasimpleinput: str,
+    orcablockinput: str,
+    charge: int,
+    mult: int,
+    **kwargs: Any,
+) -> None:
     _create_orca_input(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, pcfile=None, **kwargs)
 
 
-def _create_orca_pcfile(name, coords, listofcharges):
+def _create_orca_pcfile(name: str, coords: Coordinates, listofcharges: Sequence[float] | np.ndarray) -> None:
     with open(name + ".pc", "w") as pcfile:
         pcfile.write(str(len(listofcharges)) + "\n")
         for p, c in zip(listofcharges, coords, strict=False):
@@ -1473,7 +1520,7 @@ _SPIN_POPULATION_TABLES = {
 }
 
 
-def _scan_orca_table(outputfile, spec):
+def _scan_orca_table(outputfile: StrPath, spec: Mapping[str, Any]) -> list[float]:
     start = spec["start"]
     stop = spec["stop"]
     column_spec = spec.get("column", -1)
@@ -1501,7 +1548,7 @@ def _scan_orca_table(outputfile, spec):
     return values
 
 
-def _trim_to_broken_symmetry_solution(values, outputfile, kind):
+def _trim_to_broken_symmetry_solution(values: list[float], outputfile: StrPath, kind: str) -> list[float]:
     if not pygrep2("WARNING: Broken symmetry calculations", outputfile):
         return values
     numatoms = int(pygrep("Number of atoms                             ...", outputfile)[-1])
@@ -1511,7 +1558,7 @@ def _trim_to_broken_symmetry_solution(values, outputfile, kind):
     return values[-numatoms:]
 
 
-def grab_orca_spin_populations(chargemodel, outputfile):
+def grab_orca_spin_populations(chargemodel: str, outputfile: StrPath) -> list[float]:
     spec = _SPIN_POPULATION_TABLES.get(chargemodel.upper())
     if spec is None:
         raise FileFormatError(
@@ -1522,7 +1569,7 @@ def grab_orca_spin_populations(chargemodel, outputfile):
     return _trim_to_broken_symmetry_solution(spinpops, outputfile, "populations")
 
 
-def grab_orca_atom_charges(chargemodel, outputfile):
+def grab_orca_atom_charges(chargemodel: str, outputfile: StrPath) -> list[float]:
     model = chargemodel.upper()
     spec = _CHARGE_TABLES.get(model)
     if spec is None:
@@ -1547,7 +1594,7 @@ def grab_orca_atom_charges(chargemodel, outputfile):
     return _trim_to_broken_symmetry_solution(charges, outputfile, "charges")
 
 
-def _grab_orca_cartesian_coordinates(outputfile):
+def _grab_orca_cartesian_coordinates(outputfile: StrPath) -> tuple[list[str], list[list[float]]]:
     elems = []
     coords = []
     grabbing = False
@@ -1571,7 +1618,7 @@ def _grab_orca_cartesian_coordinates(outputfile):
 # If no stability analysis present in output, then also return true
 
 
-def _grab_scf_fod_occupations(filename):
+def _grab_scf_fod_occupations(filename: StrPath) -> list[float]:
     occgrab = False
     occupations = []
     with open(filename) as f:
@@ -1589,7 +1636,7 @@ def _grab_scf_fod_occupations(filename):
     return occupations
 
 
-def _grab_ice_wf_cfg_ci_size(filename):
+def _grab_ice_wf_cfg_ci_size(filename: StrPath) -> tuple[int, int, int]:
     num_after_SD_CFGs = 0
     num_genCFGs = 0
     num_selected_CFGs = 0
@@ -1606,7 +1653,12 @@ def _grab_ice_wf_cfg_ci_size(filename):
 
 # Writes the ORCA-style .engrad file that the generated otool_external script
 # (see write_otool_script below) produces for ORCA's ExtOpt driver.
-def print_gradient_in_orca_format(energy, gradient, basename, extrabasename="_EXT"):
+def print_gradient_in_orca_format(
+    energy: float,
+    gradient: Coordinates,
+    basename: str,
+    extrabasename: str = "_EXT",
+) -> None:
     numatoms = len(gradient)
     with open(basename + extrabasename + ".engrad", "w") as f:
         f.write("#\n")
@@ -1627,7 +1679,13 @@ def print_gradient_in_orca_format(energy, gradient, basename, extrabasename="_EX
         f.write("#\n")
 
 
-def write_otool_script(basename=None, theoryfile=None, scriptlocation=None, charge=None, mult=None):
+def write_otool_script(
+    basename: str | None = None,
+    theoryfile: StrPath | None = None,
+    scriptlocation: str | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
+) -> None:
     import stat
 
     with open(scriptlocation + "/otool_external", "w") as otool:
@@ -1646,14 +1704,14 @@ def write_otool_script(basename=None, theoryfile=None, scriptlocation=None, char
 
 # Will only work for theories that can be pickled.
 def orca_external_optimizer(
-    fragment=None,
-    theory=None,
-    orcadir=None,
-    charge=None,
-    mult=None,
-    orca_jobkeyword="Opt",
-    orca_blockinput="",
-    actatoms=None,
+    fragment: Fragment | None = None,
+    theory: Any = None,
+    orcadir: StrPath | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
+    orca_jobkeyword: str = "Opt",
+    orca_blockinput: str = "",
+    actatoms: Sequence[int] | None = None,
 ) -> float:
     """Optimize a geometry using ORCA's optimizer while openmmqmmm provides energies+gradients."""
     logger.info(main_header("ORCA_External_Optimizer"))
