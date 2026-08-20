@@ -345,7 +345,7 @@ class MolecularDynamicsEngine:
                          See : https://github.com/openmm/openmm/pull/2754 and https://github.com/openmm/openmm/issues/2520
                          for recommended simulation settings in OpenMM.
                          """)
-            logger.info("Will continue...")
+            logger.debug("Will continue...")
         if (self.openmmobject.rigidwater is True and len(self.openmmobject.user_frozen_atoms) != 0) or (
             self.openmmobject.autoconstraints is not None and len(self.openmmobject.user_frozen_atoms) != 0
         ):
@@ -354,7 +354,6 @@ class MolecularDynamicsEngine:
                 "the OpenMM object (either rigidwater=True or autoconstraints is not None)"
                 "\nOpenMM will crash if constraints and frozen atoms involve the same atoms"
             )
-        logger.info("")
 
         self._set_initial_positions(dummyatomrestraint=dummyatomrestraint, solute_indices=solute_indices)
 
@@ -392,7 +391,7 @@ class MolecularDynamicsEngine:
         self._rpmd_reporters = []
         old_reporters.clear()
 
-        logger.info("Creating RPMD-aware state and trajectory reporters for copy %s", self.rpmd_report_copy)
+        logger.debug("Creating RPMD-aware state and trajectory reporters for copy %s", self.rpmd_report_copy)
         self._rpmd_reporters.append(
             _RPMDStateDataReporter(stdout, self.rpmd_report_copy, self.openmmobject.dof, separator=",")
         )
@@ -556,10 +555,10 @@ class MolecularDynamicsEngine:
             self._set_rpmd_reporters(simulation, restart=restart)
             return
 
-        logger.info("Creating CheckpointReporter that will write a restartable checkpointfile every X steps")
+        logger.debug("Creating CheckpointReporter that will write a restartable checkpointfile every X steps")
         checkpointfilename = "OpenMM_MD.chk"
         simulation.reporters.append(openmm.app.CheckpointReporter(checkpointfilename, self.traj_frequency * 1))
-        logger.info("Creating StateDataReporter that will write to stdout")
+        logger.debug("Creating StateDataReporter that will write to stdout")
         statedatareporter_stdout = openmm.app.StateDataReporter(
             stdout,
             self.traj_frequency,
@@ -671,21 +670,21 @@ class MolecularDynamicsEngine:
         self.rpmd_python_force = None
         self.rpmd_external_force_group = None
 
-        logger.info("Analyzing theory input to OpenMM_MDclass")
+        logger.debug("Analyzing theory input to OpenMM_MDclass")
         if isinstance(theory, OpenMMTheory):
-            logger.info("This is an OpenMMTheory object")
+            logger.debug("This is an OpenMMTheory object")
             self.openmmobject = theory
             self.theory_runtype = "dummy_MM" if self.dummy_mm is True else "MM"
             return
 
         if isinstance(theory, openmmqmmm.QMMMTheory):
-            logger.info("This is an QMMMTheory object")
+            logger.debug("This is an QMMMTheory object")
             self.QM_MM_object = theory
             self.openmmobject = theory.mm_theory
             self.theory_runtype = "QMMM"
             # Making sure QM/MM object will exit before calculating MM part
             self.QM_MM_object.exit_after_customexternalforce_update = True
-            logger.info("Turning on externalforce option.")
+            logger.debug("Turning on externalforce option.")
             self.QM_MM_object.openmm_externalforce = True
             return
 
@@ -828,7 +827,7 @@ class MolecularDynamicsEngine:
 
     def _set_initial_positions(self, *, dummyatomrestraint, solute_indices):
         """Take the starting positions from the fragment, adding the restraint dummy atom if asked."""
-        logger.info("Defining atom positions from fragment")
+        logger.debug("Defining atom positions from fragment")
         # self.positions rather than the fragment's, because a dummy atom may be appended below
         self.positions = self.fragment.coords
         self.dummyatomrestraint = dummyatomrestraint
@@ -869,12 +868,12 @@ class MolecularDynamicsEngine:
                     openmm.AndersenThermostat(self.temperature * openmm.unit.kelvin, 1 / openmm.unit.picosecond)
                 )
             self.integrator = "VerletIntegrator"
-            logger.info("Now using integrator: %s", self.integrator)
+            logger.debug("Now using integrator: %s", self.integrator)
         else:
             # Highest index first: removeForce renumbers every force above the one it removes
             for index, forcename in reversed(list(enumerate(forceclassnames))):
                 if forcename in {"MonteCarloBarostat", "AndersenThermostat"}:
-                    logger.info("Removing old force: %s", forcename)
+                    logger.debug("Removing old force: %s", forcename)
                     self.openmmobject.system.removeForce(index)
 
         # Integrators: LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VerletIntegrator,
@@ -908,7 +907,7 @@ class MolecularDynamicsEngine:
             logger.info("centerforce_atoms unset. Using QM atoms: %s", centerforce_atoms)
         if centerforce_center is None:
             centerforce_center = self.fragment.get_coordinate_center()
-            logger.info("No center coordinates set. Using geometric center of fragment: %s", centerforce_center)
+            logger.debug("No center coordinates set. Using geometric center of fragment: %s", centerforce_center)
         self.openmmobject.add_centerforce(
             center_coords=centerforce_center,
             atomindices=centerforce_atoms,
@@ -930,7 +929,7 @@ class MolecularDynamicsEngine:
     def _attach_reporters(self, continuing, extra_reporters):
         """Attach the state and trajectory reporters, plus any caller-supplied extras."""
         if continuing:
-            logger.info("Continuing a previous run. Reusing simulation reporters")
+            logger.debug("Continuing a previous run. Reusing simulation reporters")
             # Reporters must be rebuilt after a restart so StateDataReporter and DCDReporter append
             self.set_sim_reporters(self.simulation, restart=True)
         else:
@@ -999,10 +998,10 @@ class MolecularDynamicsEngine:
         mdtrajtopology = mdtraj.Topology.from_openmm(self.openmmobject.topology)
 
         if self.wrapping_atoms is not None:
-            logger.info("Will use atoms %s for wrapping", self.wrapping_atoms)
+            logger.debug("Will use atoms %s for wrapping", self.wrapping_atoms)
             return boxvectors, mdtrajtopology, self.wrapping_atoms
 
-        logger.info("No wrapping_atoms keyword has been set to center on.")
+        logger.debug("No wrapping_atoms keyword has been set to center on.")
         if self.theory_runtype == "QMMM":
             logger.info("Theory-runtype is QMMM. Using QMatoms as wrapping_atoms")
             wrapping_atoms = self.QM_MM_object.qmatoms
@@ -1037,7 +1036,7 @@ class MolecularDynamicsEngine:
 
     def _finish_rpmd_run(self, simulation_steps, description, module_init_time):
         """Run the bead-resolved PythonForce path and log its evaluation statistics."""
-        logger.info("Running bead-resolved %s through OpenMM PythonForce", description)
+        logger.debug("Running bead-resolved %s through OpenMM PythonForce", description)
         self._run_rpmd_mm(simulation_steps)
         logger.info(
             "%s RPMD external evaluations: %s (%s cache hits)",
@@ -1135,7 +1134,7 @@ class MolecularDynamicsEngine:
             self.openmmobject.system.addForce(plumed_force)
 
         if restraints is not None:
-            logger.info("Adding restraints")
+            logger.debug("Adding restraints")
             self.openmmobject.add_bondrestraints(restraints=restraints)
 
         if chkfile is not None:
@@ -1151,7 +1150,7 @@ class MolecularDynamicsEngine:
         self._log_run_parameters(simulation_time, simulation_steps)
 
         if self.openmmobject.periodic is True:
-            logger.info("Checking Initial PBC vectors.")
+            logger.debug("Checking Initial PBC vectors.")
             self.state = self._get_simulation_state()
             a, b, c = self.state.getPeriodicBoxVectors()
             logger.info("A:  %s\nB:  %s\nC:  %s", a, b, c)
@@ -1163,7 +1162,7 @@ class MolecularDynamicsEngine:
         )
 
         if pre_dynamics_hook is not None:
-            logger.info("Calling pre_dynamics_hook before dynamics")
+            logger.debug("Calling pre_dynamics_hook before dynamics")
             pre_dynamics_hook(self)
 
         boxvectors, mdtrajtopology, wrapping_atoms = self._prepare_wrapping()
@@ -1181,7 +1180,7 @@ class MolecularDynamicsEngine:
                 checkpoint = time.time()
                 logger.debug("Step: %s", step)
                 if step % self.traj_frequency == 0:
-                    logger.info("Step: %s", step)
+                    logger.debug("Step: %s", step)
 
                 _, current_coords = self._current_step_coords(checkpoint, boxvectors, mdtrajtopology, wrapping_atoms)
 
@@ -1228,7 +1227,7 @@ class MolecularDynamicsEngine:
                 checkpoint = time.time()
                 logger.debug("Step: %s", step)
                 if step % self.traj_frequency == 0:
-                    logger.info("Step: %s", step)
+                    logger.debug("Step: %s", step)
 
                 current_state, current_coords = self._current_step_coords(
                     checkpoint, boxvectors, mdtrajtopology, wrapping_atoms
@@ -1297,13 +1296,13 @@ class MolecularDynamicsEngine:
         )
 
         if self.openmmobject.periodic is True:
-            logger.info("Checking PBC vectors:")
+            logger.debug("Checking PBC vectors:")
             a, b, c = self.state.getPeriodicBoxVectors()
             logger.info("A:  %s", a)
             logger.info("B:  %s", b)
             logger.info("C:  %s", c)
             logger.info("a 0 %s", a[0])
-            logger.info("Updating PBC vectors in simulation.context, OpenMM system and OpenMM topology")
+            logger.debug("Updating PBC vectors in simulation.context, OpenMM system and OpenMM topology")
             self.simulation.context.setPeriodicBoxVectors(a, b, c)
             # System. Necessary
             self.openmmobject.system.setDefaultPeriodicBoxVectors(a, b, c)
@@ -1348,7 +1347,7 @@ class MolecularDynamicsEngine:
             self.simulation.saveCheckpoint("OpenMM_MD_final_checkpoint.chk")
 
         newcoords = self.state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom)
-        logger.info("Updating coordinates in fragment.")
+        logger.debug("Updating coordinates in fragment.")
         self.fragment.coords = newcoords
         # Updating positions array also in case we call run again
         self.positions = newcoords
@@ -1418,9 +1417,8 @@ def openmm_box_equilibration(
     md = MolecularDynamicsEngine(**engine_kwargs)
     restart = False
     for i in range(max_npt_cycles):
-        logger.info("")
         logger.info("%s", "-" * 100)
-        logger.info(f"Now starting  NPT cycle {i} with {numsteps_per_npt} MD steps")
+        logger.debug(f"Now starting  NPT cycle {i} with {numsteps_per_npt} MD steps")
         logger.info(
             f"Simulation data (timestep, energy, temperature, volume,density etc.) is also written to {datafilename}"
         )
@@ -1449,8 +1447,7 @@ def openmm_box_equilibration(
         logger.info(f"Total simulation time: {timestep * steps} ps")
         logger.info("Current Volume: %s", volume[-1])
         logger.info(f"Current Density: {density[-1]}")
-        logger.info("")
-        logger.info(f"Current Volume SD: {volume_std}   (threshold: {volume_threshold})")
+        logger.info(f"\nCurrent Volume SD: {volume_std}   (threshold: {volume_threshold})")
         logger.info(f"Current Density SD: {density_std} (threshold: {density_threshold})")
 
         if volume_std < volume_threshold and density_std < density_threshold:
@@ -1471,7 +1468,7 @@ def openmm_box_equilibration(
     logger.info(f"NPT trajectory: {trajfilename}.{trajectory_file_option.lower()}")
 
     if use_mdtraj is True:
-        logger.info("Trying to load mdtraj for reimaging trajectory")
+        logger.debug("Trying to load mdtraj for reimaging trajectory")
         try:
             logger.info("Imaging trajectory")
             mdtraj_image_trajectory(f"{trajfilename}.dcd", f"{trajfilename}_lastframe.pdb")
@@ -1568,14 +1565,12 @@ def gentle_warmup_md(
         except Exception as e:  # noqa: BLE001 - MD warm-up continues even if pre-minimization fails
             logger.info("Problem minimizing system")
             logger.error("message: %s", e)
-            logger.info("Will go on to do MD")
+            logger.debug("Will go on to do MD")
 
     logger.info(f"\n{len(steps)} MD-runs have been defined")
     for num, (ts, step, temp) in enumerate(zip(time_steps, steps, temperatures, strict=False)):
         logger.info(f"MD-step {num} Number of simulation steps: {step} with timestep: {ts} and temperature: {temp} K")
 
-    logger.info("")
-    logger.info("")
     for num, (ts, step, temp, traj_frequency) in enumerate(
         zip(time_steps, steps, temperatures, traj_frequencies, strict=False)
     ):
@@ -1599,11 +1594,11 @@ def gentle_warmup_md(
         )
 
         if use_mdtraj is True:
-            logger.info("Trying to load mdtraj for basic analysis of trajectory")
+            logger.debug("Trying to load mdtraj for basic analysis of trajectory")
             try:
                 logger.info("Imaging trajectory")
                 mdtraj_image_trajectory(f"{MDcyclename}.dcd", f"{MDcyclename}_lastframe.pdb")
-                logger.info("\nRunning RMS Fluctuation analysis on trajectory")
+                logger.debug("\nRunning RMS Fluctuation analysis on trajectory")
                 mdtraj_rmsf(
                     f"{MDcyclename}.dcd",
                     f"{MDcyclename}_lastframe.pdb",

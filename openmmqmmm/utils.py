@@ -92,14 +92,12 @@ def find_replace_string_in_file(file, findstring, replstring):
         f.write(filedata)
 
 
-# Give difference of two lists, sorted. List1: Bigger list
 def listdiff(list1, list2):
     diff = list(set(list1) - set(list2))
     diff.sort()
     return diff
 
 
-# option: Once=True means only added for first match
 def insert_line_into_file(file, string, addedstring, once=True):
     added = False
     with open(file) as ffr:
@@ -136,8 +134,6 @@ def create_conn_dict(list_of_lists):
     return index
 
 
-# Read list of integers from file. Output list of integers. Ignores blanklines, return chars, non-int characters
-# offset option: shifts integers by a value (e.g. 1 or -1)
 def read_intlist_from_file(filename, offset=0):
     intlist = []
     try:

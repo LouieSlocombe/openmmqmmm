@@ -241,7 +241,6 @@ class QMMMTheory:
             self._setup_mm_theory(fragment)
         log_time_since(module_init_time, "QM/MM object creation")
 
-    # From QM1:MM1 boundary dict, get MM1:MMx boundary dict (atoms connected to MM1)
     def get_mm_boundary(self, scale, tol):
         """Find the QM-MM covalent boundary and the MM atoms bonded across it."""
         timeA = time.time()
@@ -263,7 +262,6 @@ class QMMMTheory:
         self.MMboundary_indices = list(self.MMboundarydict.keys())
         self.MMboundary_counts = np.array([len(self.MMboundarydict[i]) for i in self.MMboundary_indices])
 
-        logger.info("")
         logger.info("MM boundary (MM1:MMx pairs): %s", self.MMboundarydict)
         log_time_since(timeA, "get_MMboundary")
 
@@ -406,7 +404,7 @@ class QMMMTheory:
         logger.info("TruncatedPC approximation!")
         if self.truncated_pc_calls == 1 or self.truncated_pc_calls % self.truncated_pc_recalc_iter == 0:
             self.truncated_pc_recalc_flag = True
-            logger.info(
+            logger.debug(
                 f"This is QM/MM run no. {self.truncated_pc_calls}.  Will calculate Full-Trunc correction in this step"
             )
             origincoords = openmmqmmm.coords.get_centroid(used_qmcoords)
@@ -469,7 +467,7 @@ class QMMMTheory:
 
     def set_numcores(self, numcores):
         """Set the core count used by both the QM and MM theories."""
-        logger.info(f"Setting new numcores {numcores}for QMtheory and MMtheory")
+        logger.debug(f"Setting new numcores {numcores}for QMtheory and MMtheory")
         self.qm_theory.set_numcores(numcores)
         self.mm_theory.set_numcores(numcores)
 
@@ -584,7 +582,7 @@ class QMMMTheory:
             logger.info("Linkatom_forceprojection_method: %s", self.linkatom_forceproj_method)
             self.get_mm_boundary(conn_scale, conn_tolerance)
         else:
-            logger.info("No covalent QM-MM boundary. Linkatoms and dipole_correction options set to False")
+            logger.debug("No covalent QM-MM boundary. Linkatoms and dipole_correction options set to False")
             self.linkatoms = False
             self.dipole_correction = False
 
@@ -592,11 +590,11 @@ class QMMMTheory:
             # Only applies when running OpenMM_Opt or OpenMM_MD, and to both embeddings.
             # NonbondedTheory never defines these terms in the first place.
             self.mm_theory.remove_constraints_for_atoms(self.qmatoms)
-            logger.info("Removing bonded terms for QM-region in MMtheory")
+            logger.debug("Removing bonded terms for QM-region in MMtheory")
             self.mm_theory.modify_bonded_forces(self.qmatoms)
             # Exceptions make OpenMM ignore QM-QM Coulomb and LJ. QM-MM elstat Coulomb
             # charges are zeroed separately below.
-            logger.info("Removing nonbonded terms for QM-region in MMtheory (QM-QM interactions)")
+            logger.debug("Removing nonbonded terms for QM-region in MMtheory (QM-QM interactions)")
             self.mm_theory.addexceptions(self.qmatoms)
 
         embedding = self.embedding.lower()
@@ -708,7 +706,7 @@ class QMMMTheory:
 
         # Only do once to avoid cost in each step
         if self.runcalls == 0:
-            logger.info("First QMMMTheory run. Running runprep")
+            logger.debug("First QMMMTheory run. Running runprep")
             # Creates self.current_qmelems, the linkatom bookkeeping
             # (self.linkatoms_dict, self.linkatom_indices, self.num_linkatoms,
             # self.linkatoms_coords) and, for elstat embedding, self.pointcharges
@@ -772,12 +770,12 @@ class QMMMTheory:
         if numcores == 1:
             numcores = self.numcores
 
-        logger.info(f"Running QM/MM object with {numcores} cores available")
+        logger.debug(f"Running QM/MM object with {numcores} cores available")
 
         log_time_since(module_init_time, "before-QMstep")
         CheckpointTime = time.time()
         if self.qm_theory_name in {"None", "ZeroTheory"}:
-            logger.info("No QMtheory. Skipping QM calc")
+            logger.debug("No QMtheory. Skipping QM calc")
             QMenergy = 0.0
             self.linkatoms = False
             QMgradient = np.zeros((len(used_qmcoords), 3))
@@ -881,12 +879,10 @@ class QMMMTheory:
 
         self.QM_MM_gradient -= self.subtractive_correction_G
 
-        logger.info("")
         logger.info("%s", "{:<20} {:>20.12f}".format("QM energy: ", self.QMenergy))
         logger.info("%s", "{:<20} {:>20.12f}".format("MM energy: ", self.MMenergy))
         logger.info("%s", "{:<20} {:>20.12f}".format("Subtractive correction energy: ", self.subtractive_correction_E))
         logger.info("%s", "{:<20} {:>20.12f}".format("QM/MM energy: ", self.QM_MM_energy))
-        logger.info("")
 
         if grad is True:
             if logger.isEnabledFor(logging.DEBUG):
@@ -930,7 +926,7 @@ class QMMMTheory:
             linkatom_ratio=self.linkatom_ratio,
         )
         logger.debug("linkatoms_dict: %s", self.linkatoms_dict)
-        logger.info("Adding linkatom positions to QM coords")
+        logger.debug("Adding linkatom positions to QM coords")
         self.linkatom_indices = [len(self.qmatoms) + i for i in range(len(self.linkatoms_dict))]
         self.num_linkatoms = len(self.linkatom_indices)
         linkatoms_coords = [self.linkatoms_dict[pair] for pair in sorted(self.linkatoms_dict.keys())]
@@ -951,7 +947,7 @@ class QMMMTheory:
             self.create_linkatoms(current_coords)
             self.current_qmelems = self.qmelems + [self.linkatom_type] * self.num_linkatoms
             logger.info("Number of MM atoms: %s", len(self.mmatoms))
-            logger.info(f"There are {self.num_linkatoms} linkatoms")
+            logger.debug(f"There are {self.num_linkatoms} linkatoms")
             if self.embedding.lower() == "elstat":
                 logger.info("Doing charge-shifting...")
 
@@ -991,7 +987,7 @@ class QMMMTheory:
         # We also have MMcharges that have been set to zero due to QM/MM
         # We do not delete charges but set to zero
         if len(self.qmatoms) == 0:
-            logger.info("No qmatoms list provided. Setting QMtheory to None")
+            logger.debug("No qmatoms list provided. Setting QMtheory to None")
             self.qm_theory_name = "None"
             self.QMenergy = 0.0
 
@@ -1132,11 +1128,11 @@ class QMMMTheory:
                 f"{len(self.pointchargecoords)} coordinates (chargeboundary_method={self.chargeboundary_method}, "
                 f"dipole_correction={self.dipole_correction})"
             )
-        logger.info(f"Running QM/MM object with {numcores} cores available")
+        logger.debug(f"Running QM/MM object with {numcores} cores available")
         log_time_since(module_init_time, "before-QMstep")
         CheckpointTime = time.time()
         if self.qm_theory_name in {"None", "ZeroTheory"}:
-            logger.info("No QMtheory. Skipping QM calc")
+            logger.debug("No QMtheory. Skipping QM calc")
             QMenergy = 0.0
             self.linkatoms = False
             # Per-atom zero gradients, matching the shapes a real QM code would return
@@ -1237,7 +1233,6 @@ class QMMMTheory:
 
         # Final QM/MM Energy. Possible correction for OpenMM external force term
         self.QM_MM_energy = self.QMenergy + self.MMenergy - self.extforce_energy - self.subtractive_correction_E
-        logger.info("")
         if self.embedding.lower() == "elstat":
             logger.info(
                 "Note: You are using electrostatic embedding. This means that the QM-energy is actually the polarized "
@@ -1254,7 +1249,6 @@ class QMMMTheory:
         logger.info("%s", "{:<20} {:>20.12f} {}".format("QM energy: ", self.QMenergy, energywarning))
         logger.info("%s", "{:<20} {:>20.12f}".format("MM energy: ", self.MMenergy))
         logger.info("%s", "{:<20} {:>20.12f} {}".format("QM/MM energy: ", self.QM_MM_energy, energywarning))
-        logger.info("")
 
         if grad is True:
             # If OpenMM external force method then QM/MM gradient is already complete
@@ -1405,13 +1399,13 @@ def define_active_region(
         )
 
     if fragment is None:
-        logger.info("No fragment provided. Creating fragment from PDBfile")
+        logger.debug("No fragment provided. Creating fragment from PDBfile")
         fragment = Fragment(pdbfile=pdbfile)
 
     logger.info("Radius: %s", radius)
     logger.info(f"Origin atom: {originatom} ({fragment.elems[originatom]})")
-    logger.info(f"Will find all atoms within {radius} Å from atom: {originatom} ({fragment.elems[originatom]})")
-    logger.info("Will select all whole residues within region and export list")
+    logger.debug(f"Will find all atoms within {radius} Å from atom: {originatom} ({fragment.elems[originatom]})")
+    logger.debug("Will select all whole residues within region and export list")
     if mmtheory is not None:
         if not mmtheory.resids:
             raise InputError("mmtheory.resids list is empty! Something wrong with OpenMMTheory setup. Exiting")
@@ -1450,7 +1444,6 @@ def define_active_region(
     return act_indices
 
 
-# This projects the linkatom force onto the respective QM atom and MM atom
 def _linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad):
     QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ANG_TO_BOHR
     MQdistance = openmmqmmm.coords.distance(Mcoord, Qcoord) * openmmqmmm.constants.ANG_TO_BOHR
@@ -1562,7 +1555,6 @@ def compute_decomposed_qm_mm_energy(fragment=None, theory=None) -> None:
     if E_QM_MM_tot - (E_QM_pure + E_MM_pure + E_coupling) >= 1e-6:
         raise InternalError("QM/MM energy decomposition inconsistency (pure + coupling terms)")
 
-    logger.info("")
     logger.info("%s", "=" * 70)
     logger.info("The standard QM/MM energy terms always printed:")
     logger.info("%s", "-" * 70)
@@ -1580,4 +1572,3 @@ def compute_decomposed_qm_mm_energy(fragment=None, theory=None) -> None:
     logger.info("E_QM-MM_vdw (the QM-MM vdw coupling energy) %s", E_QM_MM_vdw)
     logger.info("E_QM_MM_bond (the QM-MM covalent coupling energy) %s", E_QM_MM_bond)
     logger.info("%s", "=" * 70)
-    logger.info("")

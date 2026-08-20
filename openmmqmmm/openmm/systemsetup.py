@@ -113,7 +113,7 @@ def openmm_minimize(
     if openmmobject.autoconstraints is None:
         logger.warning("Autoconstraints have not been set in OpenMMTheory object definition.")
         logger.info("This means that by default no bonds are constrained in the optimization.")
-        logger.info("Will continue...")
+        logger.debug("Will continue...")
     if (openmmobject.rigidwater is True and len(openmmobject.user_frozen_atoms) != 0) or (
         openmmobject.autoconstraints is not None and len(openmmobject.user_frozen_atoms) != 0
     ):
@@ -183,15 +183,13 @@ def openmm_minimize(
 
             def print_forces(self):
                 logger.info(f"RMS force (w restraints): {self.rms_force} Eh/Bohr")
-                logger.info(f"Max force (w restraints): {self.max_force} Eh/Bohr")
-                logger.info("")
+                logger.info(f"Max force (w restraints): {self.max_force} Eh/Bohr\n")
 
         reporter = Reporter()
 
-    logger.info("Now adding coordinates")
+    logger.debug("Now adding coordinates")
     openmmobject.set_positions(fragment.coords, simulation)
 
-    logger.info("")
     state = simulation.context.getState(getEnergy=True, getForces=True, enforcePeriodicBox=enforce_periodic_box)
     potE_init = (
         state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system)
@@ -203,8 +201,7 @@ def openmm_minimize(
     rms_force = np.sqrt(sum(n * n for n in forces_init.flatten()) / len(forces_init.flatten()))
     logger.info(f"Initial RMS force: {rms_force} Eh/Bohr (w/o restraints)")
     logger.info(f"Initial Max force: {forces_init.max()} Eh/Bohr (w/o restraints)")
-    logger.info("")
-    logger.info("Starting minimization.")
+    logger.debug("\nStarting minimization.")
     if version.parse(openmm.__version__) >= version.parse("8.1") and use_reporter is True:
         logger.info("OpenMM versions >= 8.1. Will use a reporter to output progress")
         logger.info("OpenMM_Opt trajectory will be written to: OpenMMOpt_traj.xyz")
@@ -217,7 +214,6 @@ def openmm_minimize(
         simulation.minimizeEnergy(maxIterations=maxiter, tolerance=tolerance)
         logger.info("Minimization done.")
 
-    logger.info("")
     state = simulation.context.getState(
         getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=enforce_periodic_box
     )
@@ -249,8 +245,7 @@ def openmm_minimize(
         .getPositions(asNumpy=True)
         .value_in_unit(openmm.unit.angstrom)
     )
-    logger.info("")
-    logger.info("Updating coordinates in fragment.")
+    logger.debug("\nUpdating coordinates in fragment.")
     fragment.coords = newcoords
 
     logger.info("All Done!")
@@ -269,14 +264,14 @@ def _resolve_named_forcefield(forcefield, watermodel, waterxmlfile):
 
     if "CHARMM" in forcefield:
         if watermodel is None and waterxmlfile is None:
-            logger.info("No watermodel or waterxmlfile selected. Using recommended CHARMM-style TIP3P")
+            logger.debug("No watermodel or waterxmlfile selected. Using recommended CHARMM-style TIP3P")
             watermodel = "tip3p"
         # CHARMM36 ships its own TIP3P parameters
         if watermodel is not None and watermodel.lower() == "tip3p":
             waterxmlfile = "charmm36/water.xml"
     elif "Amber" in forcefield:
         if watermodel is None and waterxmlfile is None:
-            logger.info("No watermodel or waterxmlfile selected. Using TIP3P-FB, a reparameterized TIP3P")
+            logger.debug("No watermodel or waterxmlfile selected. Using TIP3P-FB, a reparameterized TIP3P")
             watermodel = "tip3pfb"
         model = watermodel.lower() if watermodel is not None else None
         if model in {"tip3pfb", "tip3p-fb"}:
@@ -305,7 +300,7 @@ def _build_forcefield_object(*, xmlfile, forcefield_object, extraxmlfile, waterx
         logger.info("Using extra XML file: %s", extraxmlfile)
         if os.path.isfile(extraxmlfile) is not True:
             raise InputError(f"File {extraxmlfile} can not be found. Exiting.")
-    logger.info("Now creating forcefield object")
+    logger.debug("Now creating forcefield object")
     files = [f for f in (xmlfile, extraxmlfile, waterxmlfile) if f is not None]
     return openmm_app.forcefield.ForceField(*files)
 
@@ -319,7 +314,7 @@ def _run_pdbfixer(pdbfile):
             "Problem importing pdbfixer. Install first via conda:\nconda install -c conda-forge pdbfixer"
         ) from None
 
-    logger.info("\nRunning PDBFixer")
+    logger.debug("\nRunning PDBFixer")
     fixer = pdbfixer.PDBFixer(pdbfile)
     fixer.findMissingResidues()
     logger.info("Found missing residues: %s", fixer.missingResidues)
@@ -414,7 +409,7 @@ def openmm_modeller(
     logger.info("PDBfile: %s", pdbfile)
     logger.info("pH: %s", ph)
     logger.info("User-provided dictionary of residue_variants: %s", residue_variants)
-    logger.info("\nNow checking PDB-file for alternate locations, i.e. multiple occupancies:\n")
+    logger.debug("\nNow checking PDB-file for alternate locations, i.e. multiple occupancies:\n")
 
     # Check PDB-file whether it contains alternate locations of residue atoms (multiple occupations)
     # Default behaviour:
@@ -443,7 +438,7 @@ def openmm_modeller(
         )
 
     pdb = openmm_app.PDBFile(pdbfile_for_modeller)
-    logger.info("\n\nNow loading Modeller.")
+    logger.debug("\n\nNow loading Modeller.")
     modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
     modeller_numatoms = modeller.topology.getNumAtoms()
     numresidues = modeller.topology.getNumResidues()
@@ -457,7 +452,7 @@ def openmm_modeller(
     logger.info(f"Modeller topology has {modeller_numatoms} atoms.")
     logger.info("Chains: %s", modeller_chains)
     for chain_x in modeller_chains:
-        logger.info(
+        logger.debug(
             f"This is chain {chain_x.index}, it has {len(chain_x._residues)} residues and they are: "
             f"{chain_x._residues}\n"
         )
@@ -483,22 +478,21 @@ def openmm_modeller(
         raise InputError("residue_states != numresidues. Something went wrong")
 
     # This is were missing residue/atom errors will come
-    logger.info("")
-    logger.info("Adding hydrogens for pH: %s", ph)
+    logger.debug("Adding hydrogens for pH: %s", ph)
     logger.warning("OpenMM Modeller will fail in this step if residue information is missing")
     logger.info("residue_states: %s", residue_states)
 
     residueTemplates = {}  # initisal
     if residuetemplate_choice is not None:
         logger.info("Found user-specified residuetemplate_choice")
-        logger.info("Will generate residueTemplates based on residuetemplate_choice: %s", residuetemplate_choice)
+        logger.debug("Will generate residueTemplates based on residuetemplate_choice: %s", residuetemplate_choice)
         logger.info("Note: residuetemplate_choice should be a dict like this: residuetemplate_choice={'FER':'FE2'}   ")
         residueTemplates = {}
         for resname, choice in residuetemplate_choice.items():
             residueTemplates = {res: choice for res in modeller.topology.residues() if res.name == resname}
     logger.info("residueTemplates: %s", residueTemplates)
 
-    logger.info("\nNow checking if we have problems with unmatched residues")
+    logger.debug("\nNow checking if we have problems with unmatched residues")
     # NOTE: We would get exception in addHydrogens anyway
     try:
         forcefield_obj.getUnmatchedResidues(modeller.topology, residueTemplates=residueTemplates)
@@ -514,14 +508,14 @@ def openmm_modeller(
             "be a dict like this: residuetemplate_choice={'FER':'FE2'}   \n   where FER is here the name of the "
             "residue (in PDB-file) and FE2 is the name of the desired template in the forcefield XML-file"
         ) from e
-    logger.info("No problem with unmatched residues found. Continuing")
+    logger.debug("No problem with unmatched residues found. Continuing")
 
     try:
         logger.info("residueTemplates: %s", residueTemplates)
         modeller.addHydrogens(forcefield_obj, pH=ph, variants=residue_states, residueTemplates=residueTemplates)
     except ValueError as errormessage:
         logger.error("\nOpenMM modeller.addHydrogens signalled a ValueError")
-        logger.info(
+        logger.debug(
             "This is a common error and suggests a problem in PDB-file or missing residue information in the "
             "forcefield."
         )
@@ -574,7 +568,7 @@ def openmm_modeller(
     logger.info("Extra forcefield XML file: %s", extraxmlfile)
 
     # Creating new OpenMM object from forcefield so that we can write out system XMLfile
-    logger.info("Creating OpenMMTheory object")
+    logger.debug("Creating OpenMMTheory object")
     openmmobject = OpenMMTheory(
         platform=platform,
         forcefield=forcefield_obj,
@@ -601,7 +595,7 @@ def openmm_modeller(
         residuetemplate_choice=residuetemplate_choice,
         periodic=periodic,
     )
-    logger.info("\nNow running single-point MM job to check for bad contacts")
+    logger.debug("\nNow running single-point MM job to check for bad contacts")
     # Setting sensible periodic cutoff to avoid error
     omm = OpenMMTheory(
         platform=platform,
@@ -685,7 +679,7 @@ def solvate_small_molecule(
 
     # Read XML-file and check for LJ treatment
     if skip_xmlfile is False:
-        logger.info("Checking xmlfile for LJ treatment")
+        logger.debug("Checking xmlfile for LJ treatment")
         if pygrep('coulomb14scale="0.83333', xmlfile):
             logger.info("Found Amber-style scaling parameter.")
             lj_treatment = "amber"
@@ -712,10 +706,10 @@ def solvate_small_molecule(
         raise InputError("Only TIP3P water supported for now")
 
     if skip_xmlfile is True:
-        logger.info("Creating forcefield using XML-files: %s", waterxmlfile)
+        logger.debug("Creating forcefield using XML-files: %s", waterxmlfile)
         forcefield = openmm_app.forcefield.ForceField(*[waterxmlfile])
     else:
-        logger.info("Creating forcefield using XML-files: %s %s", xmlfile, waterxmlfile)
+        logger.debug("Creating forcefield using XML-files: %s %s", xmlfile, waterxmlfile)
         forcefield = openmm_app.forcefield.ForceField(*[xmlfile, waterxmlfile])
 
     if skip_xmlfile is True:
@@ -730,11 +724,11 @@ def solvate_small_molecule(
         pdbfile = write_pdbfile(fragment, outputname="smallmol", dummyname="LIG", atomnames=atomnames)
 
     pdb = openmm_app.PDBFile(pdbfile)
-    logger.info("Loading Modeller.")
+    logger.debug("Loading Modeller.")
     modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
     logger.info(f"Modeller topology has {modeller.topology.getNumResidues()} residues.")
 
-    logger.info("Adding solvent, watermodel: %s", watermodel)
+    logger.debug("Adding solvent, watermodel: %s", watermodel)
 
     # NOTE: modeller.addsolvent will automatically add ions to neutralize any excess charge
     logger.warning("Modeller will automatically neutralize system with ions if system is charged")
@@ -752,22 +746,19 @@ def solvate_small_molecule(
     newfragment = Fragment(pdbfile="system_aftersolvent.pdb")
     newfragment.write_xyzfile(xyzfilename="system_aftersolvent.xyz")
     logger.info("Creating XYZ-file: system_aftersolvent.xyz")
-    logger.info("")
-    logger.info("\nTo use this system setup to define a future OpenMMTheory object you can  do:\n")
+    logger.info("\n\nTo use this system setup to define a future OpenMMTheory object you can  do:\n")
 
     logger.info(
         f'omm = OpenMMTheory(xmlfiles=["{xmlfile}", "{waterxmlfile}"], pdbfile="system_aftersolvent.pdb", '
         f"periodic=True, rigidwater=True)"
     )
-    logger.info("")
-    logger.info("")
 
     return forcefield, modeller.topology, newfragment
 
 
 def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
     if use_higher_occupancy is True:
-        logger.info("Will keep higher occupancy atoms for alternate locations")
+        logger.debug("Will keep higher occupancy atoms for alternate locations")
 
     pdb_atomlines = []
     bad_resids_dict = {}
@@ -887,7 +878,7 @@ def _parameterize_nonstandard_residues(
         ) from None
 
     base_forcefield = [x for x in (xmlfile, extraxmlfile, waterxmlfile) if x is not None]
-    logger.info("\nNow parameterizing non-standard residues with forcefill")
+    logger.debug("\nNow parameterizing non-standard residues with forcefill")
     logger.info("Base forcefield XML files defining the standard residues: %s", base_forcefield)
     logger.info("NOTE: non-standard residues must carry explicit hydrogens and CONECT records in the PDB-file")
     try:
@@ -964,7 +955,7 @@ def _add_solvent_or_membrane(
     if implicit is True:
         periodic = False
         logger.info("We are doing implicit solvation")
-        logger.info("Setting periodic to False")
+        logger.debug("Setting periodic to False")
         logger.info("Available implicit solvent models:")
         logger.info(
             "implicit/gbn2.xml, implicit/hct.xml, implicit/obc1.xml, implicit/obc2.xml, implicit/gbn.xml, "
@@ -972,16 +963,16 @@ def _add_solvent_or_membrane(
         )
         fragment = Fragment(pdbfile="system_afterH.pdb")
         if implicit_solvent_xmlfile is None:
-            logger.info("No XMLfile for implicit water selected (implicit_solvent_xmlfile keyword)")
+            logger.debug("No XMLfile for implicit water selected (implicit_solvent_xmlfile keyword)")
             logger.info("Choosing : implicit/obc2.xml")
             implicit_solvent_xmlfile = "implicit/obc2.xml"
             waterxmlfile = implicit_solvent_xmlfile
     elif membrane is True:
         logger.info("We are doing membrane-addition and solvation")
-        logger.info("Setting periodic to True")
+        logger.debug("Setting periodic to True")
         periodic = True
-        logger.info("Adding membrane-lipid type (membrane_lipidtype keyword): %s", membrane_lipidtype)
-        logger.info("Adding solvent, modeller_solvent_name: %s", modeller_solvent_name)
+        logger.debug("Adding membrane-lipid type (membrane_lipidtype keyword): %s", membrane_lipidtype)
+        logger.debug("Adding solvent, modeller_solvent_name: %s", modeller_solvent_name)
         logger.info("Actual solvent name: %s", watermodel)
         logger.info("Actual solvent file: %s", waterxmlfile)
         modeller.addMembrane(
@@ -1001,14 +992,14 @@ def _add_solvent_or_membrane(
         fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
     else:
         logger.info("We are doing explicit solvation")
-        logger.info("Setting periodic to True")
+        logger.debug("Setting periodic to True")
         periodic = True
-        logger.info("Adding solvent, modeller_solvent_name: %s", modeller_solvent_name)
+        logger.debug("Adding solvent, modeller_solvent_name: %s", modeller_solvent_name)
         logger.info("Actual solvent name: %s", watermodel)
         logger.info("Actual solvent file: %s", waterxmlfile)
         if solvent_boxdims is not None:
             logger.info(f"Solvent boxdimension provided: {solvent_boxdims} Å")
-            logger.info(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
+            logger.debug(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
             modeller.addSolvent(
                 forcefield_obj,
                 boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm_unit.angstrom,
@@ -1020,7 +1011,7 @@ def _add_solvent_or_membrane(
             )
         else:
             logger.info(f"Using solvent padding (solvent_padding=X keyword): {solvent_padding} Å")
-            logger.info(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
+            logger.debug(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
             logger.info("residueTemplates: %s", residue_templates)
             modeller.addSolvent(
                 forcefield_obj,
@@ -1072,8 +1063,6 @@ def _log_output_files_and_usage(
         f'omm = OpenMMTheory(topoforce=True, forcefield=forcefield_object, pdbfile="finalsystem.pdb", '
         f"topology=modeller.topology, periodic={periodic})",
     )
-    logger.info("")
-    logger.info("")
     if residuetemplate_choice is not None:
         logger.warning(
             "Warning: A residuetemplate_choice option was provided to OpenMM_Modeller. This means that you will have "

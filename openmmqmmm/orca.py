@@ -223,8 +223,7 @@ class ORCATheory:
         self.xdm_a1, self.xdm_a2, self.xdm_func = xdm_a1, xdm_a2, xdm_func
         self._append_optional_input_blocks(cpcm_radii=cpcm_radii)
 
-        logger.info("")
-        logger.info("Creating ORCA object")
+        logger.debug("\nCreating ORCA object")
         logger.info("ORCA dir: %s", self.orcadir)
         logger.info("%s", self.orcasimpleinput)
         logger.info("%s", self.orcablocks)
@@ -282,7 +281,7 @@ class ORCATheory:
         # "! OPT" across repeated opt() calls and leak into later run() single points.
         extraline = "\n".join(filter(None, [self.extraline.strip("\n"), "! OPT"]))
 
-        logger.info(f"Running ORCA with {numcores} cores available")
+        logger.debug(f"Running ORCA with {numcores} cores available")
         logger.info("Object label: %s", self.label)
 
         logger.info("Creating inputfile: %s", self.filename + ".inp")
@@ -386,7 +385,7 @@ class ORCATheory:
                 # Without these a later ground-state calculation can fall back to the excited solution
                 for keyword in ("nososcf", "nodamp", "nolshift"):
                     if keyword not in self.orcasimpleinput:
-                        logger.info("Adding %s to orcasimpleinput", keyword.upper())
+                        logger.debug("Adding %s to orcasimpleinput", keyword.upper())
                         self.orcasimpleinput = self.orcasimpleinput + f" {keyword}"
             else:
                 logger.info("deltaSCF_turn_off_automatically option is False. Will keep DeltaSCF settings")
@@ -394,9 +393,9 @@ class ORCATheory:
         # Now that we have possibly run a ORCA job with moreadfile we now turn the moreadfile option off
         #  as we probably want to use the orbitals we created
         if self.moreadfile is not None:
-            logger.info("First ORCATheory calculation finished.")
+            logger.debug("First ORCATheory calculation finished.")
             if not self.moreadfile_always:
-                logger.info("Now turning moreadfile option off.")
+                logger.debug("Now turning moreadfile option off.")
                 self.moreadfile = None
 
     def _save_output_copies(self, charge, mult):
@@ -428,13 +427,11 @@ class ORCATheory:
         if len(spinpops) == 0 and len(charges) != 0:
             logger.info("%s", "{:<2} {:<2}  {:>10}".format(" ", " ", "Charge"))
             for i, (el, ch) in enumerate(zip(qm_elems, charges, strict=False)):
-                logger.info(f"{i:<2} {el:<2}: {ch:>10.4f}")
-            logger.info("")
+                logger.info(f"{i:<2} {el:<2}: {ch:>10.4f}\n")
         elif len(spinpops) != 0 and len(charges) != 0:
             logger.info("%s", "{:<2} {:<2}  {:>10} {:>10}".format(" ", " ", "Charge", "Spinpop"))
             for i, (el, ch, sp) in enumerate(zip(qm_elems, charges, spinpops, strict=False)):
-                logger.info(f"{i:<2} {el:<2}: {ch:>10.4f} {sp:>10.4f}")
-            logger.info("")
+                logger.info(f"{i:<2} {el:<2}: {ch:>10.4f} {sp:>10.4f}\n")
         else:
             logger.warning("No charges or spinpops were found in ORCA output. Continuing")
 
@@ -559,7 +556,7 @@ class ORCATheory:
 
         self._append_basis_blocks()
 
-        logger.info(f"Running ORCA with {numcores} cores available")
+        logger.debug(f"Running ORCA with {numcores} cores available")
 
         self._prepare_orbital_guess()
 
@@ -762,7 +759,7 @@ end"""
             logger.info(f"File does not exist in current directory: {os.getcwd()}")
             if os.path.isabs(self.moreadfile) is True:
                 raise FileFormatError("Error: Absolute path provided but file does not exists. Exiting")
-            logger.info("Checking if file exists in parentdir instead:")
+            logger.debug("Checking if file exists in parentdir instead:")
             if os.path.isfile(f"../{self.moreadfile}") is True:
                 logger.info("Yes. Copying file to current dir")
                 shutil.copy(f"../{self.moreadfile}", f"./{self.moreadfile}")
@@ -898,7 +895,6 @@ def _run_orca_sp_parallel(
 
             logger.error("Problem running ORCA. Something went wrong, most likely ORCA ran into an error.")
             logger.error(f"Please check the ORCA outputfile: {basename + '.out'} for error messages")
-            logger.info("")
             if check_for_errors:
                 grab_orca_errors(basename + ".out")
             if check_for_warnings:
@@ -1242,7 +1238,6 @@ def write_orca_hessfile(hessian, coords, elems, masses, outputname):
         # ORCA terminates its own .hess files this way; tools that read the file
         # (including grab_hessian) use the section markers to bound each block.
         orcahessfile.write("$end\n")
-    logger.info("")
     logger.info("ORCA-style Hessian written to: %s", outputname)
 
 

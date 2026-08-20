@@ -106,7 +106,6 @@ def job_parallel(
     optimizer=None,
 ) -> "Results":
     """Carry out multiple single-point or optimization calculations in parallel."""
-    logger.info("")
     logger.info(sub_header("Job_parallel function"))
 
     logger.info("copytheory: %s", copytheory)
@@ -115,7 +114,7 @@ def job_parallel(
         logger.info("Job_parallel: Opt is True. This is an Opt_parallel job")
         if optimizer is None:
             logger.info("Job_parallel needs optimizer object which was not provided.")
-            logger.info("Creating one")
+            logger.debug("Creating one")
             from openmmqmmm.geometric import GeometricOptimizer
 
             # No options easily provided. Unclear if this is a good idea
@@ -139,7 +138,7 @@ def job_parallel(
         logger.info("Specifically there are issues with platform='CPU'.")
         logger.info("Try platform='Reference' instead or GPU options OpenCL or CUDA if possible")
     logger.info("Number of theories: %s", len(theories))
-    logger.info("Running single-point calculations in parallel")
+    logger.debug("Running single-point calculations in parallel")
     logger.info("Mofilesdir: %s", mofilesdir)
     logger.warning("Output from Job_parallel will be erratic due to simultaneous output from multiple workers")
 
@@ -186,9 +185,8 @@ def job_parallel(
 
     if len(theories) == 1:
         theory = theories[0]
-        logger.info("Case: Multiple fragments but one theory")
-        logger.info("")
-        logger.info("Launching pool.apply_async:")
+        logger.debug("Case: Multiple fragments but one theory")
+        logger.debug("\nLaunching pool.apply_async:")
         logger.info("Job_parallel numcores set to: %s", numcores)
         logger.info(f"openmmqmmm will run {numcores} jobs simultaneously")
 
@@ -200,18 +198,18 @@ def job_parallel(
                 logger.info("fragment: %s", fragment)
                 submit(theory=theory, fragment=fragment, label=fragment.label)
         elif len(fragmentfiles) > 0:
-            logger.info("Launching multiprocessing and passing list of fragment files")
+            logger.debug("Launching multiprocessing and passing list of fragment files")
             for fragmentfile in fragmentfiles:
                 logger.info("fragmentfile: %s", fragmentfile)
                 submit(theory=theory, fragmentfile=fragmentfile, label=fragmentfile)
     elif len(fragments) == 1:
-        logger.info("Case: Multiple theories but one fragment")
+        logger.debug("Case: Multiple theories but one fragment")
         fragment = fragments[0]
         for theory in theories:
             logger.info("theory: %s", theory)
             submit(theory=theory, fragment=fragment, label=fragment.label)
     elif len(fragmentfiles) == 1:
-        logger.info("Case: Multiple theories but one fragmentfile")
+        logger.debug("Case: Multiple theories but one fragmentfile")
         fragmentfile = fragmentfiles[0]
         for theory in theories:
             logger.info("theory: %s", theory)
@@ -362,7 +360,7 @@ def worker_par(
                 f"but the label was {label!r} (type {type(label).__name__})"
             )
         theory.moreadfile = moreadfile_path + ".gbw"
-        logger.info("Setting moreadfile to: %s", theory.moreadfile)
+        logger.debug("Setting moreadfile to: %s", theory.moreadfile)
 
     worker_dirname = "Pooljob_" + labelstring
     try:
