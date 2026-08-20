@@ -77,7 +77,7 @@ def test_opt_writes_valid_input_and_leaves_theory_unchanged(tmp_path, monkeypatc
     def fail_at_launch(*args, **kwargs):
         raise OrcaLaunchedError
 
-    monkeypatch.setattr("openmmqmmm.orca.run_orca_sp_parallel", fail_at_launch)
+    monkeypatch.setattr("openmmqmmm.orca._run_orca_sp_parallel", fail_at_launch)
 
     theory = ORCATheory(orcasimpleinput="! HF def2-SVP", orcablocks="%scf maxiter 200 end")
     fragment = Fragment(coordsstring="H 0.0 0.0 0.0\nF 0.0 0.0 0.95\n", charge=0, mult=1)
@@ -91,3 +91,34 @@ def test_opt_writes_valid_input_and_leaves_theory_unchanged(tmp_path, monkeypatc
         directives = _directive_lines(tmp_path / "orca.inp")
         assert directives.count("! OPT") == 1, f"Expected exactly one OPT directive, got {directives}"
         assert "%scf maxiter 200 end" in directives
+
+
+def test_generated_otool_script_only_imports_names_that_exist(tmp_path):
+    """The otool_external script is written as a string, so no tool can see its imports."""
+    import ast
+    import importlib
+
+    from openmmqmmm.orca import write_otool_script
+
+    write_otool_script(basename="mol", theoryfile="theory.pickle", scriptlocation=str(tmp_path), charge=0, mult=1)
+    script = (tmp_path / "otool_external").read_text()
+
+    imported = [
+        (node.module, alias.name)
+        for node in ast.walk(ast.parse(script))
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("openmmqmmm")
+        for alias in node.names
+    ]
+    assert imported, "the generated script no longer imports from openmmqmmm"
+    for module_name, name in imported:
+        module = importlib.import_module(module_name)
+        assert hasattr(module, name), f"otool_external imports {module_name}.{name}, which does not exist"
+
+    # Every name it imports must also be called somewhere in the script it generates
+    called = {
+        node.func.id
+        for node in ast.walk(ast.parse(script))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    for _, name in imported:
+        assert name in called, f"otool_external imports {name} but never calls it"

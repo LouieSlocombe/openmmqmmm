@@ -14,7 +14,6 @@ import openmm.unit
 import openmmqmmm
 import openmmqmmm.constants
 from openmmqmmm.coords import (
-    change_origin_to_centroid,
     check_charge_mult,
     check_gradient_for_bad_atoms,
     get_centroid,
@@ -34,7 +33,6 @@ from openmmqmmm.openmm.systemsetup import openmm_minimize
 from openmmqmmm.openmm.theory import NUCLEAR_QUANTUM_INTEGRATORS, ForceReporter, OpenMMTheory
 from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
-    create_conn_dict,
     log_time_since,
     main_header,
     small_header,
@@ -270,49 +268,14 @@ class MolecularDynamicsEngine:
 
         self.theory_runtype = None
 
-        self.openmmobject = None
-        self.QM_MM_object = None
-        self.rpmd_force_provider = None
-        self.rpmd_python_force = None
-        self.rpmd_external_force_group = None
-        logger.info("Analyzing theory input to OpenMM_MDclass")
-        if isinstance(theory, OpenMMTheory):
-            logger.info("This is an OpenMMTheory object")
-            self.openmmobject = theory
-            self.QM_MM_object = None
-            if self.dummy_mm is True:
-                self.theory_runtype = "dummy_MM"
-            else:
-                self.theory_runtype = "MM"
-        elif isinstance(theory, openmmqmmm.QMMMTheory):
-            logger.info("This is an QMMMTheory object")
-            self.QM_MM_object = theory
-            self.openmmobject = theory.mm_theory
-            self.theory_runtype = "QMMM"
-
-            # Making sure QM/MM object will exit before calculating MM part
-            self.QM_MM_object.exit_after_customexternalforce_update = True
-            logger.info("Turning on externalforce option.")
-            self.QM_MM_object.openmm_externalforce = True
-        else:
-            logger.info("Unrecognized theory.")
-            logger.info("Will assume to be QM theory and will continue")
-            logger.info("QM-program forces will be added as a custom external force to OpenMM")
-            logger.info("Now creating OpenMMTheory object")
-            logger.info("OpenMM platform: %s", platform)
-            # Creating dummy OpenMMTheory (basic topology, particle masses, no forces except CMMRemoval)
-            self.openmmobject = OpenMMTheory(
-                fragment=fragment,
-                dummysystem=True,
-                platform=platform,
-                hydrogenmass=hydrogenmass,
-                constraints=constraints,
-                periodic=force_periodic,
-                periodic_cell_dimensions=periodic_cell_dimensions,
-            )  # NOTE: might add more options here
-            self.QM_MM_object = None
-            self.qmtheory = theory
-            self.theory_runtype = "QM"
+        self._resolve_theory(
+            theory,
+            platform=platform,
+            hydrogenmass=hydrogenmass,
+            constraints=constraints,
+            force_periodic=force_periodic,
+            periodic_cell_dimensions=periodic_cell_dimensions,
+        )
 
         if is_rpmd and self.theory_runtype in {"QMMM", "QM"}:
             if special_wrapping or special_wrapping_updatepos:
@@ -326,98 +289,12 @@ class MolecularDynamicsEngine:
         if integrator in NUCLEAR_QUANTUM_INTEGRATORS:
             self.openmmobject._disable_hydrogen_mass_repartitioning()
 
-        if rpmd_num_copies is not None:
-            self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)
-        self.rpmd_num_copies = self.openmmobject.rpmd_num_copies
+        self._configure_rpmd_copies(
+            is_rpmd=is_rpmd, rpmd_num_copies=rpmd_num_copies, rpmd_qm_num_copies=rpmd_qm_num_copies
+        )
 
-        if rpmd_qm_num_copies is not None and (not is_rpmd or self.theory_runtype not in {"QMMM", "QM"}):
-            raise InputError("rpmd_qm_num_copies is only valid for QM/MM or external-QM RPMD dynamics.")
-        if rpmd_qm_num_copies is None:
-            self.rpmd_qm_num_copies = self.rpmd_num_copies
-        elif (
-            isinstance(rpmd_qm_num_copies, bool)
-            or not isinstance(rpmd_qm_num_copies, Integral)
-            or not 1 <= rpmd_qm_num_copies <= self.rpmd_num_copies
-        ):
-            raise InputError(
-                f"rpmd_qm_num_copies must be a positive integer no larger than rpmd_num_copies "
-                f"({self.rpmd_num_copies})."
-            )
-        else:
-            self.rpmd_qm_num_copies = int(rpmd_qm_num_copies)
-
-        if self.theory_runtype in {"QMMM", "QM"}:
-            if is_rpmd:
-                if self.theory_runtype == "QMMM":
-                    (
-                        self.rpmd_force_provider,
-                        self.rpmd_python_force,
-                        self.rpmd_external_force_group,
-                    ) = attach_qmmm_rpmd_force(
-                        theory=self.QM_MM_object,
-                        elems=self.fragment.elems,
-                        charge=self.charge,
-                        mult=self.mult,
-                        num_beads=self.rpmd_num_copies,
-                        periodic=self.openmmobject.periodic,
-                    )
-                else:
-                    self.rpmd_force_provider = RPMDExternalQMForceProvider(
-                        self.qmtheory,
-                        self.fragment.elems,
-                        self.charge,
-                        self.mult,
-                        periodic=self.openmmobject.periodic,
-                        cache_size=2 * self.rpmd_num_copies + 4,
-                    )
-                    self.rpmd_python_force, self.rpmd_external_force_group = add_rpmd_python_force(
-                        self.openmmobject.system,
-                        self.rpmd_force_provider,
-                        periodic=self.openmmobject.periodic,
-                    )
-                if self.rpmd_qm_num_copies < self.rpmd_num_copies:
-                    contractions = dict(getattr(self.openmmobject, "rpmd_contractions", {}))
-                    contractions[self.rpmd_external_force_group] = self.rpmd_qm_num_copies
-                    self.openmmobject.set_rpmd_contractions(contractions)
-                    logger.info(
-                        "QM force contracted from %s to %s RPMD copies",
-                        self.rpmd_num_copies,
-                        self.rpmd_qm_num_copies,
-                    )
-            else:
-                logger.info("Creating the classical-MD CustomExternalForce for external QM gradients")
-                self.openmm_externalforceobject = self.openmmobject.add_custom_external_force()
-
-        if restraints is not None:
-            logger.info("Restraints defined. Will add to OpenMMTheory object")
-            logger.info("All restraints: %s", restraints)
-            for restraint in restraints:
-                logger.info("Restraint: %s", restraint)
-                if len(restraint) == 4:
-                    logger.info("Bond restraint assumed")
-                    logger.info(
-                        f"Atoms: {restraint[0]} {restraint[1]} Value: {restraint[2]} Force-constant: {restraint[3]} "
-                        f"kcal/mol/Angstrom^2"
-                    )
-                    self.openmmobject.add_custom_bond_force(restraint[0], restraint[1], restraint[2], restraint[3])
-                elif len(restraint) == 5:
-                    logger.info("Angle restraint assumed")
-                    logger.info(
-                        f"Atoms: {restraint[0]} {restraint[1]} {restraint[2]} Value: {restraint[3]} Force-constant: "
-                        f"{restraint[4]} kcal/mol/radian^2"
-                    )
-                    self.openmmobject.add_custom_angle_force(
-                        restraint[0], restraint[1], restraint[2], restraint[3], restraint[4]
-                    )
-                elif len(restraint) == 6:
-                    logger.info("Torsion restraint assumed")
-                    logger.info(
-                        f"Atoms: {restraint[0]} {restraint[1]} {restraint[2]} {restraint[3]} Value: {restraint[4]} "
-                        f"Force-constant: {restraint[5]} kcal/mol/radian^2"
-                    )
-                    self.openmmobject.add_custom_torsion_force(
-                        restraint[0], restraint[1], restraint[2], restraint[3], restraint[4], restraint[5]
-                    )
+        self._attach_qm_force(is_rpmd)
+        self._add_restraints(restraints)
 
         self.chkfile = chkfile
         self.statefile = statefile
@@ -450,35 +327,11 @@ class MolecularDynamicsEngine:
         )
         self.wrapping_atoms = wrapping_atoms
 
-        logger.info(small_header("MD system parameters"))
-        logger.info(f"Temperature: {self.temperature} K")
-        logger.info("OpenMM autoconstraints: %s", self.openmmobject.autoconstraints)
-        logger.info("OpenMM hydrogenmass: %s", self.openmmobject.hydrogenmass)
-        logger.info("OpenMM rigidwater constraints: %s", self.openmmobject.rigidwater)
-        logger.info("User Constraints: %s", self.openmmobject.user_constraints)
-        logger.info("User Restraints: %s", self.openmmobject.user_restraints)
-        logger.info("Number of atoms: %s", self.fragment.numatoms)
-        logger.info("Number of frozen atoms: %s", len(self.openmmobject.user_frozen_atoms))
-        if len(self.openmmobject.user_frozen_atoms) < 50:
-            logger.info("Frozen atoms %s", self.openmmobject.user_frozen_atoms)
-        logger.info("Integrator: %s", self.integrator)
-        if self.integrator == "RPMDIntegrator":
-            logger.info("RPMD number of copies (beads): %s", self.rpmd_num_copies)
-            if self.theory_runtype in {"QMMM", "QM"}:
-                logger.info("RPMD copies used for the QM force: %s", self.rpmd_qm_num_copies)
-        logger.info(f"Timestep: {self.timestep} ps")
-        logger.info("Anderon Thermostat: %s", anderson_thermostat)
-        logger.info(f"coupling_frequency: {self.coupling_frequency} ps^-1 (for Nose-Hoover and Langevin integrators)")
-        logger.info("Barostat: %s", barostat)
-
-        logger.info("")
-        logger.info("Will write trajectory in format: %s", self.trajectory_file_option)
-        logger.info("Trajectory write frequency: %s", self.traj_frequency)
-        logger.info("enforcePeriodicBox: %s", self.enforce_periodic_box)
-        logger.info("special_wrapping: %s", self.special_wrapping)
-        logger.info("special_wrapping_updatepos: %s", special_wrapping_updatepos)
-        logger.info("wrapping_atoms: %s", self.wrapping_atoms)
-        logger.info("")
+        self._log_system_parameters(
+            anderson_thermostat=anderson_thermostat,
+            barostat=barostat,
+            special_wrapping_updatepos=special_wrapping_updatepos,
+        )
 
         if self.openmmobject.autoconstraints is None:
             logger.warning("""
@@ -492,7 +345,7 @@ class MolecularDynamicsEngine:
                          See : https://github.com/openmm/openmm/pull/2754 and https://github.com/openmm/openmm/issues/2520
                          for recommended simulation settings in OpenMM.
                          """)
-            logger.info("Will continue...")
+            logger.debug("Will continue...")
         if (self.openmmobject.rigidwater is True and len(self.openmmobject.user_frozen_atoms) != 0) or (
             self.openmmobject.autoconstraints is not None and len(self.openmmobject.user_frozen_atoms) != 0
         ):
@@ -501,130 +354,22 @@ class MolecularDynamicsEngine:
                 "the OpenMM object (either rigidwater=True or autoconstraints is not None)"
                 "\nOpenMM will crash if constraints and frozen atoms involve the same atoms"
             )
-        logger.info("")
 
-        logger.info("Defining atom positions from fragment")
-        # Note: using self.positions as we may add dummy atoms (e.g. dummyatomrestraint below)
-        self.positions = self.fragment.coords
+        self._set_initial_positions(dummyatomrestraint=dummyatomrestraint, solute_indices=solute_indices)
 
-        # Dummy-atom restraint to deal with NPT simulations that contain constraints/restraints/frozen_atoms
-        self.dummyatomrestraint = dummyatomrestraint
-        if self.dummyatomrestraint is True:
-            if solute_indices is None:
-                raise InputError("Dummyatomrestraint requires solute_indices to be set")
-            logger.warning(
-                "Warning: Using dummyatomrestraints. This means that we will add a dummy atom to topology and OpenMM "
-                "coordinates"
-            )
-            logger.info("We do not add the dummy atom to the fragment")
-            logger.info(
-                "Affects visualization of trajectory (make sure to use PDB-file that contains the dummy-atom, printed "
-                "in the end)"
-            )
-            solute_coords = np.take(self.fragment.coords, solute_indices, axis=0)
-            dummypos = get_centroid(solute_coords)
-            logger.info("Dummy atom will be added to position: %s", dummypos)
-            self.positions = np.append(self.positions, [dummypos], axis=0)
-            logger.info("len self.pos %s", len(self.positions))
-            logger.info("len self.fragment.coords %s", len(self.fragment.coords))
-
-            self.openmmobject.add_dummy_atom_to_restrain_solute(atomindices=solute_indices)
-
-        # TRANSLATE solute: #https://github.com/openmm/openmm/issues/1854
+        # https://github.com/openmm/openmm/issues/1854 -- the translation was computed and then
+        # discarded, so the option has never done anything. Fail rather than silently ignore it.
         if center_on_atoms is not None:
-            solute_coords = np.take(self.fragment.coords, solute_indices, axis=0)
-            changed_origin_coords = change_origin_to_centroid(self.fragment.coords, subsetcoords=solute_coords)
-            logger.info("changed_origin_coords %s", changed_origin_coords)
+            raise InputError("center_on_atoms is accepted but not implemented. Remove it from the call.")
 
-        forceclassnames = [i.__class__.__name__ for i in self.openmmobject.system.getForces()]
-        if barostat is not None:
-            logger.info("Checking for barostat")
-            if "MonteCarloBarostat" not in forceclassnames:
-                montecarlobarostat = openmm.MonteCarloBarostat(
-                    self.pressure * openmm.unit.bar, self.temperature * openmm.unit.kelvin
-                )
-                # Setting barostat frequency to chosen value or default (25)
-                montecarlobarostat.setFrequency(self.barostat_frequency)
-                self.openmmobject.system.addForce(montecarlobarostat)
-                logger.info("Barostat added")
-            else:
-                logger.info("Barostat already present. Skipping.")
-
-            self.integrator = "LangevinMiddleIntegrator"
-            logger.info("Barostat requires using integrator: %s", self.integrator)
-            self.openmmobject.set_simulation_parameters(
-                timestep=self.timestep,
-                temperature=self.temperature,
-                integrator=self.integrator,
-                coupling_frequency=self.coupling_frequency,
-            )
-        elif anderson_thermostat is True:
-            logger.info("Anderson thermostat is on.")
-            if "AndersenThermostat" not in forceclassnames:
-                self.openmmobject.system.addForce(
-                    openmm.AndersenThermostat(self.temperature * openmm.unit.kelvin, 1 / openmm.unit.picosecond)
-                )
-            self.integrator = "VerletIntegrator"
-            logger.info("Now using integrator: %s", integrator)
-            self.openmmobject.set_simulation_parameters(
-                timestep=self.timestep,
-                temperature=self.temperature,
-                integrator=self.integrator,
-                coupling_frequency=self.coupling_frequency,
-            )
-        else:
-            # Deleting barostat and Andersen thermostat if present from previous sims
-            for i, forcename in enumerate(forceclassnames):
-                if forcename in {"MonteCarloBarostat", "AndersenThermostat"}:
-                    logger.info("Removing old force: %s", forcename)
-                    self.openmmobject.system.removeForce(i)
-
-            # Integrators: LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VerletIntegrator,
-            # BrownianIntegrator, VariableLangevinIntegrator, VariableVerletIntegrator
-            self.openmmobject.set_simulation_parameters(
-                timestep=self.timestep,
-                temperature=self.temperature,
-                integrator=self.integrator,
-                coupling_frequency=self.coupling_frequency,
-            )
-
-        if barostat is not None:
-            self.volume = self.density = True
-        else:
-            self.volume = self.density = False
-
-        self.datafilename = datafilename
-        if self.datafilename is not None:
-            # Added because of problems (19 May 2023 by CVS) in read NPT data file (OpenMM box equilibration) as header
-            # is printed each time
-            # Now removing file before starting. Possibly better to put this elsewhere as we may sometimes
-            # want to keep running simulation while appending to datafile
-            with contextlib.suppress(FileNotFoundError):
-                os.remove(self.datafilename)
-
-            # Now doing open file object in append mode instead of just filename.
-            # Just filename does not play nice when running simulation step by step
-            # Future OpenMM update may do this automatically?
-            self.dataoutputoption = open(self.datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
-            logger.info("Will write data to file: %s", self.datafilename)
-        else:
-            self.dataoutputoption = stdout
-
-        # Adding (flat-bottom) center force acting on solute
+        self._configure_integrator_and_barostat(barostat=barostat, anderson_thermostat=anderson_thermostat)
+        self._open_data_output(datafilename)
         if add_centerforce is True:
-            logger.info("Centerforce option active")
-            if centerforce_atoms is None:
-                logger.info("centerforce_atoms unset. Trying to use QM atoms: %s", self.QM_MM_object.qmatoms)
-                centerforce_atoms = self.QM_MM_object.qmatoms
-            if centerforce_center is None:
-                logger.info("No center coordinates set. Using geometric center of whole fragment.")
-                centerforce_center = self.fragment.get_coordinate_center()
-                logger.info("centerforce_center: %s", centerforce_center)
-            self.openmmobject.add_centerforce(
-                center_coords=centerforce_center,
-                atomindices=centerforce_atoms,
-                forceconstant=centerforce_constant,
-                distance=centerforce_distance,
+            self._add_centerforce(
+                centerforce_atoms=centerforce_atoms,
+                centerforce_center=centerforce_center,
+                centerforce_constant=centerforce_constant,
+                centerforce_distance=centerforce_distance,
             )
 
         logger.info("enforcePeriodicBox: %s", self.enforce_periodic_box)
@@ -646,7 +391,7 @@ class MolecularDynamicsEngine:
         self._rpmd_reporters = []
         old_reporters.clear()
 
-        logger.info("Creating RPMD-aware state and trajectory reporters for copy %s", self.rpmd_report_copy)
+        logger.debug("Creating RPMD-aware state and trajectory reporters for copy %s", self.rpmd_report_copy)
         self._rpmd_reporters.append(
             _RPMDStateDataReporter(stdout, self.rpmd_report_copy, self.openmmobject.dof, separator=",")
         )
@@ -810,10 +555,10 @@ class MolecularDynamicsEngine:
             self._set_rpmd_reporters(simulation, restart=restart)
             return
 
-        logger.info("Creating CheckpointReporter that will write a restartable checkpointfile every X steps")
+        logger.debug("Creating CheckpointReporter that will write a restartable checkpointfile every X steps")
         checkpointfilename = "OpenMM_MD.chk"
         simulation.reporters.append(openmm.app.CheckpointReporter(checkpointfilename, self.traj_frequency * 1))
-        logger.info("Creating StateDataReporter that will write to stdout")
+        logger.debug("Creating StateDataReporter that will write to stdout")
         statedatareporter_stdout = openmm.app.StateDataReporter(
             stdout,
             self.traj_frequency,
@@ -917,6 +662,422 @@ class MolecularDynamicsEngine:
         self.simulation.saveState("OpenMM_MD_state.xml")
         self.simulation.saveCheckpoint("OpenMM_MD_checkpoint.chk")
 
+    def _resolve_theory(self, theory, *, platform, hydrogenmass, constraints, force_periodic, periodic_cell_dimensions):
+        """Classify the theory object and bind the OpenMM system this engine will drive."""
+        self.openmmobject = None
+        self.QM_MM_object = None
+        self.rpmd_force_provider = None
+        self.rpmd_python_force = None
+        self.rpmd_external_force_group = None
+
+        logger.debug("Analyzing theory input to OpenMM_MDclass")
+        if isinstance(theory, OpenMMTheory):
+            logger.debug("This is an OpenMMTheory object")
+            self.openmmobject = theory
+            self.theory_runtype = "dummy_MM" if self.dummy_mm is True else "MM"
+            return
+
+        if isinstance(theory, openmmqmmm.QMMMTheory):
+            logger.debug("This is an QMMMTheory object")
+            self.QM_MM_object = theory
+            self.openmmobject = theory.mm_theory
+            self.theory_runtype = "QMMM"
+            # Making sure QM/MM object will exit before calculating MM part
+            self.QM_MM_object.exit_after_customexternalforce_update = True
+            logger.debug("Turning on externalforce option.")
+            self.QM_MM_object.openmm_externalforce = True
+            return
+
+        logger.info(
+            "Unrecognized theory. Will assume to be QM theory and will continue.\n"
+            "QM-program forces will be added as a custom external force to OpenMM.\n"
+            "Now creating OpenMMTheory object on platform: %s",
+            platform,
+        )
+        # Creating dummy OpenMMTheory (basic topology, particle masses, no forces except CMMRemoval)
+        self.openmmobject = OpenMMTheory(
+            fragment=self.fragment,
+            dummysystem=True,
+            platform=platform,
+            hydrogenmass=hydrogenmass,
+            constraints=constraints,
+            periodic=force_periodic,
+            periodic_cell_dimensions=periodic_cell_dimensions,
+        )
+        self.qmtheory = theory
+        self.theory_runtype = "QM"
+
+    def _configure_rpmd_copies(self, *, is_rpmd, rpmd_num_copies, rpmd_qm_num_copies):
+        """Resolve the bead count and how many beads the QM force is evaluated on."""
+        if rpmd_num_copies is not None:
+            self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)
+        self.rpmd_num_copies = self.openmmobject.rpmd_num_copies
+
+        if rpmd_qm_num_copies is not None and (not is_rpmd or self.theory_runtype not in {"QMMM", "QM"}):
+            raise InputError("rpmd_qm_num_copies is only valid for QM/MM or external-QM RPMD dynamics.")
+        if rpmd_qm_num_copies is None:
+            self.rpmd_qm_num_copies = self.rpmd_num_copies
+            return
+        if (
+            isinstance(rpmd_qm_num_copies, bool)
+            or not isinstance(rpmd_qm_num_copies, Integral)
+            or not 1 <= rpmd_qm_num_copies <= self.rpmd_num_copies
+        ):
+            raise InputError(
+                f"rpmd_qm_num_copies must be a positive integer no larger than rpmd_num_copies "
+                f"({self.rpmd_num_copies})."
+            )
+        self.rpmd_qm_num_copies = int(rpmd_qm_num_copies)
+
+    def _attach_qm_force(self, is_rpmd):
+        """Give OpenMM access to the QM gradient, bead-resolved for RPMD and frozen otherwise."""
+        if self.theory_runtype not in {"QMMM", "QM"}:
+            return
+        if not is_rpmd:
+            logger.info("Creating the classical-MD CustomExternalForce for external QM gradients")
+            self.openmm_externalforceobject = self.openmmobject.add_custom_external_force()
+            return
+
+        if self.theory_runtype == "QMMM":
+            (
+                self.rpmd_force_provider,
+                self.rpmd_python_force,
+                self.rpmd_external_force_group,
+            ) = attach_qmmm_rpmd_force(
+                theory=self.QM_MM_object,
+                elems=self.fragment.elems,
+                charge=self.charge,
+                mult=self.mult,
+                num_beads=self.rpmd_num_copies,
+                periodic=self.openmmobject.periodic,
+            )
+        else:
+            self.rpmd_force_provider = RPMDExternalQMForceProvider(
+                self.qmtheory,
+                self.fragment.elems,
+                self.charge,
+                self.mult,
+                periodic=self.openmmobject.periodic,
+                cache_size=2 * self.rpmd_num_copies + 4,
+            )
+            self.rpmd_python_force, self.rpmd_external_force_group = add_rpmd_python_force(
+                self.openmmobject.system,
+                self.rpmd_force_provider,
+                periodic=self.openmmobject.periodic,
+            )
+
+        if self.rpmd_qm_num_copies < self.rpmd_num_copies:
+            contractions = dict(getattr(self.openmmobject, "rpmd_contractions", {}))
+            contractions[self.rpmd_external_force_group] = self.rpmd_qm_num_copies
+            self.openmmobject.set_rpmd_contractions(contractions)
+            logger.info("QM force contracted from %s to %s RPMD copies", self.rpmd_num_copies, self.rpmd_qm_num_copies)
+
+    def _add_restraints(self, restraints):
+        """Add the user's bond, angle and torsion restraints to the OpenMM system."""
+        if restraints is None:
+            return
+        logger.info("Restraints defined. Will add to OpenMMTheory object")
+        adders = {
+            4: (self.openmmobject.add_custom_bond_force, "Bond", "kcal/mol/Angstrom^2"),
+            5: (self.openmmobject.add_custom_angle_force, "Angle", "kcal/mol/radian^2"),
+            6: (self.openmmobject.add_custom_torsion_force, "Torsion", "kcal/mol/radian^2"),
+        }
+        for restraint in restraints:
+            entry = adders.get(len(restraint))
+            if entry is None:
+                raise InputError(
+                    f"Restraint {restraint} has {len(restraint)} entries; expected 4 (bond), 5 (angle) or 6 (torsion)."
+                )
+            add_force, kind, unit = entry
+            logger.info("%s restraint assumed. Atoms/value/force-constant: %s (%s)", kind, restraint, unit)
+            add_force(*restraint)
+
+    def _log_system_parameters(self, *, anderson_thermostat, barostat, special_wrapping_updatepos):
+        """Echo the resolved MD system parameters so the log is a record of what actually ran."""
+        logger.info(small_header("MD system parameters"))
+        logger.info(
+            f"Temperature: {self.temperature} K\nTimestep: {self.timestep} ps\n"
+            f"Integrator: {self.integrator}\nBarostat: {barostat}\n"
+            f"Anderson thermostat: {anderson_thermostat}\n"
+            f"coupling_frequency: {self.coupling_frequency} ps^-1 (for Nose-Hoover and Langevin integrators)"
+        )
+        if self.integrator == "RPMDIntegrator":
+            logger.info("RPMD number of copies (beads): %s", self.rpmd_num_copies)
+            if self.theory_runtype in {"QMMM", "QM"}:
+                logger.info("RPMD copies used for the QM force: %s", self.rpmd_qm_num_copies)
+        logger.info(
+            f"OpenMM autoconstraints: {self.openmmobject.autoconstraints}\n"
+            f"OpenMM hydrogenmass: {self.openmmobject.hydrogenmass}\n"
+            f"OpenMM rigidwater constraints: {self.openmmobject.rigidwater}\n"
+            f"User Constraints: {self.openmmobject.user_constraints}\n"
+            f"User Restraints: {self.openmmobject.user_restraints}\n"
+            f"Number of atoms: {self.fragment.numatoms}\n"
+            f"Number of frozen atoms: {len(self.openmmobject.user_frozen_atoms)}"
+        )
+        if len(self.openmmobject.user_frozen_atoms) < 50:
+            logger.info("Frozen atoms %s", self.openmmobject.user_frozen_atoms)
+        logger.info(
+            f"\nWill write trajectory in format: {self.trajectory_file_option}\n"
+            f"Trajectory write frequency: {self.traj_frequency}\n"
+            f"enforcePeriodicBox: {self.enforce_periodic_box}\n"
+            f"special_wrapping: {self.special_wrapping}\n"
+            f"special_wrapping_updatepos: {special_wrapping_updatepos}\n"
+            f"wrapping_atoms: {self.wrapping_atoms}\n"
+        )
+
+    def _set_initial_positions(self, *, dummyatomrestraint, solute_indices):
+        """Take the starting positions from the fragment, adding the restraint dummy atom if asked."""
+        logger.debug("Defining atom positions from fragment")
+        # self.positions rather than the fragment's, because a dummy atom may be appended below
+        self.positions = self.fragment.coords
+        self.dummyatomrestraint = dummyatomrestraint
+        if dummyatomrestraint is not True:
+            return
+
+        if solute_indices is None:
+            raise InputError("Dummyatomrestraint requires solute_indices to be set")
+        logger.warning(
+            "Using dummyatomrestraints: a dummy atom is added to the topology and to the OpenMM coordinates "
+            "but not to the fragment, so visualizing the trajectory needs the PDB-file containing the dummy "
+            "atom that is written at the end."
+        )
+        dummypos = get_centroid(np.take(self.fragment.coords, solute_indices, axis=0))
+        logger.info("Dummy atom will be added to position: %s", dummypos)
+        self.positions = np.append(self.positions, [dummypos], axis=0)
+        self.openmmobject.add_dummy_atom_to_restrain_solute(atomindices=solute_indices)
+
+    def _configure_integrator_and_barostat(self, *, barostat, anderson_thermostat):
+        """Add or drop the barostat/thermostat, then hand the integrator settings to OpenMM."""
+        forceclassnames = [force.__class__.__name__ for force in self.openmmobject.system.getForces()]
+        if barostat is not None:
+            if "MonteCarloBarostat" in forceclassnames:
+                logger.info("Barostat already present. Skipping.")
+            else:
+                montecarlobarostat = openmm.MonteCarloBarostat(
+                    self.pressure * openmm.unit.bar, self.temperature * openmm.unit.kelvin
+                )
+                montecarlobarostat.setFrequency(self.barostat_frequency)
+                self.openmmobject.system.addForce(montecarlobarostat)
+                logger.info("Barostat added")
+            self.integrator = "LangevinMiddleIntegrator"
+            logger.info("Barostat requires using integrator: %s", self.integrator)
+        elif anderson_thermostat is True:
+            logger.info("Anderson thermostat is on.")
+            if "AndersenThermostat" not in forceclassnames:
+                self.openmmobject.system.addForce(
+                    openmm.AndersenThermostat(self.temperature * openmm.unit.kelvin, 1 / openmm.unit.picosecond)
+                )
+            self.integrator = "VerletIntegrator"
+            logger.debug("Now using integrator: %s", self.integrator)
+        else:
+            # Highest index first: removeForce renumbers every force above the one it removes
+            for index, forcename in reversed(list(enumerate(forceclassnames))):
+                if forcename in {"MonteCarloBarostat", "AndersenThermostat"}:
+                    logger.debug("Removing old force: %s", forcename)
+                    self.openmmobject.system.removeForce(index)
+
+        # Integrators: LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VerletIntegrator,
+        # BrownianIntegrator, VariableLangevinIntegrator, VariableVerletIntegrator
+        self.openmmobject.set_simulation_parameters(
+            timestep=self.timestep,
+            temperature=self.temperature,
+            integrator=self.integrator,
+            coupling_frequency=self.coupling_frequency,
+        )
+        self.volume = self.density = barostat is not None
+
+    def _open_data_output(self, datafilename):
+        """Point the StateDataReporter at stdout, or at a freshly-truncated append-mode file."""
+        self.datafilename = datafilename
+        if datafilename is None:
+            self.dataoutputoption = stdout
+            return
+        # The reporter writes its header on every open, so a stale file would accumulate several
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(datafilename)
+        # An open file object, not a name: a name does not survive stepping the simulation one step at a time
+        self.dataoutputoption = open(datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
+        logger.info("Will write data to file: %s", datafilename)
+
+    def _add_centerforce(self, *, centerforce_atoms, centerforce_center, centerforce_constant, centerforce_distance):
+        """Add the flat-bottom force that keeps the solute near a chosen centre."""
+        logger.info("Centerforce option active")
+        if centerforce_atoms is None:
+            centerforce_atoms = self.QM_MM_object.qmatoms
+            logger.info("centerforce_atoms unset. Using QM atoms: %s", centerforce_atoms)
+        if centerforce_center is None:
+            centerforce_center = self.fragment.get_coordinate_center()
+            logger.debug("No center coordinates set. Using geometric center of fragment: %s", centerforce_center)
+        self.openmmobject.add_centerforce(
+            center_coords=centerforce_center,
+            atomindices=centerforce_atoms,
+            forceconstant=centerforce_constant,
+            distance=centerforce_distance,
+        )
+
+    def _log_run_parameters(self, simulation_time, simulation_steps):
+        """Log the run-level parameters and the forces the System carries."""
+        logger.info(small_header("MD run parameters"))
+        logger.info(
+            f"Simulation time: {simulation_time} ps\nSimulation steps: {simulation_steps}\n"
+            f"Timestep: {self.timestep} ps\nSet temperature: {self.temperature} K"
+        )
+        logger.info("OpenMM integrator: %s", self.openmmobject.integrator_name)
+        forceclassnames = [force.__class__.__name__ for force in self.openmmobject.system.getForces()]
+        logger.info("OpenMM System forces present before run: %s", forceclassnames)
+
+    def _attach_reporters(self, continuing, extra_reporters):
+        """Attach the state and trajectory reporters, plus any caller-supplied extras."""
+        if continuing:
+            logger.debug("Continuing a previous run. Reusing simulation reporters")
+            # Reporters must be rebuilt after a restart so StateDataReporter and DCDReporter append
+            self.set_sim_reporters(self.simulation, restart=True)
+        else:
+            logger.info("New run. Creating simulation reporters")
+            if self.datafilename is not None:
+                logger.info("Deleting old datafile: %s", self.datafilename)
+                with contextlib.suppress(OSError):
+                    os.remove(self.datafilename)
+                self.dataoutputoption = open(self.datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
+            self.set_sim_reporters(self.simulation)
+            self.openmmobject.set_positions(self.positions, self.simulation)
+
+        if extra_reporters is None:
+            return
+        extra_reporters = list(extra_reporters)
+        if self._is_rpmd_simulation(self.simulation):
+            # The RPMD event loop drives these at traj_frequency alongside the
+            # engine's own reporters; describeNextReport is not consulted.
+            self._rpmd_reporters.extend(extra_reporters)
+        else:
+            self.simulation.reporters.extend(extra_reporters)
+        logger.info("Attached %s extra reporter(s)", len(extra_reporters))
+
+    def _restart_from_file(self, restart_file, description, load):
+        """Create the Simulation and restore positions and velocities from a restart file."""
+        self.simulation = self.openmmobject.create_simulation()
+        if self._is_rpmd_simulation(self.simulation):
+            logger.info("RPMD restart file provided via %s", description)
+            self._load_rpmd_restart(restart_file)
+            return
+        logger.info("%s provided. Restarting simulation using position and velocity data in file", description)
+        logger.info(
+            "Simulation velocities before: %s",
+            self.simulation.context.getState(getVelocities=True).getVelocities(asNumpy=True),
+        )
+        load(self.simulation, restart_file)
+        logger.info(
+            "Simulation velocities after loading %s: %s",
+            description,
+            self.simulation.context.getState(getVelocities=True).getVelocities(asNumpy=True),
+        )
+
+    def _prepare_wrapping(self):
+        """Return the (box vectors, mdtraj topology, wrapping atoms) that per-step wrapping needs."""
+        if self.openmmobject.periodic is not True:
+            logger.info("System is not periodic")
+            return None, None, None
+
+        logger.info("Periodic Boundary Conditions used.")
+        if self.enforce_periodic_box is True:
+            logger.info("EnforcePeriodic Box is True. Wrapping enforced by OpenMM.")
+            logger.warning(
+                "Warning: in case of problematic wrapping for e.g. QM/MM, try enabling special_wrapping=True"
+            )
+        if self.special_wrapping is not True:
+            return None, None, None
+
+        logger.info("special_wrapping is True. Wrapping will be handled in each step by mdtraj library")
+        try:
+            import mdtraj
+        except ImportError:
+            raise MissingDependencyError(
+                "Error: mdtraj not found, needs to be installed (pip install mdtraj)"
+            ) from None
+        boxvectors = self._get_simulation_state().getPeriodicBoxVectors(asNumpy=True)
+        mdtrajtopology = mdtraj.Topology.from_openmm(self.openmmobject.topology)
+
+        if self.wrapping_atoms is not None:
+            logger.debug("Will use atoms %s for wrapping", self.wrapping_atoms)
+            return boxvectors, mdtrajtopology, self.wrapping_atoms
+
+        logger.debug("No wrapping_atoms keyword has been set to center on.")
+        if self.theory_runtype == "QMMM":
+            logger.info("Theory-runtype is QMMM. Using QMatoms as wrapping_atoms")
+            wrapping_atoms = self.QM_MM_object.qmatoms
+        elif self.theory_runtype == "MM":
+            logger.info("Theory_runtype is MM. No anchor atoms needed")
+            wrapping_atoms = None
+        else:
+            raise InputError(f"Theory_runtype is {self.theory_runtype} but no wrapping_atoms have been set.\nExiting")
+        logger.info("wrapping_atoms have been set to: %s", wrapping_atoms)
+        return boxvectors, mdtrajtopology, wrapping_atoms
+
+    def _write_first_frame(self):
+        """Write the initial frame next to the trajectory as both PDB and PDBx/mmCIF."""
+        state = self._get_simulation_state(
+            getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=self.enforce_periodic_box
+        )
+        positions = state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom)
+        topology = self.openmmobject.topology
+
+        pdb_filename = self.trajfilename + "_firstframe.pdb"
+        logger.info("Writing initial frame to disk as PDB-file: %s", pdb_filename)
+        with open(pdb_filename, "w") as f:
+            openmm.app.pdbfile.PDBFile.writeHeader(topology, f)
+            openmm.app.pdbfile.PDBFile.writeModel(topology, positions, f)
+            openmm.app.pdbfile.PDBFile.writeFooter(topology, f)
+
+        pdbx_filename = self.trajfilename + "_firstframe.cif"
+        logger.info("Writing initial frame to disk as PDBx/mmCIF-file: %s", pdbx_filename)
+        with open(pdbx_filename, "w") as f:
+            openmm.app.pdbxfile.PDBxFile.writeHeader(topology, f)
+            openmm.app.pdbxfile.PDBxFile.writeModel(topology, positions, f)
+
+    def _finish_rpmd_run(self, simulation_steps, description, module_init_time):
+        """Run the bead-resolved PythonForce path and log its evaluation statistics."""
+        logger.debug("Running bead-resolved %s through OpenMM PythonForce", description)
+        self._run_rpmd_mm(simulation_steps)
+        logger.info(
+            "%s RPMD external evaluations: %s (%s cache hits)",
+            description,
+            self.rpmd_force_provider.evaluation_count,
+            self.rpmd_force_provider.cache_hits,
+        )
+        logger.info(small_header("OpenMM MD simulation finished!"))
+        log_time_since(module_init_time, "OpenMM_MD run")
+
+    def _current_step_coords(self, checkpoint, boxvectors, mdtrajtopology, wrapping_atoms):
+        """Return this step's OpenMM state and its coordinates in Angstrom, wrapped if requested."""
+        current_state = self.simulation.context.getState(
+            getPositions=True, enforcePeriodicBox=self.enforce_periodic_box, getEnergy=True
+        )
+        log_time_since(checkpoint, "get OpenMM state")
+        checkpoint = time.time()
+        current_coords = np.array(current_state.getPositions(asNumpy=True)) * 10
+        log_time_since(checkpoint, "get current_coords")
+
+        if self.openmmobject.periodic is True and self.special_wrapping is True:
+            logger.info("special_wrapping is True. Wrapping handled by mdtraj")
+            checkpoint = time.time()
+            current_coords = diff_wrap_box_coords(current_coords / 10.0, boxvectors, mdtrajtopology, wrapping_atoms)
+            log_time_since(checkpoint, "wrapping via diff_wrap_box_coords")
+            if self.special_wrapping_updatepos is True:
+                logger.info("special_wrapping_update is True. Updating positions")
+                checkpoint = time.time()
+                self.openmmobject.set_positions(current_coords, self.simulation)
+                log_time_since(checkpoint, "set positions update")
+        return current_state, current_coords
+
+    def _write_special_atoms_frame(self, step, current_coords):
+        """Append this step's special-atom subset to its own XYZ trajectory."""
+        if self.specialatoms is None or step % self.specialtraj_frequency != 0:
+            return
+        specialelems = [self.fragment.elems[i] for i in self.specialatoms]
+        special_coords = np.take(current_coords, self.specialatoms, axis=0)
+        logger.info("Writing wrapped coords to trajfile: only for special atoms")
+        write_xyzfile(specialelems, special_coords, "wrapped_special_traj", writemode="a")
+
     def run(
         self,
         simulation_steps=None,
@@ -973,214 +1134,57 @@ class MolecularDynamicsEngine:
             self.openmmobject.system.addForce(plumed_force)
 
         if restraints is not None:
-            logger.info("Adding restraints")
+            logger.debug("Adding restraints")
             self.openmmobject.add_bondrestraints(restraints=restraints)
 
         if chkfile is not None:
-            self.simulation = self.openmmobject.create_simulation()
-            if self._is_rpmd_simulation(self.simulation):
-                logger.info("RPMD restart file provided via chkfile")
-                self._load_rpmd_restart(chkfile)
-            else:
-                logger.info("Checkpoint file provided. Restarting simulation using position and velocity data in file")
-                state = self.simulation.context.getState(getVelocities=True)
-                logger.info("Simulation velocities before: %s", state.getVelocities(asNumpy=True))
-                self.simulation.loadCheckpoint(chkfile)
-                state = self.simulation.context.getState(getVelocities=True)
-                logger.info(
-                    "Simulation velocities after loading checkpoint file: %s", state.getVelocities(asNumpy=True)
-                )
+            self._restart_from_file(chkfile, "Checkpoint file", openmm.app.Simulation.loadCheckpoint)
         elif statefile is not None:
-            self.simulation = self.openmmobject.create_simulation()
-            if self._is_rpmd_simulation(self.simulation):
-                logger.info("RPMD restart file provided via statefile")
-                self._load_rpmd_restart(statefile)
-            else:
-                logger.info("State file provided. Restarting simulation using position and velocity data in file")
-                state = self.simulation.context.getState(getVelocities=True)
-                logger.info("Simulation velocities before: %s", state.getVelocities(asNumpy=True))
-                self.simulation.loadState(statefile)
-                state = self.simulation.context.getState(getVelocities=True)
-                logger.info("Simulation velocities after loading statefile: %s", state.getVelocities(asNumpy=True))
+            self._restart_from_file(statefile, "State file", openmm.app.Simulation.loadState)
         elif restart is True:
             logger.info("Restart true. Reusing already-defined simulation object")
         else:
             logger.info("Restart false and no chkfile/statefile set. This is a new simulation")
             self.simulation = self.openmmobject.create_simulation()
             logger.info("Simulation created.")
-        forceclassnames = [i.__class__.__name__ for i in self.openmmobject.system.getForces()]
-        logger.info(small_header("MD run parameters"))
-        logger.info(f"Simulation time: {simulation_time} ps")
-        logger.info(f"Simulation steps: {simulation_steps}")
-        logger.info(f"Timestep: {self.timestep} ps")
-        logger.info(f"Set temperature: {self.temperature} K")
-        logger.info("OpenMM integrator: %s", self.openmmobject.integrator_name)
-        logger.info("")
-        forceclassnames = [i.__class__.__name__ for i in self.openmmobject.system.getForces()]
-        logger.info("OpenMM System forces present before run: %s", forceclassnames)
+        self._log_run_parameters(simulation_time, simulation_steps)
 
         if self.openmmobject.periodic is True:
-            logger.info("Checking Initial PBC vectors.")
+            logger.debug("Checking Initial PBC vectors.")
             self.state = self._get_simulation_state()
             a, b, c = self.state.getPeriodicBoxVectors()
-            logger.info("A:  %s", a)
-            logger.info("B:  %s", b)
-            logger.info("C:  %s", c)
-            boxlength = a[0].value_in_unit(openmm.unit.angstrom)  # Box length in Angstrom
-            logger.info(f"Boxlength: {boxlength} Angstrom")
-        else:
-            logger.info("System is not periodic")
+            logger.info("A:  %s\nB:  %s\nC:  %s", a, b, c)
+            logger.info(f"Boxlength: {a[0].value_in_unit(openmm.unit.angstrom)} Angstrom")
 
-        # Make sure file associated with StateDataReporter is open
-        if restart is True:
-            logger.info("Restart true. Reusing simulation reporters")
-            # Seems to be necessary to do this again after restart
-            # restart option means that StateDatareport and DCDReporter will append to files
-            self.set_sim_reporters(self.simulation, restart=True)
-        elif statefile is not None:
-            logger.info("statefile is used")
-            # Seems to be necessary to do this again after restart
-            # restart option means that StateDatareport and DCDReporter will append to files
-            self.set_sim_reporters(self.simulation, restart=True)
-        elif chkfile is not None:
-            logger.info("chkfile is used")
-            # Seems to be necessary to do this again after restart
-            # restart option means that StateDatareport and DCDReporter will append to files
-            self.set_sim_reporters(self.simulation, restart=True)
-        else:
-            logger.info("Restart false")
-            if self.datafilename is not None:
-                logger.info("Deleting old datafile: %s", self.datafilename)
-                with contextlib.suppress(OSError):
-                    os.remove(self.datafilename)
-                self.dataoutputoption = open(self.datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
-            self.set_sim_reporters(self.simulation)
+        self._attach_reporters(
+            continuing=restart is True or statefile is not None or chkfile is not None,
+            extra_reporters=extra_reporters,
+        )
 
-            self.openmmobject.set_positions(self.positions, self.simulation)
-        logger.info("")
-
-        if extra_reporters is not None:
-            extra_reporters = list(extra_reporters)
-            if self._is_rpmd_simulation(self.simulation):
-                # The RPMD event loop drives these at traj_frequency alongside the
-                # engine's own reporters; describeNextReport is not consulted.
-                self._rpmd_reporters.extend(extra_reporters)
-            else:
-                self.simulation.reporters.extend(extra_reporters)
-            logger.info("Attached %s extra reporter(s)", len(extra_reporters))
         if pre_dynamics_hook is not None:
-            logger.info("Calling pre_dynamics_hook before dynamics")
+            logger.debug("Calling pre_dynamics_hook before dynamics")
             pre_dynamics_hook(self)
 
-        if self.openmmobject.periodic is True:
-            logger.info("Periodic Boundary Conditions used.")
-
-            if self.enforce_periodic_box is True:
-                logger.info("EnforcePeriodic Box is True. Wrapping enforced by OpenMM.")
-                logger.warning(
-                    "Warning: in case of problematic wrapping for e.g. QM/MM, try enabling special_wrapping=True"
-                )
-            # Wrapping handled by mdtraj
-            if self.special_wrapping is True:
-                logger.info("special_wrapping is True. Wrapping will be handled in each step by mdtraj library")
-                logger.info("Importing mdtraj")
-                try:
-                    import mdtraj
-                except ImportError:
-                    raise MissingDependencyError(
-                        "Error: mdtraj not found, needs to be installed (pip install mdtraj)"
-                    ) from None
-                boxvectors = self._get_simulation_state().getPeriodicBoxVectors(asNumpy=True)
-                mdtrajtopology = mdtraj.Topology.from_openmm(self.openmmobject.topology)
-                if self.wrapping_atoms is None:
-                    logger.info("No wrapping_atoms keyword has been set to center on.")
-                    if self.theory_runtype == "QMMM":
-                        logger.info("Theory-runtype is QMMM. Using QMatoms as wrapping_atoms")
-                        wrapping_atoms = self.QM_MM_object.qmatoms
-                    elif self.theory_runtype == "QM":
-                        raise InputError("Theory_runtype is QM but no wrapping_atoms have been set.\nExiting")
-                    elif self.theory_runtype == "dummy_MM":
-                        raise InputError("Theory_runtype is dummy_MM but no wrapping_atoms have been set.\nExiting")
-                    elif self.theory_runtype == "MM":
-                        logger.info("Theory_runtype is MM. No achoratoms needed")
-                        wrapping_atoms = None
-                    logger.info("wrapping_atoms have been set to: %s", wrapping_atoms)
-                else:
-                    wrapping_atoms = self.wrapping_atoms
-                    logger.info(f"Will use atoms {wrapping_atoms} for wrapping")
-
-        pdb_filename = self.trajfilename + "_firstframe.pdb"
-        logger.info("Writing intial frame to disk as PDB-file: %s", pdb_filename)
-        blastate = self._get_simulation_state(
-            getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=self.enforce_periodic_box
-        )
-        with open(pdb_filename, "w") as f:
-            openmm.app.pdbfile.PDBFile.writeHeader(self.openmmobject.topology, f)
-            openmm.app.pdbfile.PDBFile.writeModel(
-                self.openmmobject.topology, blastate.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom), f
-            )
-            openmm.app.pdbfile.PDBFile.writeFooter(self.openmmobject.topology, f)
-        pdbx_filename = self.trajfilename + "_firstframe.cif"
-        logger.info("Writing intial frame to disk as PDBx/mmCIF-file: %s", pdbx_filename)
-        with open(pdbx_filename, "w") as f:
-            openmm.app.pdbxfile.PDBxFile.writeHeader(self.openmmobject.topology, f)
-            openmm.app.pdbxfile.PDBxFile.writeModel(
-                self.openmmobject.topology, blastate.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom), f
-            )
+        boxvectors, mdtrajtopology, wrapping_atoms = self._prepare_wrapping()
+        self._write_first_frame()
 
         if self.theory_runtype == "QMMM":
             logger.info("QM/MM MD run beginning")
             if self._is_rpmd_simulation(self.simulation):
-                logger.info("Running bead-resolved QM/MM through OpenMM PythonForce")
-                self._run_rpmd_mm(simulation_steps)
-                logger.info(
-                    "QM/MM RPMD external evaluations: %s (%s cache hits)",
-                    self.rpmd_force_provider.evaluation_count,
-                    self.rpmd_force_provider.cache_hits,
-                )
-                logger.info(small_header("OpenMM MD simulation finished!"))
-                log_time_since(module_init_time, "OpenMM_MD run")
+                self._finish_rpmd_run(simulation_steps, "QM/MM", module_init_time)
                 return
 
             # Classical QM/MM uses a frozen-gradient CustomExternalForce updated before every step.
-
-            connectivity = []
-            for resi in self.openmmobject.topology.residues():
-                resatoms = [i.index for i in list(resi.atoms())]
-                connectivity.append(resatoms)
-            create_conn_dict(connectivity)
-
             for step in range(simulation_steps):
                 checkpoint_begin_step = time.time()
                 checkpoint = time.time()
                 logger.debug("Step: %s", step)
                 if step % self.traj_frequency == 0:
-                    logger.info("Step: %s", step)
+                    logger.debug("Step: %s", step)
 
-                # Get state of simulation. Gives access to coords, velocities, forces, energy etc.
-                current_state = self.simulation.context.getState(
-                    getPositions=True, enforcePeriodicBox=self.enforce_periodic_box, getEnergy=True
-                )
-                log_time_since(checkpoint, "get OpenMM state")
+                _, current_coords = self._current_step_coords(checkpoint, boxvectors, mdtrajtopology, wrapping_atoms)
+
                 checkpoint = time.time()
-                current_coords = np.array(current_state.getPositions(asNumpy=True)) * 10
-                checkpoint = time.time()
-                log_time_since(checkpoint, "get current_coords")
-
-                if self.openmmobject.periodic is True and self.special_wrapping is True:
-                    logger.info("special_wrapping is True. Wrapping handled by mdtraj")
-                    checkpoint = time.time()
-                    current_coords = diff_wrap_box_coords(
-                        current_coords / 10.0, boxvectors, mdtrajtopology, wrapping_atoms
-                    )
-                    log_time_since(checkpoint, "wrapping via diff_wrap_box_coords")
-                    checkpoint = time.time()
-                    if self.special_wrapping_updatepos is True:
-                        logger.info("special_wrapping_update is True. Updating positions")
-                        self.openmmobject.set_positions(current_coords, self.simulation)
-                        log_time_since(checkpoint, "set positions update")
-                        checkpoint = time.time()
-
                 self.QM_MM_object.run(
                     current_coords=current_coords,
                     elems=self.fragment.elems,
@@ -1190,7 +1194,6 @@ class MolecularDynamicsEngine:
                     mult=self.mult,
                 )
                 log_time_since(checkpoint, "QM/MM run")
-                checkpoint = time.time()
 
                 if step % self.restartfile_frequency == 0:
                     self.write_state_and_chk_files(step)
@@ -1200,67 +1203,37 @@ class MolecularDynamicsEngine:
                 if step % self.traj_frequency == 0:
                     logger.info("Writing wrapped coords to trajfile: OpenMMMD_traj_wrapped.xyz (for debugging)")
                     write_xyzfile(self.fragment.elems, current_coords, "OpenMMMD_traj_wrapped", writemode="a")
-
-                if self.specialatoms is not None and step % self.specialtraj_frequency == 0:
-                    specialelems = [self.fragment.elems[i] for i in self.specialatoms]
-                    special_coords = np.take(current_coords, self.specialatoms, axis=0)
-                    logger.info("Writing wrapped coords to trajfile: only for special atoms")
-                    write_xyzfile(specialelems, special_coords, "wrapped_special_traj", writemode="a")
+                self._write_special_atoms_frame(step, current_coords)
 
                 # The QM_PC gradient (link-atom projected, from QM_MM object) is provided to OpenMM external force
-                CheckpointTime = time.time()
+                checkpoint = time.time()
                 self.openmmobject.update_custom_external_force(
                     self.openmm_externalforceobject, self.QM_MM_object.QM_PC_gradient, self.simulation
                 )
-                log_time_since(CheckpointTime, "update custom external force")
+                log_time_since(checkpoint, "update custom external force")
 
                 checkpoint = time.time()
-
                 self.simulation.step(1)
                 log_time_since(checkpoint, "openmmobject sim step")
                 log_time_since(checkpoint_begin_step, "Total sim step")
         elif self.theory_runtype == "QM":
             logger.info("External QM with OpenMM option")
             if self._is_rpmd_simulation(self.simulation):
-                logger.info("Running bead-resolved external-QM dynamics through OpenMM PythonForce")
-                self._run_rpmd_mm(simulation_steps)
-                logger.info(
-                    "External-QM RPMD evaluations: %s (%s cache hits)",
-                    self.rpmd_force_provider.evaluation_count,
-                    self.rpmd_force_provider.cache_hits,
-                )
-                logger.info(small_header("OpenMM MD simulation finished!"))
-                log_time_since(module_init_time, "OpenMM_MD run")
+                self._finish_rpmd_run(simulation_steps, "External-QM", module_init_time)
                 return
+
             for step in range(simulation_steps):
                 checkpoint_begin_step = time.time()
                 checkpoint = time.time()
-                logger.info("Step: %s", step)
-                # Get state of simulation. Gives access to coords, velocities, forces, energy etc.
-                current_state = self.simulation.context.getState(
-                    getPositions=True, enforcePeriodicBox=self.enforce_periodic_box, getEnergy=True
+                logger.debug("Step: %s", step)
+                if step % self.traj_frequency == 0:
+                    logger.debug("Step: %s", step)
+
+                current_state, current_coords = self._current_step_coords(
+                    checkpoint, boxvectors, mdtrajtopology, wrapping_atoms
                 )
-                log_time_since(checkpoint, "get OpenMM state")
-                checkpoint = time.time()
-                current_coords = np.array(current_state.getPositions(asNumpy=True)) * 10
-                log_time_since(checkpoint, "get current coords")
-                checkpoint = time.time()
 
-                if self.openmmobject.periodic is True and self.special_wrapping is True:
-                    logger.info("special_wrapping is True. Wrapping handled by mdtraj")
-                    checkpoint = time.time()
-                    current_coords = diff_wrap_box_coords(
-                        current_coords / 10.0, boxvectors, mdtrajtopology, wrapping_atoms
-                    )
-                    log_time_since(checkpoint, "wrapping via diff_wrap_box_coords")
-                    checkpoint = time.time()
-                    if self.special_wrapping_updatepos is True:
-                        logger.info("special_wrapping_update is True. Updating positions")
-                        self.openmmobject.set_positions(current_coords, self.simulation)
-                        log_time_since(checkpoint, "set positions update")
-                        checkpoint = time.time()
-
-                # Updates OpenMM object with QM forces
+                checkpoint = time.time()
                 energy, gradient = self.qmtheory.run(
                     current_coords=current_coords,
                     elems=self.fragment.elems,
@@ -1287,16 +1260,12 @@ class MolecularDynamicsEngine:
 
                     if self.trajectory_file_option == "XYZ":
                         write_xyzfile(self.fragment.elems, current_coords, "OpenMMMD_traj", writemode="a")
-
-                if self.specialatoms is not None and step % self.specialtraj_frequency == 0:
-                    specialelems = [self.fragment.elems[i] for i in self.specialatoms]
-                    special_coords = np.take(current_coords, self.specialatoms, axis=0)
-                    logger.info("Writing wrapped coords to trajfile: only for special atoms")
-                    write_xyzfile(specialelems, special_coords, "wrapped_special_traj", writemode="a")
+                self._write_special_atoms_frame(step, current_coords)
 
                 if step % self.restartfile_frequency == 0:
                     self.write_state_and_chk_files(step)
 
+                checkpoint = time.time()
                 self.simulation.step(1)
                 log_time_since(checkpoint, "OpenMM sim step")
                 log_time_since(checkpoint_begin_step, "Total sim step")
@@ -1327,13 +1296,13 @@ class MolecularDynamicsEngine:
         )
 
         if self.openmmobject.periodic is True:
-            logger.info("Checking PBC vectors:")
+            logger.debug("Checking PBC vectors:")
             a, b, c = self.state.getPeriodicBoxVectors()
             logger.info("A:  %s", a)
             logger.info("B:  %s", b)
             logger.info("C:  %s", c)
             logger.info("a 0 %s", a[0])
-            logger.info("Updating PBC vectors in simulation.context, OpenMM system and OpenMM topology")
+            logger.debug("Updating PBC vectors in simulation.context, OpenMM system and OpenMM topology")
             self.simulation.context.setPeriodicBoxVectors(a, b, c)
             # System. Necessary
             self.openmmobject.system.setDefaultPeriodicBoxVectors(a, b, c)
@@ -1378,7 +1347,7 @@ class MolecularDynamicsEngine:
             self.simulation.saveCheckpoint("OpenMM_MD_final_checkpoint.chk")
 
         newcoords = self.state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom)
-        logger.info("Updating coordinates in fragment.")
+        logger.debug("Updating coordinates in fragment.")
         self.fragment.coords = newcoords
         # Updating positions array also in case we call run again
         self.positions = newcoords
@@ -1448,9 +1417,8 @@ def openmm_box_equilibration(
     md = MolecularDynamicsEngine(**engine_kwargs)
     restart = False
     for i in range(max_npt_cycles):
-        logger.info("")
         logger.info("%s", "-" * 100)
-        logger.info(f"Now starting  NPT cycle {i} with {numsteps_per_npt} MD steps")
+        logger.debug(f"Now starting  NPT cycle {i} with {numsteps_per_npt} MD steps")
         logger.info(
             f"Simulation data (timestep, energy, temperature, volume,density etc.) is also written to {datafilename}"
         )
@@ -1479,8 +1447,7 @@ def openmm_box_equilibration(
         logger.info(f"Total simulation time: {timestep * steps} ps")
         logger.info("Current Volume: %s", volume[-1])
         logger.info(f"Current Density: {density[-1]}")
-        logger.info("")
-        logger.info(f"Current Volume SD: {volume_std}   (threshold: {volume_threshold})")
+        logger.info(f"\nCurrent Volume SD: {volume_std}   (threshold: {volume_threshold})")
         logger.info(f"Current Density SD: {density_std} (threshold: {density_threshold})")
 
         if volume_std < volume_threshold and density_std < density_threshold:
@@ -1501,7 +1468,7 @@ def openmm_box_equilibration(
     logger.info(f"NPT trajectory: {trajfilename}.{trajectory_file_option.lower()}")
 
     if use_mdtraj is True:
-        logger.info("Trying to load mdtraj for reimaging trajectory")
+        logger.debug("Trying to load mdtraj for reimaging trajectory")
         try:
             logger.info("Imaging trajectory")
             mdtraj_image_trajectory(f"{trajfilename}.dcd", f"{trajfilename}_lastframe.pdb")
@@ -1598,14 +1565,12 @@ def gentle_warmup_md(
         except Exception as e:  # noqa: BLE001 - MD warm-up continues even if pre-minimization fails
             logger.info("Problem minimizing system")
             logger.error("message: %s", e)
-            logger.info("Will go on to do MD")
+            logger.debug("Will go on to do MD")
 
     logger.info(f"\n{len(steps)} MD-runs have been defined")
     for num, (ts, step, temp) in enumerate(zip(time_steps, steps, temperatures, strict=False)):
         logger.info(f"MD-step {num} Number of simulation steps: {step} with timestep: {ts} and temperature: {temp} K")
 
-    logger.info("")
-    logger.info("")
     for num, (ts, step, temp, traj_frequency) in enumerate(
         zip(time_steps, steps, temperatures, traj_frequencies, strict=False)
     ):
@@ -1629,11 +1594,11 @@ def gentle_warmup_md(
         )
 
         if use_mdtraj is True:
-            logger.info("Trying to load mdtraj for basic analysis of trajectory")
+            logger.debug("Trying to load mdtraj for basic analysis of trajectory")
             try:
                 logger.info("Imaging trajectory")
                 mdtraj_image_trajectory(f"{MDcyclename}.dcd", f"{MDcyclename}_lastframe.pdb")
-                logger.info("\nRunning RMS Fluctuation analysis on trajectory")
+                logger.debug("\nRunning RMS Fluctuation analysis on trajectory")
                 mdtraj_rmsf(
                     f"{MDcyclename}.dcd",
                     f"{MDcyclename}_lastframe.pdb",

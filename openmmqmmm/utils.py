@@ -92,14 +92,12 @@ def find_replace_string_in_file(file, findstring, replstring):
         f.write(filedata)
 
 
-# Give difference of two lists, sorted. List1: Bigger list
 def listdiff(list1, list2):
     diff = list(set(list1) - set(list2))
     diff.sort()
     return diff
 
 
-# option: Once=True means only added for first match
 def insert_line_into_file(file, string, addedstring, once=True):
     added = False
     with open(file) as ffr:
@@ -127,17 +125,6 @@ def search_list_of_lists_for_index(i, list_of_lists):
     return next((c for c, f in enumerate(list_of_lists) if i in f), None)
 
 
-def create_conn_dict(list_of_lists):
-    index = {}
-    for c, sublist in enumerate(list_of_lists):
-        for value in sublist:
-            if value not in index:
-                index[value] = c
-    return index
-
-
-# Read list of integers from file. Output list of integers. Ignores blanklines, return chars, non-int characters
-# offset option: shifts integers by a value (e.g. 1 or -1)
 def read_intlist_from_file(filename, offset=0):
     intlist = []
     try:
@@ -153,12 +140,12 @@ def read_intlist_from_file(filename, offset=0):
     return intlist
 
 
-def writestringtofile(string, file, writemode="w"):
+def write_string_to_file(string, file, writemode="w"):
     with open(file, writemode) as f:
         f.write(string)
 
 
-def writelisttofile(pylist, file, separator=" "):
+def write_list_to_file(pylist, file, separator=" "):
     with open(file, "w") as f:
         f.writelines(str(item) + separator for item in pylist)
     logger.info("Wrote list to file: %s", file)

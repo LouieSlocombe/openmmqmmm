@@ -7,7 +7,7 @@ from openmmqmmm.exceptions import (
 from openmmqmmm.openmm.md import MolecularDynamicsEngine, engine_kwargs_from
 from openmmqmmm.utils import (
     main_header,
-    writestringtofile,
+    write_string_to_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def openmm_md_plumed(
 
     md = MolecularDynamicsEngine(**engine_kwargs)
 
-    logger.info("Setting up Plumed")
+    logger.debug("Setting up Plumed")
     # The PLUMED input is the whole bias specification; there is nothing to fall back on.
     if plumed_input_string is None:
         raise InputError("plumed_input_string is required: it defines the PLUMED bias to apply.")
@@ -87,9 +87,9 @@ def openmm_md_plumed(
         "plumed_input_string provided. Will read all options from this string (make sure to provide atom indices "
         "in 1-based indexing)"
     )
-    writestringtofile(plumed_input_string, "plumedinput.in")
+    write_string_to_file(plumed_input_string, "plumedinput.in")
 
-    logger.info("Now starting PLUMED-biased simulation")
+    logger.debug("Now starting PLUMED-biased simulation")
     md.run(
         simulation_steps=simulation_steps,
         simulation_time=simulation_time,

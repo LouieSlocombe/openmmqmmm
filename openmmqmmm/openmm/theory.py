@@ -229,7 +229,7 @@ class OpenMMTheory:
         residueTemplates = {}  # initial
         if residuetemplate_choice is not None:
             logger.info("Found user-specified residuetemplate_choice")
-            logger.info("Will generate residueTemplates based on residuetemplate_choice: %s", residuetemplate_choice)
+            logger.debug("Will generate residueTemplates based on residuetemplate_choice: %s", residuetemplate_choice)
             logger.info(
                 "Note: residuetemplate_choice should be a dict like this: residuetemplate_choice={'FER':'FE2'}   "
             )
@@ -351,8 +351,7 @@ class OpenMMTheory:
         logger.info("Hydrogenmass option: %s", self.hydrogenmass)
 
     def _apply_bondconstraints(self, bondconstraints, *, fragment, pdbfile):
-        logger.info(f"Before adding user constraints, system contains {self.system.getNumConstraints()} constraints")
-        logger.info("")
+        logger.info(f"Before adding user constraints, system contains {self.system.getNumConstraints()} constraints\n")
         if len(bondconstraints) < 50:
             logger.info("User-constraints to add (bond) %s", bondconstraints)
         else:
@@ -364,12 +363,12 @@ class OpenMMTheory:
                 "fragment has been provided"
             )
             if fragment is None:
-                logger.info(
+                logger.debug(
                     "No fragment provided to OpenMMTheory. Will check if pdbfile is defined and use coordinates "
                     "from there"
                 )
                 if pdbfile is None:
-                    logger.info(
+                    logger.debug(
                         "No PDBfile present either. Either fragment or PDBfile containing coordinates is "
                         "required for constraint definition"
                     )
@@ -444,7 +443,7 @@ class OpenMMTheory:
             logger.info(
                 "This will not work. See https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#boxsize"
             )
-            logger.info("Will now automatically set the cutoff to be 1/2 the smallest box dimension")
+            logger.debug("Will now automatically set the cutoff to be 1/2 the smallest box dimension")
             self.periodic_nonbonded_cutoff = round(
                 0.5 * min(self.topology.getUnitCellDimensions()).value_in_unit(openmm.unit.angstroms), 6
             )
@@ -545,7 +544,6 @@ class OpenMMTheory:
             self.system = self.forcefield.createSystem(self.topology, **no_pbc_system_kwargs)
         logger.info(small_header("OpenMM system created."))
         logger.info("OpenMM Forces defined: %s", self.system.getForces())
-        logger.info("")
 
     def _load_charmm_files(self, psffile, charmmtopfile, charmmprmfile, *, use_parmed=False):
         logger.info("Reading CHARMM files.")
@@ -664,7 +662,7 @@ class OpenMMTheory:
             logger.info("Topology provided as keyword")
             self.topology = topology
         else:
-            logger.info("No topology provided as keyword")
+            logger.debug("No topology provided as keyword")
             logger.info("Reading topology from PDB-file instead")
             pdb = openmm.app.PDBFile(pdbfile)
             self.topology = pdb.topology
@@ -677,7 +675,7 @@ class OpenMMTheory:
         logger.info("Reading system XML file: %s", xmlsystemfile)
         with open(xmlsystemfile) as xmlfh:
             xmlsystemfileobj = xmlfh.read()
-        logger.info("Now defining OpenMM system using information in file")
+        logger.debug("Now defining OpenMM system using information in file")
         logger.warning("File may contain hardcoded constraints that can not be overridden.")
         self.system = openmm.XmlSerializer.deserializeSystem(xmlsystemfileobj)
         # NOTE: Big drawback of xmlsystemfile is that constraints have been hardcoded and can
@@ -744,7 +742,7 @@ class OpenMMTheory:
     def write_pdbfile(self, positions=None, outputname="system"):
         """Write a PDB file of the system using the stored OpenMM topology."""
         logger.info("Writing PDB-file using OpenMMTheory object")
-        logger.info("Will be using defined topology.")
+        logger.debug("Will be using defined topology.")
         logger.debug("Internal positions: %s", self.positions)
         # Explicit positions win: they were checked last, so passing minimized or
         # otherwise updated coordinates silently wrote the object's original ones.
@@ -779,10 +777,10 @@ class OpenMMTheory:
         # IF PBC vectors provided then we need to set them in the topology (otherwise system creation does not work)
         if periodic_cell_vectors is not None:
             logger.info("\nPBC vectors provided by user (in Angstrom): %s", periodic_cell_vectors)
-            logger.info("Setting PBC vectors in topology object")
+            logger.debug("Setting PBC vectors in topology object")
             self.topology.setPeriodicBoxVectors(periodic_cell_vectors * openmm.unit.angstroms)
             logger.info("Topology PBC vectors set: %s", self.topology.getPeriodicBoxVectors())
-            logger.info("Setting PBC box vectors in forcefield object")
+            logger.debug("Setting PBC box vectors in forcefield object")
             if charmm_files is True:
                 self.forcefield.box_vectors = periodic_cell_vectors * openmm.unit.angstrom
                 logger.info("PBC box vectors set: %s", self.forcefield.box_vectors)
@@ -829,7 +827,7 @@ class OpenMMTheory:
                     * openmm.unit.angstrom
                 )
             logger.info("PeriodicBoxVectors:  %s", self.topology.getPeriodicBoxVectors())
-            logger.info("Setting PBC box in forcefield object")
+            logger.debug("Setting PBC box in forcefield object")
             self.forcefield.box = [
                 openmm.unit.Quantity(value=periodic_cell_dimensions[0], unit=openmm.unit.angstrom),
                 openmm.unit.Quantity(value=periodic_cell_dimensions[1], unit=openmm.unit.angstrom),
@@ -902,7 +900,7 @@ class OpenMMTheory:
     # To set positions in OpenMMobject (in nm) from np-array (Angstrom)
     def set_positions(self, coords, simulation):
         """Load coordinates into an OpenMM simulation."""
-        logger.info("Setting coordinates of OpenMM object")
+        logger.debug("Setting coordinates of OpenMM object")
         coords_nm = coords * 0.1  # converting from Angstrom to nm
         pos = [
             openmm.Vec3(coords_nm[i, 0], coords_nm[i, 1], coords_nm[i, 2]) for i in range(len(coords_nm))
@@ -919,7 +917,7 @@ class OpenMMTheory:
     # This method is called by Periodic optimizers
     def update_cell(self, periodic_cell_vectors=None, periodic_cell_dimensions=None):
         """Change the periodic box of the existing system."""
-        logger.info("Updating cell vectors")
+        logger.debug("Updating cell vectors")
         logger.info("New periodic_cell_vectors are: %s", periodic_cell_vectors)
         if periodic_cell_vectors is not None:
             self.periodic_cell_vectors = periodic_cell_vectors
@@ -982,17 +980,17 @@ class OpenMMTheory:
         self.system.addForce(self.restraint)
 
         for i in atomindices:
-            logger.info("Adding bond")
+            logger.debug("Adding bond")
             self.restraint.addBond(i, dummyatomindex, 0, forceconstant)
 
     def remove_force(self, forceindex):
         """Remove a force by its index in the system."""
-        logger.info(f"Removing force-index {forceindex}: {self.system.getForces()[forceindex].getName()}")
+        logger.debug(f"Removing force-index {forceindex}: {self.system.getForces()[forceindex].getName()}")
         self.system.removeForce(forceindex)
 
     def add_custom_bond_force(self, i, j, value, forceconstant):
         """Restrain the distance between two atoms harmonically."""
-        logger.info(
+        logger.debug(
             f"Adding custom bond force between atom index i={i} and j={j} with value: {value} Angstrom, "
             f"forceconstant={forceconstant} kcal/mol/Angstrom^2"
         )
@@ -1005,7 +1003,7 @@ class OpenMMTheory:
 
     def add_custom_angle_force(self, i, j, k, value, forceconstant):
         """Restrain the i-j-k angle harmonically."""
-        logger.info(
+        logger.debug(
             f"Adding custom angle force for atoms: {i}, {j}, {k}  with value: {value} radians with "
             f"forceconstant={forceconstant}"
         )
@@ -1020,7 +1018,7 @@ class OpenMMTheory:
         """Restrain the i-j-k-l dihedral harmonically."""
         import math
 
-        logger.info(f"Adding custom torsion force for atoms: {i}, {j}, {k}, {l}  with forceconstant={forceconstant}")
+        logger.debug(f"Adding custom torsion force for atoms: {i}, {j}, {k}, {l}  with forceconstant={forceconstant}")
         torsion_force = openmm.CustomTorsionForce(
             "0.5*k*dtheta^2; dtheta = min(diff, 2*Pi-diff); diff = abs(theta - theta0)"
         )
@@ -1079,7 +1077,7 @@ class OpenMMTheory:
     # NOTE: This setParticleParameters takes some time but not sure we can make this faster
     def update_custom_external_force(self, customforce, gradient, simulation):
         """Push a new gradient into the QM/MM external force."""
-        logger.info("Updating custom external force")
+        logger.debug("Updating custom external force")
         forces = -gradient * openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
         for i, f in enumerate(forces):
             customforce.setParticleParameters(i, i, f)
@@ -1087,11 +1085,11 @@ class OpenMMTheory:
 
     def add_bondrestraints(self, restraints=None):
         """Add harmonic distance restraints between atom pairs."""
-        logger.info("Adding restraints: %s", restraints)
+        logger.debug("Adding restraints: %s", restraints)
 
         new_restraints = openmm.HarmonicBondForce()
         for i, j, d, k in restraints:
-            logger.info(
+            logger.debug(
                 f"Adding bond restraint between atoms {i} and {j}. Distance value: {d} Å. Force constant: {k} "
                 f"kcal/mol*Å^-2"
             )
@@ -1103,7 +1101,7 @@ class OpenMMTheory:
     def add_bondconstraints(self, constraints=None):
         """Constrain bond lengths rigidly (not harmonically)."""
         for i, j, d in constraints:
-            logger.info(f"Adding bond constraint between atoms {i} and {j}. Distance value: {d:.4f} Å")
+            logger.debug(f"Adding bond constraint between atoms {i} and {j}. Distance value: {d:.4f} Å")
             self.system.addConstraint(i, j, d * openmm.unit.angstroms)
 
     def remove_all_constraints(self):
@@ -1114,7 +1112,7 @@ class OpenMMTheory:
 
     def remove_constraints_for_atoms(self, atoms):
         """Remove every constraint involving any of the given atoms."""
-        logger.info("Removing constraints in OpenMM object for atoms: %s", atoms)
+        logger.debug("Removing constraints in OpenMM object for atoms: %s", atoms)
         todelete = []
         for i in range(self.system.getNumConstraints()):
             con = self.system.getConstraintParameters(i)
@@ -1434,7 +1432,6 @@ class OpenMMTheory:
         # NOTE: Calling this is expensive (seconds)as the energy has to be recalculated.
         openmm_energy = {}
         energycomp = self.get_energy_decomposition(simulation.context)
-        logger.info("")
         for comp in energycomp.items():
             openmm_energy[comp[0].getName()] = comp[1]
 
@@ -1451,13 +1448,11 @@ class OpenMMTheory:
             )
         logger.info("%s", "-" * 56)
         sum_kcal = sumofallcomponents / openmmqmmm.constants.KCAL_TO_KJ
-        logger.info(f"{'Sumcomponents':<20} | {sumofallcomponents:>15.2f} | {sum_kcal:>15.2f}")
-        logger.info("")
+        logger.info(f"{'Sumcomponents':<20} | {sumofallcomponents:>15.2f} | {sum_kcal:>15.2f}\n")
         logger.info(
             f"{'Total':<20} | {self.energy * openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL:>15.2f} | "
             f"{self.energy * openmmqmmm.constants.HARTREE_TO_KCAL_PER_MOL:>15.2f}"
         )
-        logger.info("")
         openmm_energy["Sum"] = sumofallcomponents
         log_time_since(timeA, "energy decomposition")
 
@@ -1601,7 +1596,7 @@ class OpenMMTheory:
         log_time_since(timeA, "OpenMMTheory.run: const-check")
         current_coords = np.array(current_coords)
         factor = -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
-        logger.info("Updating coordinates.")
+        logger.debug("Updating coordinates.")
         timeA = time.time()
 
         self.set_positions(current_coords, simulation)
@@ -1619,7 +1614,7 @@ class OpenMMTheory:
             log_time_since(timeA, "context: apply constraints")
             timeA = time.time()
 
-        logger.info("Calling OpenMM getState.")
+        logger.debug("Calling OpenMM getState.")
         if grad is True:
             state = simulation.context.getState(getEnergy=True, getForces=True)
             self.energy = (
@@ -1665,7 +1660,7 @@ class OpenMMTheory:
     def delete_exceptions(self, atomlist):
         """Remove the nonbonded exceptions previously added for the listed atoms."""
         timeA = time.time()
-        logger.info("Deleting Coulombexceptions for atomlist: %s", atomlist)
+        logger.debug("Deleting Coulombexceptions for atomlist: %s", atomlist)
         for force in self.system.getForces():
             if isinstance(force, openmm.NonbondedForce):
                 for exc in range(force.getNumExceptions()):
@@ -1680,7 +1675,7 @@ class OpenMMTheory:
     def update_lj_epsilons(self, atomlist, epsilons):
         """Set new Lennard-Jones epsilon values for selected atoms."""
         timeA = time.time()
-        logger.info("Updating LJ interaction strengths in OpenMM object.")
+        logger.debug("Updating LJ interaction strengths in OpenMM object.")
         if len(atomlist) != len(epsilons):
             raise InternalError("atomlist and epsilons size mismatch")
         for atomindex, newepsilon in zip(atomlist, epsilons, strict=False):
@@ -1710,7 +1705,7 @@ class OpenMMTheory:
                 self.nonbonded_force.setParticleParameters(atomindex, newcharge, sigma, epsilon)
 
         # Instead of recreating simulation we can just update like this:
-        logger.info("Updating simulation object for modified Nonbonded force.")
+        logger.debug("Updating simulation object for modified Nonbonded force.")
         logger.debug("self.nonbonded_force: %s", self.nonbonded_force)
         logger.debug("Forces in system after charge update: %s", self.system.getForces())
         log_time_since(timeA, "update_charges")
@@ -1718,8 +1713,7 @@ class OpenMMTheory:
     def modify_bonded_forces(self, atomlist):
         """Zero the bonded terms that lie entirely inside the given atom set."""
         timeA = time.time()
-        logger.info("Modifying bonded forces.")
-        logger.info("")
+        logger.info("Modifying bonded forces.\n")
         # This is typically used by QM/MM object to set bonded forces to zero for qmatoms (atomlist)
         # Mimicking: https://github.com/openmm/openmm/issues/2792
 
@@ -1844,15 +1838,13 @@ class OpenMMTheory:
                         numcustombondterms_removed += 1
                         p1, p2, params = force.getBondParameters(i)
 
-        logger.info("")
-        logger.info("Number of bonded terms removed:")
+        logger.info("\nNumber of bonded terms removed:")
         logger.info("Harmonic Bond terms: %s", numharmbondterms_removed)
         logger.info("Harmonic Angle terms: %s", numharmangleterms_removed)
         logger.info("Periodic Torsion terms: %s", numpertorsionterms_removed)
         logger.info("Custom Torsion terms: %s", numcustomtorsionterms_removed)
         logger.info("CMAP Torsion terms: %s", numcmaptorsionterms_removed)
         logger.info("CustomBond terms %s", numcustombondterms_removed)
-        logger.info("")
         log_time_since(timeA, "modify_bonded_forces")
 
 
@@ -1884,14 +1876,14 @@ class ForceReporter:
 
 
 def clean_up_constraints_list(fragment=None, constraints=None):
-    logger.info("Checking defined constraints.")
+    logger.debug("Checking defined constraints.")
     newconstraints = []
     for con in constraints:
         if len(con) == 3:
             newconstraints.append(con)
         elif len(con) == 2:
             distance = distance_between_atoms(fragment=fragment, atoms=[con[0], con[1]])
-            logger.info(f"Adding missing distance definition between atoms {con[0]} and {con[1]}: {distance:.4f}")
+            logger.debug(f"Adding missing distance definition between atoms {con[0]} and {con[1]}: {distance:.4f}")
             newcon = [con[0], con[1], distance]
             newconstraints.append(newcon)
     return newconstraints

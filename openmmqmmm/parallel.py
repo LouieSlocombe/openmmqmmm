@@ -27,10 +27,10 @@ def check_openmpi():
             "No mpirun found in PATH. Make sure to add OpenMPI to PATH in your environment/jobscript"
         ) from None
     logger.info("OpenMPI binary directory found: %s", openmpibindir)
-    verify_openmpi()
+    _verify_openmpi()
 
 
-def verify_openmpi():
+def _verify_openmpi():
     logger.info("Testing that mpirun is executable...")
     p = sp.Popen(["mpirun", "-V"], stdout=sp.PIPE)
     out, _err = p.communicate()
@@ -39,7 +39,7 @@ def verify_openmpi():
     logger.info("OpenMPI version (mpirun -V): %s", mpiversion)
 
 
-def import_mp(version="multiprocessing"):
+def _import_mp(version="multiprocessing"):
     # NOTE: Python 3.8 and higher use spawn in MacOS (openmmqmmm import problems). Unix/Linux uses fork
     if version == "multiprocessing":
         logger.info("Using version: multiprocessing")
@@ -72,6 +72,25 @@ def import_mp(version="multiprocessing"):
 # The latter uses dill serialization and should be more reliable
 
 
+def _resolve_theory_parallelization(theory, numcores, allow_theory_parallelization):
+    """Decide whether each parallel job may also use the theory's own cores."""
+    if theory.numcores == 1:
+        return
+    logger.warning("Theory numcores set to: %s", theory.numcores)
+    if allow_theory_parallelization is True:
+        logger.warning(
+            f"allow_theory_parallelization is True. Each job can use {theory.numcores} CPU cores, thus up to "
+            f"{numcores * theory.numcores} CPU cores can be running simultaneously. Make sure that that's how "
+            f"many slots are available."
+        )
+        return
+    logger.warning(
+        "allow_theory_parallelization is False. Now turning off theory.parallelization (setting theory "
+        "numcores to 1)\nThis can be overriden by: Job_parallel(allow_theory_parallelization=True)\n"
+    )
+    theory.numcores = 1
+
+
 def job_parallel(
     *,
     fragments=None,
@@ -87,7 +106,6 @@ def job_parallel(
     optimizer=None,
 ) -> "Results":
     """Carry out multiple single-point or optimization calculations in parallel."""
-    logger.info("")
     logger.info(sub_header("Job_parallel function"))
 
     logger.info("copytheory: %s", copytheory)
@@ -96,7 +114,7 @@ def job_parallel(
         logger.info("Job_parallel: Opt is True. This is an Opt_parallel job")
         if optimizer is None:
             logger.info("Job_parallel needs optimizer object which was not provided.")
-            logger.info("Creating one")
+            logger.debug("Creating one")
             from openmmqmmm.geometric import GeometricOptimizer
 
             # No options easily provided. Unclear if this is a good idea
@@ -120,7 +138,7 @@ def job_parallel(
         logger.info("Specifically there are issues with platform='CPU'.")
         logger.info("Try platform='Reference' instead or GPU options OpenCL or CUDA if possible")
     logger.info("Number of theories: %s", len(theories))
-    logger.info("Running single-point calculations in parallel")
+    logger.debug("Running single-point calculations in parallel")
     logger.info("Mofilesdir: %s", mofilesdir)
     logger.warning("Output from Job_parallel will be erratic due to simultaneous output from multiple workers")
 
@@ -133,7 +151,7 @@ def job_parallel(
     else:
         fragmentfiles = []
 
-    mp, Pool = import_mp(version=version)
+    mp, Pool = _import_mp(version=version)
 
     def terminate_pool_processes(message):
         logger.error("Terminating Pool processes due to exception")
@@ -167,28 +185,12 @@ def job_parallel(
 
     if len(theories) == 1:
         theory = theories[0]
-        logger.info("Case: Multiple fragments but one theory")
-        logger.info("")
-        logger.info("Launching pool.apply_async:")
+        logger.debug("Case: Multiple fragments but one theory")
+        logger.debug("\nLaunching pool.apply_async:")
         logger.info("Job_parallel numcores set to: %s", numcores)
         logger.info(f"openmmqmmm will run {numcores} jobs simultaneously")
 
-        if theory.numcores != 1:
-            logger.warning("Theory numcores set to: %s", theory.numcores)
-            if allow_theory_parallelization is True:
-                totnumcores = numcores * theory.numcores
-                logger.warning("allow_theory_parallelization is True.")
-                logger.warning(
-                    f"Each job can use {theory.numcores} CPU cores, thus up to {totnumcores} CPU cores can be running "
-                    f"simultaneously. Make sure that that's how many slots are available."
-                )
-            else:
-                logger.warning(
-                    "allow_theory_parallelization is False. Now turning off theory.parallelization (setting theory "
-                    "numcores to 1)"
-                )
-                logger.warning("This can be overriden by: Job_parallel(allow_theory_parallelization=True)\n")
-                theory.numcores = 1
+        _resolve_theory_parallelization(theory, numcores, allow_theory_parallelization)
 
         if len(fragments) > 0:
             logger.info("fragments: %s", fragments)
@@ -196,18 +198,18 @@ def job_parallel(
                 logger.info("fragment: %s", fragment)
                 submit(theory=theory, fragment=fragment, label=fragment.label)
         elif len(fragmentfiles) > 0:
-            logger.info("Launching multiprocessing and passing list of fragment files")
+            logger.debug("Launching multiprocessing and passing list of fragment files")
             for fragmentfile in fragmentfiles:
                 logger.info("fragmentfile: %s", fragmentfile)
                 submit(theory=theory, fragmentfile=fragmentfile, label=fragmentfile)
     elif len(fragments) == 1:
-        logger.info("Case: Multiple theories but one fragment")
+        logger.debug("Case: Multiple theories but one fragment")
         fragment = fragments[0]
         for theory in theories:
             logger.info("theory: %s", theory)
             submit(theory=theory, fragment=fragment, label=fragment.label)
     elif len(fragmentfiles) == 1:
-        logger.info("Case: Multiple theories but one fragmentfile")
+        logger.debug("Case: Multiple theories but one fragmentfile")
         fragmentfile = fragmentfiles[0]
         for theory in theories:
             logger.info("theory: %s", theory)
@@ -358,7 +360,7 @@ def worker_par(
                 f"but the label was {label!r} (type {type(label).__name__})"
             )
         theory.moreadfile = moreadfile_path + ".gbw"
-        logger.info("Setting moreadfile to: %s", theory.moreadfile)
+        logger.debug("Setting moreadfile to: %s", theory.moreadfile)
 
     worker_dirname = "Pooljob_" + labelstring
     try:

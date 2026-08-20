@@ -6,15 +6,16 @@ import pytest
 
 import openmmqmmm.freq
 from openmmqmmm import Fragment, ZeroTheory, analytic_frequencies, constants, numerical_frequencies
+from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.freq import (
     approximate_full_hessian_from_smaller,
     calc_rotational_constants,
+    calc_thermochemistry,
     detect_linear,
     read_hessian,
     s_vib_qrrho_grimme,
     s_vib_qrrho_truhlar,
-    thermochemcalc,
     write_hessian,
 )
 
@@ -36,7 +37,7 @@ def water():
 def test_translational_entropy_matches_sackur_tetrode():
     """A lone argon atom has only translational entropy, known in closed form."""
     argon = Fragment(coordsstring="Ar 0.0 0.0 0.0\n", charge=0, mult=1)
-    result = thermochemcalc(vfreq=[], atoms=[0], fragment=argon, multiplicity=1)
+    result = calc_thermochemistry(vfreq=[], atoms=[0], fragment=argon, multiplicity=1)
 
     boltzmann, planck, avogadro = 1.380649e-23, 6.62607015e-34, 6.02214076e23
     gas_constant = boltzmann * avogadro
@@ -55,14 +56,16 @@ def test_translational_entropy_matches_sackur_tetrode():
 
 def test_zpve_is_the_harmonic_sum(water):
     """ZPVE must be 0.5*h*c*sum(nu) over the real modes."""
-    result = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
+    result = calc_thermochemistry(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
     assert result["ZPVE"] == pytest.approx(0.5 * sum(WATER_FREQUENCIES) * HALF_HC, rel=1e-6)
 
 
 def test_thermal_corrections_match_orca(water):
     # Water is C2v, so sigma = 2. openmmqmmm does not detect point groups and defaults
     # to 1; ORCA used 2, so it has to be supplied here for the comparison to be like for like.
-    result = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, symmetry_number=2)
+    result = calc_thermochemistry(
+        vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, symmetry_number=2
+    )
 
     assert result["vibenergycorr"] == pytest.approx(0.00000144, abs=2e-8)
     assert result["TS_trans"] == pytest.approx(0.01644380, rel=1e-3)
@@ -73,8 +76,10 @@ def test_thermal_corrections_match_orca(water):
 def test_symmetry_number_lowers_rotational_entropy(water):
     """Sigma defaults to 1 and must be supplied for symmetric molecules."""
     gas_constant_hartree_per_kelvin = 3.166811563e-6
-    default = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
-    c2v = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, symmetry_number=2)
+    default = calc_thermochemistry(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
+    c2v = calc_thermochemistry(
+        vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, symmetry_number=2
+    )
 
     assert default["TS_rot"] - c2v["TS_rot"] == pytest.approx(
         gas_constant_hartree_per_kelvin * 298.15 * math.log(2), rel=1e-3
@@ -88,7 +93,7 @@ def test_thermal_vibrational_energy_reaches_the_classical_limit(water):
     # 1 cm-1 corresponds to a vibrational temperature of ~1.44 K, far below 298 K
     soft_modes = [0.0] * 6 + [1.0, 1.0, 1.0]
 
-    result = thermochemcalc(vfreq=soft_modes, atoms=[0, 1, 2], fragment=water, multiplicity=1, temp=temperature)
+    result = calc_thermochemistry(vfreq=soft_modes, atoms=[0, 1, 2], fragment=water, multiplicity=1, temp=temperature)
 
     classical_limit = 3 * gas_constant_hartree_per_kelvin * temperature
     assert result["E_vib"] == pytest.approx(classical_limit, rel=1e-2)
@@ -96,7 +101,7 @@ def test_thermal_vibrational_energy_reaches_the_classical_limit(water):
 
 def test_gibbs_correction_is_enthalpy_minus_entropy_term(water):
     """G = H - TS must hold across the returned corrections."""
-    result = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
+    result = calc_thermochemistry(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
     assert result["Gcorr"] == pytest.approx(result["Hcorr"] - result["TS_tot"], abs=1e-12)
     assert result["TS_tot"] == pytest.approx(
         result["TS_trans"] + result["TS_rot"] + result["TS_vib"] + result["TS_el"], abs=1e-12
@@ -105,8 +110,8 @@ def test_gibbs_correction_is_enthalpy_minus_entropy_term(water):
 
 def test_entropy_increases_with_temperature(water):
     """Entropy is monotonic in temperature; the ZPVE is not temperature dependent."""
-    cold = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, temp=200.0)
-    hot = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, temp=400.0)
+    cold = calc_thermochemistry(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, temp=200.0)
+    hot = calc_thermochemistry(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1, temp=400.0)
 
     assert hot["TS_tot"] > cold["TS_tot"]
     assert hot["ZPVE"] == pytest.approx(cold["ZPVE"])
@@ -114,8 +119,8 @@ def test_entropy_increases_with_temperature(water):
 
 def test_electronic_entropy_follows_multiplicity(water):
     """A degenerate ground state contributes R*ln(multiplicity)."""
-    singlet = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
-    triplet = thermochemcalc(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=3)
+    singlet = calc_thermochemistry(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
+    triplet = calc_thermochemistry(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=3)
 
     assert singlet["TS_el"] == 0.0, "A non-degenerate state has no electronic entropy"
     assert triplet["TS_el"] > 0.0
@@ -177,7 +182,7 @@ def test_sub_region_hessian_fragment_does_not_inherit_the_whole_system_charge(mo
         seen["charge"] = charge
         return np.zeros((9, 9))
 
-    monkeypatch.setattr(openmmqmmm.freq, "calc_model_hessian_orca", fake_model_hessian)
+    monkeypatch.setattr(openmmqmmm.freq, "_calc_model_hessian_orca", fake_model_hessian)
     rng = np.random.default_rng(1)
     small = rng.random((9, 9))
     small = small + small.T
@@ -211,7 +216,7 @@ def test_whole_fragment_model_hessian_may_use_the_fragment_charge(monkeypatch):
         seen["charge"], seen["mult"] = charge, mult
         return np.zeros((9, 9))
 
-    monkeypatch.setattr(openmmqmmm.freq, "calc_model_hessian_orca", fake_model_hessian)
+    monkeypatch.setattr(openmmqmmm.freq, "_calc_model_hessian_orca", fake_model_hessian)
     rng = np.random.default_rng(1)
     small = rng.random((9, 9))
     small = small + small.T
@@ -223,7 +228,7 @@ def test_whole_fragment_model_hessian_may_use_the_fragment_charge(monkeypatch):
 
 def test_model_hessian_does_not_mutate_the_callers_fragment(monkeypatch):
     fragment = Fragment(coordsstring=WATER_COORDS, charge=-1, mult=2)
-    monkeypatch.setattr(openmmqmmm.freq, "calc_model_hessian_orca", lambda *_a, **_kw: np.zeros((9, 9)))
+    monkeypatch.setattr(openmmqmmm.freq, "_calc_model_hessian_orca", lambda *_a, **_kw: np.zeros((9, 9)))
     rng = np.random.default_rng(1)
     small = rng.random((9, 9))
     small = small + small.T
@@ -361,3 +366,50 @@ def test_analytic_frequencies_forwards_the_qrrho_method(water, soft_mode_theory)
         "Truhlar and Grimme must give different vibrational entropies for a sub-cut-off mode; "
         "equal values mean qrrho_method never reached thermochemcalc"
     )
+
+
+class _HarmonicTheory:
+    """E = 1/2 sum_i k_i (r_i - r0_i)^2 in bohr, so the exact Hessian is diag(FORCE_CONSTANTS)."""
+
+    theorytype = "QM"
+    numcores = 1
+
+    def __init__(self, reference_coords):
+        self.reference = np.ravel(np.asarray(reference_coords, float)) * ANG_TO_BOHR
+
+    def run(self, current_coords=None, elems=None, grad=False, charge=None, mult=None, **kwargs):
+        """Return the harmonic energy and its analytic gradient in Eh and Eh/bohr."""
+        displacement = np.ravel(np.asarray(current_coords, float)) * ANG_TO_BOHR - self.reference
+        energy = 0.5 * float(np.sum(FORCE_CONSTANTS * displacement * displacement))
+        return energy, (FORCE_CONSTANTS * displacement).reshape(-1, 3)
+
+
+FORCE_CONSTANTS = np.array([0.4, 0.7, 1.1, 0.3, 0.9, 0.5, 0.6, 0.2, 0.8])
+HARMONIC_COORDS = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.98], [0.93, 0.0, -0.26]]
+
+
+def _numerical_hessian(tmp_path, monkeypatch, **kwargs):
+    monkeypatch.chdir(tmp_path)
+    fragment = Fragment(elems=["O", "H", "H"], coords=HARMONIC_COORDS, charge=0, mult=1)
+    numerical_frequencies(
+        fragment=fragment,
+        theory=_HarmonicTheory(HARMONIC_COORDS),
+        displacement=0.005,
+        charge=0,
+        mult=1,
+        **kwargs,
+    )
+    return fragment.hessian
+
+
+@pytest.mark.parametrize("npoint", [1, 2])
+def test_numerical_hessian_reproduces_an_analytic_one(tmp_path, monkeypatch, npoint):
+    """A linear gradient makes both difference formulas exact, so this pins the whole pipeline."""
+    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=npoint)
+    assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS), abs=1e-10)
+
+
+def test_partial_numerical_hessian_covers_only_the_requested_atoms(tmp_path, monkeypatch):
+    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=2, hessatoms=[1, 2])
+    assert hessian.shape == (6, 6)
+    assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS[3:]), abs=1e-10)

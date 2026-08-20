@@ -9,7 +9,6 @@ from openmmqmmm.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-# Function to read in XYZ-file (small molecule) and create PDB-file with CONECT lines (geometry needs to be sensible)
 def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
     logger.info("xyz_to_pdb_with_connectivity function:")
     try:
@@ -27,7 +26,7 @@ def xyz_to_pdb_with_connectivity(file, resname="UNL") -> str:
     os.remove(os.path.splitext(file)[0] + "temp.pdb")
 
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
-    logger.info("Creating new atomnames for PDBfile")
+    logger.debug("Creating new atomnames for PDBfile")
     # Note: currently just combining element and atomindex to get a unique atomname (otherwise Modeller will not work)
     for res in pybel.ob.OBResidueIter(newmol.OBMol):
         res.SetName(resname)

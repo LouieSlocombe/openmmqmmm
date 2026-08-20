@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def mdtraj_load():
-    logger.info("Importing mdtraj (https://www.mdtraj.org)")
+    logger.debug("Importing mdtraj (https://www.mdtraj.org)")
     try:
         import mdtraj
     except ImportError:
@@ -28,16 +28,16 @@ def mdtraj_rmsf(
     logger.info("Inside MDtraj_RMSF")
     mdtraj = mdtraj_load()
 
-    logger.info("Loading trajectory using mdtraj.")
+    logger.debug("Loading trajectory using mdtraj.")
     traj = mdtraj.load(trajectory, top=pdbtopology)
     firstframe = traj[0]
     rmsflist = mdtraj.rmsf(traj, reference=None, frame=0, atom_indices=None, parallel=parallel)
 
     if print_largest_values is True:
-        logger.info(f"Will print RMSF largest_values={largest_values}")
+        logger.debug(f"Will print RMSF largest_values={largest_values}")
         large_rmsf_indices = rmsflist.argsort()[::-1][:largest_values]
     else:
-        logger.info(f"Will print atom RMSF values larger than threshold={threshold}")
+        logger.debug(f"Will print atom RMSF values larger than threshold={threshold}")
         large_rmsf_indices = np.where(rmsflist > threshold)[0]
     if len(large_rmsf_indices) > 0:
         logger.info("Printing atoms with high root-mean-square fluctuations:")
@@ -62,7 +62,7 @@ def mdtraj_image_trajectory(
 
     mdtraj = mdtraj_load()
 
-    logger.info("Loading trajectory using mdtraj.")
+    logger.debug("Loading trajectory using mdtraj.")
     traj = mdtraj.load(trajectory, top=pdbtopology)
 
     numframes = len(traj._time)

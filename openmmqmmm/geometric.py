@@ -207,7 +207,7 @@ class GeometricOptimizer:
 
         self.time_init = time.time()
         logger.info(main_header("geomeTRICOptimizer initialization"))
-        logger.info("Creating optimizer object")
+        logger.debug("Creating optimizer object")
 
         if actatoms is not None:
             logger.info("List of active atoms provided. Setting ActiveRegion to True")
@@ -222,7 +222,6 @@ class GeometricOptimizer:
                 "Warning: ActiveRegion is set but the coordsystem is TRIC. The HDLC coordinate system is usually much "
                 "more robust for large systems than TRIC."
             )
-            logger.info("")
             if force_coordsystem is True:
                 logger.info("force_coordsystem is True.")
                 logger.info("Sticking with coordsystem TRIC")
@@ -295,7 +294,7 @@ class GeometricOptimizer:
             if self.active_region is True:
                 if isinstance(theory, QMMMTheory):
                     logger.info("Theory class: QMMMTheory")
-                    logger.info(
+                    logger.debug(
                         "Will by default print only QM-region in output (use print_atoms_list option to change)"
                     )
                     self.print_atoms_list = theory.qmatoms
@@ -309,7 +308,7 @@ class GeometricOptimizer:
         """Resolve the geomeTRIC convergence thresholds to use."""
         if convergence_setting is None:
             if userconv is None:
-                logger.info("No convergence settings by user. Using default criteria (same as ORCA)")
+                logger.debug("No convergence settings by user. Using default criteria (same as ORCA)")
             convergence_setting = "ORCA"
         if convergence_setting not in CONVERGENCE_PRESETS:
             raise InputError(
@@ -330,7 +329,7 @@ class GeometricOptimizer:
         if self.active_region and constraints is not None:
             logger.info("Constraints set. Active region true")
             logger.info("User-defined constraints (fullsystem-indices): %s", constraints)
-            constraints = constraints_indices_convert(constraints, self.actatoms)
+            constraints = _constraints_indices_convert(constraints, self.actatoms)
             logger.info("Converting constraints indices to active-region indices")
             logger.info("Constraints (actregion-indices): %s", constraints)
 
@@ -601,9 +600,8 @@ class GeometricOptimizer:
 
     def run(self, theory=None, fragment=None, charge=None, mult=None, constraints=None, constrainvalue=False):
         """Optimize a geometry with geomeTRIC."""
-        logger.info("")
         logger.info(sub_header("Running geomeTRIC object"))
-        logger.info(
+        logger.debug(
             f"\nDoing geometry optimization on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
         )
         self.cleanup()  # NOTE: This deletes constraintsfile
@@ -619,22 +617,22 @@ class GeometricOptimizer:
         # If constraints not directly provided to run method, then we look at self.constraints and then
         # fragment.constraints
         if constraints is None:
-            logger.info("No constraints provided to run method.")
+            logger.debug("No constraints provided to run method.")
             logger.info("Testing if constraints present in optimizer object")
             if self.constraints is not None:
                 logger.info("Found constraints in optimizer object")
                 constraints = self.constraints
                 constrainvalue = self.constrainvalue
             else:
-                logger.info("No constraints in optimizer object.")
-                logger.info("Now testing if constraints in fragment object ")
+                logger.debug("No constraints in optimizer object.")
+                logger.debug("Now testing if constraints in fragment object ")
                 if fragment.constraints is not None:
                     # Option used by Surface-scan relaxed parallel
                     logger.info("Found constraints in fragment object")
                     constraints = fragment.constraints
                     constrainvalue = True  # Assuming to be the case.
                 else:
-                    logger.info("No constraints in fragment object.")
+                    logger.debug("No constraints in fragment object.")
         else:
             logger.info("Constraints provided to run method.")
         logger.info("\nConstraints:  %s", constraints)
@@ -667,7 +665,6 @@ class GeometricOptimizer:
         try:
             import geometric
         except Exception as e:
-            logger.info("")
             raise MissingDependencyError(
                 f"Problem importing geomeTRIC module!\nEither install geomeTRIC using pip:\n conda install geometric\n "
                 f"or \n pip install geometric\n or manually from Github (https://github.com/leeping/geomeTRIC)\nActual "
@@ -718,17 +715,15 @@ class GeometricOptimizer:
         logger.info("Coordinate system: %s", self.coordsystem)
 
         if self.ts_opt:
-            logger.info("Starting saddlepoint optimization")
+            logger.debug("Starting saddlepoint optimization")
         else:
-            logger.info("Starting optimization")
+            logger.debug("Starting optimization")
 
         log_time_since(self.time_init, "Time spent before run_optimizer")
         geometric.optimize.run_optimizer(**vars(final_geometric_args))
         time.sleep(1)
 
-        logger.info("")
-        logger.info(f"geomeTRIC Geometry optimization converged in {engine.iteration_count + 1} steps!")
-        logger.info("")
+        logger.info(f"\ngeomeTRIC Geometry optimization converged in {engine.iteration_count + 1} steps!\n")
 
         # QM/MM: Doing final energy evaluation if Truncated PC option was on
         if isinstance(theory, QMMMTheory):
@@ -759,7 +754,6 @@ class GeometricOptimizer:
         if self.active_region is not True:
             logger.info("Final geometry")
             fragment.print_coords()
-        logger.info("")
 
         if self.pbc_active:
             logger.info("PBC True. Writing final optimized geometry in PBC-format")
@@ -789,7 +783,6 @@ class GeometricOptimizer:
 
         if len(self.print_atoms_list) < 50:
             _print_internal_coordinate_table(fragment, actatoms=self.print_atoms_list)
-        logger.info("")
 
         # Note: could include the geometry in object but can be very large causing printing head-aches on screen,
         # ignoring for now since the geometry is in the Fragment object anyway
@@ -928,7 +921,7 @@ class GeometricEngine:
         logger.info("geometric called calc_bondorder option option for GeometricEngine.")
         if self.BOmatrix is not None:
             return self.BOmatrix
-        logger.info("no BOmatrix found")
+        logger.debug("no BOmatrix found")
         if self.pbc_active:
             logger.info("PBC and BOmatrix handling")
             self.BOmatrix = np.zeros((len(self.M.elem), len(self.M.elem)), dtype=int)
@@ -948,7 +941,7 @@ class GeometricEngine:
             self.BOmatrix[n_orig, n_orig + 3] = self.BOmatrix[n_orig + 3, n_orig] = 1
 
             return self.BOmatrix
-        logger.info("No BO option implemented")
+        logger.debug("No BO option implemented")
         return None
 
     def clearCalcs(self):  # noqa: N802 - geomeTRIC engine API, do not rename
@@ -1001,7 +994,6 @@ class GeometricEngine:
 
     # Read_data and copydir not used (dummy variables)
     def calc(self, coords, tmp, read_data=None, copydir=None):
-        logger.info("")
         if self.iteration_count == self.maxiter:
             raise OpenMMQMMMError(
                 f"Geometry optimization stopped: maxiter ({self.maxiter}) reached without convergence"
@@ -1010,7 +1002,6 @@ class GeometricEngine:
         # Note: tmp and read_data not used. Needed for geomeTRIC version compatibility
         logger.info("Convergence criteria: %s", self.conv_criteria)
 
-        logger.info("")
         # Need to combine with rest of full-system coords
         self.M.xyzs[0] = coords.reshape(-1, 3) * openmmqmmm.constants.BOHR_TO_ANG
         currcoords = self.M.xyzs[0]
@@ -1018,7 +1009,7 @@ class GeometricEngine:
         if self.active_region is True:
             egdict = self.actregion_calc(currcoords)
         elif self.pbc_active is True:
-            logger.info("Doing PBC opt-step")
+            logger.debug("Doing PBC opt-step")
             egdict = self.pbc_calc(currcoords)
         else:
             egdict = self.regular_calc(currcoords)
@@ -1102,8 +1093,7 @@ class GeometricEngine:
         logger.info(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
         logger.info("---------------------------------------------------")
         print_coords_for_atoms(currcoords, self.fragment.elems, self.print_atoms_list)
-        logger.info("")
-        logger.info("Note: printed only print_atoms_list (this is not necessarily all atoms) ")
+        logger.info("\nNote: printed only print_atoms_list (this is not necessarily all atoms) ")
         E, grad = self.theory.run(
             current_coords=currcoords, elems=self.M.elem, charge=self.charge, mult=self.mult, grad=True
         )
@@ -1139,8 +1129,7 @@ class GeometricEngine:
         logger.info(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
         logger.info("---------------------------------------------------")
         print_coords_for_atoms(R_phys, self.elems_phys, self.print_atoms_list)
-        logger.info("")
-        logger.info("Note: printed only print_atoms_list (this is not necessarily all atoms) ")
+        logger.info("\nNote: printed only print_atoms_list (this is not necessarily all atoms) ")
         logger.info(f"Current cell vectors (Å):{H_geo}")
         logger.info(f"Current cell volume (Å):{cell_volume(H_geo)}")
 
@@ -1183,7 +1172,7 @@ class GeometricEngine:
         return {"energy": E, "gradient": mod_gradient.flatten()}
 
 
-def constraints_indices_convert(con, actatoms):
+def _constraints_indices_convert(con, actatoms):
     try:
         bondcons = con["bond"]
     except KeyError:

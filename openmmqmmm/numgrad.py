@@ -17,7 +17,7 @@ class NumGrad:
     """Wrapper theory computing gradients numerically by finite differences of energies."""
 
     def __init__(self, theory, npoint=2, displacement=DEFAULT_DISPLACEMENT, runmode="serial", numcores=1):
-        logger.info("Creating NumGrad wrapper object")
+        logger.debug("Creating NumGrad wrapper object")
         # Only the 1- and 2-point stencils are implemented. Without this check any other
         # value skips gradient assembly entirely and returns a zero gradient, which an
         # optimizer happily reads as a converged structure.
@@ -62,21 +62,21 @@ class NumGrad:
         numatoms = len(current_coords)
         displacement_bohr = self.displacement * openmmqmmm.constants.ANG_TO_BOHR
 
-        list_of_displaced_geos, list_of_displacements, all_disp_fragments = creating_displaced_geos(
+        list_of_displaced_geos, list_of_displacements, all_disp_fragments = _create_displaced_geometries(
             current_coords, elems, self.displacement, self.npoint, charge, mult
         )
         if self.runmode == "serial":
             logger.info("Numgrad: runmode is serial")
-            logger.info("Running original geometry first")
+            logger.debug("Running original geometry first")
             orig_energy = self.theory.run(
                 current_coords=current_coords, elems=elems, grad=False, label=label, charge=charge, mult=mult
             )
             dispdict = {}
-            logger.info(f"Will now loop over {len(list_of_displacements)} displacements")
+            logger.debug(f"Will now loop over {len(list_of_displacements)} displacements")
 
             for i, dispgeo in enumerate(list_of_displaced_geos):
                 disp = list_of_displacements[i]
-                logger.info(
+                logger.debug(
                     f"Running displacement {i + 1} / {len(list_of_displaced_geos)}. Displacing Atom:{disp[0]} "
                     f"Coord:{disp[1]} Direction:{disp[2]}"
                 )
@@ -128,14 +128,12 @@ class NumGrad:
         return self.energy
 
 
-def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult):
+def _create_displaced_geometries(current_coords, elems, displacement, npoint, charge, mult):
     displacement_bohr = displacement * openmmqmmm.constants.ANG_TO_BOHR
     logger.info(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
-    logger.info("Starting geometry:")
-    logger.info("")
-    logger.info("Printing original geometry...")
+    logger.debug("Starting geometry:")
+    logger.info("\nPrinting original geometry...")
     print_coords_all(current_coords, elems)
-    logger.info("")
 
     # Only displacing atom if in hessatoms list. i.e. possible partial Hessian
     list_of_displaced_geos = []
