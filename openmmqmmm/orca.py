@@ -217,55 +217,11 @@ class ORCATheory:
         self.keep_last_output = True
 
         self.nmf = nmf
-        if self.nmf is True:
-            if nmf_sigma is None:
-                raise InputError("NMF option requires setting NMF_sigma")
-            self.nmf_sigma = nmf_sigma
-
-            logger.info("NMF option is active. Will activate Fermi-smearing in ORCA input!")
-            NMF_smeartemp = self.nmf_sigma / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
-            logger.info(f"NMF_smeartemp = {NMF_smeartemp} calculated from NMF_sigma: {self.nmf_sigma}:")
-            self.orcablocks = (
-                self.orcablocks
-                + f"""
-%scf
-fracocc true
-smeartemp {NMF_smeartemp}
-end
-            """
-            )
-
-        # If gradient requested by Singlepoint(Grad=True) or Optimizer then TDDFT gradient is calculated instead
-        if self.tddft is True and "%tddft" not in self.orcablocks:
-            self.orcablocks = (
-                self.orcablocks
-                + f"""
-%tddft
-nroots {self.tddft_roots}
-IRoot {self.follow_root}
-end
-"""
-            )
+        self.nmf_sigma = nmf_sigma
         self.rohf_uhf_swap = rohf_uhf_swap
-
-        # Specific CPCM radii. e.g. to use DRACO radii
-        if cpcm_radii is not None:
-            logger.info("CPCM radii provided: %s", cpcm_radii)
-            cpcm_block = "%cpcm\n"
-            for i, radius in enumerate(cpcm_radii):
-                cpcm_block = cpcm_block + f"AtomRadii({i},  {radius})\n"
-            cpcm_block = cpcm_block + "end\n"
-            logger.info("cpcm_block: %s", cpcm_block)
-            self.orcablocks = self.orcablocks + cpcm_block
-
-        # XDM: if True then we add !AIM to input
-        self.xdm = False
-        if xdm is True:
-            self.xdm = True
-            self.xdm_a1 = xdm_a1
-            self.xdm_a2 = xdm_a2
-            self.xdm_func = xdm_func
-            self.orcasimpleinput = self.orcasimpleinput + " AIM"
+        self.xdm = xdm is True
+        self.xdm_a1, self.xdm_a2, self.xdm_func = xdm_a1, xdm_a2, xdm_func
+        self._append_optional_input_blocks(cpcm_radii=cpcm_radii)
 
         logger.info("")
         logger.info("Creating ORCA object")
@@ -398,6 +354,150 @@ end
         polarizability, _diag_pz = grab_polarizability_tensor(self.filename + ".out")
         logger.info("polarizability: %s", polarizability)
         return polarizability
+
+    def _reset_one_shot_options(self):
+        """Turn off the settings that only applied to the calculation just finished."""
+        if self.rohf_uhf_swap:
+            logger.info("\nROHF UHF swap feature active.")
+            logger.info("This means that a $new_job ORCA job was run with a ROHF-UHF noiter switch")
+            logger.info(f"Note that the relevant GBW file is then: {self.filename}_job2.gbw\n")
+            logger.info("Stored as self.gbwfile of this ORCATheory object")
+            self.gbwfile = self.filename + "_job2.gbw"
+        else:
+            self.gbwfile = self.filename + ".gbw"
+
+        # Now that we have possibly run a BS-DFT calculation, turning Brokensym off for future calcs (opt, restart,
+        # etc.)
+        # using this theory object
+        if self.brokensym is True:
+            logger.info(
+                "ORCA Flipspin calculation done. Now turning off brokensym in ORCA object for possible future "
+                "calculations"
+            )
+            self.brokensym = False
+        # Turning off deltaSCF for future calcs
+        if self.delta_scf is True:
+            logger.info("DeltaSCF calculation done.")
+            if self.delta_scf_turn_off_automatically is True:
+                logger.info(
+                    "deltaSCF_turn_off_automatically option is True. Turning off DELTASCF for future calculations."
+                )
+                self.delta_scf = False
+                # Without these a later ground-state calculation can fall back to the excited solution
+                for keyword in ("nososcf", "nodamp", "nolshift"):
+                    if keyword not in self.orcasimpleinput:
+                        logger.info("Adding %s to orcasimpleinput", keyword.upper())
+                        self.orcasimpleinput = self.orcasimpleinput + f" {keyword}"
+            else:
+                logger.info("deltaSCF_turn_off_automatically option is False. Will keep DeltaSCF settings")
+
+        # Now that we have possibly run a ORCA job with moreadfile we now turn the moreadfile option off
+        #  as we probably want to use the orbitals we created
+        if self.moreadfile is not None:
+            logger.info("First ORCATheory calculation finished.")
+            if not self.moreadfile_always:
+                logger.info("Now turning moreadfile option off.")
+                self.moreadfile = None
+
+    def _save_output_copies(self, charge, mult):
+        """Keep the labelled, per-run and last copies of the ORCA output that were asked for."""
+        if self.save_output_with_label is True:
+            shutil.copy(self.filename + ".out", self.filename + f"_{self.label}_{charge}_{mult}.out")
+
+        if self.keep_each_run_output is True:
+            logger.info("\nkeep_each_run_output is True")
+            logger.info(
+                "%s", "Copying {} to {}".format(self.filename + ".out", self.filename + f"_run{self.runcalls}" + ".out")
+            )
+            shutil.copy(self.filename + ".out", self.filename + f"_run{self.runcalls}" + ".out")
+
+        if self.keep_last_output is True:
+            shutil.copy(self.filename + ".out", self.filename + "_last.out")
+
+        # Save path to last GBW-file (used if the run changes directories, e.g. goes from NumFreq)
+        self.path_to_last_gbwfile_used = f"{os.getcwd()}/{self.filename}.gbw"
+
+    def _log_population_analysis(self, qm_elems):
+        """Parse and report the Mulliken charges and spin populations."""
+        logger.info("\nPrinting Mulliken Population analysis:")
+        logger.info("%s", "-" * 30)
+        charges = grab_orca_atom_charges("Mulliken", self.filename + ".out")
+        spinpops = grab_orca_spin_populations("Mulliken", self.filename + ".out")
+        self.properties["Mulliken_charges"] = charges
+        self.properties["Mulliken_spinpops"] = spinpops
+        if len(spinpops) == 0 and len(charges) != 0:
+            logger.info("%s", "{:<2} {:<2}  {:>10}".format(" ", " ", "Charge"))
+            for i, (el, ch) in enumerate(zip(qm_elems, charges, strict=False)):
+                logger.info(f"{i:<2} {el:<2}: {ch:>10.4f}")
+            logger.info("")
+        elif len(spinpops) != 0 and len(charges) != 0:
+            logger.info("%s", "{:<2} {:<2}  {:>10} {:>10}".format(" ", " ", "Charge", "Spinpop"))
+            for i, (el, ch, sp) in enumerate(zip(qm_elems, charges, spinpops, strict=False)):
+                logger.info(f"{i:<2} {el:<2}: {ch:>10.4f} {sp:>10.4f}")
+            logger.info("")
+        else:
+            logger.warning("No charges or spinpops were found in ORCA output. Continuing")
+
+    def _append_optional_input_blocks(self, *, cpcm_radii):
+        """Extend orcasimpleinput/orcablocks with the blocks the optional features need."""
+        if self.nmf is True:
+            if self.nmf_sigma is None:
+                raise InputError("NMF option requires setting NMF_sigma")
+            logger.info("NMF option is active. Will activate Fermi-smearing in ORCA input!")
+            smeartemp = self.nmf_sigma / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
+            logger.info(f"NMF_smeartemp = {smeartemp} calculated from NMF_sigma: {self.nmf_sigma}:")
+            self.orcablocks += f"\n%scf\nfracocc true\nsmeartemp {smeartemp}\nend\n"
+
+        # A gradient request (single_point(grad=True), or an optimizer) computes the TDDFT gradient instead
+        if self.tddft is True and "%tddft" not in self.orcablocks:
+            self.orcablocks += f"\n%tddft\nnroots {self.tddft_roots}\nIRoot {self.follow_root}\nend\n"
+
+        # Specific CPCM radii, e.g. to use DRACO radii
+        if cpcm_radii is not None:
+            logger.info("CPCM radii provided: %s", cpcm_radii)
+            radii_lines = "".join(f"AtomRadii({i},  {radius})\n" for i, radius in enumerate(cpcm_radii))
+            cpcm_block = f"%cpcm\n{radii_lines}end\n"
+            logger.info("cpcm_block: %s", cpcm_block)
+            self.orcablocks += cpcm_block
+
+        # XDM needs ORCA to produce the WFX file that the postprocessing reads
+        if self.xdm:
+            self.orcasimpleinput += " AIM"
+
+    def _collect_optional_properties(self, outfile):
+        """Parse the NMF, ICE-CI and TDDFT properties that only some ORCA outputs carry."""
+        if self.nmf is True:
+            logger.info("NMF option is active.")
+            E_NMF = self.energy
+            occupations = np.array(grab_scf_fod_occupations(outfile))
+            logger.info("Fractional ccupations (Fermi distribution): %s", occupations)
+            logger.info("Now also calculating correlation energy from the fractional occupation numbers")
+            logger.info("Assuming Fermi distribution")
+            Ec = openmmqmmm.elstructure.get_ec_entropy(occupations, self.nmf_sigma, method="fermi")
+            logger.info("Ec: %s", Ec)
+            self.properties["NMF_occupations"] = occupations
+            self.properties["E_NMF"] = E_NMF
+            self.properties["NMF_Ec"] = Ec
+            self.energy = self.energy + Ec
+
+        # ICE-CI
+        try:
+            E_PT2_rest = float(pygrep("'rest' energy", self.filename + ".out")[-1])
+            num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = grab_ice_wf_cfg_ci_size(self.filename + ".out")
+            self.properties["E_var"] = self.energy
+            self.properties["E_PT2_rest"] = E_PT2_rest
+            self.properties["num_genCFGs"] = num_genCFGs
+            self.properties["num_selected_CFGs"] = num_selected_CFGs
+            self.properties["num_after_SD_CFGs"] = num_after_SD_CFGs
+        except Exception:  # noqa: BLE001 - best-effort: ICE-CI properties only in ICE-CI outputs
+            pass
+
+        if self.tddft is True:
+            transition_energies = tddftgrab(f"{self.filename}.out")
+            transition_intensities = tddftintens_grab(f"{self.filename}.out")
+
+            self.properties["TDDFT_transition_energies"] = transition_energies
+            self.properties["TDDFT_transition_intensities"] = transition_intensities
 
     def run(
         self,
@@ -567,97 +667,11 @@ end
         else:
             logger.info("There was an ORCA error that was ignored by user-input")
 
-        if self.rohf_uhf_swap:
-            logger.info("\nROHF UHF swap feature active.")
-            logger.info("This means that a $new_job ORCA job was run with a ROHF-UHF noiter switch")
-            logger.info(f"Note that the relevant GBW file is then: {self.filename}_job2.gbw\n")
-            logger.info("Stored as self.gbwfile of this ORCATheory object")
-            self.gbwfile = self.filename + "_job2.gbw"
-        else:
-            self.gbwfile = self.filename + ".gbw"
-
-        # Now that we have possibly run a BS-DFT calculation, turning Brokensym off for future calcs (opt, restart,
-        # etc.)
-        # using this theory object
-        if self.brokensym is True:
-            logger.info(
-                "ORCA Flipspin calculation done. Now turning off brokensym in ORCA object for possible future "
-                "calculations"
-            )
-            self.brokensym = False
-        # Turning off deltaSCF for future calcs
-        if self.delta_scf is True:
-            logger.info("DeltaSCF calculation done.")
-            if self.delta_scf_turn_off_automatically is True:
-                logger.info(
-                    "deltaSCF_turn_off_automatically option is True. Turning off DELTASCF for future calculations."
-                )
-                self.delta_scf = False
-                deltascfblock = None
-                if "nososcf" not in self.orcasimpleinput:
-                    logger.info(
-                        "Adding NOSOSCF to orcasimpleinput to avoid future calculations from falling back to "
-                        "ground-state"
-                    )
-                    self.orcasimpleinput = self.orcasimpleinput + " nososcf"
-                if "nodamp" not in self.orcasimpleinput:
-                    logger.info(
-                        "Adding NODAMP to orcasimpleinput to avoid future calculations from falling back to "
-                        "ground-state"
-                    )
-                    self.orcasimpleinput = self.orcasimpleinput + " nodamp"
-                if "nolshift" not in self.orcasimpleinput:
-                    logger.info(
-                        "Adding NOLSHIFT to orcasimpleinput to avoid future calculations from falling back to "
-                        "ground-state"
-                    )
-                    self.orcasimpleinput = self.orcasimpleinput + " nolshift"
-            else:
-                logger.info("deltaSCF_turn_off_automatically option if False. Will keep DeltaSCF settings")
-
-        # Now that we have possibly run a ORCA job with moreadfile we now turn the moreadfile option off
-        #  as we probably want to use the orbitals we created
-        if self.moreadfile is not None:
-            logger.info("First ORCATheory calculation finished.")
-            if not self.moreadfile_always:
-                logger.info("Now turning moreadfile option off.")
-                self.moreadfile = None
-
-        if self.save_output_with_label is True:
-            shutil.copy(self.filename + ".out", self.filename + f"_{self.label}_{charge}_{mult}.out")
-
-        if self.keep_each_run_output is True:
-            logger.info("\nkeep_each_run_output is True")
-            logger.info(
-                "%s", "Copying {} to {}".format(self.filename + ".out", self.filename + f"_run{self.runcalls}" + ".out")
-            )
-            shutil.copy(self.filename + ".out", self.filename + f"_run{self.runcalls}" + ".out")
-
-        if self.keep_last_output is True:
-            shutil.copy(self.filename + ".out", self.filename + "_last.out")
-
-        # Save path to last GBW-file (used if the run changes directories, e.g. goes from NumFreq)
-        self.path_to_last_gbwfile_used = f"{os.getcwd()}/{self.filename}.gbw"
-
+        self._reset_one_shot_options()
+        self._save_output_copies(charge, mult)
         if self.print_population_analysis is True:
-            logger.info("\nPrinting Mulliken Population analysis:")
-            logger.info("%s", "-" * 30)
-            charges = grab_orca_atom_charges("Mulliken", self.filename + ".out")
-            spinpops = grab_orca_spin_populations("Mulliken", self.filename + ".out")
-            self.properties["Mulliken_charges"] = charges
-            self.properties["Mulliken_spinpops"] = spinpops
-            if len(spinpops) == 0 and len(charges) != 0:
-                logger.info("%s", "{:<2} {:<2}  {:>10}".format(" ", " ", "Charge"))
-                for i, (el, ch) in enumerate(zip(qm_elems, charges, strict=False)):
-                    logger.info(f"{i:<2} {el:<2}: {ch:>10.4f}")
-                logger.info("")
-            elif len(spinpops) != 0 and len(charges) != 0:
-                logger.info("%s", "{:<2} {:<2}  {:>10} {:>10}".format(" ", " ", "Charge", "Spinpop"))
-                for i, (el, ch, sp) in enumerate(zip(qm_elems, charges, spinpops, strict=False)):
-                    logger.info(f"{i:<2} {el:<2}: {ch:>10.4f} {sp:>10.4f}")
-                logger.info("")
-            else:
-                logger.warning("No charges or spinpops were found in ORCA output. Continuing")
+            self._log_population_analysis(qm_elems)
+
         if self.ignore_orca_error is False:
             self.energy = grab_orca_final_energy(outfile)
             logger.info("ORCA energy: %s", self.energy)
@@ -668,38 +682,7 @@ end
                 logger.info("No energy could be found in ORCA outputfile.")
                 logger.info("Setting energy to 0.0 and returning")
                 return 0.0
-        if self.nmf is True:
-            logger.info("NMF option is active.")
-            E_NMF = self.energy
-            occupations = np.array(grab_scf_fod_occupations(outfile))
-            logger.info("Fractional ccupations (Fermi distribution): %s", occupations)
-            logger.info("Now also calculating correlation energy from the fractional occupation numbers")
-            logger.info("Assuming Fermi distribution")
-            Ec = openmmqmmm.elstructure.get_ec_entropy(occupations, self.nmf_sigma, method="fermi")
-            logger.info("Ec: %s", Ec)
-            self.properties["NMF_occupations"] = occupations
-            self.properties["E_NMF"] = E_NMF
-            self.properties["NMF_Ec"] = Ec
-            self.energy = self.energy + Ec
-
-        # ICE-CI
-        try:
-            E_PT2_rest = float(pygrep("'rest' energy", self.filename + ".out")[-1])
-            num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = grab_ice_wf_cfg_ci_size(self.filename + ".out")
-            self.properties["E_var"] = self.energy
-            self.properties["E_PT2_rest"] = E_PT2_rest
-            self.properties["num_genCFGs"] = num_genCFGs
-            self.properties["num_selected_CFGs"] = num_selected_CFGs
-            self.properties["num_after_SD_CFGs"] = num_after_SD_CFGs
-        except Exception:  # noqa: BLE001 - best-effort: ICE-CI properties only in ICE-CI outputs
-            pass
-
-        if self.tddft is True:
-            transition_energies = tddftgrab(f"{self.filename}.out")
-            transition_intensities = tddftintens_grab(f"{self.filename}.out")
-
-            self.properties["TDDFT_transition_energies"] = transition_energies
-            self.properties["TDDFT_transition_intensities"] = transition_intensities
+        self._collect_optional_properties(outfile)
 
         orca_timings = grab_orca_timings(outfile)
 
