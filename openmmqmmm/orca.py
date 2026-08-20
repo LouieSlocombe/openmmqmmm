@@ -307,7 +307,7 @@ class ORCATheory:
             moreadfile=self.moreadfile,
         )
         logger.info(f"ORCA Calculation started using {numcores} CPU cores")
-        run_orca_sp_parallel(
+        _run_orca_sp_parallel(
             self.orcadir,
             self.filename + ".inp",
             numcores=numcores,
@@ -320,7 +320,7 @@ class ORCATheory:
         ORCAfinished, _iter = check_orca_finished(outfile)
         if ORCAfinished:
             logger.info("ORCA job finished")
-            if check_orca_opt_finished(outfile):
+            if _check_orca_opt_finished(outfile):
                 logger.info("ORCA geometry optimization finished")
                 self.energy = grab_orca_final_energy(outfile)
                 _opt_elems, opt_coords = openmmqmmm.coords.read_xyzfile(self.filename + ".xyz")
@@ -351,7 +351,7 @@ class ORCATheory:
     def get_polarizability_tensor(self):
         """Read the static polarizability tensor from the last ORCA output file."""
         logger.debug("Reading polarizability from: %s", self.filename + ".out")
-        polarizability, _diag_pz = grab_polarizability_tensor(self.filename + ".out")
+        polarizability, _diag_pz = _grab_polarizability_tensor(self.filename + ".out")
         logger.info("polarizability: %s", polarizability)
         return polarizability
 
@@ -469,7 +469,7 @@ class ORCATheory:
         if self.nmf is True:
             logger.info("NMF option is active.")
             E_NMF = self.energy
-            occupations = np.array(grab_scf_fod_occupations(outfile))
+            occupations = np.array(_grab_scf_fod_occupations(outfile))
             logger.info("Fractional ccupations (Fermi distribution): %s", occupations)
             logger.info("Now also calculating correlation energy from the fractional occupation numbers")
             logger.info("Assuming Fermi distribution")
@@ -483,7 +483,7 @@ class ORCATheory:
         # ICE-CI
         try:
             E_PT2_rest = float(pygrep("'rest' energy", self.filename + ".out")[-1])
-            num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = grab_ice_wf_cfg_ci_size(self.filename + ".out")
+            num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = _grab_ice_wf_cfg_ci_size(self.filename + ".out")
             self.properties["E_var"] = self.energy
             self.properties["E_PT2_rest"] = E_PT2_rest
             self.properties["num_genCFGs"] = num_genCFGs
@@ -493,8 +493,8 @@ class ORCATheory:
             pass
 
         if self.tddft is True:
-            transition_energies = tddftgrab(f"{self.filename}.out")
-            transition_intensities = tddftintens_grab(f"{self.filename}.out")
+            transition_energies = _grab_tddft_transition_energies(f"{self.filename}.out")
+            transition_intensities = _grab_tddft_intensities(f"{self.filename}.out")
 
             self.properties["TDDFT_transition_energies"] = transition_energies
             self.properties["TDDFT_transition_intensities"] = transition_intensities
@@ -606,7 +606,7 @@ class ORCATheory:
         brokensym_options = {"hs_mult": self.hs_mult, "atomstoflip": qmatomstoflip} if self.brokensym is True else {}
         if pc is True:
             logger.info("Pointcharge embedding is on!")
-            create_orca_pcfile(self.filename, current_mm_coords, mm_charges)
+            _create_orca_pcfile(self.filename, current_mm_coords, mm_charges)
             write_orca_input = create_orca_input_pc
             # Ghost/dummy atoms are a gas-phase option only: they have no MM counterpart.
             embedding_options = {}
@@ -638,7 +638,7 @@ class ORCATheory:
 
         logger.info("ORCA Calculation starting.")
 
-        run_orca_sp_parallel(
+        _run_orca_sp_parallel(
             self.orcadir,
             self.filename + ".inp",
             numcores=numcores,
@@ -859,7 +859,7 @@ def find_orca(orcadir=None, required=True):
     return None
 
 
-def run_orca_sp_parallel(
+def _run_orca_sp_parallel(
     orcadir,
     inpfile,
     numcores=1,
@@ -975,7 +975,7 @@ def check_orca_finished(file):
     return False, None
 
 
-def check_orca_opt_finished(file):
+def _check_orca_opt_finished(file):
     converged = False
     with open(file, errors="ignore") as f:
         for line in f:
@@ -1102,7 +1102,7 @@ def grab_dipole_moment(outfile):
     return dipole_moment
 
 
-def grab_polarizability_tensor(outfile):
+def _grab_polarizability_tensor(outfile):
     pz_tensor = np.zeros((3, 3))
     diag_pz_tensor = []
     count = 0
@@ -1137,34 +1137,34 @@ def grab_polarizability_tensor(outfile):
     return pz_tensor, diag_pz_tensor
 
 
-def tddftgrab(file):
+def _grab_tddft_transition_energies(file):
     tddftstates = []
     tddft = True
-    tddftgrab = False
+    _grab_tddft_transition_energies = False
     if tddft:
         with open(file) as f:
             for line in f:
-                if tddftgrab and "STATE" in line:
+                if _grab_tddft_transition_energies and "STATE" in line:
                     if "eV" in line:
                         tddftstates.append(float(line.split()[5]))
-                    tddftgrab = True
+                    _grab_tddft_transition_energies = True
                 if "the weight of the individual excitations" in line:
-                    tddftgrab = True
+                    _grab_tddft_transition_energies = True
     return tddftstates
 
 
-def tddftintens_grab(file):
+def _grab_tddft_intensities(file):
     intensities = []
-    tddftgrab = False
+    _grab_tddft_transition_energies = False
     with open(file) as f:
         for line in f:
-            if tddftgrab:
+            if _grab_tddft_transition_energies:
                 if "->" in line:
                     intensities.append(float(line.split()[-5]))
                 if len(line.split()) == 0:
-                    tddftgrab = False
+                    _grab_tddft_transition_energies = False
             if "fosc(D2)" in line:
-                tddftgrab = True
+                _grab_tddft_transition_energies = True
     return intensities
 
 
@@ -1404,7 +1404,7 @@ def create_orca_input_plain(name, elems, coords, orcasimpleinput, orcablockinput
     _create_orca_input(name, elems, coords, orcasimpleinput, orcablockinput, charge, mult, pcfile=None, **kwargs)
 
 
-def create_orca_pcfile(name, coords, listofcharges):
+def _create_orca_pcfile(name, coords, listofcharges):
     with open(name + ".pc", "w") as pcfile:
         pcfile.write(str(len(listofcharges)) + "\n")
         for p, c in zip(listofcharges, coords, strict=False):
@@ -1545,7 +1545,7 @@ def grab_orca_atom_charges(chargemodel, outputfile):
         # used for them.
         logger.info("Hirshfeld charges : %s", charges)
         elems, coords = _grab_orca_cartesian_coordinates(outputfile)
-        atomicnumbers = openmmqmmm.coords.elemstonuccharges(elems)
+        atomicnumbers = openmmqmmm.coords.elems_to_nuclear_charges(elems)
         charges = list(openmmqmmm.elstructure.calc_cm5(atomicnumbers, coords, charges))
         logger.info("CM5 charges : %s", charges)
 
@@ -1576,7 +1576,7 @@ def _grab_orca_cartesian_coordinates(outputfile):
 # If no stability analysis present in output, then also return true
 
 
-def grab_scf_fod_occupations(filename):
+def _grab_scf_fod_occupations(filename):
     occgrab = False
     occupations = []
     with open(filename) as f:
@@ -1594,7 +1594,7 @@ def grab_scf_fod_occupations(filename):
     return occupations
 
 
-def grab_ice_wf_cfg_ci_size(filename):
+def _grab_ice_wf_cfg_ci_size(filename):
     num_after_SD_CFGs = 0
     num_genCFGs = 0
     num_selected_CFGs = 0
@@ -1733,7 +1733,7 @@ end
     ORCAfinished, _iter = check_orca_finished(basename + ".out")
     if ORCAfinished is not True:
         raise ExternalProgramError("Something failed about external ORCA job")
-    if check_orca_opt_finished(basename + ".out") is not True:
+    if _check_orca_opt_finished(basename + ".out") is not True:
         raise ExternalProgramError("ORCA external job failed. Check outputfile: {}".format(basename + ".out"))
     logger.info("ORCA external job finished")
 

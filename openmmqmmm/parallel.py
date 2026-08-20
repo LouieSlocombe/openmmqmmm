@@ -27,10 +27,10 @@ def check_openmpi():
             "No mpirun found in PATH. Make sure to add OpenMPI to PATH in your environment/jobscript"
         ) from None
     logger.info("OpenMPI binary directory found: %s", openmpibindir)
-    verify_openmpi()
+    _verify_openmpi()
 
 
-def verify_openmpi():
+def _verify_openmpi():
     logger.info("Testing that mpirun is executable...")
     p = sp.Popen(["mpirun", "-V"], stdout=sp.PIPE)
     out, _err = p.communicate()
@@ -39,7 +39,7 @@ def verify_openmpi():
     logger.info("OpenMPI version (mpirun -V): %s", mpiversion)
 
 
-def import_mp(version="multiprocessing"):
+def _import_mp(version="multiprocessing"):
     # NOTE: Python 3.8 and higher use spawn in MacOS (openmmqmmm import problems). Unix/Linux uses fork
     if version == "multiprocessing":
         logger.info("Using version: multiprocessing")
@@ -152,7 +152,7 @@ def job_parallel(
     else:
         fragmentfiles = []
 
-    mp, Pool = import_mp(version=version)
+    mp, Pool = _import_mp(version=version)
 
     def terminate_pool_processes(message):
         logger.error("Terminating Pool processes due to exception")

@@ -12,7 +12,7 @@ from openmmqmmm.exceptions import (
     InputError,
     InternalError,
 )
-from openmmqmmm.utils import log_time_since, main_header, writelisttofile
+from openmmqmmm.utils import log_time_since, main_header, write_list_to_file
 
 logger = logging.getLogger(__name__)
 
@@ -732,17 +732,17 @@ class QMMMTheory:
             Lgrad = self.QMgradient[linkatomindex]
             Lcoord = self.linkatoms_dict[pair]
             fullatomindex_qm = pair[0]
-            qmatomindex = fullindex_to_qmindex(fullatomindex_qm, self.qmatoms)
+            qmatomindex = _fullindex_to_qmindex(fullatomindex_qm, self.qmatoms)
             Qcoord = used_qmcoords[qmatomindex]
             fullatomindex_mm = pair[1]
             Mcoord = current_coords[fullatomindex_mm]
 
             if self.linkatom_forceproj_method == "adv":
-                QM1grad_contrib, MM1grad_contrib = linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad)
+                QM1grad_contrib, MM1grad_contrib = _linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad)
             elif self.linkatom_forceproj_method == "lever":
-                QM1grad_contrib, MM1grad_contrib = linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad)
+                QM1grad_contrib, MM1grad_contrib = _linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad)
             elif self.linkatom_forceproj_method == "chain":
-                QM1grad_contrib, MM1grad_contrib = linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad)
+                QM1grad_contrib, MM1grad_contrib = _linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad)
             elif self.linkatom_forceproj_method.lower() == "none" or self.linkatom_forceproj_method is None:
                 QM1grad_contrib = np.zeros(3)
                 MM1grad_contrib = np.zeros(3)
@@ -1316,13 +1316,13 @@ class QMMMTheory:
         return self.QM_MM_energy
 
 
-def fullindex_to_qmindex(fullindex, qmatoms):
+def _fullindex_to_qmindex(fullindex, qmatoms):
     return qmatoms.index(fullindex)
 
 
 # NOTE: New resid-indices are used to avoid problem of PDB-file having
 # repeating sequences of resids, additional chains or segments
-def grab_resids_from_pdbfile(pdbfile):
+def _grab_resids_from_pdbfile(pdbfile):
     resids = []  # New list of resid indices, starting from 0
     actual_resids = []  # Actual resid values from PDB-file, used to check if resid has changed
     indexcount = 0  # This will be used to define residues
@@ -1344,7 +1344,7 @@ def grab_resids_from_pdbfile(pdbfile):
 
 # NOTE: New resid-indices are used to avoid problem of PSF-file having
 # repeating sequences of resids, additional chains or segments
-def grab_resids_from_psffile(psffile):
+def _grab_resids_from_psffile(psffile):
     resids = []  # New list of resid indices, starting from 0
     actual_resids = []  # Actual resid values from PSF-file, used to check if resid has changed
     indexcount = 0  # This will be used to define residues
@@ -1418,10 +1418,10 @@ def define_active_region(
         resids = mmtheory.resids
     elif psffile is not None:
         logger.info("PSF-file provided. Using residue information")
-        resids = grab_resids_from_psffile(psffile)
+        resids = _grab_resids_from_psffile(psffile)
     else:
         logger.info("PDB-file provided. Using residue information")
-        resids = grab_resids_from_pdbfile(pdbfile)
+        resids = _grab_resids_from_pdbfile(pdbfile)
 
     origincoords = fragment.coords[originatom]
     logger.info("Origin-atom coordinates: %s", origincoords)
@@ -1438,7 +1438,7 @@ def define_active_region(
     logger.info("act_indices: %s", act_indices)
     act_indices = np.unique(act_indices).tolist()
 
-    writelisttofile(act_indices, "active_atoms")
+    write_list_to_file(act_indices, "active_atoms")
     logger.info("Active region size: %s", len(act_indices))
     logger.info("Active-region indices written to file: active_atoms")
     logger.info(
@@ -1451,7 +1451,7 @@ def define_active_region(
 
 
 # This projects the linkatom force onto the respective QM atom and MM atom
-def linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad):
+def _linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad):
     QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ANG_TO_BOHR
     MQdistance = openmmqmmm.coords.distance(Mcoord, Qcoord) * openmmqmmm.constants.ANG_TO_BOHR
     # Coords in Bohr
@@ -1488,7 +1488,7 @@ def linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad):
 
 
 # Should be what ORCA uses
-def linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad):
+def _linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad):
     QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord)
     MQdistance = openmmqmmm.coords.distance(Mcoord, Qcoord)
     scal = QLdistance / MQdistance
@@ -1498,7 +1498,7 @@ def linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad):
 
 
 # Simplistic; selected with linkatom_forceproj_method="chain"
-def linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad):
+def _linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad):
     QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ANG_TO_BOHR
     vec = (Mcoord - Qcoord) * openmmqmmm.constants.ANG_TO_BOHR
     R2 = vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]

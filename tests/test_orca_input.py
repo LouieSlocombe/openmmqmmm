@@ -77,7 +77,7 @@ def test_opt_writes_valid_input_and_leaves_theory_unchanged(tmp_path, monkeypatc
     def fail_at_launch(*args, **kwargs):
         raise OrcaLaunchedError
 
-    monkeypatch.setattr("openmmqmmm.orca.run_orca_sp_parallel", fail_at_launch)
+    monkeypatch.setattr("openmmqmmm.orca._run_orca_sp_parallel", fail_at_launch)
 
     theory = ORCATheory(orcasimpleinput="! HF def2-SVP", orcablocks="%scf maxiter 200 end")
     fragment = Fragment(coordsstring="H 0.0 0.0 0.0\nF 0.0 0.0 0.95\n", charge=0, mult=1)

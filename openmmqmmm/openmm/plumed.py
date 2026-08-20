@@ -7,7 +7,7 @@ from openmmqmmm.exceptions import (
 from openmmqmmm.openmm.md import MolecularDynamicsEngine, engine_kwargs_from
 from openmmqmmm.utils import (
     main_header,
-    writestringtofile,
+    write_string_to_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ def openmm_md_plumed(
         "plumed_input_string provided. Will read all options from this string (make sure to provide atom indices "
         "in 1-based indexing)"
     )
-    writestringtofile(plumed_input_string, "plumedinput.in")
+    write_string_to_file(plumed_input_string, "plumedinput.in")
 
     logger.info("Now starting PLUMED-biased simulation")
     md.run(

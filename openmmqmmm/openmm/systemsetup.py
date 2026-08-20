@@ -31,7 +31,7 @@ from openmmqmmm.utils import (
     log_time_since,
     main_header,
     pygrep,
-    writelisttofile,
+    write_list_to_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -838,7 +838,7 @@ def find_alternate_locations_residues(pdbfile, use_higher_occupancy=False):
         logger.warning("\nThese residues should be manually inspected and fixed in the PDB-file before continuing")
         if use_higher_occupancy is True:
             logger.warning("\n Use higher-occupancy location opton was selected, so continuing.")
-            writelisttofile(finalpdblines, "system_afteratlocfixes.pdb", separator="")
+            write_list_to_file(finalpdblines, "system_afteratlocfixes.pdb", separator="")
             return "system_afteratlocfixes.pdb"
         raise InputError(
             "You should delete either the labelled A or B location of the residue-atom/atoms and then remove the "

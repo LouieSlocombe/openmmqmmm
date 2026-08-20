@@ -27,7 +27,7 @@ _CM5_PAIRS = {
 }
 
 
-def distance_matrix_from_coords(coords):
+def _distance_matrix_from_coords(coords):
     distmatrix = []
     for i in coords:
         dist_row = [openmmqmmm.coords.distance(i, j) for j in coords]
@@ -39,7 +39,7 @@ def calc_cm5(atomic_numbers, coords, hirschfeldcharges):
     coords = np.array(coords)
     atomic_numbers = np.array(atomic_numbers)
     # all matrices have the naming scheme matrix[k,k'] according to the paper
-    distances = np.array(distance_matrix_from_coords(coords))
+    distances = np.array(_distance_matrix_from_coords(coords))
     Rz = cm5_radii[atomic_numbers - 1]
     RzSum = np.tile(Rz, (len(Rz), 1))
     RzSum = np.add(RzSum, np.transpose(RzSum))

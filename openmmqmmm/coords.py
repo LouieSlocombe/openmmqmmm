@@ -157,7 +157,7 @@ class Fragment:
         self.fragmenttype_labels = []
 
         if coords is not None:
-            self.coords = reformat_list_to_array(coords)
+            self.coords = _reformat_list_to_array(coords)
             if elems is None:
                 raise InputError("Error: Coords list provided but no elems list. Exiting.")
             if len(elems) != len(coords):
@@ -190,17 +190,17 @@ class Fragment:
         elif atom is not None:
             logger.info("Creating Atom Fragment")
             self.elems = [atom]
-            self.coords = reformat_list_to_array([[0.0, 0.0, 0.0]])
+            self.coords = _reformat_list_to_array([[0.0, 0.0, 0.0]])
         elif diatomic is not None:
             logger.info("Creating Diatomic Fragment from formula and bondlength")
             if bondlength is None:
                 if diatomic_bondlength is None:
                     raise InputError("diatomic option requires bondlength to be set. Exiting!")
                 bondlength = diatomic_bondlength
-            self.elems = molformulatolist(diatomic)
+            self.elems = _formula_to_elem_list(diatomic)
             if len(self.elems) != 2:
                 raise InputError(f"Problem with molecular formula diatomic={diatomic} string!")
-            self.coords = reformat_list_to_array([[0.0, 0.0, 0.0], [0.0, 0.0, float(bondlength)]])
+            self.coords = _reformat_list_to_array([[0.0, 0.0, 0.0], [0.0, 0.0, float(bondlength)]])
         elif coordsstring is not None:
             self.add_coords_from_string(coordsstring, scale=scale, tol=tol, conncalc=conncalc)
         elif smiles is not None:
@@ -269,15 +269,15 @@ class Fragment:
             raise InputError("No coordinates in fragment. Something went wrong. Exiting.")
         if not isinstance(self.coords, np.ndarray):
             raise InputError("self.coords is not a numpy array. Something is wrong. Exiting.")
-        self.nuccharge = nucchargelist(self.elems)
-        self.nuc_charges = elemstonuccharges(self.elems)
+        self.nuccharge = total_nuclear_charge(self.elems)
+        self.nuc_charges = elems_to_nuclear_charges(self.elems)
         self.numatoms = len(self.coords)
         self.atomlist = list(range(self.numatoms))
         self.allatoms = self.atomlist
-        self.mass = totmasslist(self.elems)
+        self.mass = total_mass(self.elems)
         self.list_of_masses = list_of_masses(self.elems)
         self.masses = self.list_of_masses
-        self.formula = elemlisttoformula(self.elems)
+        self.formula = elems_to_formula(self.elems)
         self.prettyformula = self.formula
         if len(self.atomcharges) == 0:
             self.atomcharges = [0.0 for i in range(self.numatoms)]
@@ -319,7 +319,7 @@ class Fragment:
                 self.elems.append(reformat_element(line.split()[0]))
                 clist = [float(line.split()[1]), float(line.split()[2]), float(line.split()[3])]
                 tempcoords.append(clist)
-        self.coords = reformat_list_to_array(tempcoords)
+        self.coords = _reformat_list_to_array(tempcoords)
         self.label = "".join(self.elems)
 
     def create_coords_from_smiles(self, smiles):
@@ -329,7 +329,7 @@ class Fragment:
 
         elems, coords = smiles_to_coords(smiles)
         self.elems = elems
-        self.coords = reformat_list_to_array(coords)
+        self.coords = _reformat_list_to_array(coords)
         self.update_attributes()
 
     def replace_coords(self, elems, coords, conn=False, scale=None, tol=None):
@@ -337,7 +337,7 @@ class Fragment:
         logger.info("Replacing coordinates in fragment.")
 
         self.elems = elems
-        self.coords = reformat_list_to_array(coords)
+        self.coords = _reformat_list_to_array(coords)
         self.update_attributes()
         if conn is True:
             self.calc_connectivity(scale=scale, tol=tol)
@@ -376,7 +376,7 @@ class Fragment:
             elems, coords, _box_dims = read_ambercoordinates(prmtopfile=prmtopfile, inpcrdfile=inpcrdfile)
         except FileNotFoundError:
             raise FileFormatError(f"File {prmtopfile} or {inpcrdfile} not found") from None
-        self.coords = reformat_list_to_array(coords)
+        self.coords = _reformat_list_to_array(coords)
         self.elems = elems
 
     def read_grofile(self, filename, conncalc=False, scale=None, tol=None):
@@ -393,7 +393,7 @@ class Fragment:
         """Read coordinates from a ChemShell fragment file (Bohr units)."""
         logger.info(f"Reading coordinates from Chemshell file '{filename}' into fragment.")
         try:
-            elems, coords = read_chemshellfragfile_xyz(filename)
+            elems, coords = _read_chemshellfragfile_xyz(filename)
         except FileNotFoundError:
             raise FileFormatError(f"File '{filename}' not found.") from None
         self.coords = coords
@@ -468,7 +468,7 @@ class Fragment:
                         el = line.split()[0]
                         self.elems.append(reformat_element(el))
                     coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
-        self.coords = reformat_list_to_array(coords)
+        self.coords = _reformat_list_to_array(coords)
         if self.numatoms != len(self.coords):
             raise FileFormatError("Number of atoms in header not equal to number of coordinate-lines. Check XYZ file!")
 
@@ -502,7 +502,7 @@ class Fragment:
         logger.info(f"Using scale: {scale} and tol: {tol} ")
 
         timestampA = time.time()
-        fraglist = calc_conn_py(self.coords, self.elems, conndepth, scale, tol)
+        fraglist = _calc_conn_py(self.coords, self.elems, conndepth, scale, tol)
         log_time_since(timestampA, "calc connectivity py")
         self.connectivity = fraglist
         conn_number_sum = 0
@@ -784,7 +784,7 @@ class Fragment:
         self.Centralmainfrag = Centralmainfrag
 
 
-def reformat_list_to_array(data):
+def _reformat_list_to_array(data):
     if isinstance(data, np.ndarray):
         return data
     if isinstance(data, list):
@@ -956,7 +956,7 @@ def print_internal_coordinate_table(fragment, actatoms=None) -> None:
     scale = CONNECTIVITY_SCALE
     tol = CONNECTIVITY_TOL
 
-    connectivity = calc_conn_py(chosen_coords, chosen_elems, conndepth, scale, tol)
+    connectivity = _calc_conn_py(chosen_coords, chosen_elems, conndepth, scale, tol)
     logger.info("Connectivity calculation complete.")
 
     bondpairsdict = {}
@@ -1144,33 +1144,16 @@ def get_centroid(coords):
     return [sum_x / len(coords), sum_y / len(coords), sum_z / len(coords)]
 
 
-def change_origin_to_centroid(fullcoords, subsetcoords=None, subsetatoms=None):
-    if subsetcoords is not None:
-        logger.info("Calculating centroid for the specified subset coordinates")
-        centroid = get_centroid(subsetcoords)
-    elif subsetatoms is not None:
-        logger.info("Calculating centroid for the coordintes of specified subatoms: %s", subsetatoms)
-        subcoords = np.take(fullcoords, subsetatoms, axis=0)
-        centroid = get_centroid(subcoords)
-    else:
-        logger.info("Calculating centroid for full set of coordinates")
-        centroid = get_centroid(fullcoords)
-
-    newcoords = fullcoords - centroid
-    logger.info("Returning full coordinates with new origin at centroid")
-    return newcoords
-
-
 def threshold_conn(elA, elB, scale, tol):
     return scale * (eldict_covrad[elA] + eldict_covrad[elB]) + tol
 
 
-def calc_conn_py(coords, elems, conndepth, scale, tol):
+def _calc_conn_py(coords, elems, conndepth, scale, tol):
     found_atoms = []
     fraglist = []
     for atom in range(len(elems)):
         if atom not in found_atoms:
-            members = get_molecule_members_loop_np2(coords, elems, conndepth, scale, tol, atomindex=atom)
+            members = _get_molecule_members_np(coords, elems, conndepth, scale, tol, atomindex=atom)
             if members not in fraglist:
                 fraglist.append(members)
                 found_atoms += members
@@ -1190,15 +1173,15 @@ def get_connected_atoms(coords, elems, scale, tol, atomindex):
 
 
 # https://semantive.com/pl/blog/high-performance-computation-in-python-numpy/
-def einsum_mat(mat_v, mat_u):
+def _einsum_mat(mat_v, mat_u):
     mat_z = mat_v - mat_u
     return np.sqrt(np.einsum("ij,ij->i", mat_z, mat_z))
 
 
 # https://semantive.com/pl/blog/high-performance-computation-in-python-numpy/
-def get_connected_atoms_np(coords, elems, scale, tol, atomindex):
+def _get_connected_atoms_np(coords, elems, scale, tol, atomindex):
     compcoords = np.tile(coords[atomindex], (len(coords), 1))
-    distances = einsum_mat(coords, compcoords)
+    distances = _einsum_mat(coords, compcoords)
     el_covrad_ref = eldict_covrad[elems[atomindex]]
     # Cheaper way of getting thresholds list than calling threshold_conn
     thresholds = np.array([eldict_covrad[elems[i]] for i in range(len(elems))])
@@ -1212,7 +1195,7 @@ def get_connected_atoms_np(coords, elems, scale, tol, atomindex):
 def get_connected_atoms_dict(coords, elems, scale, tol):
     conndict = {}
     for c in range(len(coords)):
-        conn = get_connected_atoms_np(coords, elems, scale, tol, c)
+        conn = _get_connected_atoms_np(coords, elems, scale, tol, c)
         conn.remove(c)
         conndict[c] = conn
     return conndict
@@ -1221,18 +1204,18 @@ def get_connected_atoms_dict(coords, elems, scale, tol):
 # Version 2 never goes through same atom
 
 
-def get_molecule_members_loop_np2(coords, elems, loopnumber, scale, tol, atomindex=None, membs=None):
+def _get_molecule_members_np(coords, elems, loopnumber, scale, tol, atomindex=None, membs=None):
     if membs is None:
         membs = []
         membs.append(atomindex)
-        membs = get_connected_atoms_np(coords, elems, scale, tol, atomindex)
+        membs = _get_connected_atoms_np(coords, elems, scale, tol, atomindex)
 
     if isinstance(membs, int):
         membs = [membs]
     finalmembs = membs
 
     for _i in range(loopnumber):
-        newmembers = [get_connected_atoms_np(coords, elems, scale, tol, k) for k in membs]
+        newmembers = [_get_connected_atoms_np(coords, elems, scale, tol, k) for k in membs]
         trimmed_flat = np.unique([item for sublist in newmembers for item in sublist]).tolist()
 
         membs = listdiff(trimmed_flat, finalmembs)
@@ -1243,7 +1226,7 @@ def get_molecule_members_loop_np2(coords, elems, loopnumber, scale, tol, atomind
     return finalmembs
 
 
-def elemlisttoformula(elems):
+def elems_to_formula(elems):
     # Counting once per unique element rather than per atom: elems can be very long
     counts = Counter(elems)
     ordered = []
@@ -1255,7 +1238,7 @@ def elemlisttoformula(elems):
     return "".join(f"{element}{counts[element]}" for element in ordered)
 
 
-def molformulatolist(formulastring):
+def _formula_to_elem_list(formulastring):
     el = ""
     diff = ""
     els = []
@@ -1398,7 +1381,7 @@ def split_multimolxyzfile(file, writexyz=False, skipindex=1, return_fragments=Fa
     return all_elems, all_coords, all_titles
 
 
-def read_chemshellfragfile_xyz(fragfile):
+def _read_chemshellfragfile_xyz(fragfile):
     pathtofragfile = fragfile.split(".")[0] + ".c"
     coords = []
     elems = []
@@ -1413,11 +1396,11 @@ def read_chemshellfragfile_xyz(fragfile):
                 elems.append(el)
             if "block = coordinates records " in line:
                 grabcoords = True
-        coords = reformat_list_to_array(coords)
+        coords = _reformat_list_to_array(coords)
     return elems, coords
 
 
-def conv_atomtypes_elems(atomtype):
+def _conv_atomtypes_elems(atomtype):
     try:
         return openmmqmmm.elements.atomtypes_dict[atomtype]
     except KeyError:
@@ -1458,7 +1441,7 @@ def read_gromacsfile(grofile) -> tuple[list[str], np.ndarray, list]:
                 atomtype = linelist[1]
                 atomtype = "".join(item for item in atomtype if not item.isdigit())
                 atomtype = atomtype.replace("'", "")
-                elem = conv_atomtypes_elems(atomtype)
+                elem = _conv_atomtypes_elems(atomtype)
                 elems.append(elem)
 
                 # If larer than 7 then GRO file contains both coords and velocities
@@ -1472,7 +1455,7 @@ def read_gromacsfile(grofile) -> tuple[list[str], np.ndarray, list]:
                     coords_z = float(linelist[-1])
                 # Converting from nm to Ang
                 coords.append([10 * coords_x, 10 * coords_y, 10 * coords_z])
-    npcoords = reformat_list_to_array(coords)
+    npcoords = _reformat_list_to_array(coords)
     if len(npcoords) != len(elems):
         raise FileFormatError(f"Num coords not equal to num elems. Parsing of Gromacsfile: {grofile} failed. BUG!")
     return elems, npcoords, box_dims
@@ -1651,7 +1634,7 @@ def write_pdbfile(
     return outputname + ".pdb"
 
 
-def nucchargelist(ellist):
+def total_nuclear_charge(ellist):
     totnuccharge = 0
     warning_issued = False
     for e in ellist:
@@ -1667,7 +1650,7 @@ def nucchargelist(ellist):
     return totnuccharge
 
 
-def elemstonuccharges(ellist):
+def elems_to_nuclear_charges(ellist):
     nuccharges = []
     for e in ellist:
         atcharge = elematomnumbers[e.lower()]
@@ -1675,7 +1658,7 @@ def elemstonuccharges(ellist):
     return nuccharges
 
 
-def totmasslist(ellist):
+def total_mass(ellist):
     return sum(list_of_masses(ellist))
 
 
@@ -1822,7 +1805,7 @@ def flexible_align(
             "Note: All reorder-method options (from rmsd pakcage): brute, hungarian, inertia_hungarian, similarity, "
             "distance"
         )
-        order = reorder(
+        order = _reorder(
             reorder_methods_dict[reorder_method],
             np.array(subsetA_coords),
             np.array(subsetB_coords),
@@ -1878,17 +1861,8 @@ def calculate_rmsd(fragment_a, fragment_b, subset=None, heavyatomsonly=False, wr
     return rmsdval
 
 
-def centroid(X):
+def _centroid(X):
     return X.mean(axis=0)
-
-
-def rmsd(V, W):
-    D = len(V[0])
-    N = len(V)
-    rmsd = 0.0
-    for v, w in zip(V, W, strict=False):
-        rmsd += sum([(v[i] - w[i]) ** 2.0 for i in range(D)])
-    return np.sqrt(rmsd / N)
 
 
 def get_partial_list(allatoms, partialatoms, full_list):
@@ -1900,9 +1874,9 @@ def get_partial_list(allatoms, partialatoms, full_list):
     return newlist
 
 
-def reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
-    p_cent = centroid(p_coord)
-    q_cent = centroid(q_coord)
+def _reorder(reorder_method, p_coord, q_coord, p_atoms, q_atoms):
+    p_cent = _centroid(p_coord)
+    q_cent = _centroid(q_coord)
     p_coord -= p_cent
     q_coord -= q_cent
 
@@ -1930,7 +1904,7 @@ def expand_qm_region(fragment=None, initial_atoms=None, radius=None) -> list[int
                 dist = distance(c, allc)
                 if dist < radius:
                     if len(fragment.connectivity) == 0:
-                        wholemol = get_molecule_members_loop_np2(
+                        wholemol = _get_molecule_members_np(
                             fragment.coords, fragment.elems, 99, scale, tol, atomindex=index
                         )
                     else:
@@ -1997,7 +1971,7 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
             logger.info("Skipping QM-MM boundary...")
             continue
         # Note: get_connected_atoms very slow
-        connatoms = get_connected_atoms_np(coords, elems, scale, tol, qmatom)
+        connatoms = _get_connected_atoms_np(coords, elems, scale, tol, qmatom)
         boundaryatom = listdiff(connatoms, qmatoms)
 
         if len(boundaryatom) > 1:
@@ -2238,7 +2212,7 @@ def define_xh_constraints(fragment, actatoms=None, excludeatoms=None) -> list:
     logger.info(f"Defining constraints for {len(subset_elems)} atom-region")
 
     tempHatoms = [index for index, el in enumerate(subset_elems) if el == "H"]
-    tempHatoms_full = [actindex_to_fullindex(i, actatoms) for i in tempHatoms]
+    tempHatoms_full = [_actindex_to_fullindex(i, actatoms) for i in tempHatoms]
     Hatoms = []
     if excludeatoms is not None:
         logger.info("Checking for exclude atoms")
@@ -2253,13 +2227,13 @@ def define_xh_constraints(fragment, actatoms=None, excludeatoms=None) -> list:
     tol = CONNECTIVITY_TOL
     act_con_list = []
     for Hatom in Hatoms:
-        connatoms = get_connected_atoms_np(subset_coords, subset_elems, scale, tol, Hatom)
+        connatoms = _get_connected_atoms_np(subset_coords, subset_elems, scale, tol, Hatom)
         act_con_list.append(connatoms)
     final_list = []
     for XHpair in act_con_list:
         if len(XHpair) != 2:
             raise InternalError(f"XHpair is strange: {XHpair}")
-        final_list.append([actindex_to_fullindex(XHpair[0], actatoms), actindex_to_fullindex(XHpair[1], actatoms)])
+        final_list.append([_actindex_to_fullindex(XHpair[0], actatoms), _actindex_to_fullindex(XHpair[1], actatoms)])
     return final_list
 
 
@@ -2267,7 +2241,7 @@ def fullindex_to_actindex(fullindex, actatoms):
     return actatoms.index(fullindex)
 
 
-def actindex_to_fullindex(actindex, actatoms):
+def _actindex_to_fullindex(actindex, actatoms):
     return actatoms[actindex]
 
 
@@ -2303,10 +2277,10 @@ def simple_get_water_constraints(fragment, starting_index=None, onlyHH=False) ->
     return constraints
 
 
-def combine_and_place_fragments(ref_frag, trans_frag):
+def _combine_and_place_fragments(ref_frag, trans_frag):
     for displacement in [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0]:
         trans_frag.coords[:, -1] += displacement
-        members = get_molecule_members_loop_np2(
+        members = _get_molecule_members_np(
             np.vstack((ref_frag.coords, trans_frag.coords)),
             ref_frag.elems + trans_frag.elems,
             10,
@@ -2362,7 +2336,7 @@ def insert_solute_into_solvent(
         trans_coord = np.array(com_box) - np.array(com_solute)
         solute.coords = solute.coords + trans_coord
     else:
-        combined_solute = combine_and_place_fragments(ref_frag=solute, trans_frag=solute2)
+        combined_solute = _combine_and_place_fragments(ref_frag=solute, trans_frag=solute2)
 
         com_solute = combined_solute.get_coordinate_center()
         trans_coord = np.array(com_box) - np.array(com_solute)
@@ -2380,11 +2354,11 @@ def insert_solute_into_solvent(
 
     new_frag.write_xyzfile(xyzfilename="solution-pre.xyz")
 
-    membs = get_molecule_members_loop_np2(new_frag.coords, new_frag.elems, 20, scale, tol, atomindex=0, membs=None)
+    membs = _get_molecule_members_np(new_frag.coords, new_frag.elems, 20, scale, tol, atomindex=0, membs=None)
     delatoms = [i for i in membs if i >= solute.numatoms]
     logger.info("First delatoms: %s", delatoms)
     if solute2 is not None:
-        membs2 = get_molecule_members_loop_np2(
+        membs2 = _get_molecule_members_np(
             new_frag.coords, new_frag.elems, 20, scale, tol, atomindex=solute.numatoms, membs=None
         )
         logger.info("membs2: %s", membs2)

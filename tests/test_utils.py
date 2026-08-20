@@ -17,8 +17,8 @@ from openmmqmmm.utils import (
     pygrep2,
     read_intlist_from_file,
     search_list_of_lists_for_index,
-    writelisttofile,
-    writestringtofile,
+    write_list_to_file,
+    write_string_to_file,
 )
 
 
@@ -107,7 +107,7 @@ def test_find_replace_string_in_file(tmp_path):
 def test_write_and_read_intlist(tmp_path):
     """Active-region files are written and read back as plain integer lists."""
     listfile = tmp_path / "actatoms.txt"
-    writelisttofile([3, 4, 5], str(listfile))
+    write_list_to_file([3, 4, 5], str(listfile))
 
     assert read_intlist_from_file(str(listfile)) == [3, 4, 5]
 
@@ -115,14 +115,14 @@ def test_write_and_read_intlist(tmp_path):
 def test_read_intlist_applies_the_offset(tmp_path):
     """The offset converts between 1-based file conventions and 0-based indices."""
     listfile = tmp_path / "actatoms.txt"
-    writelisttofile([1, 2, 3], str(listfile))
+    write_list_to_file([1, 2, 3], str(listfile))
 
     assert read_intlist_from_file(str(listfile), offset=-1) == [0, 1, 2]
 
 
 def test_writestringtofile(tmp_path):
     target = tmp_path / "out.txt"
-    writestringtofile("hello", str(target))
+    write_string_to_file("hello", str(target))
     assert target.read_text() == "hello"
 
 

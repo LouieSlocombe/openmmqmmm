@@ -62,7 +62,7 @@ class NumGrad:
         numatoms = len(current_coords)
         displacement_bohr = self.displacement * openmmqmmm.constants.ANG_TO_BOHR
 
-        list_of_displaced_geos, list_of_displacements, all_disp_fragments = creating_displaced_geos(
+        list_of_displaced_geos, list_of_displacements, all_disp_fragments = _create_displaced_geometries(
             current_coords, elems, self.displacement, self.npoint, charge, mult
         )
         if self.runmode == "serial":
@@ -128,7 +128,7 @@ class NumGrad:
         return self.energy
 
 
-def creating_displaced_geos(current_coords, elems, displacement, npoint, charge, mult):
+def _create_displaced_geometries(current_coords, elems, displacement, npoint, charge, mult):
     displacement_bohr = displacement * openmmqmmm.constants.ANG_TO_BOHR
     logger.info(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
     logger.info("Starting geometry:")

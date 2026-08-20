@@ -153,12 +153,12 @@ def read_intlist_from_file(filename, offset=0):
     return intlist
 
 
-def writestringtofile(string, file, writemode="w"):
+def write_string_to_file(string, file, writemode="w"):
     with open(file, writemode) as f:
         f.write(string)
 
 
-def writelisttofile(pylist, file, separator=" "):
+def write_list_to_file(pylist, file, separator=" "):
     with open(file, "w") as f:
         f.writelines(str(item) + separator for item in pylist)
     logger.info("Wrote list to file: %s", file)

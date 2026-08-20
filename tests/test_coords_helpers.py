@@ -16,11 +16,11 @@ from openmmqmmm.coords import (
     dihedral,
     distance,
     eldict_covrad,
-    elemlisttoformula,
+    elems_to_formula,
     get_centroid,
-    nucchargelist,
     threshold_conn,
-    totmasslist,
+    total_mass,
+    total_nuclear_charge,
 )
 
 # A unit square walked corner to corner, so every quantity below is exact.
@@ -63,16 +63,16 @@ def test_get_centroid():
 
 
 def test_elemlisttoformula_is_deterministic_hill_notation():
-    assert elemlisttoformula(["H", "O", "H"]) == "H2O1"
-    assert elemlisttoformula(["O", "H", "H"]) == "H2O1", "Input order must not matter"
+    assert elems_to_formula(["H", "O", "H"]) == "H2O1"
+    assert elems_to_formula(["O", "H", "H"]) == "H2O1", "Input order must not matter"
     # Hill notation: carbon first, then hydrogen, then the rest alphabetically.
-    assert elemlisttoformula(["O", "H", "C", "H", "N", "H"]) == "C1H3N1O1"
+    assert elems_to_formula(["O", "H", "C", "H", "N", "H"]) == "C1H3N1O1"
 
 
 def test_nuclear_charges_and_mass():
-    assert nucchargelist(["H", "O", "H"]) == pytest.approx(10.0)
+    assert total_nuclear_charge(["H", "O", "H"]) == pytest.approx(10.0)
     # Water is about 18 amu.
-    assert totmasslist(["H", "O", "H"]) == pytest.approx(18.0, abs=0.1)
+    assert total_mass(["H", "O", "H"]) == pytest.approx(18.0, abs=0.1)
 
 
 def test_xyzfile_roundtrip(tmp_path):

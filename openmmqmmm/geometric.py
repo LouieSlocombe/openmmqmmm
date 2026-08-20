@@ -330,7 +330,7 @@ class GeometricOptimizer:
         if self.active_region and constraints is not None:
             logger.info("Constraints set. Active region true")
             logger.info("User-defined constraints (fullsystem-indices): %s", constraints)
-            constraints = constraints_indices_convert(constraints, self.actatoms)
+            constraints = _constraints_indices_convert(constraints, self.actatoms)
             logger.info("Converting constraints indices to active-region indices")
             logger.info("Constraints (actregion-indices): %s", constraints)
 
@@ -1183,7 +1183,7 @@ class GeometricEngine:
         return {"energy": E, "gradient": mod_gradient.flatten()}
 
 
-def constraints_indices_convert(con, actatoms):
+def _constraints_indices_convert(con, actatoms):
     try:
         bondcons = con["bond"]
     except KeyError:
