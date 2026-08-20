@@ -1,3 +1,4 @@
+import contextlib
 import copy
 import logging
 import math
@@ -11,10 +12,7 @@ import openmmqmmm.constants
 import openmmqmmm.coords
 import openmmqmmm.orca
 from openmmqmmm.coords import check_charge_mult
-from openmmqmmm.exceptions import (
-    InputError,
-    InternalError,
-)
+from openmmqmmm.exceptions import InputError
 from openmmqmmm.qmmm import QMMMTheory
 from openmmqmmm.results import Results
 from openmmqmmm.utils import clean_number, listdiff, log_time_since, main_header
@@ -144,6 +142,135 @@ def analytic_frequencies(
 
 
 # ORCA uses 0.005 Bohr = 0.0026458861 Ang, CHemshell uses 0.01 Bohr = 0.00529 Ang
+def _build_displacements(*, coords, elems, hessatoms, displacement, npoint, charge, mult):
+    """Return the displaced geometries, their dictionary keys, log labels and fragments."""
+    current = np.array(coords)
+    geometries = []
+    displacements = []
+    signs = [(1, "+")] if npoint == 1 else [(1, "+"), (-1, "-")]
+    for atom_index in hessatoms:
+        for coord_index in range(3):
+            val = current[atom_index, coord_index]
+            for sign, direction in signs:
+                current[atom_index, coord_index] = val + sign * displacement
+                geometries.append(current.copy())
+                displacements.append((atom_index, coord_index, direction))
+            current[atom_index, coord_index] = val
+    if npoint == 1:
+        # Forward difference needs the undisplaced gradient as its reference
+        geometries.append(current.copy())
+        displacements.append("Originalgeo")
+    logger.info("List of displacements: %s", displacements)
+
+    axis_names = ("x", "y", "z")
+    labels = []
+    fragments = []
+    for geometry, disp in zip(geometries, displacements, strict=True):
+        if disp == "Originalgeo":
+            calclabel = stringlabel = "Originalgeo"
+        else:
+            atom_disp, axis, direction = disp
+            calclabel = f"Atom: {atom_disp} Coord: {axis_names[axis]} Direction: {direction}"
+            stringlabel = f"{atom_disp}_{axis}_{direction}"
+        frag = openmmqmmm.Fragment(coords=geometry, elems=elems, label=stringlabel, charge=charge, mult=mult)
+        fragments.append(frag)
+        labels.append(calclabel)
+    return geometries, displacements, labels, fragments
+
+
+def _run_displacements_serially(*, theory, elems, charge, mult, geometries, displacements, labels, IR, Raman):
+    """Run every displaced geometry in turn, collecting gradients and optional properties."""
+    grads = {}
+    dipoles = {}
+    polarizabilities = {}
+    logger.info(
+        "Runmode: serial. Only theory parallelization is active; theory numcores is set to: %s", theory.numcores
+    )
+    for numdisp, (disp, label, geo) in enumerate(zip(displacements, labels, geometries, strict=True)):
+        if label == "Originalgeo":
+            stringlabel = "Originalgeo"
+            logger.info("Doing original geometry calc.")
+        else:
+            stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
+            logger.info("Running displacement %s / %s: %s", numdisp + 1, len(labels), label)
+        _energy, gradient = theory.run(current_coords=geo, elems=elems, grad=True, charge=charge, mult=mult)
+        grads[stringlabel] = gradient
+
+        if IR is True:
+            with contextlib.suppress(Exception):  # best-effort property grab
+                dipoles[stringlabel] = theory.get_dipole_moment()
+
+        if Raman is True:
+            try:
+                logger.info("Getting polarizability tensor")
+                displacement_pol = theory.get_polarizability_tensor()
+                if not np.any(displacement_pol):
+                    logger.warning("No polarizability information found")
+                polarizabilities[stringlabel] = displacement_pol
+            except Exception:  # noqa: BLE001 - best-effort polarizability grab
+                logger.warning("Problem getting polarizability tensor from theory interface. Skipping")
+    return grads, dipoles, polarizabilities
+
+
+def _run_displacements_in_parallel(*, theory, fragments, numcores):
+    """Run every displaced geometry through the job-parallel driver."""
+    if isinstance(theory, openmmqmmm.QMMMTheory):
+        logger.info("Numfreq in runmode='parallel' with QM/MM is quite experimental")
+    logger.info(
+        "Starting Numfreq calculations in parallel mode (numcores=%s) over %s displacements",
+        numcores,
+        len(fragments),
+    )
+    result = openmmqmmm.job_parallel(
+        fragments=fragments,
+        theories=[theory],
+        numcores=numcores,
+        allow_theory_parallelization=True,
+        grad=True,
+        copytheory=True,
+    )
+    return (
+        result.gradients_dict,
+        result.displacement_dipole_dictionary,
+        result.displacement_polarizability_dictionary,
+    )
+
+
+def _assemble_hessian(*, npoint, hessatoms, displacement_bohr, grads, dipoles, polarizabilities, IR, Raman):
+    """Finite-difference the displaced gradients into a symmetrised Hessian and its derivatives."""
+    logger.info("Assembling the %s-point Hessian", npoint)
+    hesslength = 3 * len(hessatoms)
+    hessian = np.zeros((hesslength, hesslength))
+    dipole_derivs = np.zeros((hesslength, 3))
+    polarizability_derivs = []
+
+    want_dipoles = IR is True and len(dipoles) > 0 and not any(value is None for value in dipoles.values())
+    want_polarizabilities = Raman is True and len(polarizabilities) > 0
+    # Forward difference measures against the undisplaced geometry over one step; central
+    # difference measures the two displacements against each other, so over two.
+    step = displacement_bohr if npoint == 1 else 2 * displacement_bohr
+
+    hessindex = 0
+    for atomindex in hessatoms:
+        for crd in (0, 1, 2):
+            plus = f"{atomindex}_{crd}_+"
+            minus = "Originalgeo" if npoint == 1 else f"{atomindex}_{crd}_-"
+
+            grad_plus = np.ravel(get_partial_matrix(grads[plus], hessatoms))
+            grad_minus = np.ravel(get_partial_matrix(grads[minus], hessatoms))
+            hessian[hessindex, :] = (grad_plus - grad_minus) / step
+
+            if want_dipoles and len(dipoles[plus]) > 0:
+                dipole_derivs[hessindex, :] = (np.array(dipoles[plus]) - np.array(dipoles[minus])) / step
+            if want_polarizabilities:
+                polarizability_derivs.append(
+                    (np.array(polarizabilities[plus]) - np.array(polarizabilities[minus])) / step
+                )
+            hessindex += 1
+
+    return (hessian + hessian.transpose()) / 2, dipole_derivs, polarizability_derivs
+
+
 def numerical_frequencies(
     *,
     fragment=None,
@@ -258,123 +385,42 @@ def numerical_frequencies(
     logger.info(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
     logger.info("")
     logger.info("Starting geometry:")
-    current_coords_array = np.array(coords)
-
     logger.info("Printing hessatoms geometry...")
     openmmqmmm.coords.print_coords_for_atoms(coords, elems, hessatoms)
     logger.info("")
 
-    # Only displacing atom if in hessatoms list. i.e. possible partial Hessian
-    list_of_displaced_geos = []
-    list_of_displacements = []
-    for atom_index in range(len(current_coords_array)):
-        if atom_index in hessatoms:
-            for coord_index in range(3):
-                val = current_coords_array[atom_index, coord_index]
-                current_coords_array[atom_index, coord_index] = val + displacement
-                y = current_coords_array.copy()
-                list_of_displaced_geos.append(y)
-                list_of_displacements.append((atom_index, coord_index, "+"))
-                if npoint == 2:
-                    current_coords_array[atom_index, coord_index] = val - displacement
-                    y = current_coords_array.copy()
-                    list_of_displaced_geos.append(y)
-                    list_of_displacements.append((atom_index, coord_index, "-"))
-                current_coords_array[atom_index, coord_index] = val
+    # Only displacing atoms in the hessatoms list, i.e. a possible partial Hessian
+    list_of_displaced_geos, list_of_displacements, list_of_labels, all_disp_fragments = _build_displacements(
+        coords=coords,
+        elems=elems,
+        hessatoms=hessatoms,
+        displacement=displacement,
+        npoint=npoint,
+        charge=charge,
+        mult=mult,
+    )
 
-    if npoint == 1:
-        list_of_displaced_geos.append(current_coords_array)
-        list_of_displacements.append("Originalgeo")
-
-    logger.info("List of displacements: %s", list_of_displacements)
-
-    # Also calclabels, currently used by runmode serial only
-    list_of_labels = []
-    all_disp_fragments = []
-    for dispgeo, disp in zip(list_of_displaced_geos, list_of_displacements, strict=False):
-        if disp == "Originalgeo":
-            calclabel = "Originalgeo"
-            stringlabel = "Originalgeo"
-        else:
-            atom_disp = disp[0]
-            if disp[1] == 0:
-                crd = "x"
-            elif disp[1] == 1:
-                crd = "y"
-            elif disp[1] == 2:
-                crd = "z"
-            drection = disp[2]
-            calclabel = f"Atom: {atom_disp!s} Coord: {crd!s} Direction: {drection!s}"
-            stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
-        frag = openmmqmmm.Fragment(coords=dispgeo, elems=elems, label=stringlabel, charge=charge, mult=mult)
-        all_disp_fragments.append(frag)
-        list_of_labels.append(calclabel)
-
-    if len(list_of_labels) != len(list_of_displaced_geos):
-        raise InternalError("Mismatch between number of labels and displaced geometries")
-
-    displacement_grad_dictionary = {}
-    displacement_dipole_dictionary = {}
-    displacement_polarizability_dictionary = {}
     if runmode == "serial":
-        logger.info("Runmode: serial")
-        logger.info("Only theory parallelization is active.")
-        logger.info("Theory numcores attributes is set to: %s", theory.numcores)
-        #   key: AtomNCoordPDirectionm   where N=atomnumber, P=x,y,z and direction m: + or -
-        for numdisp, (disp, label, geo) in enumerate(
-            zip(list_of_displacements, list_of_labels, list_of_displaced_geos, strict=False)
-        ):
-            if label == "Originalgeo":
-                calclabel = "Originalgeo"
-                logger.info("Doing original geometry calc.")
-                stringlabel = calclabel
-            else:
-                calclabel = label
-                logger.info(f"Running displacement: {numdisp + 1} / {len(list_of_labels)}")
-                logger.info("%s", calclabel)
-                stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
-            _energy, gradient = theory.run(current_coords=geo, elems=elems, grad=True, charge=charge, mult=mult)
-            displacement_grad_dictionary[stringlabel] = gradient
-
-            if IR is True:
-                try:
-                    displacement_dm = theory.get_dipole_moment()
-                    displacement_dipole_dictionary[stringlabel] = displacement_dm
-                except Exception:  # noqa: BLE001 - best-effort property grab
-                    pass
-
-            if Raman is True:
-                try:
-                    logger.info("Getting polarizability tensor")
-                    displacement_pol = theory.get_polarizability_tensor()
-                    # Checking if array is all zero (i.e. no polarizability information was found)
-                    if not np.any(displacement_pol):
-                        logger.warning("No polarizability information found")
-                    displacement_polarizability_dictionary[stringlabel] = displacement_pol
-                except Exception:  # noqa: BLE001 - best-effort polarizability grab
-                    logger.warning("Problem getting polarizability tensor from theory interface. Skipping")
-    elif runmode == "parallel":
-        if isinstance(theory, openmmqmmm.QMMMTheory):
-            logger.info("Numfreq in runmode='parallel' with QM/MM is quite experimental")
-
-        logger.info(f"Starting Numfreq calculations in parallel mode (numcores={numcores}) using Singlepoint_parallel")
-        logger.info(f"There are {len(all_disp_fragments)} displacements")
-        logger.info("Looping over fragments")
-        result = openmmqmmm.job_parallel(
-            fragments=all_disp_fragments,
-            theories=[theory],
-            numcores=numcores,
-            allow_theory_parallelization=True,
-            grad=True,
-            copytheory=True,
+        grads, dipoles, polarizabilities = _run_displacements_serially(
+            theory=theory,
+            elems=elems,
+            charge=charge,
+            mult=mult,
+            geometries=list_of_displaced_geos,
+            displacements=list_of_displacements,
+            labels=list_of_labels,
+            IR=IR,
+            Raman=Raman,
         )
-        gradient_dict = result.gradients_dict
-        displacement_grad_dictionary = gradient_dict
-
-        displacement_dipole_dictionary = result.displacement_dipole_dictionary
-        displacement_polarizability_dictionary = result.displacement_polarizability_dictionary
+    elif runmode == "parallel":
+        grads, dipoles, polarizabilities = _run_displacements_in_parallel(
+            theory=theory, fragments=all_disp_fragments, numcores=numcores
+        )
     else:
         raise InputError("Unknown runmode.")
+    displacement_grad_dictionary = grads
+    displacement_dipole_dictionary = dipoles
+    displacement_polarizability_dictionary = polarizabilities
 
     logger.info("NumFreq Displacement calculations are done!")
     logger.info("")
@@ -384,79 +430,16 @@ def numerical_frequencies(
             "Missing gradients for displacement.\nSomething went wrong in Numfreq displacement calculations."
         )
     logger.info("Length of displacement_grad_dictionary %s", len(displacement_grad_dictionary))
-    hesslength = 3 * len(hessatoms)
-    hessian = np.zeros((hesslength, hesslength))
-
-    dipole_derivs = np.zeros((hesslength, 3))
-    polarizability_derivs = []  # array of 3x3 tensors
-
-    if npoint == 1:
-        logger.info("Assembling the one-point Hessian")
-        original_grad = get_partial_matrix(displacement_grad_dictionary["Originalgeo"], hessatoms)
-        original_grad_1d = np.ravel(original_grad)
-        if IR is True and len(displacement_dipole_dictionary) > 0:
-            original_dipole = np.array(displacement_dipole_dictionary["Originalgeo"])
-        if Raman is True and len(displacement_polarizability_dictionary) > 0:
-            original_polarizability = np.array(displacement_polarizability_dictionary["Originalgeo"])
-            logger.info("original_polarizability: %s", original_polarizability)
-        hessindex = 0
-        for atomindex in hessatoms:
-            for crd in [0, 1, 2]:
-                lookup_string_pos = f"{atomindex}_{crd}_+"
-                grad_pos = displacement_grad_dictionary[lookup_string_pos]
-                grad_pos = get_partial_matrix(grad_pos, hessatoms)
-                grad_pos_1d = np.ravel(grad_pos)
-                Hessrow = (grad_pos_1d - original_grad_1d) / displacement_bohr
-                hessian[hessindex, :] = Hessrow
-                grad_pos_1d = 0
-                if IR is True and len(displacement_dipole_dictionary) > 0:
-                    if any(value is None for value in displacement_dipole_dictionary.values()):
-                        pass
-                    elif len(displacement_dipole_dictionary[lookup_string_pos]) > 0:
-                        disp_dipole = np.array(displacement_dipole_dictionary[lookup_string_pos])
-                        dd_deriv = (disp_dipole - original_dipole) / displacement_bohr
-                        dipole_derivs[hessindex, :] = dd_deriv
-                if Raman is True and len(displacement_polarizability_dictionary) > 0:
-                    disp_polarizability = np.array(displacement_polarizability_dictionary[lookup_string_pos])
-                    pz_deriv = (disp_polarizability - original_polarizability) / displacement_bohr
-                    polarizability_derivs.append(pz_deriv)
-                hessindex += 1
-    elif npoint == 2:
-        logger.info("Assembling the two-point Hessian")
-        hessindex = 0
-        for atomindex in hessatoms:
-            for crd in [0, 1, 2]:
-                lookup_string_pos = f"{atomindex}_{crd}_+"
-                lookup_string_neg = f"{atomindex}_{crd}_-"
-                grad_pos = displacement_grad_dictionary[lookup_string_pos]
-                grad_neg = displacement_grad_dictionary[lookup_string_neg]
-                grad_pos = get_partial_matrix(grad_pos, hessatoms)
-                grad_pos_1d = np.ravel(grad_pos)
-                grad_neg = get_partial_matrix(grad_neg, hessatoms)
-                grad_neg_1d = np.ravel(grad_neg)
-                Hessrow = (grad_pos_1d - grad_neg_1d) / (2 * displacement_bohr)
-                hessian[hessindex, :] = Hessrow
-                grad_pos_1d = 0
-                grad_neg_1d = 0
-
-                if IR is True and len(displacement_dipole_dictionary) > 0:
-                    if any(value is None for value in displacement_dipole_dictionary.values()):
-                        pass
-                    elif len(displacement_dipole_dictionary[lookup_string_pos]) > 0:
-                        disp_dipole_pos = np.array(displacement_dipole_dictionary[lookup_string_pos])
-                        disp_dipole_neg = np.array(displacement_dipole_dictionary[lookup_string_neg])
-                        dd_deriv = (disp_dipole_pos - disp_dipole_neg) / (2 * displacement_bohr)
-                        dipole_derivs[hessindex, :] = dd_deriv
-                if Raman is True and len(displacement_polarizability_dictionary) > 0:
-                    disp_polarizability_pos = np.array(displacement_polarizability_dictionary[lookup_string_pos])
-                    disp_polarizability_neg = np.array(displacement_polarizability_dictionary[lookup_string_neg])
-                    pz_deriv = (disp_polarizability_pos - disp_polarizability_neg) / (2 * displacement_bohr)
-                    polarizability_derivs.append(pz_deriv)
-                hessindex += 1
-    logger.info("")
-
-    symm_hessian = (hessian + hessian.transpose()) / 2
-    hessian = symm_hessian
+    hessian, dipole_derivs, polarizability_derivs = _assemble_hessian(
+        npoint=npoint,
+        hessatoms=hessatoms,
+        displacement_bohr=displacement_bohr,
+        grads=displacement_grad_dictionary,
+        dipoles=displacement_dipole_dictionary,
+        polarizabilities=displacement_polarizability_dictionary,
+        IR=IR,
+        Raman=Raman,
+    )
 
     if hessatoms_masses is None:
         logger.info("allatoms: %s", allatoms)

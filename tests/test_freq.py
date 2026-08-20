@@ -6,6 +6,7 @@ import pytest
 
 import openmmqmmm.freq
 from openmmqmmm import Fragment, ZeroTheory, analytic_frequencies, constants, numerical_frequencies
+from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.freq import (
     approximate_full_hessian_from_smaller,
@@ -361,3 +362,50 @@ def test_analytic_frequencies_forwards_the_qrrho_method(water, soft_mode_theory)
         "Truhlar and Grimme must give different vibrational entropies for a sub-cut-off mode; "
         "equal values mean qrrho_method never reached thermochemcalc"
     )
+
+
+class _HarmonicTheory:
+    """E = 1/2 sum_i k_i (r_i - r0_i)^2 in bohr, so the exact Hessian is diag(FORCE_CONSTANTS)."""
+
+    theorytype = "QM"
+    numcores = 1
+
+    def __init__(self, reference_coords):
+        self.reference = np.ravel(np.asarray(reference_coords, float)) * ANG_TO_BOHR
+
+    def run(self, current_coords=None, elems=None, grad=False, charge=None, mult=None, **kwargs):
+        """Return the harmonic energy and its analytic gradient in Eh and Eh/bohr."""
+        displacement = np.ravel(np.asarray(current_coords, float)) * ANG_TO_BOHR - self.reference
+        energy = 0.5 * float(np.sum(FORCE_CONSTANTS * displacement * displacement))
+        return energy, (FORCE_CONSTANTS * displacement).reshape(-1, 3)
+
+
+FORCE_CONSTANTS = np.array([0.4, 0.7, 1.1, 0.3, 0.9, 0.5, 0.6, 0.2, 0.8])
+HARMONIC_COORDS = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.98], [0.93, 0.0, -0.26]]
+
+
+def _numerical_hessian(tmp_path, monkeypatch, **kwargs):
+    monkeypatch.chdir(tmp_path)
+    fragment = Fragment(elems=["O", "H", "H"], coords=HARMONIC_COORDS, charge=0, mult=1)
+    numerical_frequencies(
+        fragment=fragment,
+        theory=_HarmonicTheory(HARMONIC_COORDS),
+        displacement=0.005,
+        charge=0,
+        mult=1,
+        **kwargs,
+    )
+    return fragment.hessian
+
+
+@pytest.mark.parametrize("npoint", [1, 2])
+def test_numerical_hessian_reproduces_an_analytic_one(tmp_path, monkeypatch, npoint):
+    """A linear gradient makes both difference formulas exact, so this pins the whole pipeline."""
+    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=npoint)
+    assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS), abs=1e-10)
+
+
+def test_partial_numerical_hessian_covers_only_the_requested_atoms(tmp_path, monkeypatch):
+    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=2, hessatoms=[1, 2])
+    assert hessian.shape == (6, 6)
+    assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS[3:]), abs=1e-10)
