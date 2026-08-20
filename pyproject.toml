@@ -56,7 +56,7 @@ Upstream = "https://github.com/RagnarB83/ash"
 where = ["."]
 include = ["openmmqmmm*"]
 
-# Wheels ship the geomeTRIC logging config and the PEP 561 marker. Test data
+# Wheels ship the geomeTRIC compatibility logging config and the PEP 561 marker. Test data
 # (~2.5 MB under tests/) is repository-only — run the suite from a checkout.
 [tool.setuptools.package-data]
 openmmqmmm = ["log.ini", "py.typed"]
@@ -100,7 +100,7 @@ select = [
     "ANN",
 ]
 ignore = [
-    # f-strings in log calls are fine: the messages are the calculation record
+    # INFO records use f-strings for aligned scientific tables; DEBUG calls stay lazy
     "G004",
     # Uppercase locals are idiomatic in the physics-heavy code
     "N806",

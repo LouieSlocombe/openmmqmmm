@@ -145,8 +145,7 @@ class OpenMMTheory:
         self.fragment = fragment
         logger.info("Imported OpenMM library version: %s", openmm.__version__)
         if version.parse(openmm.__version__) < version.parse("8.1"):
-            logger.warning("OpenMM version < 8.1. OpenMM 8.1 or higher is recommended")
-            logger.info("Some features may not work as intended in older versions")
+            logger.warning("OpenMM version < 8.1; some features may not work as intended. Version 8.1+ is recommended")
 
         if charmm_periodic_cell_dimensions is not None:
             raise InputError("charmm_periodic_cell_dimensions is deprecated. Use periodic_cell_dimensions instead")
@@ -449,11 +448,9 @@ class OpenMMTheory:
         logger.info("periodic_nonbonded_cutoff: %s", periodic_nonbonded_cutoff)
         if smallest_boxdim < periodic_nonbonded_cutoff * 2:
             logger.warning(
-                f"Warning: Smallest box dimension is less than 2*periodic_nonbonded_cutoff = "
-                f"{2 * self.periodic_nonbonded_cutoff}"
-            )
-            logger.info(
-                "This will not work. See https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#boxsize"
+                f"Smallest box dimension is less than 2*periodic_nonbonded_cutoff = "
+                f"{2 * self.periodic_nonbonded_cutoff}; reducing the cutoff automatically. See "
+                "https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#boxsize"
             )
             logger.debug("Will now automatically set the cutoff to be 1/2 the smallest box dimension")
             self.periodic_nonbonded_cutoff = round(
@@ -922,11 +919,8 @@ class OpenMMTheory:
                     self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][3] = periodic_cell_dimensions[2]
         elif pdb_pbc_vectors is not None:
             logger.warning(
-                "Warning: neither user keyword periodic_cell_vectors or periodic_cell_dimensions was set (None)"
-            )
-            logger.info(
-                "However, we found PBC information inside PDB-topology of the PDB-file that was read in. Using this "
-                "and continuing"
+                "Neither periodic_cell_vectors nor periodic_cell_dimensions was set; using periodic-box information "
+                "from the PDB topology"
             )
         elif self.topology.getPeriodicBoxVectors() is not None:
             logger.info("Found PBC information in topology object. Using this and continuing")
@@ -1046,7 +1040,7 @@ class OpenMMTheory:
 
     def remove_force(self, forceindex: int) -> None:
         """Remove a force by its index in the system."""
-        logger.debug(f"Removing force-index {forceindex}: {self.system.getForces()[forceindex].getName()}")
+        logger.debug("Removing force-index %s: %s", forceindex, self.system.getForces()[forceindex].getName())
         self.system.removeForce(forceindex)
 
     def add_custom_bond_force(self, i: int, j: int, value: float, forceconstant: float) -> None:
@@ -1087,7 +1081,9 @@ class OpenMMTheory:
         """Restrain the i-j-k-l dihedral harmonically."""
         import math
 
-        logger.debug(f"Adding custom torsion force for atoms: {i}, {j}, {k}, {l}  with forceconstant={forceconstant}")
+        logger.debug(
+            "Adding custom torsion force for atoms %s, %s, %s, %s with forceconstant=%s", i, j, k, l, forceconstant
+        )
         torsion_force = openmm.CustomTorsionForce(
             "0.5*k*dtheta^2; dtheta = min(diff, 2*Pi-diff); diff = abs(theta - theta0)"
         )
@@ -1181,7 +1177,7 @@ class OpenMMTheory:
     def add_bondconstraints(self, constraints: Sequence[Sequence[float | int]] | None = None) -> None:
         """Constrain bond lengths rigidly (not harmonically)."""
         for i, j, d in constraints:
-            logger.debug(f"Adding bond constraint between atoms {i} and {j}. Distance value: {d:.4f} Å")
+            logger.debug("Adding bond constraint between atoms %s and %s. Distance value: %.4f Å", i, j, d)
             self.system.addConstraint(i, j, d * openmm.unit.angstroms)
 
     def remove_all_constraints(self) -> None:
@@ -1245,7 +1241,7 @@ class OpenMMTheory:
                 logger.info("Case Nonbondedforce. Adding Exception for ij pair.")
                 for idx_i, i in enumerate(atomlist):
                     for j in atomlist[idx_i + 1 :]:
-                        logger.debug(f"i,j : {i} and {j} ")
+                        logger.debug("i,j: %s and %s", i, j)
                         force.addException(i, j, 0, 0, 0, replace=True)
 
                         # NOTE: Case where there is also a CustomNonbonded force present (GROMACS interface).
@@ -1495,7 +1491,7 @@ class OpenMMTheory:
     def forcegroupify(self) -> None:
         """Assign each force its own force group so their energies can be separated."""
         self.forcegroups = {}
-        logger.info("inside forcegroupify")
+        logger.debug("Assigning force groups")
         logger.debug("System forces: %s", self.system.getForces())
         logger.info("Number of forces:\n %s", self.system.getNumForces())
         for i in range(self.system.getNumForces()):
@@ -1585,7 +1581,7 @@ class OpenMMTheory:
 
     def get_cell_gradient(self) -> npt.NDArray[np.float64]:
         """Return the most recently computed cell gradient."""
-        logger.info("Inside get_cell_gradient")
+        logger.debug("Calculating cell gradient")
         # Using self.stored_context (should have been defined by .run call)
         self.cell_gradient = self.compute_cell_gradient_fd(self.stored_context, eps=1e-4)
         logger.info("OpenMM cell gradient: %s", self.cell_gradient)
@@ -1811,8 +1807,7 @@ class OpenMMTheory:
         for force in self.system.getForces():
             if isinstance(force, openmm.HarmonicBondForce):
                 logger.debug("HarmonicBonded force")
-                logger.debug(f"There are {force.getNumBonds()} HarmonicBond terms defined.")
-                logger.debug("")
+                logger.debug("There are %s HarmonicBond terms defined", force.getNumBonds())
                 # REVISIT: Neglecting QM-QM and sQM1-MM1 interactions. i.e if one atom in bond-pair is QM we neglect
                 for i in range(force.getNumBonds()):
                     p1, p2, length, k = force.getBondParameters(i)
@@ -1827,15 +1822,14 @@ class OpenMMTheory:
                         logger.debug("exclude True")
                         logger.debug("atomlist: %s", atomlist)
                         logger.debug("i: %s", i)
-                        logger.debug(f"Before p1: {p1} p2: {p2} length: {length} k: {k}")
+                        logger.debug("Before p1: %s p2: %s length: %s k: %s", p1, p2, length, k)
                         force.setBondParameters(i, p1, p2, length, 0)
                         numharmbondterms_removed += 1
                         p1, p2, length, k = force.getBondParameters(i)
-                        logger.debug(f"After p1: {p1} p2: {p2} length: {length} k: {k}")
-                        logger.debug("")
+                        logger.debug("After p1: %s p2: %s length: %s k: %s", p1, p2, length, k)
             elif isinstance(force, openmm.HarmonicAngleForce):
                 logger.debug("HarmonicAngle force")
-                logger.debug(f"There are {force.getNumAngles()} HarmonicAngle terms defined.")
+                logger.debug("There are %s HarmonicAngle terms defined", force.getNumAngles())
                 for i in range(force.getNumAngles()):
                     p1, p2, p3, angle, k = force.getAngleParameters(i)
                     presence = [i in atomlist for i in [p1, p2, p3]]
@@ -1845,14 +1839,14 @@ class OpenMMTheory:
                         logger.debug("exclude True")
                         logger.debug("atomlist: %s", atomlist)
                         logger.debug("i: %s", i)
-                        logger.debug(f"Before p1: {p1} p2: {p2} p3: {p3} angle: {angle} k: {k}")
+                        logger.debug("Before p1: %s p2: %s p3: %s angle: %s k: %s", p1, p2, p3, angle, k)
                         force.setAngleParameters(i, p1, p2, p3, angle, 0)
                         numharmangleterms_removed += 1
                         p1, p2, p3, angle, k = force.getAngleParameters(i)
-                        logger.debug(f"After p1: {p1} p2: {p2} p3: {p3} angle: {angle} k: {k}")
+                        logger.debug("After p1: %s p2: %s p3: %s angle: %s k: %s", p1, p2, p3, angle, k)
             elif isinstance(force, openmm.PeriodicTorsionForce):
                 logger.debug("PeriodicTorsionForce force")
-                logger.debug(f"There are {force.getNumTorsions()} PeriodicTorsionForce terms defined.")
+                logger.debug("There are %s PeriodicTorsionForce terms defined", force.getNumTorsions())
                 for i in range(force.getNumTorsions()):
                     p1, p2, p3, p4, periodicity, phase, k = force.getTorsionParameters(i)
                     presence = [i in atomlist for i in [p1, p2, p3, p4]]
@@ -1876,7 +1870,7 @@ class OpenMMTheory:
                         )
             elif isinstance(force, openmm.CustomTorsionForce):
                 logger.debug("CustomTorsionForce force")
-                logger.debug(f"There are {force.getNumTorsions()} CustomTorsionForce terms defined.")
+                logger.debug("There are %s CustomTorsionForce terms defined", force.getNumTorsions())
                 for i in range(force.getNumTorsions()):
                     p1, p2, p3, p4, pars = force.getTorsionParameters(i)
                     presence = [i in atomlist for i in [p1, p2, p3, p4]]
@@ -1887,15 +1881,15 @@ class OpenMMTheory:
                         logger.debug("exclude True")
                         logger.debug("atomlist: %s", atomlist)
                         logger.debug("i: %s", i)
-                        logger.debug(f"Before p1: {p1} p2: {p2} p3: {p3} p4: {p4} pars {pars}")
+                        logger.debug("Before p1: %s p2: %s p3: %s p4: %s pars %s", p1, p2, p3, p4, pars)
                         force.setTorsionParameters(i, p1, p2, p3, p4, (0.0, 0.0))
                         numcustomtorsionterms_removed += 1
                         p1, p2, p3, p4, pars = force.getTorsionParameters(i)
-                        logger.debug(f"After p1: {p1} p2: {p2} p3: {p3} p4: {p4} pars {pars}")
+                        logger.debug("After p1: %s p2: %s p3: %s p4: %s pars %s", p1, p2, p3, p4, pars)
             elif isinstance(force, openmm.CMAPTorsionForce):
                 logger.debug("CMAPTorsionForce force")
-                logger.debug(f"There are {force.getNumTorsions()} CMAP terms defined.")
-                logger.debug(f"There are {force.getNumMaps()} CMAP maps defined")
+                logger.debug("There are %s CMAP terms defined", force.getNumTorsions())
+                logger.debug("There are %s CMAP maps defined", force.getNumMaps())
                 # Note (RB). CMAP is between pairs of backbone dihedrals.
                 # Not sure if we can delete the terms:
                 # http://docs.openmm.org/latest/api-c++/generated/OpenMM.CMAPTorsionForce.html
@@ -1911,7 +1905,7 @@ class OpenMMTheory:
                         logger.debug("Not deleting. To be revisited...")
             elif isinstance(force, openmm.CustomBondForce):
                 logger.debug("CustomBondForce")
-                logger.debug(f"There are {force.getNumBonds()} force terms defined.")
+                logger.debug("There are %s force terms defined", force.getNumBonds())
                 # Neglecting QM1-MM1 interactions. i.e if one atom in bond-pair is QM we neglect
                 for i in range(force.getNumBonds()):
                     p1, p2, params = force.getBondParameters(i)
@@ -1977,7 +1971,7 @@ def clean_up_constraints_list(
             newconstraints.append(con)
         elif len(con) == 2:
             distance = distance_between_atoms(fragment=fragment, atoms=[con[0], con[1]])
-            logger.debug(f"Adding missing distance definition between atoms {con[0]} and {con[1]}: {distance:.4f}")
+            logger.debug("Adding missing distance definition between atoms %s and %s: %.4f", con[0], con[1], distance)
             newcon = [con[0], con[1], distance]
             newconstraints.append(newcon)
     return newconstraints
@@ -1999,7 +1993,7 @@ def write_xmlfile_nonbonded(
     skip_nb: bool = False,
     charmm: bool = False,
 ) -> str | os.PathLike[str]:
-    logger.info("Inside write_xmlfile_nonbonded")
+    logger.debug("Writing nonbonded force-field XML")
 
     if not (len(resnames) == len(atomnames_per_res) == len(atomtypes_per_res)):
         raise InternalError("Residue name/atomname/atomtype lists size mismatch")

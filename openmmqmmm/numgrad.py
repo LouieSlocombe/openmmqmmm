@@ -86,7 +86,7 @@ class NumGrad:
                 current_coords=current_coords, elems=elems, grad=False, label=label, charge=charge, mult=mult
             )
             dispdict = {}
-            logger.debug(f"Will now loop over {len(list_of_displacements)} displacements")
+            logger.debug("Will now loop over %s displacements", len(list_of_displacements))
 
             for i, dispgeo in enumerate(list_of_displaced_geos):
                 disp = list_of_displacements[i]

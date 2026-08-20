@@ -66,8 +66,7 @@ class Results:
         for k, v in self.__dict__.items():
             if isinstance(v, np.ndarray):
                 if np.any(np.isnan(v)):
-                    logger.warning(f"NaN found in array {k}")
-                    logger.info("Skipping writing to disk")
+                    logger.warning("NaN found in array %s; omitting it from the results file", k)
                 else:
                     newv = v.tolist()
                     newdict[k] = newv
@@ -98,8 +97,7 @@ class Results:
             with open(filename, "w") as f:
                 f.write(json.dumps(newdict, allow_nan=True))
         except TypeError as e:
-            logger.error(f"Failed to write Results to disk: {e}")
-            logger.info("Skipping writing to disk")
+            logger.error("Failed to write Results to disk; skipping it: %s", e)
             return
 
 

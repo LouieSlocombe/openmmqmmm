@@ -237,9 +237,7 @@ def single_point_fragments_and_theories(
         result = single_point_fragments(theory=theory, fragments=fragments, stoichiometry=stoichiometry)
         all_energies.append(result.energies)
 
-    logger.info("\n")
     logger.info("SINGLEPOINT_FRAGMENTS_AND_THEORIES ALL DONE")
-    logger.info("\n")
     logger.info("%s", "=" * 60)
     logger.info("Singlepoint_fragments_and_theories: FINAL RESULTS")
     logger.info("%s", "=" * 60)

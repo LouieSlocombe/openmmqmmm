@@ -485,29 +485,27 @@ class QMMMTheory:
 
     def set_numcores(self, numcores: int) -> None:
         """Set the core count used by both the QM and MM theories."""
-        logger.debug(f"Setting new numcores {numcores}for QMtheory and MMtheory")
+        logger.debug("Setting %s cores for the QM and MM theories", numcores)
         self.qm_theory.set_numcores(numcores)
         self.mm_theory.set_numcores(numcores)
 
     def get_dipole_moment(self) -> Sequence[float] | np.ndarray | None:
         """Return the QM theory's dipole moment, or None if it does not provide one."""
-        logger.info("Grabbing dipole moment from QM-part of QM/MM theory.")
-        dipole = None
-        try:
-            dipole = self.qm_theory.get_dipole_moment()
-        except AttributeError:
-            logger.error("Could not grab dipole moment from QM-part of QM/MM theory.")
-        return dipole
+        logger.debug("Getting dipole moment from QM part of QM/MM theory")
+        getter = getattr(self.qm_theory, "get_dipole_moment", None)
+        if getter is None:
+            logger.debug("QM theory does not provide a dipole moment")
+            return None
+        return getter()
 
     def get_polarizability_tensor(self) -> np.ndarray | None:
         """Return the QM theory's polarizability tensor, or None if it does not provide one."""
-        logger.info("Grabbing polarizability from QM-part of QM/MM theory.")
-        polarizability = None
-        try:
-            polarizability = self.qm_theory.get_polarizability_tensor()
-        except AttributeError:
-            logger.error("Could not grab polarizability from QM-part of QM/MM theory.")
-        return polarizability
+        logger.debug("Getting polarizability from QM part of QM/MM theory")
+        getter = getattr(self.qm_theory, "get_polarizability_tensor", None)
+        if getter is None:
+            logger.debug("QM theory does not provide a polarizability tensor")
+            return None
+        return getter()
 
     def resolve_qm_charge_mult(self, *, charge: int | None = None, mult: int | None = None) -> tuple[int, int]:
         """Resolve the charge and multiplicity of the QM region."""
@@ -641,7 +639,7 @@ class QMMMTheory:
         for i in self.allatoms:
             charges = qm_charges if i in self.qmatoms else self.charges_qmregionzeroed
             region = "QM" if i in self.qmatoms else "MM"
-            logger.debug(f"{region} atom {i} ({self.elems[i]}) charge: {charges[i]}")
+            logger.debug("%s atom %s (%s) charge: %s", region, i, self.elems[i], charges[i])
 
     def run(
         self,
@@ -797,7 +795,7 @@ class QMMMTheory:
         if numcores == 1:
             numcores = self.numcores
 
-        logger.debug(f"Running QM/MM object with {numcores} cores available")
+        logger.debug("Running QM/MM with %s cores available", numcores)
 
         log_time_since(module_init_time, "before-QMstep")
         CheckpointTime = time.time()
@@ -845,9 +843,10 @@ class QMMMTheory:
                 self.charges[index] = newqmcharges[i]
             logger.info("Updating charges of QM-region in MMTheory object")
             self.mm_theory.update_charges(self.qmatoms, list(newqmcharges))
-        logger.info("Defined charges of QM-region:")
-        for i in self.qmatoms:
-            logger.info(f"QM atom {i} has charge : {self.charges[i]}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Defined charges of QM region:")
+            for i in self.qmatoms:
+                logger.debug("QM atom %s has charge: %s", i, self.charges[i])
 
         self.QMenergy = QMenergy
 
@@ -963,7 +962,7 @@ class QMMMTheory:
 
     def runprep(self, current_coords: np.ndarray) -> None:
         """Do the one-off setup the first run needs: link atoms, boundary and charges."""
-        logger.info("Inside QMMMTheory runprep")
+        logger.debug("Preparing QM/MM run")
         init_time_runprep = time.time()
 
         self.qmelems = [self.elems[i] for i in self.qmatoms]
@@ -974,7 +973,7 @@ class QMMMTheory:
             self.create_linkatoms(current_coords)
             self.current_qmelems = self.qmelems + [self.linkatom_type] * self.num_linkatoms
             logger.info("Number of MM atoms: %s", len(self.mmatoms))
-            logger.debug(f"There are {self.num_linkatoms} linkatoms")
+            logger.debug("There are %s link atoms", self.num_linkatoms)
             if self.embedding.lower() == "elstat":
                 logger.info("Doing charge-shifting...")
 
@@ -1173,7 +1172,7 @@ class QMMMTheory:
                 f"{len(self.pointchargecoords)} coordinates (chargeboundary_method={self.chargeboundary_method}, "
                 f"dipole_correction={self.dipole_correction})"
             )
-        logger.debug(f"Running QM/MM object with {numcores} cores available")
+        logger.debug("Running QM/MM with %s cores available", numcores)
         log_time_since(module_init_time, "before-QMstep")
         CheckpointTime = time.time()
         if self.qm_theory_name in {"None", "ZeroTheory"}:
@@ -1286,9 +1285,7 @@ class QMMMTheory:
             logger.info("Note: MM energy also contains the QM-MM Lennard-Jones interaction\n")
         energywarning = ""
         if self.truncated_pc is True:
-            logger.warning(
-                "Warning: Truncated PC approximation is active. This means that QM and QM/MM energies are approximate."
-            )
+            logger.warning("Truncated PC approximation is active. QM and QM/MM energies are approximate.")
             energywarning = "(approximate)"
 
         logger.info("%s", "{:<20} {:>20.12f} {}".format("QM energy: ", self.QMenergy, energywarning))
@@ -1454,7 +1451,7 @@ def define_active_region(
 
     logger.info("Radius: %s", radius)
     logger.info(f"Origin atom: {originatom} ({fragment.elems[originatom]})")
-    logger.debug(f"Will find all atoms within {radius} Å from atom: {originatom} ({fragment.elems[originatom]})")
+    logger.debug("Finding all atoms within %s Å of atom %s (%s)", radius, originatom, fragment.elems[originatom])
     logger.debug("Will select all whole residues within region and export list")
     if mmtheory is not None:
         if not mmtheory.resids:
@@ -1591,8 +1588,10 @@ def compute_decomposed_qm_mm_energy(fragment: Fragment | None = None, theory: QM
     result_MM_mod2 = openmmqmmm.single_point(theory=theory.mm_theory, fragment=fragment, charge=0, mult=1)
     E_QM_MM_vdw = E_MM_mod - result_MM_mod2.energy
 
-    logger.warning("QM-MM bonded term not implemented yet. Setting to zero.")
-    logger.info("This means that the MM term still contains the QM-MM bonded contribution")
+    logger.warning(
+        "QM-MM bonded decomposition is not implemented; reporting it as zero, so the MM term still contains that "
+        "contribution"
+    )
     E_QM_MM_bond = 0.0
 
     E_MM_pure = result_MM_mod2.energy

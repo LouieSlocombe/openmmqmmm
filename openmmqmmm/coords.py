@@ -300,14 +300,14 @@ class Fragment:
         if len(self.atomcharges) == 0:
             self.atomcharges = [0.0 for i in range(self.numatoms)]
         elif len(self.atomcharges) < self.numatoms:
-            logger.warning("\natomcharges list shorter than number of atoms.")
+            logger.warning("atomcharges list shorter than number of atoms")
             logger.debug("Adding 0.0 entries for missing atoms.")
             self.atomcharges = self.atomcharges + [0.0 for i in range(self.numatoms - len(self.atomcharges))]
 
         if len(self.fragmenttype_labels) == 0:
             self.fragmenttype_labels = ["None" for i in range(self.numatoms)]
         elif len(self.fragmenttype_labels) < self.numatoms:
-            logger.warning("\nfragmenttype_labels list shorter than number of atoms.")
+            logger.warning("fragmenttype_labels list shorter than number of atoms")
             logger.debug("Adding 0 entries for missing atoms.")
             self.fragmenttype_labels = self.fragmenttype_labels + [
                 0 for i in range(self.numatoms - len(self.fragmenttype_labels))
@@ -316,7 +316,7 @@ class Fragment:
         if len(self.atomtypes) == 0:
             self.atomtypes = ["None" for i in range(self.numatoms)]
         elif len(self.atomtypes) < self.numatoms:
-            logger.warning("\natomtypes list shorter than number of atoms.")
+            logger.warning("atomtypes list shorter than number of atoms")
             logger.debug("Adding None entries for missing atoms.")
             self.atomtypes = self.atomtypes + ["None" for i in range(self.numatoms - len(self.atomtypes))]
 
@@ -574,13 +574,13 @@ class Fragment:
 
     def write_pdbfile(self, filename: str = "Fragment") -> str:
         """Write a PDB file using the fragment's own stored PDB information."""
-        logger.info("Fragment.write_pdbfile method called")
+        logger.debug("Writing fragment to PDB")
         filename = filename.replace(".pdb", "")
         if self.pdb_atomnames is not None:
             logger.info("Found PDB residue/atom/segment information stored in fragment. Writing proper PDB file.")
         else:
             logger.warning(
-                "Warning: No PDB residue/atom/segment information available (only available if Fragment was created "
+                "No PDB residue/atom/segment information available (only available if Fragment was created "
                 "from a PDB-file)."
             )
             logger.debug("Will write PDB file with basic default residue/atom/segment names.")
@@ -611,9 +611,9 @@ class Fragment:
 
         connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, scale, tol)
         for mol in self.connectivity:
-            logger.info("mol: %s", mol)
+            logger.debug("Molecule atom indices: %s", mol)
             residue = self.pdb_topology.addResidue(resname, chain)
-            logger.info("residue: %s", residue)
+            logger.debug("Topology residue: %s", residue)
 
             atomnames_dict = defaultdict(int)
             for at in mol:
@@ -627,7 +627,7 @@ class Fragment:
                 if atomname == "O1" and len(mol) == 3:
                     atomname = "O"
                 logger.debug("Adding atom: %s element: %s to residue: %s", atomname, element, residue)
-                logger.info("at: %s el: %s", at, el)
+                logger.debug("Atom index: %s element: %s", at, el)
                 self.pdb_topology.addAtom(atomname, element, residue)
 
         logger.debug("Adding connectivity to PDB topology")
@@ -1769,8 +1769,7 @@ def total_nuclear_charge(ellist: Sequence[str]) -> float:
         except KeyError:
             atcharge = 0.0
             if warning_issued is False:
-                logger.warning(f"Unknown element: '{e}' found in element-list")
-                logger.info("Could be dummy atom. Using nuccharge of 0.0")
+                logger.warning("Unknown element '%s'; treating it as a dummy atom with nuclear charge 0.0", e)
                 warning_issued = True
         totnuccharge += atcharge
     return totnuccharge
@@ -1795,9 +1794,7 @@ def list_of_masses(ellist: Sequence[str]) -> list[float]:
         try:
             atcharge = int(elematomnumbers[e.lower()])
             if atcharge == 0:
-                logger.warning(
-                    f"Warning: element '{e}' has atomic number 0. This is likely a dummy atom. Using mass of 0.0"
-                )
+                logger.warning(f"Element '{e}' has atomic number 0. This is likely a dummy atom. Using mass of 0.0")
                 atmass = 0.0
             elif atcharge > len(atommasses):
                 # atommasses stops at Lr (Z=103); indexing past it would wrap round to a
@@ -1811,8 +1808,7 @@ def list_of_masses(ellist: Sequence[str]) -> list[float]:
         except KeyError:
             atmass = 0.0
             if warning_issued is False:
-                logger.warning(f"Unknown element: '{e}' found in element-list")
-                logger.info("Could be dummy atom. Using mass of 0.0")
+                logger.warning("Unknown element '%s'; treating it as a dummy atom with mass 0.0", e)
                 warning_issued = True
         masses.append(atmass)
     return masses
@@ -1828,7 +1824,7 @@ def flexible_align_xyz(
     subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> None:
     """Align the molecule in one XYZ file onto the molecule in another."""
-    logger.debug(f"Will align molecule in file {xyzfile_a} onto molecule in file {xyzfile_b}")
+    logger.debug("Will align molecule in file %s onto molecule in file %s", xyzfile_a, xyzfile_b)
     fragment_a = Fragment(xyzfile=xyzfile_a)
     fragment_b = Fragment(xyzfile=xyzfile_b)
 
@@ -1855,7 +1851,7 @@ def flexible_align_pdb(
     subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> None:
     """Align the molecule in one PDB file onto the molecule in another."""
-    logger.debug(f"Will align molecule in file {pdbfileA} onto molecule in file {pdbfileB}")
+    logger.debug("Will align molecule in file %s onto molecule in file %s", pdbfileA, pdbfileB)
     fragment_a = Fragment(pdbfile=pdbfileA)
     fragment_b = Fragment(pdbfile=pdbfileB)
 
@@ -2187,7 +2183,7 @@ def get_linkatom_positions(
     bondpairs_eq_dict: Mapping[tuple[str, str], float] | None = None,
     linkatom_ratio: float | Literal["Auto"] = 0.723,
 ) -> dict[tuple[int, int], np.ndarray | list[float]]:
-    logger.info("Inside get_linkatom_positions")
+    logger.debug("Calculating link-atom positions")
     logger.info("linkatom_type: %s", linkatom_type)
     logger.info("linkatom_method: %s", linkatom_method)
 
@@ -2271,7 +2267,7 @@ def get_water_constraints(
     watermodel: str = "tip3p",
 ) -> list[list[int]]:
     """Return bond constraints for every water molecule in an OpenMM system."""
-    logger.info("Inside getwaterconstraintslist")
+    logger.debug("Finding water constraints")
     if openmmtheoryobject is None or atomlist is None:
         raise InputError("getwaterconstraintslist requires openmmtheoryobject and atomlist to be set")
     if watermodel in {"tip3p", "spc"}:
@@ -2385,7 +2381,7 @@ def define_xh_constraints(
     excludeatoms: Sequence[int] | None = None,
 ) -> list[list[int]]:
     """Return X-H bond constraints for a fragment or a region of it."""
-    logger.info("Inside define_XH_constraints function")
+    logger.debug("Defining X-H constraints")
     if actatoms is None:
         subset_elems = fragment.elems
         subset_coords = fragment.coords
@@ -2394,7 +2390,7 @@ def define_xh_constraints(
         subset_elems = [fragment.elems[i] for i in actatoms]
         subset_coords = np.take(fragment.coords, actatoms, axis=0)
 
-    logger.debug(f"Defining constraints for {len(subset_elems)} atom-region")
+    logger.debug("Defining constraints for %s atom-region", len(subset_elems))
 
     tempHatoms = [index for index, el in enumerate(subset_elems) if el == "H"]
     tempHatoms_full = [_actindex_to_fullindex(i, actatoms) for i in tempHatoms]
@@ -2435,10 +2431,8 @@ def simple_get_water_constraints(
     fragment: Fragment, starting_index: int | None = None, onlyHH: bool = False
 ) -> list[list[int]]:
     """Return water bond constraints by position, without residue information."""
-    logger.info("Inside simple_get_water_constraints function")
-    logger.warning(
-        "Warning: Note that water residues have to have O,H,H order and have to be at the end of the coordinate file"
-    )
+    logger.debug("Defining simple water constraints")
+    logger.warning("Water residues must have O,H,H order and be at the end of the coordinate file")
     logger.debug("Starting index for first water oxygen: %s", starting_index)
     if starting_index is None:
         raise InputError("Error: You must provide a starting_index value!")

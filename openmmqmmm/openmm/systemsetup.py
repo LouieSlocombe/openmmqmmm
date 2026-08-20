@@ -115,14 +115,14 @@ def openmm_minimize(
     logger.info(f"Number of frozen atoms: {len(openmmobject.user_frozen_atoms)}")
 
     if openmmobject.autoconstraints is None:
-        logger.warning("Autoconstraints have not been set in OpenMMTheory object definition.")
-        logger.info("This means that by default no bonds are constrained in the optimization.")
-        logger.debug("Will continue...")
+        logger.warning(
+            "Autoconstraints have not been set in OpenMMTheory; no bonds are constrained in the optimization"
+        )
     if (openmmobject.rigidwater is True and len(openmmobject.user_frozen_atoms) != 0) or (
         openmmobject.autoconstraints is not None and len(openmmobject.user_frozen_atoms) != 0
     ):
         logger.warning(
-            "WARNING: Frozen_atoms options selected but there are general constraints defined in "
+            "Frozen_atoms options selected but there are general constraints defined in "
             "the OpenMM object (either rigidwater=True or autoconstraints is not None)\n"
             "OpenMM will crash if constraints and frozen atoms involve the same atoms"
         )
@@ -475,8 +475,6 @@ def openmm_modeller(
             f"This is chain {chain_x.index}, it has {len(chain_x._residues)} residues and they are: "
             f"{chain_x._residues}\n"
         )
-    logger.info("\n")
-
     logger.info("User defined residue variants per chain:")
     for rv_key, rv_vals in residue_variants.items():
         logger.info(f"Chain {rv_key} : {rv_vals}")
@@ -533,7 +531,7 @@ def openmm_modeller(
         logger.info("residueTemplates: %s", residueTemplates)
         modeller.addHydrogens(forcefield_obj, pH=ph, variants=residue_states, residueTemplates=residueTemplates)
     except ValueError as errormessage:
-        logger.error("\nOpenMM modeller.addHydrogens signalled a ValueError")
+        logger.error("OpenMM modeller.addHydrogens signalled a ValueError")
         logger.debug(
             "This is a common error and suggests a problem in PDB-file or missing residue information in the "
             "forcefield."
@@ -850,14 +848,14 @@ def find_alternate_locations_residues(pdbfile: str | os.PathLike[str], use_highe
             finalpdblines.append(pdbline)
 
     if len(bad_resids_dict) > 0:
-        logger.warning("\nFound residues in PDB-file that have alternate location labels i.e. multiple occupancies:")
+        logger.warning("Found residues in the PDB file with alternate-location labels (multiple occupancies):")
         for chain, residues in bad_resids_dict.items():
             logger.info(f"\nChain {chain}:")
             for res in residues:
                 logger.info("%s", res)
-        logger.warning("\nThese residues should be manually inspected and fixed in the PDB-file before continuing")
+        logger.warning("These residues should be inspected and fixed in the PDB file before continuing")
         if use_higher_occupancy is True:
-            logger.warning("\n Use higher-occupancy location opton was selected, so continuing.")
+            logger.warning("The higher-occupancy location option was selected, so continuing")
             write_list_to_file(finalpdblines, "system_afteratlocfixes.pdb", separator="")
             return "system_afteratlocfixes.pdb"
         raise InputError(
@@ -1035,7 +1033,7 @@ def _add_solvent_or_membrane(
         logger.info("Actual solvent file: %s", waterxmlfile)
         if solvent_boxdims is not None:
             logger.info(f"Solvent boxdimension provided: {solvent_boxdims} Å")
-            logger.debug(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
+            logger.debug("Adding ionic strength: %s M, using ions: %s and %s", ionicstrength, pos_iontype, neg_iontype)
             modeller.addSolvent(
                 forcefield_obj,
                 boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm_unit.angstrom,
@@ -1047,7 +1045,7 @@ def _add_solvent_or_membrane(
             )
         else:
             logger.info(f"Using solvent padding (solvent_padding=X keyword): {solvent_padding} Å")
-            logger.debug(f"Adding ionic strength: {ionicstrength} M, using ions: {pos_iontype} and {neg_iontype}")
+            logger.debug("Adding ionic strength: %s M, using ions: %s and %s", ionicstrength, pos_iontype, neg_iontype)
             logger.info("residueTemplates: %s", residue_templates)
             modeller.addSolvent(
                 forcefield_obj,
@@ -1108,7 +1106,7 @@ def _log_output_files_and_usage(
     )
     if residuetemplate_choice is not None:
         logger.warning(
-            "Warning: A residuetemplate_choice option was provided to OpenMM_Modeller. This means that you will have "
+            "A residuetemplate_choice option was provided to OpenMM_Modeller. This means that you will have "
             "to provide this also when defining an OpenMMTheory object."
         )
         logger.info(

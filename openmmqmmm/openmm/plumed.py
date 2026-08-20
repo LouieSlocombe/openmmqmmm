@@ -84,31 +84,32 @@ def openmm_md_plumed(
             "https://github.com/openmm/openmm-plumed"
         ) from None
 
-    md = MolecularDynamicsEngine(**engine_kwargs)
-
-    logger.debug("Setting up Plumed")
     # The PLUMED input is the whole bias specification; there is nothing to fall back on.
     if plumed_input_string is None:
         raise InputError("plumed_input_string is required: it defines the PLUMED bias to apply.")
-    logger.info(
-        "plumed_input_string provided. Will read all options from this string (make sure to provide atom indices "
-        "in 1-based indexing)"
-    )
-    write_string_to_file(plumed_input_string, "plumedinput.in")
+    md = MolecularDynamicsEngine(**engine_kwargs)
+    try:
+        logger.debug("Setting up Plumed")
+        logger.info(
+            "plumed_input_string provided. Will read all options from this string (make sure to provide atom indices "
+            "in 1-based indexing)"
+        )
+        write_string_to_file(plumed_input_string, "plumedinput.in")
 
-    logger.debug("Now starting PLUMED-biased simulation")
-    md.run(
-        simulation_steps=simulation_steps,
-        simulation_time=simulation_time,
-        restraints=restraints,
-        plumedinput=plumed_input_string,
-    )
-    logger.info("PLUMED-biased simulation done")
+        logger.debug("Now starting PLUMED-biased simulation")
+        md.run(
+            simulation_steps=simulation_steps,
+            simulation_time=simulation_time,
+            restraints=restraints,
+            plumedinput=plumed_input_string,
+        )
+        logger.info("PLUMED-biased simulation done")
 
-    md.finalize_simulation()
+        md.finalize_simulation()
+    finally:
+        md.close()
 
     logger.info(
         "You can now analyze/plot the data with plumed's own tools (requires presence of HILLS and COLVAR "
         "files in directory)"
     )
-    logger.info("\n")

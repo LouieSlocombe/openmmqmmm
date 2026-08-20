@@ -15,7 +15,11 @@ def test_version_is_exposed():
 def test_import_silent():
     """Importing the package must produce no output (no banner, no settings dump)."""
     result = subprocess.run(
-        [sys.executable, "-c", "import openmmqmmm"],
+        [
+            sys.executable,
+            "-c",
+            "import logging; import openmmqmmm; logging.getLogger('openmmqmmm.child').warning('hidden warning')",
+        ],
         capture_output=True,
         text=True,
         timeout=120,

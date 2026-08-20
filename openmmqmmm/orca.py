@@ -299,7 +299,7 @@ class ORCATheory:
         # "! OPT" across repeated opt() calls and leak into later run() single points.
         extraline = "\n".join(filter(None, [self.extraline.strip("\n"), "! OPT"]))
 
-        logger.debug(f"Running ORCA with {numcores} cores available")
+        logger.debug("Running ORCA with %s cores available", numcores)
         logger.info("Object label: %s", self.label)
 
         logger.info("Creating inputfile: %s", self.filename + ".inp")
@@ -574,7 +574,7 @@ class ORCATheory:
 
         self._append_basis_blocks()
 
-        logger.debug(f"Running ORCA with {numcores} cores available")
+        logger.debug("Running ORCA with %s cores available", numcores)
 
         self._prepare_orbital_guess()
 
@@ -934,21 +934,21 @@ _BENIGN_WARNING_PREFIXES = (
     "WARNING: your system is open-shell",
 )
 
-# Lines matching "error" that are ordinary output: convergence tables report a DIIS error
-# and a truncation error per iteration, and TD-DFT announces finishing without one.
-_BENIGN_ERROR_PREFIXES = (
-    "   Iter.        energy            ||Error||_2",
-    " WARNING: the maximum gradient error",
-    "           *** ORCA-CIS/TD-DFT FINISHED WITHOUT ERROR",
-    "   Startup",
-    "   DIIS-Error",
-    " DIIS",
-    "sum of PNO error",
-    "  Last DIIS Error",
-    "    DIIS-Error",
-    " Sum of total truncation errors",
-    "  Sum of total UMP2 truncation",
+# ORCA output uses "error" for ordinary numerical diagnostics (DIIS errors,
+# truncation errors, and even thermochemistry caveats). Only signatures that
+# indicate termination or an abort should become ERROR records.
+_FATAL_ERROR_PHRASES = (
+    "orca finished by error termination",
+    "orca is aborting",
+    "orca terminated abnormally",
+    "aborting the run",
 )
+_FATAL_ERROR_PREFIXES = ("error:", "error :", "fatal error", "error termination")
+
+
+def _is_fatal_orca_line(line: str) -> bool:
+    normalized = " ".join(line.casefold().split())
+    return normalized.startswith(_FATAL_ERROR_PREFIXES) or any(phrase in normalized for phrase in _FATAL_ERROR_PHRASES)
 
 
 def _report_matching_lines(
@@ -956,6 +956,7 @@ def _report_matching_lines(
     needles: Sequence[str],
     benign_prefixes: str | tuple[str, ...],
     headline: str,
+    level: int,
 ) -> None:
     with open(filename, errors="ignore") as f:
         matches = [
@@ -964,23 +965,32 @@ def _report_matching_lines(
             if any(needle in line.casefold() for needle in needles) and not line.startswith(benign_prefixes)
         ]
     if matches:
-        logger.info(headline)
-        logger.info("%s", "".join(matches))
+        logger.log(level, headline)
+        for match in matches:
+            message = match.strip()
+            prefix, separator, remainder = message.partition(":")
+            if separator and prefix.casefold() in {"warning", "error"}:
+                message = remainder.lstrip()
+            logger.log(level, "%s", message)
 
 
 def grab_orca_warnings(filename: StrPath) -> None:
     _report_matching_lines(
-        filename, ("warning",), _BENIGN_WARNING_PREFIXES, "Found warning messages in ORCA outputfile:"
+        filename,
+        ("warning",),
+        _BENIGN_WARNING_PREFIXES,
+        "Found warning messages in ORCA outputfile:",
+        logging.WARNING,
     )
 
 
 def grab_orca_errors(filename: StrPath) -> None:
-    _report_matching_lines(
-        filename,
-        ("error", "aborting"),
-        _BENIGN_ERROR_PREFIXES,
-        "Found possible error messages in ORCA outputfile:",
-    )
+    with open(filename, errors="ignore") as f:
+        matches = [line for line in f if _is_fatal_orca_line(line)]
+    if matches:
+        logger.error("Found fatal error messages in ORCA outputfile:")
+        for match in matches:
+            logger.error("%s", match.strip())
 
 
 def check_orca_finished(file: StrPath) -> tuple[bool, str | None]:

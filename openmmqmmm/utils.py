@@ -20,32 +20,82 @@ timings_logger = logging.getLogger("openmmqmmm.timings")
 
 _T = TypeVar("_T")
 
+_HANDLER_MARKER = "_openmmqmmm_handler"
+
+
+class _LevelAwareFormatter(logging.Formatter):
+    """Keep INFO output compact while making warnings and errors visible."""
+
+    def __init__(
+        self,
+        fmt: str | None = None,
+        datefmt: str | None = None,
+        style: str = "%",
+        validate: bool = True,
+    ) -> None:
+        super().__init__(fmt, datefmt, style, validate)
+        self._format_includes_level = style == "%" and "%(levelname)" in (fmt or "")
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = super().format(record)
+        if record.levelno >= logging.WARNING and not self._format_includes_level:
+            return f"{record.levelname}: {message}"
+        return message
+
 
 def configure_logging(
     level: int | str = "INFO",
     file: str | PathLike[str] | None = None,
     fmt: str = "%(message)s",
 ) -> logging.Logger:
-    """Configure console (and optional file) output; OPENMMQMMM_LOGLEVEL overrides level."""
+    """Configure openmmqmmm and geomeTRIC output; OPENMMQMMM_LOGLEVEL overrides level."""
     package_logger = logging.getLogger("openmmqmmm")
+    configured_loggers = (package_logger, logging.getLogger("geometric"))
     env_level = os.environ.get("OPENMMQMMM_LOGLEVEL")
     if env_level:
         level = env_level
-    package_logger.setLevel(level.upper() if isinstance(level, str) else level)
-    formatter = logging.Formatter(fmt)
-    # Replace handlers configured by a previous call rather than stacking them
-    for handler in list(package_logger.handlers):
-        if getattr(handler, "_openmmqmmm_handler", False):
-            package_logger.removeHandler(handler)
+    level = level.upper() if isinstance(level, str) else level
+    formatter = _LevelAwareFormatter(fmt)
+
+    # Build the replacement first so a bad file path does not destroy a working
+    # configuration. FileHandler defaults to the locale encoding, which is an
+    # unnecessary source of failures for symbols commonly used in this package.
+    new_handlers: list[logging.Handler] = []
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
-    stream_handler._openmmqmmm_handler = True
-    package_logger.addHandler(stream_handler)
-    if file is not None:
-        file_handler = logging.FileHandler(file)
-        file_handler.setFormatter(formatter)
-        file_handler._openmmqmmm_handler = True
-        package_logger.addHandler(file_handler)
+    setattr(stream_handler, _HANDLER_MARKER, True)
+    new_handlers.append(stream_handler)
+    try:
+        stream_handler.setLevel(level)
+        if file is not None:
+            file_handler = logging.FileHandler(file, encoding="utf-8")
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(level)
+            setattr(file_handler, _HANDLER_MARKER, True)
+            new_handlers.append(file_handler)
+        for configured_logger in configured_loggers:
+            configured_logger.setLevel(level)
+            configured_logger.disabled = False
+    except Exception:
+        for handler in new_handlers:
+            handler.close()
+        raise
+
+    # Replace only handlers installed by this helper. Application handlers are
+    # left alone, while propagation is disabled to keep their root handlers from
+    # printing the same record a second time.
+    replaced_handlers: set[logging.Handler] = set()
+    for configured_logger in configured_loggers:
+        for handler in list(configured_logger.handlers):
+            if getattr(handler, _HANDLER_MARKER, False):
+                configured_logger.removeHandler(handler)
+                replaced_handlers.add(handler)
+    for handler in replaced_handlers:
+        handler.close()
+    for configured_logger in configured_loggers:
+        for handler in new_handlers:
+            configured_logger.addHandler(handler)
+        configured_logger.propagate = False
     return package_logger
 
 

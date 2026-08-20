@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import logging.config
 import os
 import shutil
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -52,6 +54,93 @@ ConvergenceCriteria: TypeAlias = dict[str, float]
 HessianOption: TypeAlias = np.ndarray | str | None
 StrPath: TypeAlias = str | os.PathLike[str]
 CalculationResult: TypeAlias = dict[str, float | np.ndarray]
+
+_GEOMETRIC_LOGGING_LOCK = threading.RLock()
+
+
+def _run_optimizer_without_reconfiguring_logging(run_optimizer: Any, arguments: Mapping[str, Any]) -> Any:
+    """Run geomeTRIC without allowing its legacy INI to replace application logging."""
+    # geomeTRIC hard-codes a process-global fileConfig call and this integration
+    # also uses fixed output names. Serializing runs prevents concurrent callers
+    # from capturing each other's temporary fileConfig wrapper or log handler.
+    with _GEOMETRIC_LOGGING_LOCK:
+        return _run_optimizer_with_isolated_logging(run_optimizer, arguments)
+
+
+def _run_optimizer_with_isolated_logging(run_optimizer: Any, arguments: Mapping[str, Any]) -> Any:
+    """Intercept one geomeTRIC fileConfig call while the integration lock is held."""
+    original_file_config = logging.config.fileConfig
+    expected_config = arguments.get("logIni")
+    geometric_logger = logging.getLogger("geometric")
+    original_level = geometric_logger.level
+    original_disabled = geometric_logger.disabled
+    original_effective_level = geometric_logger.getEffectiveLevel()
+    run_handlers: list[logging.Handler] = []
+    filtered_handlers: list[logging.Handler] = []
+
+    def preserve_configured_level(record: logging.LogRecord) -> bool:
+        if record.name == "geometric" or record.name.startswith("geometric."):
+            return not original_disabled and record.levelno >= original_effective_level
+        return True
+
+    # The internal step log requires geomeTRIC INFO records even when the
+    # application selected WARNING. Keep those newly-enabled records out of
+    # pre-existing application handlers while allowing the run-only file
+    # handler below to receive them.
+    if original_disabled or original_effective_level > logging.INFO:
+        application_handlers = set(geometric_logger.handlers)
+        if geometric_logger.propagate:
+            application_handlers.update(logging.getLogger().handlers)
+        for handler in application_handlers:
+            handler.addFilter(preserve_configured_level)
+            filtered_handlers.append(handler)
+
+    def preserve_application_logging(
+        filename: Any,
+        defaults: Mapping[str, Any] | None = None,
+        disable_existing_loggers: bool = True,
+        encoding: str | None = None,
+    ) -> None:
+        if filename == expected_config:
+            # run_optimizer invokes fileConfig before doing any work. Restore the
+            # function immediately so the process-wide patch lasts only until
+            # that one known call, rather than for the optimization itself.
+            logging.config.fileConfig = original_file_config
+            logger.debug("Leaving geomeTRIC output under the application's logging configuration")
+            log_filename = (defaults or {}).get("logfilename")
+            if log_filename is not None:
+                file_handler = logging.FileHandler(log_filename, encoding="utf-8")
+                # geomeTRIC includes its own newlines and its original RawFileHandler
+                # therefore adds no terminator of its own.
+                file_handler.terminator = ""
+                file_handler.setLevel(logging.INFO)
+                file_handler.setFormatter(logging.Formatter("%(message)s"))
+                geometric_logger.addHandler(file_handler)
+                run_handlers.append(file_handler)
+                geometric_logger.setLevel(min(original_effective_level, logging.INFO))
+                geometric_logger.disabled = False
+            return
+        original_file_config(
+            filename,
+            defaults=defaults,
+            disable_existing_loggers=disable_existing_loggers,
+            encoding=encoding,
+        )
+
+    logging.config.fileConfig = preserve_application_logging
+    try:
+        return run_optimizer(**arguments)
+    finally:
+        if logging.config.fileConfig is preserve_application_logging:
+            logging.config.fileConfig = original_file_config
+        for handler in run_handlers:
+            geometric_logger.removeHandler(handler)
+            handler.close()
+        for handler in filtered_handlers:
+            handler.removeFilter(preserve_configured_level)
+        geometric_logger.setLevel(original_level)
+        geometric_logger.disabled = original_disabled
+
 
 # Convergence thresholds by preset name. Every preset sets the same six, and cmax (the
 # constraint violation) is 1.0e-2 throughout because it is a tolerance on the constraints
@@ -230,7 +319,7 @@ class GeometricOptimizer:
 
         if active_region is True and coordsystem.lower() == "tric":
             logger.warning(
-                "Warning: ActiveRegion is set but the coordsystem is TRIC. The HDLC coordinate system is usually much "
+                "ActiveRegion is set but the coordsystem is TRIC. The HDLC coordinate system is usually much "
                 "more robust for large systems than TRIC."
             )
             if force_coordsystem is True:
@@ -239,7 +328,7 @@ class GeometricOptimizer:
             else:
                 logger.info("force_coordsystem is False.")
                 logger.warning(
-                    "Warning: Now switching to HDLC to avoid likely robustness problems with TRIC. To avoid this "
+                    "Switching to HDLC to avoid likely robustness problems with TRIC. To avoid this "
                     "behaviour (and force use of TRIC) you can use set the Boolean force_coordsystem to True."
                 )
                 coordsystem = "hdlc"
@@ -334,8 +423,7 @@ class GeometricOptimizer:
 
     def define_constraints(self, constraints: ConstraintDict | None) -> Constraints:
         """Translate the user constraints dict into geomeTRIC's constraint lists."""
-        logger.info("Inside define_constraints")
-        logger.info("Constraints: %s", constraints)
+        logger.debug("Defining constraints: %s", constraints)
         # For QM/MM we need to convert full-system atoms into active region atoms
         if self.active_region and constraints is not None:
             logger.info("Constraints set. Active region true")
@@ -362,7 +450,7 @@ class GeometricOptimizer:
 
     def write_constraintsfile(self, frozenatoms: Sequence[int], constraints: Constraints, constrainvalue: bool) -> None:
         """Write the geomeTRIC constraints.txt file."""
-        logger.info("Inside write_constraintsfile")
+        logger.debug("Writing constraints file")
 
         with contextlib.suppress(FileNotFoundError):
             os.remove("constraints.txt")
@@ -645,9 +733,9 @@ class GeometricOptimizer:
         # fragment.constraints
         if constraints is None:
             logger.debug("No constraints provided to run method.")
-            logger.info("Testing if constraints present in optimizer object")
+            logger.debug("Testing whether constraints are present in optimizer object")
             if self.constraints is not None:
-                logger.info("Found constraints in optimizer object")
+                logger.debug("Found constraints in optimizer object")
                 constraints = self.constraints
                 constrainvalue = self.constrainvalue
             else:
@@ -655,7 +743,7 @@ class GeometricOptimizer:
                 logger.debug("Now testing if constraints in fragment object ")
                 if fragment.constraints is not None:
                     # Option used by Surface-scan relaxed parallel
-                    logger.info("Found constraints in fragment object")
+                    logger.debug("Found constraints in fragment object")
                     constraints = fragment.constraints
                     constrainvalue = True  # Assuming to be the case.
                 else:
@@ -747,7 +835,7 @@ class GeometricOptimizer:
             logger.debug("Starting optimization")
 
         log_time_since(self.time_init, "Time spent before run_optimizer")
-        geometric.optimize.run_optimizer(**vars(final_geometric_args))
+        _run_optimizer_without_reconfiguring_logging(geometric.optimize.run_optimizer, vars(final_geometric_args))
         time.sleep(1)
 
         logger.info(f"\ngeomeTRIC Geometry optimization converged in {engine.iteration_count + 1} steps!\n")
@@ -802,7 +890,7 @@ class GeometricOptimizer:
             )
             logger.info(f"Final cell vectors (Å):{theory.periodic_cell_vectors}")
             logger.info(f"Final cell parameters: ({cell_vectors_to_params(theory.periodic_cell_vectors)})")
-            logger.info(f"Final cell volume (Å):{cell_volume(theory.periodic_cell_vectors)}")
+            logger.info(f"Final cell volume (Å³):{cell_volume(theory.periodic_cell_vectors)}")
         if self.active_region is True:
             write_xyz_for_atoms(fragment.coords, fragment.elems, self.actatoms, "Fragment-optimized_Active")
         if isinstance(theory, QMMMTheory):
@@ -866,8 +954,9 @@ class GeometricArgs:
         self.prefix = "geometric_OPTtraj"
         self.input = "dummyinputname"
         self.constraints = constraintsfile
-        # Created log.ini file here. Missing from pip installation for some reason?
-        # Storing log.ini in openmmqmmm dir
+        # geomeTRIC requires a logging-config path in its argument object. The
+        # runner above intercepts that config so it cannot replace the process's
+        # root handlers, while retaining the path for upstream compatibility.
         path = openmmqmmm.constants.PACKAGE_DIR
         self.logIni = path + "/log.ini"
         self.customengine = eng
@@ -931,21 +1020,19 @@ class GeometricEngine:
             self.M.elem = [*self.M.elem, "F", "F", "F", "F"]
 
     def load_guess_files(self, dirname: StrPath) -> None:
-        logger.info("geometric called load_guess_files option for GeometricEngine.")
-        logger.info("This option is currently not supported here. Continuing.")
+        logger.debug("geomeTRIC called unsupported load_guess_files callback; continuing")
 
     def save_guess_files(self, dirname: StrPath) -> None:
-        logger.info("geometric called save_guess_files option option for GeometricEngine.")
-        logger.info("This option is currently not supported here. Continuing.")
+        logger.debug("geomeTRIC called unsupported save_guess_files callback; continuing")
 
     # Optimizer may call this to see if the engine class is doing DFT with grid to print warning
     def detect_dft(self) -> bool:
-        logger.info("geometric called detect_dft option option for GeometricEngine.")
+        logger.debug("geomeTRIC called detect_dft callback")
         return True
 
     # geometric checks if calc_bondorder method is implemented for the custom engine. Disabled until we implement this
     def calc_bondorder(self, coords: np.ndarray, dirname: StrPath) -> np.ndarray | None:
-        logger.info("geometric called calc_bondorder option option for GeometricEngine.")
+        logger.debug("geomeTRIC called calc_bondorder callback")
         if self.BOmatrix is not None:
             return self.BOmatrix
         logger.debug("no BOmatrix found")
@@ -972,8 +1059,7 @@ class GeometricEngine:
         return None
 
     def clearCalcs(self) -> None:  # noqa: N802 - geomeTRIC engine API, do not rename
-        logger.info("geometric called clearCalcs option for GeometricEngine.")
-        logger.info("This option is currently not supported here. Continuing.")
+        logger.debug("geomeTRIC called unsupported clearCalcs callback; continuing")
 
     # Writing out trajectory file for full system in case of ActiveRegion. Note: Actregion coordinates are done done by
     # GeomeTRIC
@@ -1164,7 +1250,7 @@ class GeometricEngine:
         print_coords_for_atoms(R_phys, self.elems_phys, self.print_atoms_list)
         logger.info("\nNote: printed only print_atoms_list (this is not necessarily all atoms) ")
         logger.info(f"Current cell vectors (Å):{H_geo}")
-        logger.info(f"Current cell volume (Å):{cell_volume(H_geo)}")
+        logger.info(f"Current cell volume (Å³):{cell_volume(H_geo)}")
 
         E, grad_phys = self.theory.run(
             current_coords=R_phys, elems=self.elems_phys, charge=self.charge, mult=self.mult, grad=True

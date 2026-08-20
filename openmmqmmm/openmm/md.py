@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import inspect
+import io
 import logging
 import os
 import time
@@ -49,6 +51,31 @@ logger = logging.getLogger(__name__)
 RPMD_RESTART_FILENAME = "OpenMM_MD_rpmd_restart.npz"
 RPMD_FINAL_RESTART_FILENAME = "OpenMM_MD_final_rpmd_restart.npz"
 RPMD_RESTART_FORMAT_VERSION = 1
+
+
+class _LoggerWriter(io.TextIOBase):
+    """Present a line-buffered file interface that emits records to a logger."""
+
+    def __init__(self, target: logging.Logger, level: int = logging.INFO) -> None:
+        self._logger = target
+        self._level = level
+        self._buffer = ""
+
+    def write(self, text: str) -> int:
+        self._buffer += text
+        *lines, self._buffer = self._buffer.split("\n")
+        for line in lines:
+            if line:
+                self._logger.log(self._level, "%s", line)
+        return len(text)
+
+    def flush(self) -> None:
+        if self._buffer:
+            self._logger.log(self._level, "%s", self._buffer)
+            self._buffer = ""
+
+    def writable(self) -> bool:
+        return True
 
 
 class _RPMDStateDataReporter:
@@ -110,6 +137,20 @@ class _RPMDStateDataReporter:
 def engine_kwargs_from(caller_locals: Mapping[str, Any], **overrides: Any) -> dict[str, Any]:
     engine_parameters = set(inspect.signature(MolecularDynamicsEngine.__init__).parameters) - {"self"}
     return {name: value for name, value in caller_locals.items() if name in engine_parameters} | overrides
+
+
+def _close_on_error(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Close an MD engine's owned output resources if an operation fails."""
+
+    @functools.wraps(method)
+    def guarded(engine: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(engine, *args, **kwargs)
+        except BaseException:
+            engine.close()
+            raise
+
+    return guarded
 
 
 def read_npt_statefile(npt_output: str | os.PathLike[str]) -> dict[str, npt.NDArray[np.generic]]:
@@ -185,14 +226,17 @@ def openmm_md(
 
     logger.info(main_header("OpenMM MD wrapper function"))
     md = MolecularDynamicsEngine(**engine_kwargs)
-    if simulation_steps is not None:
-        md.run(simulation_steps=simulation_steps)
-    elif simulation_time is not None:
-        md.run(simulation_time=simulation_time)
-    else:
-        raise InputError("Either simulation_steps or simulation_time need to be defined (not both).")
+    try:
+        if simulation_steps is not None:
+            md.run(simulation_steps=simulation_steps)
+        elif simulation_time is not None:
+            md.run(simulation_time=simulation_time)
+        else:
+            raise InputError("Either simulation_steps or simulation_time need to be defined (not both).")
 
-    md.finalize_simulation()
+        md.finalize_simulation()
+    finally:
+        md.close()
 
 
 class MolecularDynamicsEngine:
@@ -317,6 +361,9 @@ class MolecularDynamicsEngine:
         self.integrator = integrator
         self.rpmd_report_copy = 0
         self._rpmd_reporters = []
+        self._rpmd_reporter_owner: openmm.app.Simulation | None = None
+        self._simulation_reporters: list[Any] = []
+        self._simulation_reporter_owner: openmm.app.Simulation | None = None
         self.coupling_frequency = coupling_frequency
         self.timestep = timestep
         self.traj_frequency = int(traj_frequency)
@@ -347,23 +394,18 @@ class MolecularDynamicsEngine:
         )
 
         if self.openmmobject.autoconstraints is None:
-            logger.warning("""
-                WARNING: Autoconstraints have not been set in OpenMMTheory object definition. This means that by
-                         default no bonds are constrained in the MD simulation. This usually requires a small
-                         timestep: 0.5 fs or so.
-                         autoconstraints='HBonds' is recommended for 2 fs timesteps with
-                         LangevinIntegrator and 4fs with LangevinMiddleIntegrator).
-                         autoconstraints='AllBonds' or autoconstraints='HAngles' allows even
-                         larger timesteps to be used.
-                         See : https://github.com/openmm/openmm/pull/2754 and https://github.com/openmm/openmm/issues/2520
-                         for recommended simulation settings in OpenMM.
-                         """)
+            logger.warning(
+                "Autoconstraints have not been set in OpenMMTheory. By default no bonds are constrained in the MD "
+                "simulation, which usually requires a timestep around 0.5 fs. autoconstraints='HBonds' is recommended "
+                "for 2 fs timesteps with LangevinIntegrator and 4 fs with LangevinMiddleIntegrator; 'AllBonds' or "
+                "'HAngles' permits larger timesteps. See OpenMM issues 2754 and 2520 for guidance."
+            )
             logger.debug("Will continue...")
         if (self.openmmobject.rigidwater is True and len(self.openmmobject.user_frozen_atoms) != 0) or (
             self.openmmobject.autoconstraints is not None and len(self.openmmobject.user_frozen_atoms) != 0
         ):
             logger.warning(
-                "WARNING: Frozen_atoms options selected but there are general constraints defined in "
+                "Frozen_atoms options selected but there are general constraints defined in "
                 "the OpenMM object (either rigidwater=True or autoconstraints is not None)"
                 "\nOpenMM will crash if constraints and frozen atoms involve the same atoms"
             )
@@ -376,7 +418,6 @@ class MolecularDynamicsEngine:
             raise InputError("center_on_atoms is accepted but not implemented. Remove it from the call.")
 
         self._configure_integrator_and_barostat(barostat=barostat, anderson_thermostat=anderson_thermostat)
-        self._open_data_output(datafilename)
         if add_centerforce is True:
             self._add_centerforce(
                 centerforce_atoms=centerforce_atoms,
@@ -384,6 +425,7 @@ class MolecularDynamicsEngine:
                 centerforce_constant=centerforce_constant,
                 centerforce_distance=centerforce_distance,
             )
+        self._open_data_output(datafilename)
 
         logger.info("enforcePeriodicBox: %s", self.enforce_periodic_box)
         logger.info("OpenMM Forces defined: %s", self.openmmobject.system.getForces())
@@ -402,11 +444,12 @@ class MolecularDynamicsEngine:
     def _set_rpmd_reporters(self, simulation: openmm.app.Simulation, restart: bool = False) -> None:
         old_reporters = self._rpmd_reporters
         self._rpmd_reporters = []
+        self._rpmd_reporter_owner = simulation
         old_reporters.clear()
 
         logger.debug("Creating RPMD-aware state and trajectory reporters for copy %s", self.rpmd_report_copy)
         self._rpmd_reporters.append(
-            _RPMDStateDataReporter(stdout, self.rpmd_report_copy, self.openmmobject.dof, separator=",")
+            _RPMDStateDataReporter(_LoggerWriter(logger), self.rpmd_report_copy, self.openmmobject.dof, separator=",")
         )
         if self.dataoutputoption != stdout:
             self._rpmd_reporters.append(
@@ -562,18 +605,41 @@ class MolecularDynamicsEngine:
         logger.info("Restored all %s RPMD copies from %s", expected_copies, filename)
 
     # Set sim reporters. Needs to be done after simulation is created and not modified anymore
+    def _remove_simulation_reporters(self) -> None:
+        """Detach reporters owned by this engine while preserving caller reporters."""
+        owned_reporters = self._simulation_reporters
+        self._simulation_reporters = []
+        simulation = self._simulation_reporter_owner
+        self._simulation_reporter_owner = None
+        if simulation is not None:
+            for reporter in owned_reporters:
+                with contextlib.suppress(ValueError):
+                    simulation.reporters.remove(reporter)
+        # Dropping the last references closes OpenMM trajectory reporters through
+        # their destructors. StateDataReporter does not close caller-owned streams.
+        owned_reporters.clear()
+
+    def _add_simulation_reporter(self, simulation: openmm.app.Simulation, reporter: Any) -> None:
+        """Attach and track one reporter owned by this engine."""
+        simulation.reporters.append(reporter)
+        self._simulation_reporters.append(reporter)
+        self._simulation_reporter_owner = simulation
+
     def set_sim_reporters(self, simulation: openmm.app.Simulation, restart: bool = False) -> None:
         """Configure trajectory, state-data, and restart reporting for the simulation."""
         if self._is_rpmd_simulation(simulation):
             self._set_rpmd_reporters(simulation, restart=restart)
             return
 
+        self._remove_simulation_reporters()
         logger.debug("Creating CheckpointReporter that will write a restartable checkpointfile every X steps")
         checkpointfilename = "OpenMM_MD.chk"
-        simulation.reporters.append(openmm.app.CheckpointReporter(checkpointfilename, self.traj_frequency * 1))
-        logger.debug("Creating StateDataReporter that will write to stdout")
-        statedatareporter_stdout = openmm.app.StateDataReporter(
-            stdout,
+        self._add_simulation_reporter(
+            simulation, openmm.app.CheckpointReporter(checkpointfilename, self.traj_frequency * 1)
+        )
+        logger.debug("Creating StateDataReporter that will write through the package logger")
+        statedatareporter_log = openmm.app.StateDataReporter(
+            _LoggerWriter(logger),
             self.traj_frequency,
             step=True,
             time=True,
@@ -584,7 +650,7 @@ class MolecularDynamicsEngine:
             temperature=True,
             separator=",",
         )
-        simulation.reporters.append(statedatareporter_stdout)
+        self._add_simulation_reporter(simulation, statedatareporter_log)
         if self.dataoutputoption != stdout:
             logger.info("Creating StateDataReporter that will write to file: %s", self.datafilename)
             logger.info("restart: %s", restart)
@@ -601,14 +667,14 @@ class MolecularDynamicsEngine:
                 separator=",",
                 append=restart,
             )
-            simulation.reporters.append(statedatareporter_file)
-            self.dataoutputoption = open(self.datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
+            self._add_simulation_reporter(simulation, statedatareporter_file)
 
         if self.trajectory_file_option == "PDB":
-            simulation.reporters.append(
+            self._add_simulation_reporter(
+                simulation,
                 openmm.app.PDBReporter(
                     self.trajfilename + ".pdb", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
-                )
+                ),
             )
         elif self.trajectory_file_option == "DCD":
             # Note: using append keyword here if restarting
@@ -617,26 +683,30 @@ class MolecularDynamicsEngine:
                 logger.warning("Restart option was active but trajectory file not existing. Will create new file")
                 restart = False
 
-            simulation.reporters.append(
+            self._add_simulation_reporter(
+                simulation,
                 openmm.app.DCDReporter(
                     self.trajfilename + ".dcd",
                     self.traj_frequency,
                     append=restart,
                     enforcePeriodicBox=self.enforce_periodic_box,
-                )
+                ),
             )
             logger.info("DCDReporter added")
         elif self.trajectory_file_option == "NetCDFReporter":
             logger.info("NetCDFReporter traj format selected. This requires mdtraj. Importing.")
             mdtraj = mdtraj_load()
-            simulation.reporters.append(mdtraj.reporters.NetCDFReporter(self.trajfilename + ".nc", self.traj_frequency))
+            self._add_simulation_reporter(
+                simulation, mdtraj.reporters.NetCDFReporter(self.trajfilename + ".nc", self.traj_frequency)
+            )
         elif self.trajectory_file_option == "HDF5Reporter":
             logger.info("HDF5Reporter traj format selected. This requires mdtraj. Importing.")
             mdtraj = mdtraj_load()
-            simulation.reporters.append(
+            self._add_simulation_reporter(
+                simulation,
                 mdtraj.reporters.HDF5Reporter(
                     self.trajfilename + ".lh5", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
-                )
+                ),
             )
         elif self.trajectory_file_option == "XYZ":
             logger.info("XYZ trajectory format selected (not available for classical MD). Warning: not very fast")
@@ -647,10 +717,11 @@ class MolecularDynamicsEngine:
 
         if self.force_file_option is not None:
             logger.info("ForceReporter traj format selected.")
-            simulation.reporters.append(
+            self._add_simulation_reporter(
+                simulation,
                 ForceReporter(
                     self.trajfilename + "_force.txt", self.traj_frequency, atomic_units=self.atomic_units_force_reporter
-                )
+                ),
             )
         if self.energy_file_option is not None:
             logger.info("Energyfile  selected.")
@@ -913,7 +984,7 @@ class MolecularDynamicsEngine:
         self.volume = self.density = barostat is not None
 
     def _open_data_output(self, datafilename: str | os.PathLike[str] | None) -> None:
-        """Point the StateDataReporter at stdout, or at a freshly-truncated append-mode file."""
+        """Select package logging, or a freshly truncated append-mode data file."""
         self.datafilename = datafilename
         if datafilename is None:
             self.dataoutputoption = stdout
@@ -922,7 +993,7 @@ class MolecularDynamicsEngine:
         with contextlib.suppress(FileNotFoundError):
             os.remove(datafilename)
         # An open file object, not a name: a name does not survive stepping the simulation one step at a time
-        self.dataoutputoption = open(datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
+        self.dataoutputoption = open(datafilename, "a", encoding="utf-8")  # noqa: SIM115 - owned until close()
         logger.info("Will write data to file: %s", datafilename)
 
     def _add_centerforce(
@@ -961,24 +1032,39 @@ class MolecularDynamicsEngine:
 
     def _attach_reporters(self, continuing: bool, extra_reporters: Iterable[Any] | None) -> None:
         """Attach the state and trajectory reporters, plus any caller-supplied extras."""
-        if continuing:
-            logger.debug("Continuing a previous run. Reusing simulation reporters")
-            # Reporters must be rebuilt after a restart so StateDataReporter and DCDReporter append
+        is_rpmd = self._is_rpmd_simulation(self.simulation)
+        if is_rpmd:
+            reusing_reporters = self._rpmd_reporter_owner is self.simulation and bool(self._rpmd_reporters)
+        else:
+            reusing_reporters = self._simulation_reporter_owner is self.simulation and bool(self._simulation_reporters)
+
+        if continuing and reusing_reporters:
+            logger.debug("Continuing the existing simulation with its current reporters")
+        elif continuing:
+            logger.debug("Continuing from restored state. Rebuilding engine-owned reporters in append mode")
+            if self.datafilename is not None and self.dataoutputoption.closed:
+                self.dataoutputoption = open(  # noqa: SIM115 - owned until close()
+                    self.datafilename, "a", encoding="utf-8"
+                )
             self.set_sim_reporters(self.simulation, restart=True)
         else:
             logger.info("New run. Creating simulation reporters")
             if self.datafilename is not None:
                 logger.info("Deleting old datafile: %s", self.datafilename)
+                if self.dataoutputoption != stdout:
+                    self.dataoutputoption.close()
                 with contextlib.suppress(OSError):
                     os.remove(self.datafilename)
-                self.dataoutputoption = open(self.datafilename, "a")  # noqa: SIM115 - handed to OpenMM reporter
+                self.dataoutputoption = open(  # noqa: SIM115 - owned until close()
+                    self.datafilename, "a", encoding="utf-8"
+                )
             self.set_sim_reporters(self.simulation)
             self.openmmobject.set_positions(self.positions, self.simulation)
 
         if extra_reporters is None:
             return
         extra_reporters = list(extra_reporters)
-        if self._is_rpmd_simulation(self.simulation):
+        if is_rpmd:
             # The RPMD event loop drives these at traj_frequency alongside the
             # engine's own reporters; describeNextReport is not consulted.
             self._rpmd_reporters.extend(extra_reporters)
@@ -1021,9 +1107,7 @@ class MolecularDynamicsEngine:
         logger.info("Periodic Boundary Conditions used.")
         if self.enforce_periodic_box is True:
             logger.info("EnforcePeriodic Box is True. Wrapping enforced by OpenMM.")
-            logger.warning(
-                "Warning: in case of problematic wrapping for e.g. QM/MM, try enabling special_wrapping=True"
-            )
+            logger.warning("In case of problematic wrapping for e.g. QM/MM, try enabling special_wrapping=True")
         if self.special_wrapping is not True:
             return None, None, None
 
@@ -1124,6 +1208,7 @@ class MolecularDynamicsEngine:
         logger.info("Writing wrapped coords to trajfile: only for special atoms")
         write_xyzfile(specialelems, special_coords, "wrapped_special_traj", writemode="a")
 
+    @_close_on_error
     def run(
         self,
         simulation_steps: int | None = None,
@@ -1183,15 +1268,19 @@ class MolecularDynamicsEngine:
             logger.debug("Adding restraints")
             self.openmmobject.add_bondrestraints(restraints=restraints)
 
+        new_simulation = False
         if chkfile is not None:
             self._restart_from_file(chkfile, "Checkpoint file", openmm.app.Simulation.loadCheckpoint)
+            new_simulation = True
         elif statefile is not None:
             self._restart_from_file(statefile, "State file", openmm.app.Simulation.loadState)
+            new_simulation = True
         elif restart is True:
             logger.info("Restart true. Reusing already-defined simulation object")
         else:
             logger.info("Restart false and no chkfile/statefile set. This is a new simulation")
             self.simulation = self.openmmobject.create_simulation()
+            new_simulation = True
             logger.info("Simulation created.")
         self._log_run_parameters(simulation_time, simulation_steps)
 
@@ -1212,7 +1301,8 @@ class MolecularDynamicsEngine:
             pre_dynamics_hook(self)
 
         boxvectors, mdtrajtopology, wrapping_atoms = self._prepare_wrapping()
-        self._write_first_frame()
+        if new_simulation:
+            self._write_first_frame()
 
         if self.theory_runtype == "QMMM":
             logger.info("QM/MM MD run beginning")
@@ -1330,8 +1420,29 @@ class MolecularDynamicsEngine:
         logger.info(small_header("OpenMM MD simulation finished!"))
         log_time_since(module_init_time, "OpenMM_MD run")
 
+    def close(self) -> None:
+        """Close engine-owned output streams and detach engine-owned reporters."""
+        data_output = getattr(self, "dataoutputoption", stdout)
+        if data_output != stdout and not data_output.closed:
+            data_output.close()
+
+        if hasattr(self, "_simulation_reporters"):
+            self._remove_simulation_reporters()
+
+        rpmd_reporters = getattr(self, "_rpmd_reporters", [])
+        self._rpmd_reporters = []
+        self._rpmd_reporter_owner = None
+        rpmd_reporters.clear()
+
     def finalize_simulation(self) -> None:
         """Write the final structure and trajectory files and log the timing summary."""
+        try:
+            self._finalize_simulation()
+        finally:
+            self.close()
+
+    def _finalize_simulation(self) -> None:
+        """Implement finalization while the public wrapper guarantees resource cleanup."""
         logger.info("Finalizing simulation data")
 
         if self.datafilename is not None:
@@ -1376,9 +1487,6 @@ class MolecularDynamicsEngine:
         if self._is_rpmd_simulation(self.simulation):
             logger.info("Saving all RPMD copies to %s", RPMD_FINAL_RESTART_FILENAME)
             self._save_rpmd_restart(RPMD_FINAL_RESTART_FILENAME)
-            old_reporters = self._rpmd_reporters
-            self._rpmd_reporters = []
-            old_reporters.clear()
         else:
             # Can be used to restart using statefile option
             logger.info(
@@ -1461,70 +1569,71 @@ def openmm_box_equilibration(
     density_std = 1
 
     md = MolecularDynamicsEngine(**engine_kwargs)
-    restart = False
-    for i in range(max_npt_cycles):
-        logger.info("%s", "-" * 100)
-        logger.debug(f"Now starting  NPT cycle {i} with {numsteps_per_npt} MD steps")
-        logger.info(
-            f"Simulation data (timestep, energy, temperature, volume,density etc.) is also written to {datafilename}"
-        )
-        if restart is False:
+    try:
+        restart = False
+        for i in range(max_npt_cycles):
+            logger.info("%s", "-" * 100)
+            logger.debug("Starting NPT cycle %s with %s MD steps", i, numsteps_per_npt)
+            logger.info(
+                "Simulation data (timestep, energy, temperature, volume,density etc.) is also written to %s",
+                datafilename,
+            )
             md.run(numsteps_per_npt, restart=restart)
             restart = True
-        else:
-            # Easier and safer to continue by call simulation step directly instead of md.run
-            md.simulation.step(numsteps_per_npt)
 
-        steps += numsteps_per_npt
+            steps += numsteps_per_npt
 
-        NPTresults = read_npt_statefile(datafilename)
-        volume = NPTresults["volume"][-numpoints_for_convergence_check:]
-        density = NPTresults["density"][-numpoints_for_convergence_check:]
-        logger.info("Total number of volume datapoints available: %s", len(NPTresults["volume"]))
-        logger.info("Total number of density datapoints available: %s", len(NPTresults["density"]))
-        logger.info(
-            "Number of datapoints (last) used for convergence check in each cycle: %s", numpoints_for_convergence_check
-        )
-        volume_std = np.std(volume)
-        density_std = np.std(density)
-
-        logger.info(small_header("Equilibration Status"))
-        logger.info("Total steps taken: %s", steps)
-        logger.info(f"Total simulation time: {timestep * steps} ps")
-        logger.info("Current Volume: %s", volume[-1])
-        logger.info(f"Current Density: {density[-1]}")
-        logger.info(f"\nCurrent Volume SD: {volume_std}   (threshold: {volume_threshold})")
-        logger.info(f"Current Density SD: {density_std} (threshold: {density_threshold})")
-
-        if volume_std < volume_threshold and density_std < density_threshold:
-            logger.info(f"Equilibration of periodic box finished after {steps} and {timestep * steps} ps !\n")
-            break
-
-        if i == max_npt_cycles - 1:
-            logger.warning(
-                f"Warning: Max NPT cycles reached ({max_npt_cycles}). Total steps taken: {steps} and "
-                f"{timestep * steps} ps !\n"
+            NPTresults = read_npt_statefile(datafilename)
+            volume = NPTresults["volume"][-numpoints_for_convergence_check:]
+            density = NPTresults["density"][-numpoints_for_convergence_check:]
+            logger.info("Total number of volume datapoints available: %s", len(NPTresults["volume"]))
+            logger.info("Total number of density datapoints available: %s", len(NPTresults["density"]))
+            logger.info(
+                "Number of datapoints (last) used for convergence check in each cycle: %s",
+                numpoints_for_convergence_check,
             )
-            logger.warning("The NPT simulation may not be properly converged")
-            break
+            volume_std = np.std(volume)
+            density_std = np.std(density)
 
-    md.finalize_simulation()
+            logger.info(small_header("Equilibration Status"))
+            logger.info("Total steps taken: %s", steps)
+            logger.info(f"Total simulation time: {timestep * steps} ps")
+            logger.info("Current Volume: %s", volume[-1])
+            logger.info(f"Current Density: {density[-1]}")
+            logger.info(f"\nCurrent Volume SD: {volume_std}   (threshold: {volume_threshold})")
+            logger.info(f"Current Density SD: {density_std} (threshold: {density_threshold})")
 
-    logger.info(f"Final PDB file: {trajfilename}.pdb")
-    logger.info(f"NPT trajectory: {trajfilename}.{trajectory_file_option.lower()}")
+            if volume_std < volume_threshold and density_std < density_threshold:
+                logger.info(f"Equilibration of periodic box finished after {steps} and {timestep * steps} ps !\n")
+                break
 
-    if use_mdtraj is True:
-        logger.debug("Trying to load mdtraj for reimaging trajectory")
-        try:
-            logger.info("Imaging trajectory")
-            mdtraj_image_trajectory(f"{trajfilename}.dcd", f"{trajfilename}_lastframe.pdb")
-        except ImportError:
-            logger.info("mdtraj library could not be imported. Skipping")
-        except ValueError as e:
-            logger.info(f"mdtraj reimaging failed. Skipping. Error: {e}")
+            if i == max_npt_cycles - 1:
+                logger.warning(
+                    f"Max NPT cycles reached ({max_npt_cycles}). Total steps taken: {steps} and "
+                    f"{timestep * steps} ps !\n"
+                )
+                logger.warning("The NPT simulation may not be properly converged")
+                break
 
-    log_time_since(module_init_time, "OpenMM_box_equilibration")
-    return md.state.getPeriodicBoxVectors()
+        md.finalize_simulation()
+
+        logger.info(f"Final PDB file: {trajfilename}.pdb")
+        logger.info(f"NPT trajectory: {trajfilename}.{trajectory_file_option.lower()}")
+
+        if use_mdtraj is True:
+            logger.debug("Trying to load mdtraj for reimaging trajectory")
+            try:
+                logger.info("Imaging trajectory")
+                mdtraj_image_trajectory(f"{trajfilename}.dcd", f"{trajfilename}_lastframe.pdb")
+            except ImportError:
+                logger.warning("MDTraj could not be imported; skipping trajectory reimaging")
+            except ValueError as e:
+                logger.warning("MDTraj reimaging failed; skipping it: %s", e)
+
+        log_time_since(module_init_time, "OpenMM_box_equilibration")
+        return md.state.getPeriodicBoxVectors()
+    finally:
+        md.close()
 
 
 def print_current_step_info(
@@ -1541,7 +1650,10 @@ def print_current_step_info(
         pot_energy = qm_energy
     else:
         dummy_warning = "(dummy)"
-        pot_energy = state.getPotentialEnergy()
+        pot_energy = (
+            state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole)
+            / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
+        )
 
     temp = (2 * kinetic_energy / (openmmobject.dof * openmm.unit.MOLAR_GAS_CONSTANT_R)).value_in_unit(
         openmm.unit.kelvin
@@ -1655,9 +1767,9 @@ def gentle_warmup_md(
                     largest_values=10,
                 )
             except ImportError:
-                logger.info("mdtraj library could not be imported. Skipping")
+                logger.warning("MDTraj could not be imported; skipping trajectory analysis")
             except ValueError as e:
-                logger.info(f"mdtraj reimaging failed. Skipping. Error: {e}")
+                logger.warning("MDTraj trajectory analysis failed; skipping it: %s", e)
 
     logger.info("Gentle_warm_up_MD finished successfully!")
     log_time_since(module_init_time, "Gentle_warm_up_MD")

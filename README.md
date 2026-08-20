@@ -122,7 +122,7 @@ script:
 ```py
 import openmmqmmm
 
-openmmqmmm.configure_logging()  # INFO to console
+openmmqmmm.configure_logging()  # INFO to console, including geomeTRIC output
 # openmmqmmm.configure_logging(level="DEBUG", file="calc.log")
 ```
 

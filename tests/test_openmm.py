@@ -1,4 +1,5 @@
 import importlib.util
+import logging
 import shutil
 import subprocess
 import sys
@@ -760,6 +761,122 @@ def test_classical_run_attaches_extra_reporters_natively():
     assert recorder.reports, "Native OpenMM scheduling must call the extra reporter"
 
 
+def test_classical_restart_reuses_engine_owned_reporters(caplog):
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        timestep=0.000001,
+        traj_frequency=1,
+        trajectory_file_option="PDB",
+    )
+    recorder = _RecordingReporter()
+
+    try:
+        with caplog.at_level(logging.INFO, logger="openmmqmmm.openmm.md"):
+            engine.run(simulation_steps=1, extra_reporters=[recorder])
+            first_reporters = tuple(engine._simulation_reporters)
+            first_frame = Path("trajectory_firstframe.pdb").read_text()
+            caplog.clear()
+            engine.run(simulation_steps=1, restart=True)
+
+        second_reporters = tuple(engine._simulation_reporters)
+        second_step_rows = [record.getMessage() for record in caplog.records if record.getMessage().startswith("2,")]
+        assert second_reporters == first_reporters
+        assert set(engine.simulation.reporters) == {*second_reporters, recorder}
+        assert len(second_step_rows) == 1
+        assert recorder.reports == [1, 2]
+        assert Path("trajectory_firstframe.pdb").read_text() == first_frame
+    finally:
+        engine.close()
+    assert Path("trajectory.pdb").read_text().count("MODEL") == 2
+
+
+def test_openmm_md_closes_engine_when_run_fails(monkeypatch):
+    from openmmqmmm.openmm import md as md_module
+
+    instances = []
+
+    class FailingEngine:
+        def __init__(self, **kwargs):
+            self.close_calls = 0
+            instances.append(self)
+
+        def run(self, **kwargs):
+            raise RuntimeError("dynamics failed")
+
+        def finalize_simulation(self):
+            pytest.fail("a failed run must not be finalized")
+
+        def close(self):
+            self.close_calls += 1
+
+    monkeypatch.setattr(md_module, "MolecularDynamicsEngine", FailingEngine)
+
+    with pytest.raises(RuntimeError, match="dynamics failed"):
+        md_module.openmm_md(simulation_steps=1)
+
+    assert len(instances) == 1
+    assert instances[0].close_calls == 1
+
+
+def test_engine_run_closes_data_output_on_validation_error(tmp_path):
+    qmmm, fragment, _qm = _make_analytic_qmmm()
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        charge=0,
+        mult=1,
+        datafilename=tmp_path / "state.csv",
+    )
+
+    with pytest.raises(InputError, match="simulation_steps or simulation_time"):
+        engine.run()
+
+    assert engine.dataoutputoption.closed
+
+
+def test_box_equilibration_closes_engine_when_analysis_fails(monkeypatch):
+    from openmmqmmm.openmm import md as md_module
+
+    instances = []
+
+    class RecordingEngine:
+        def __init__(self, **kwargs):
+            self.closed = False
+            instances.append(self)
+
+        def run(self, *args, **kwargs):
+            return None
+
+        def finalize_simulation(self):
+            pytest.fail("failed convergence analysis must not be finalized")
+
+        def close(self):
+            self.closed = True
+
+    def fail_to_read_state(_filename):
+        raise ValueError("invalid state data")
+
+    monkeypatch.setattr(md_module, "MolecularDynamicsEngine", RecordingEngine)
+    monkeypatch.setattr(md_module, "read_npt_statefile", fail_to_read_state)
+
+    with pytest.raises(ValueError, match="invalid state data"):
+        md_module.openmm_box_equilibration(
+            fragment=object(),
+            theory=SimpleNamespace(user_frozen_atoms=[]),
+            numsteps_per_npt=1,
+            max_npt_cycles=1,
+            traj_frequency=1,
+            use_mdtraj=False,
+        )
+
+    assert len(instances) == 1
+    assert instances[0].closed is True
+
+
 def test_qmmm_rpmd_electrostatic_pythonforce_returns_physical_qm_energy():
     import openmm
 
@@ -982,7 +1099,7 @@ def test_rpmd_state_report_labels_copy_and_ring_polymer_energy():
     assert report.splitlines()[1].split(",")[2] == "1"
 
 
-def test_rpmd_reporters_bypass_simulation_context_reporting(tmp_path):
+def test_rpmd_reporters_bypass_simulation_context_reporting(tmp_path, caplog):
     import io
 
     import openmm
@@ -1009,13 +1126,49 @@ def test_rpmd_reporters_bypass_simulation_context_reporting(tmp_path):
     engine.force_file_option = None
     engine.atomic_units_force_reporter = False
 
-    engine.set_sim_reporters(simulation)
-    assert simulation.reporters == []
-    engine._report_rpmd_state()
+    with caplog.at_level("INFO", logger="openmmqmmm.openmm.md"):
+        engine.set_sim_reporters(simulation)
+        assert simulation.reporters == []
+        engine._report_rpmd_state()
 
     assert "Ring Polymer Total Energy" in data_output.getvalue()
+    assert "Ring Polymer Total Energy" in caplog.text
     assert (tmp_path / "rpmd_trajectory.dcd").exists()
     engine._rpmd_reporters.clear()
+
+
+def test_logger_writer_emits_complete_nonblank_lines(caplog):
+    import logging
+
+    from openmmqmmm.openmm.md import _LoggerWriter
+
+    writer = _LoggerWriter(logging.getLogger("openmmqmmm.openmm.md"))
+    with caplog.at_level(logging.INFO, logger="openmmqmmm.openmm.md"):
+        writer.write("partial")
+        assert not caplog.records
+        writer.write(" line\nsecond line\n\n")
+
+    assert [record.getMessage() for record in caplog.records] == ["partial line", "second line"]
+
+
+def test_current_step_reports_openmm_potential_energy_in_hartree(caplog):
+    import logging
+
+    import openmm.unit
+
+    import openmmqmmm.constants
+    from openmmqmmm.openmm.md import print_current_step_info
+
+    state = SimpleNamespace(
+        getKineticEnergy=lambda: openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL * openmm.unit.kilojoules_per_mole,
+        getPotentialEnergy=lambda: 2 * openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL * openmm.unit.kilojoules_per_mole,
+        getTime=lambda: 1 * openmm.unit.picosecond,
+    )
+
+    with caplog.at_level(logging.INFO, logger="openmmqmmm.openmm.md"):
+        print_current_step_info(3, state, SimpleNamespace(dof=3))
+
+    assert "Potential energy (dummy): 2.0 Eh" in caplog.text
 
 
 def test_rpmd_run_finalization_writes_only_bead_complete_restart():

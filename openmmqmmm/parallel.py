@@ -148,9 +148,10 @@ def job_parallel(
         )
 
     if isinstance(theories[0], QMMMTheory):
-        logger.warning("Job_parallel using QMMMTheory with OpenMMTheory MM is experimental")
-        logger.info("Specifically there are issues with platform='CPU'.")
-        logger.info("Try platform='Reference' instead or GPU options OpenCL or CUDA if possible")
+        logger.warning(
+            "Job_parallel using QMMMTheory with OpenMMTheory MM is experimental and has known issues with "
+            "platform='CPU'; use 'Reference', 'OpenCL', or 'CUDA' if possible"
+        )
     logger.info("Number of theories: %s", len(theories))
     logger.debug("Running single-point calculations in parallel")
     logger.info("Mofilesdir: %s", mofilesdir)

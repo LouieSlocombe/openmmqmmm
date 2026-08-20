@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pytest
 
@@ -135,12 +137,34 @@ def test_grab_warnings_reports_real_warnings(tmp_path, caplog):
 
     assert "geometry is not fully converged" in caplog.text
     assert "Old DensityContainer" not in caplog.text, "Known-benign warnings are filtered"
+    assert {record.levelno for record in caplog.records} == {logging.WARNING}
 
 
-def test_clean_output_has_no_errors(orca_outputs, caplog):
-    with caplog.at_level("INFO", logger="openmmqmmm.orca"):
-        orca.grab_orca_errors(str(orca_outputs / "h2o_engrad.out"))
-    assert "ORCA-error" not in caplog.text
+@pytest.mark.parametrize(
+    "fatal_line",
+    (
+        "ORCA finished by error termination in SCF",
+        "ERROR: basis set not found",
+        "FATAL ERROR: basis set not found",
+        "[file orca_main/maininp2.cpp, line 123]: aborting the run",
+    ),
+)
+def test_grab_errors_reports_at_error_level(tmp_path, caplog, fatal_line):
+    outfile = tmp_path / "failed.out"
+    outfile.write_text(f"{fatal_line}\n")
+    with caplog.at_level(logging.ERROR, logger="openmmqmmm.orca"):
+        orca.grab_orca_errors(str(outfile))
+
+    assert fatal_line in caplog.text
+    assert {record.levelno for record in caplog.records} == {logging.ERROR}
+
+
+def test_successful_output_fixtures_have_no_fatal_errors(orca_outputs, caplog):
+    for outfile in sorted(orca_outputs.glob("*.out")):
+        caplog.clear()
+        with caplog.at_level(logging.ERROR, logger="openmmqmmm.orca"):
+            orca.grab_orca_errors(str(outfile))
+        assert not caplog.records, f"Successful fixture {outfile.name} was classified as a fatal ORCA error"
 
 
 # The open-shell fixture (water cation, UHF/def2-SVP) carries all four charge tables the

@@ -104,7 +104,6 @@ def analytic_frequencies(
             intensities=IR_intens_values,
             raman_activities=raman_activities,
         )
-        logger.info("\n\n")
         logger.info("Normal mode composition factors by element")
         _log_frequencies_and_mode_compositions(
             frequencies, fragment, evectors, hessatoms=hessatoms, tr_modenum=tr_modenum
@@ -545,7 +544,6 @@ def numerical_frequencies(
         raman_activities=raman_activities,
     )
 
-    logger.info("\n\n")
     logger.info("Normal mode composition factors by element")
     _log_frequencies_and_mode_compositions(frequencies, fragment, evectors, hessatoms=hessatoms, tr_modenum=tr_modenum)
 
@@ -1514,8 +1512,7 @@ def s_vib_qrrho_truhlar(freqs: Sequence[float], T: float, lowfreq_thresh: float 
         freq_value = f
         if f < lowfreq_thresh:
             logger.warning(
-                f"Warning: Frequency ({f}) is below low-freq threshold ({lowfreq_thresh}) cm-1. "
-                f"Setting to {lowfreq_thresh} cm-1"
+                f"Frequency ({f}) is below low-freq threshold ({lowfreq_thresh}) cm-1. Setting to {lowfreq_thresh} cm-1"
             )
             freq_value = lowfreq_thresh
         vibtemp = (

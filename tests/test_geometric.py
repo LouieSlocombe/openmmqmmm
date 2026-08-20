@@ -1,8 +1,144 @@
+import logging.config
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from io import StringIO
+from pathlib import Path
+
 import pytest
 
 from openmmqmmm import Fragment, ZeroTheory, optimize_geometry
 from openmmqmmm.exceptions import InputError
-from openmmqmmm.geometric import CONVERGENCE_PRESETS, Constraints, GeometricOptimizer
+from openmmqmmm.geometric import (
+    CONVERGENCE_PRESETS,
+    Constraints,
+    GeometricOptimizer,
+    _run_optimizer_without_reconfiguring_logging,
+)
+
+
+def test_geometric_optimizer_preserves_application_logging(monkeypatch, tmp_path):
+    file_config_calls = []
+
+    def application_file_config(*args, **kwargs):
+        file_config_calls.append((args, kwargs))
+
+    monkeypatch.setattr(logging.config, "fileConfig", application_file_config)
+    logfile = tmp_path / "geometric.log"
+    geometric_logger = logging.getLogger("geometric")
+    original_level = geometric_logger.level
+    geometric_logger.setLevel(logging.ERROR)
+    root_output = StringIO()
+    root_handler = logging.StreamHandler(root_output)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(root_handler)
+
+    def fake_run_optimizer(**kwargs):
+        logging.config.fileConfig(kwargs["logIni"], defaults={"logfilename": logfile})
+        logging.getLogger("geometric.fake").info("Step 1: test")
+        logging.getLogger("application.fake").warning("application warning")
+        return "finished"
+
+    try:
+        result = _run_optimizer_without_reconfiguring_logging(fake_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
+    finally:
+        root_logger.removeHandler(root_handler)
+        root_handler.close()
+        geometric_logger.setLevel(original_level)
+
+    assert result == "finished"
+    assert file_config_calls == []
+    assert logging.config.fileConfig is application_file_config
+    assert logfile.read_text() == "Step 1: test"
+    assert root_output.getvalue() == "application warning\n"
+
+
+def test_geometric_logging_isolation_restores_state_after_failure(monkeypatch, tmp_path):
+    def application_file_config(*args, **kwargs):
+        pytest.fail("geomeTRIC must not invoke the application's fileConfig")
+
+    monkeypatch.setattr(logging.config, "fileConfig", application_file_config)
+    geometric_logger = logging.getLogger("geometric")
+    original_handlers = list(geometric_logger.handlers)
+    original_state = (geometric_logger.level, geometric_logger.propagate, geometric_logger.disabled)
+    application_output = StringIO()
+    application_handler = logging.StreamHandler(application_output)
+    geometric_logger.addHandler(application_handler)
+    geometric_logger.setLevel(logging.ERROR)
+    geometric_logger.disabled = True
+    logfile = tmp_path / "failed-geometric.log"
+    internal_handler = None
+
+    def failing_run_optimizer(**kwargs):
+        nonlocal internal_handler
+        logging.config.fileConfig(kwargs["logIni"], defaults={"logfilename": logfile})
+        internal_handler = next(
+            handler
+            for handler in geometric_logger.handlers
+            if handler is not application_handler and handler not in original_handlers
+        )
+        logging.getLogger("geometric.failure").info("Step 1: before failure")
+        raise RuntimeError("optimizer failed")
+
+    try:
+        with pytest.raises(RuntimeError, match="optimizer failed"):
+            _run_optimizer_without_reconfiguring_logging(failing_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
+
+        assert logging.config.fileConfig is application_file_config
+        assert geometric_logger.handlers == [*original_handlers, application_handler]
+        assert geometric_logger.level == logging.ERROR
+        assert geometric_logger.propagate == original_state[1]
+        assert geometric_logger.disabled is True
+        assert application_handler.filters == []
+        assert application_output.getvalue() == ""
+        assert logfile.read_text() == "Step 1: before failure"
+        assert internal_handler is not None and internal_handler.stream is None
+    finally:
+        for handler in list(geometric_logger.handlers):
+            if handler not in original_handlers:
+                geometric_logger.removeHandler(handler)
+                handler.close()
+        geometric_logger.setLevel(original_state[0])
+        geometric_logger.propagate = original_state[1]
+        geometric_logger.disabled = original_state[2]
+
+
+def test_geometric_logging_isolation_serializes_concurrent_runs(monkeypatch, tmp_path):
+    def application_file_config(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(logging.config, "fileConfig", application_file_config)
+    start = threading.Barrier(2)
+    activity_lock = threading.Lock()
+    active_runs = 0
+    maximum_active_runs = 0
+
+    def worker(label):
+        logfile = tmp_path / f"{label}.log"
+
+        def fake_run_optimizer(**kwargs):
+            nonlocal active_runs, maximum_active_runs
+            logging.config.fileConfig(kwargs["logIni"], defaults={"logfilename": logfile})
+            with activity_lock:
+                active_runs += 1
+                maximum_active_runs = max(maximum_active_runs, active_runs)
+            try:
+                time.sleep(0.05)
+                logging.getLogger("geometric.concurrent").info(label)
+            finally:
+                with activity_lock:
+                    active_runs -= 1
+
+        start.wait()
+        _run_optimizer_without_reconfiguring_logging(fake_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
+        return logfile
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        logfiles = list(executor.map(worker, ("first", "second")))
+
+    assert maximum_active_runs == 1
+    assert {logfile.read_text() for logfile in logfiles} == {"first", "second"}
+    assert logging.config.fileConfig is application_file_config
 
 
 def test_geometric_dummy():
@@ -19,6 +155,7 @@ def test_geometric_dummy():
     result = optimize_geometry(fragment=H2Ofragment, theory=zerotheorycalc)
 
     assert result.energy == 0.0, "ZeroTheory energy should be 0.0"
+    assert "Step " in Path("geometric_OPTtraj.log").read_text()
 
 
 # The constraints.txt format is geomeTRIC's, not ours: a $freeze or $set section header

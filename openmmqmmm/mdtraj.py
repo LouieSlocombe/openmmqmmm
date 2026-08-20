@@ -34,7 +34,7 @@ def mdtraj_rmsf(
     parallel: bool = True,
 ) -> np.ndarray:
     """Return the indices of the atoms fluctuating most in a trajectory (per-atom RMSF via mdtraj)."""
-    logger.info("Inside MDtraj_RMSF")
+    logger.debug("Calculating RMSF with MDTraj")
     mdtraj = mdtraj_load()
 
     logger.debug("Loading trajectory using mdtraj.")
@@ -43,10 +43,10 @@ def mdtraj_rmsf(
     rmsflist = mdtraj.rmsf(traj, reference=None, frame=0, atom_indices=None, parallel=parallel)
 
     if print_largest_values is True:
-        logger.debug(f"Will print RMSF largest_values={largest_values}")
+        logger.debug("Will print RMSF largest_values=%s", largest_values)
         large_rmsf_indices = rmsflist.argsort()[::-1][:largest_values]
     else:
-        logger.debug(f"Will print atom RMSF values larger than threshold={threshold}")
+        logger.debug("Will print atom RMSF values larger than threshold=%s", threshold)
         large_rmsf_indices = np.where(rmsflist > threshold)[0]
     if len(large_rmsf_indices) > 0:
         logger.info("Printing atoms with high root-mean-square fluctuations:")

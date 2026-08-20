@@ -6,6 +6,7 @@ import pathlib
 import pytest
 
 import openmmqmmm
+from openmmqmmm.qmmm import QMMMTheory
 
 # Located through the import rather than by walking up from this file: the tests live
 # outside the package, so they are no longer at a fixed depth below it.
@@ -66,3 +67,59 @@ def test_section_banners_are_not_warnings(module):
         if level in {"warning", "error"} and message and message.lstrip("\n").startswith("---")
     ]
     assert not offenders, "Section banners logged above INFO:\n" + "\n".join(offenders)
+
+
+@pytest.mark.parametrize("module", MODULES, ids=lambda p: p.name)
+def test_no_whitespace_only_records(module):
+    """Spacing belongs on an adjacent record so formatters do not emit empty metadata lines."""
+    tree = ast.parse(module.read_text())
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "logger"):
+            continue
+        first = node.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str) and not first.value.strip():
+            offenders.append(f"{module.name}:{node.lineno}: {first.value!r}")
+    assert not offenders, "Whitespace-only logging:\n" + "\n".join(offenders)
+
+
+@pytest.mark.parametrize("module", MODULES, ids=lambda p: p.name)
+def test_level_name_is_not_repeated_in_messages(module):
+    offenders = [
+        f"{module.name}:{lineno}: {message[:60]!r}"
+        for lineno, level, message in _logging_calls(module)
+        if level in {"warning", "error", "critical", "exception"}
+        and message
+        and message.lstrip().casefold().startswith(("warning:", "error:"))
+    ]
+    assert not offenders, "Severity repeated in log message text:\n" + "\n".join(offenders)
+
+
+@pytest.mark.parametrize("method_name", ["get_dipole_moment", "get_polarizability_tensor"])
+def test_missing_optional_qm_property_method_returns_none(method_name, caplog):
+    qmmm = object.__new__(QMMMTheory)
+    qmmm.qm_theory = object()
+
+    with caplog.at_level("DEBUG", logger="openmmqmmm.qmmm"):
+        assert getattr(qmmm, method_name)() is None
+
+    assert "does not provide" in caplog.text
+
+
+@pytest.mark.parametrize("method_name", ["get_dipole_moment", "get_polarizability_tensor"])
+def test_optional_qm_property_method_does_not_hide_internal_attribute_error(method_name):
+    class BrokenQM:
+        pass
+
+    def fail():
+        raise AttributeError("provider implementation bug")
+
+    qmmm = object.__new__(QMMMTheory)
+    qmmm.qm_theory = BrokenQM()
+    setattr(qmmm.qm_theory, method_name, fail)
+
+    with pytest.raises(AttributeError, match="provider implementation bug"):
+        getattr(qmmm, method_name)()
