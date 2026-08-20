@@ -704,6 +704,118 @@ def printfreqs_and_nm_elem_comps(vfreq, fragment, evectors, hessatoms=None, tr_m
 # FOR SADDLEPOINT, the SP mode will be the largest imaginary mode, hence mode 0.
 
 
+def _rotational_temperature(moment_of_inertia_si):
+    """Return the rotational temperature in K for one principal moment of inertia."""
+    return openmmqmmm.constants.PLANCK_J_S**2 / (
+        8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * moment_of_inertia_si
+    )
+
+
+def _rotational_thermochemistry(*, fragment, coords, elems, moltype, temp, symmetry_number):
+    """Return the rotational energy, entropy term and the quantities the report needs."""
+    if moltype == "atom":
+        return {
+            "E_rot": 0.0,
+            "TS_rot": 0.0,
+            "rinertia": None,
+            "rotconstants": None,
+            "inertia_avg": None,
+            "sigma_r": None,
+        }
+
+    logger.info("\nDoing rotatational analysis:")
+    rinertia = [float(i) for i in inertia(elems, coords, get_center(coords, elems=elems))]
+    logger.info("Moments of inertia (amu Å^2): %s", rinertia)
+    inertia_si = np.array(rinertia) * openmmqmmm.constants.AMU_TO_KG * openmmqmmm.constants.ANG_TO_M**2
+    inertia_avg = float(np.mean(inertia_si))
+    rotconstants = calc_rotational_constants(fragment)
+
+    if moltype == "linear":
+        rot_temps = [_rotational_temperature(in_I) for in_I in inertia_si if in_I != 0.0]
+        logger.info(f"Rotational temperatures: {rot_temps} K")
+        sigma_r = 1.0
+        q_r = (1 / sigma_r) * (temp / rot_temps[0])
+        S_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (math.log(q_r) + 1.0)
+        E_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
+    else:
+        rot_temps = [_rotational_temperature(in_I) for in_I in inertia_si]
+        logger.info(f"Rotational temperatures: {rot_temps[0]}, {rot_temps[1]}, {rot_temps[2]} K")
+        if symmetry_number is None:
+            logger.info(
+                "Case: nonlinear system and no user-provided symmetry_number.\n"
+                "Setting symmetry number to 1.0 (appropriate for C1, Ci and Cs pointgroups)"
+            )
+            sigma_r = 1.0
+        else:
+            logger.info("Case: nonlinear system and user-provided symmetry_number: %s", symmetry_number)
+            sigma_r = symmetry_number
+        q_r = (math.pi ** (1 / 2) / sigma_r) * (temp ** (3 / 2)) / (math.prod(rot_temps) ** (1 / 2))
+        S_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (math.log(q_r) + 1.5)
+        E_rot = 1.5 * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
+
+    return {
+        "E_rot": E_rot,
+        "TS_rot": temp * S_rot,
+        "rinertia": rinertia,
+        "rotconstants": rotconstants,
+        "inertia_avg": inertia_avg,
+        "sigma_r": sigma_r,
+    }
+
+
+def _vibrational_thermochemistry(
+    *, vfreq, atoms, tr_modenum, temp, qrrho, qrrho_method, qrrho_omega_0, inertia_avg, moltype
+):
+    """Return the zero-point energy, thermal vibrational energy and vibrational entropy term."""
+    if moltype == "atom":
+        return {"zpve": 0.0, "E_vib": 0.0, "vibenergycorr": 0.0, "TS_vib": 0.0, "freqs": []}
+
+    logger.info("\nDoing vibrational analysis:")
+    logger.info("Vibrational frequencies (cm**-1): %s", vfreq)
+    freqs = []
+    vibtemps = []
+    for mode in range(3 * len(atoms)):
+        if mode < tr_modenum:
+            logger.info("%s %s", f"skipping TR mode ({mode}) with freq:", clean_number(vfreq[mode]))
+            continue
+        vib = clean_number(vfreq[mode])
+        if np.iscomplex(vib):
+            logger.info(f"Mode {mode} with frequency {vib} is imaginary. Skipping in thermochemistry")
+        elif vib <= 0:
+            # A zero frequency is not a vibration (an unprojected translation or
+            # rotation, or a completely flat direction) and its harmonic entropy
+            # and thermal energy both diverge, so it is excluded like a negative one.
+            logger.info(f"Mode {mode} with frequency {vib} is not positive. Skipping in thermochemistry")
+        else:
+            freqs.append(float(vib))
+            freq_hz = vib * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S
+            vibtemps.append(
+                (openmmqmmm.constants.PLANCK_HARTREE_S * freq_hz) / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
+            )
+
+    zpve = sum(i * openmmqmmm.constants.HALF_HC_HARTREE_PER_WAVENUMBER for i in freqs)
+
+    # Thermal vibrational energy: R * sum over modes of theta*(1/2 + 1/(exp(theta/T) - 1)),
+    # the harmonic-oscillator internal energy. The Bose-Einstein factor is
+    # 1/(exp(x) - 1); writing it as 1/exp(x - 1) overestimates the thermal
+    # correction (2.7x for water) and does not reach the classical RT limit.
+    sumb = sum(v * (0.5 + (1 / (np.exp(v / temp) - 1))) for v in vibtemps)
+    E_vib = sumb * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
+
+    if qrrho is not True:
+        TS_vib = s_vib(freqs, temp)
+    elif qrrho_method == "Grimme":
+        logger.info("QRHHO is True. Doing quasi-RRHO for the vibrational entropy")
+        TS_vib = s_vib_qrrho_grimme(freqs, temp, omega_0=qrrho_omega_0, i_av=inertia_avg)
+    elif qrrho_method == "Truhlar":
+        logger.info("QRHHO is True. Doing quasi-RRHO for the vibrational entropy")
+        TS_vib = s_vib_qrrho_truhlar(freqs, temp, lowfreq_thresh=qrrho_omega_0)
+    else:
+        raise InputError("Unknown QRRHO_method. Exiting.")
+
+    return {"zpve": zpve, "E_vib": E_vib, "vibenergycorr": E_vib - zpve, "TS_vib": TS_vib, "freqs": freqs}
+
+
 def thermochemcalc(
     vfreq,
     atoms,
@@ -726,6 +838,8 @@ def thermochemcalc(
     if len(atoms) == 1:
         logger.info("System is an atom.")
         moltype = "atom"
+        # 3 translations, no rotations and no vibrations
+        tr_modenum = 3
     elif len(atoms) == 2:
         logger.info("System contains 2 atoms and thus linear.")
         moltype = "linear"
@@ -754,123 +868,25 @@ def thermochemcalc(
     totalmass = sum(fragment.masses)
     logger.info("Total mass of molecule: %s", totalmass)
 
-    if moltype != "atom":
-        logger.info("\nDoing rotatational analysis:")
-        # Moments of inertia (amu A^2 ), eigenvalues
-        center = get_center(coords, elems=elems)
-        rinertia = [float(i) for i in inertia(elems, coords, center)]
+    rotational = _rotational_thermochemistry(
+        fragment=fragment, coords=coords, elems=elems, moltype=moltype, temp=temp, symmetry_number=symmetry_number
+    )
+    E_rot, TS_rot = rotational["E_rot"], rotational["TS_rot"]
+    rinertia, rotconstants, sigma_r = rotational["rinertia"], rotational["rotconstants"], rotational["sigma_r"]
 
-        logger.info("Moments of inertia (amu Å^2): %s", rinertia)
-        # Changing units to m and kg
-        inertia_si = np.array(rinertia) * openmmqmmm.constants.AMU_TO_KG * openmmqmmm.constants.ANG_TO_M**2
-        inertia_avg = (inertia_si[0] + inertia_si[1] + inertia_si[2]) / 3
-        if moltype == "atom":
-            q_r = 1.0
-            S_rot = 0.0
-            E_rot = 0.0
-        elif moltype == "linear":
-            # Rotational temperatures (linear case)
-            rot_temps = [
-                float(
-                    openmmqmmm.constants.PLANCK_J_S**2
-                    / (8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * in_I)
-                )
-                for in_I in inertia_si
-                if in_I != 0.0
-            ]
-            logger.info(f"Rotational temperatures: {rot_temps} K")
-            rot_temps_x = rot_temps[0]
-            sigma_r = 1.0
-            q_r = (1 / sigma_r) * (temp / (rot_temps_x))
-            S_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (math.log(q_r) + 1.0)
-            E_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
-            rotconstants = calc_rotational_constants(fragment)
-        else:
-            # Nonlinear case
-
-            rot_temps_x = openmmqmmm.constants.PLANCK_J_S**2 / (
-                8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * inertia_si[0]
-            )
-            rot_temps_y = openmmqmmm.constants.PLANCK_J_S**2 / (
-                8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * inertia_si[1]
-            )
-            rot_temps_z = openmmqmmm.constants.PLANCK_J_S**2 / (
-                8 * math.pi**2 * openmmqmmm.constants.BOLTZMANN_J_PER_K * inertia_si[2]
-            )
-            logger.info(f"Rotational temperatures: {rot_temps_x}, {rot_temps_y}, {rot_temps_z} K")
-            rotconstants = calc_rotational_constants(fragment)
-
-            if symmetry_number is None:
-                logger.info("Case: nonlinear system and no user-provided symmetry_number.")
-                logger.info("Setting symmetry number to 1.0 (appropriate for C1, Ci and Cs pointgroups)")
-                sigma_r = 1.0
-            else:
-                logger.info("Case: nonlinear system and user-provided symmetry_number: %s", symmetry_number)
-                sigma_r = symmetry_number
-
-            q_r = (
-                (math.pi ** (1 / 2) / sigma_r)
-                * (temp ** (3 / 2))
-                / ((rot_temps_x * rot_temps_y * rot_temps_z) ** (1 / 2))
-            )
-            S_rot = openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (math.log(q_r) + 1.5)
-            E_rot = 1.5 * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
-        TS_rot = temp * S_rot
-    else:
-        E_rot = 0.0
-        TS_rot = 0.0
-    if moltype != "atom":
-        logger.info("\nDoing vibrational analysis:")
-        logger.info("Vibrational frequencies (cm**-1): %s", vfreq)
-        freqs = []
-        vibtemps = []
-        for mode in range(3 * len(atoms)):
-            if mode < tr_modenum:
-                logger.info("%s %s", f"skipping TR mode ({mode}) with freq:", clean_number(vfreq[mode]))
-                continue
-            vib = clean_number(vfreq[mode])
-            if np.iscomplex(vib):
-                logger.info(f"Mode {mode} with frequency {vib} is imaginary. Skipping in thermochemistry")
-            elif vib <= 0:
-                # A zero frequency is not a vibration (an unprojected translation or
-                # rotation, or a completely flat direction) and its harmonic entropy
-                # and thermal energy both diverge, so it is excluded like a negative one.
-                logger.info(f"Mode {mode} with frequency {vib} is not positive. Skipping in thermochemistry")
-            else:
-                freqs.append(float(vib))
-                freq_Hz = vib * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S
-                vibtemp = (
-                    openmmqmmm.constants.PLANCK_HARTREE_S * freq_Hz
-                ) / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
-                vibtemps.append(vibtemp)
-
-        zpve = sum([i * openmmqmmm.constants.HALF_HC_HARTREE_PER_WAVENUMBER for i in freqs])
-
-        # Thermal vibrational energy: R * sum over modes of theta*(1/2 + 1/(exp(theta/T) - 1)),
-        # the harmonic-oscillator internal energy. The Bose-Einstein factor is
-        # 1/(exp(x) - 1); writing it as 1/exp(x - 1) overestimates the thermal
-        # correction (2.7x for water) and does not reach the classical RT limit.
-        sumb = 0.0
-        for v in vibtemps:
-            sumb = sumb + v * (0.5 + (1 / (np.exp(v / temp) - 1)))
-        E_vib = sumb * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
-        vibenergycorr = E_vib - zpve
-        if qrrho is True:
-            logger.info("QRHHO is True. Doing quasi-RRHO for the vibrational entropy")
-            if qrrho_method == "Grimme":
-                TS_vib = s_vib_qrrho_grimme(freqs, temp, omega_0=qrrho_omega_0, i_av=inertia_avg)
-            elif qrrho_method == "Truhlar":
-                TS_vib = s_vib_qrrho_truhlar(freqs, temp, lowfreq_thresh=qrrho_omega_0)
-            else:
-                raise InputError("Unknown QRRHO_method. Exiting.")
-        else:
-            TS_vib = s_vib(freqs, temp)
-    else:
-        zpve = 0.0
-        E_vib = 0.0
-        freqs = []
-        vibenergycorr = 0.0
-        TS_vib = 0.0
+    vibrational = _vibrational_thermochemistry(
+        vfreq=vfreq,
+        atoms=atoms,
+        tr_modenum=tr_modenum,
+        temp=temp,
+        qrrho=qrrho,
+        qrrho_method=qrrho_method,
+        qrrho_omega_0=qrrho_omega_0,
+        inertia_avg=rotational["inertia_avg"],
+        moltype=moltype,
+    )
+    zpve, E_vib = vibrational["zpve"], vibrational["E_vib"]
+    vibenergycorr, TS_vib, freqs = vibrational["vibenergycorr"], vibrational["TS_vib"], vibrational["freqs"]
 
     E_trans = 1.5 * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
 
