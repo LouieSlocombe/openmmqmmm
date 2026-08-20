@@ -7,7 +7,6 @@ from openmmqmmm.utils import (
     basename,
     clean_number,
     column,
-    create_conn_dict,
     find_replace_string_in_file,
     insert_line_into_file,
     isint,
@@ -53,14 +52,6 @@ def test_search_list_of_lists_for_index():
     fragments = [[0, 1, 2], [3, 4]]
     assert search_list_of_lists_for_index(4, fragments) == 1
     assert search_list_of_lists_for_index(99, fragments) is None
-
-
-def test_create_conn_dict_maps_atoms_to_their_molecule():
-    """Inverts a list of molecules into atom index -> molecule index."""
-    molecule_of = create_conn_dict([[0, 1], [2, 3]])
-    assert molecule_of[0] == 0
-    assert molecule_of[1] == 0
-    assert molecule_of[3] == 1
 
 
 def test_clean_number_of_a_real_value():

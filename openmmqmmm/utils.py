@@ -125,15 +125,6 @@ def search_list_of_lists_for_index(i, list_of_lists):
     return next((c for c, f in enumerate(list_of_lists) if i in f), None)
 
 
-def create_conn_dict(list_of_lists):
-    index = {}
-    for c, sublist in enumerate(list_of_lists):
-        for value in sublist:
-            if value not in index:
-                index[value] = c
-    return index
-
-
 def read_intlist_from_file(filename, offset=0):
     intlist = []
     try:
