@@ -140,6 +140,37 @@ def test_changed_cell_is_rejected():
         atoms.get_potential_energy()
 
 
+def _swap_element(atoms):
+    atoms.numbers[1] = 8
+
+
+def _resize_cell(atoms):
+    atoms.set_cell([11.0, 10.0, 10.0])
+
+
+def _drop_periodicity(atoms):
+    atoms.set_pbc([True, True, False])
+
+
+@pytest.mark.parametrize("mutate", [_swap_element, _resize_cell, _drop_periodicity])
+def test_rejected_structure_stays_rejected_when_only_positions_change(mutate):
+    """ASE caches the Atoms before the calculator validates them, so a rejected system must not become the baseline."""
+    theory = StubQMMMTheory()
+    atoms = Atoms("H2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.7]], cell=[10.0, 10.0, 10.0], pbc=True)
+    atoms.calc = OpenMMQMMMCalculator(theory)
+    atoms.get_potential_energy()
+    mutate(atoms)
+
+    with pytest.raises(CalculatorSetupError):
+        atoms.get_potential_energy()
+
+    atoms.positions[1, 2] += 1e-3
+    with pytest.raises(CalculatorSetupError):
+        atoms.get_potential_energy()
+
+    assert len(theory.calls) == 1, "the theory must never run against a rejected system"
+
+
 @pytest.mark.parametrize(
     ("energy", "gradient"),
     [(np.nan, np.zeros((2, 3))), (0.0, np.full((2, 3), np.nan)), (0.0, np.zeros((1, 3)))],

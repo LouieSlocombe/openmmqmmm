@@ -44,11 +44,11 @@ class OpenMMQMMMCalculator(Calculator):
         self._reference_pbc = None
         super().__init__(**kwargs)
 
-    def _validate_atoms(self, atoms: Atoms, system_changes: list[str]) -> np.ndarray:
-        first_calculation = self._reference_cell is None
-        if (first_calculation or "numbers" in system_changes) and not np.array_equal(
-            atoms.numbers, self._expected_numbers
-        ):
+    def _validate_atoms(self, atoms: Atoms) -> np.ndarray:
+        # Checked on every call rather than only when ASE reports the matching system_changes:
+        # Calculator.calculate() caches the Atoms before validation runs, so a rejected structure
+        # becomes the baseline and the next call reports only "positions" as changed.
+        if not np.array_equal(atoms.numbers, self._expected_numbers):
             raise CalculatorSetupError(
                 "ASE atoms must retain the atom count, elements, and ordering of the Fragment used to create QMMMTheory"
             )
@@ -59,12 +59,12 @@ class OpenMMQMMMCalculator(Calculator):
         if not np.all(np.isfinite(positions)):
             raise CalculatorSetupError("ASE atom positions must all be finite")
 
-        if first_calculation:
+        if self._reference_cell is None:
             self._reference_cell = atoms.cell.array.copy()
             self._reference_pbc = atoms.pbc.copy()
-        elif (
-            "cell" in system_changes and not np.allclose(atoms.cell.array, self._reference_cell, rtol=0.0, atol=1e-12)
-        ) or ("pbc" in system_changes and not np.array_equal(atoms.pbc, self._reference_pbc)):
+        elif not np.allclose(atoms.cell.array, self._reference_cell, rtol=0.0, atol=1e-12) or not np.array_equal(
+            atoms.pbc, self._reference_pbc
+        ):
             raise CalculatorSetupError(
                 "Changing the ASE cell or periodic boundary conditions is unsupported; QMMMTheory uses a fixed "
                 "OpenMM system and does not provide stress"
@@ -89,7 +89,7 @@ class OpenMMQMMMCalculator(Calculator):
         if self.atoms is None:
             raise CalculatorSetupError("An ASE Atoms object is required")
 
-        positions = self._validate_atoms(self.atoms, system_changes)
+        positions = self._validate_atoms(self.atoms)
         needs_forces = "forces" in properties
 
         with workdir(self._directory):
