@@ -7,6 +7,7 @@ from openmmqmmm import (
     calculate_rmsd,
     dihedral_between_atoms,
     distance_between_atoms,
+    expand_qm_region,
     read_xyzfile,
     write_xyzfile,
 )
@@ -22,6 +23,7 @@ from openmmqmmm.coords import (
     total_mass,
     total_nuclear_charge,
 )
+from openmmqmmm.exceptions import InputError
 
 # A unit square walked corner to corner, so every quantity below is exact.
 UNIT_SQUARE = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
@@ -47,7 +49,38 @@ def test_dihedral_of_a_planar_arrangement():
 
 def test_dihedral_of_a_right_angle_twist():
     twisted = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0]])
-    assert abs(dihedral(*twisted)) == pytest.approx(90.0)
+    mirrored = twisted.copy()
+    mirrored[-1, -1] *= -1
+
+    assert dihedral(*twisted) == pytest.approx(90.0)
+    assert dihedral(*mirrored) == pytest.approx(-90.0)
+
+
+@pytest.mark.parametrize("expected", [60.0, -60.0, 120.0, -120.0])
+def test_dihedral_retains_handedness_away_from_a_right_angle(expected):
+    radians = np.radians(expected)
+    points = np.array(
+        [
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, np.cos(radians), np.sin(radians)],
+        ]
+    )
+
+    assert dihedral(*points) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        [[0.0, 1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        [[-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+    ],
+)
+def test_dihedral_rejects_degenerate_geometries(points):
+    with pytest.raises(InputError, match="Dihedral is undefined"):
+        dihedral(*np.asarray(points))
 
 
 def test_geometry_helpers_on_a_fragment():
@@ -107,6 +140,40 @@ def test_rmsd_detects_a_real_difference():
     distorted = Fragment(coords=distorted_coords, elems=["C", "C", "C", "C"], charge=0, mult=1)
 
     assert calculate_rmsd(original, distorted) > 0.1
+
+
+def test_rmsd_subset_writes_the_full_aligned_structure(tmp_path, monkeypatch):
+    original = Fragment(coords=UNIT_SQUARE, elems=["C", "C", "C", "C"], charge=0, mult=1)
+    shifted_coords = UNIT_SQUARE + np.array([3.0, -2.0, 1.0])
+    shifted = Fragment(coords=shifted_coords, elems=["C", "C", "C", "C"], charge=0, mult=1)
+    monkeypatch.chdir(tmp_path)
+
+    rmsd = calculate_rmsd(original, shifted, subset=[0, 1, 2], write_aligned_structure=True)
+    written_elems, written_coords = read_xyzfile("structA_aligned.xyz")
+
+    assert rmsd == pytest.approx(0.0, abs=1e-9)
+    assert written_elems == original.elems
+    assert np.asarray(written_coords) == pytest.approx(shifted_coords)
+
+
+def test_expand_qm_region_uses_initial_atom_membership_and_retains_the_seed():
+    # The seed is atom 4, not a prefix atom. Atom 0 is inside the cutoff and belongs
+    # to a two-atom molecule whose second member lies outside the cutoff.
+    fragment = Fragment(
+        coords=np.array(
+            [
+                [0.5, 0.0, 0.0],
+                [5.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.7, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+            ]
+        ),
+        elems=["H", "H", "H", "H", "H"],
+        connectivity=[[0, 1], [2, 3], [4]],
+    )
+
+    assert expand_qm_region(fragment=fragment, initial_atoms=[4], radius=1.0) == [0, 1, 4]
 
 
 # The package has two connectivity implementations: calc_conn_py / get_connected_atoms_np

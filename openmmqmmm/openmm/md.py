@@ -154,6 +154,7 @@ def _close_on_error(method: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def read_npt_statefile(npt_output: str | os.PathLike[str]) -> dict[str, npt.NDArray[np.generic]]:
+    """Read step, volume, and density columns from an OpenMM NPT state report."""
     import csv
     from collections import defaultdict
 
@@ -1639,6 +1640,7 @@ def openmm_box_equilibration(
 def print_current_step_info(
     step: int, state: openmm.State, openmmobject: OpenMMTheory, qm_energy: float | None = None
 ) -> None:
+    """Log the energy and temperature summary for one molecular-dynamics step."""
     kinetic_energy = state.getKineticEnergy()
     kinetic_energy_eh = (
         kinetic_energy.value_in_unit(openmm.unit.kilojoules_per_mole) / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
@@ -1781,6 +1783,7 @@ def diff_wrap_box_coords(
     mdtrajtopology: Any,
     anchoratoms: Sequence[int],
 ) -> npt.NDArray[np.float64]:
+    """Image periodic coordinates around a chosen anchor molecule with MDTraj."""
     import mdtraj
 
     traj = mdtraj.Trajectory(coords_nm, mdtrajtopology)

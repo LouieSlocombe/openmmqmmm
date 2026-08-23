@@ -1,5 +1,7 @@
+import fcntl
 import inspect
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -7,8 +9,9 @@ import pytest
 import openmmqmmm.freq
 from openmmqmmm import Fragment, ZeroTheory, analytic_frequencies, constants, numerical_frequencies
 from openmmqmmm.constants import ANG_TO_BOHR
-from openmmqmmm.exceptions import InputError
+from openmmqmmm.exceptions import InputError, InternalError
 from openmmqmmm.freq import (
+    _assemble_hessian,
     approximate_full_hessian_from_smaller,
     calc_rotational_constants,
     calc_thermochemistry,
@@ -407,9 +410,256 @@ def test_numerical_hessian_reproduces_an_analytic_one(tmp_path, monkeypatch, npo
     """A linear gradient makes both difference formulas exact, so this pins the whole pipeline."""
     hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=npoint)
     assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS), abs=1e-10)
+    assert (tmp_path / "Numfreq_dir" / "Hessian").is_file()
+    assert (tmp_path / "results_numfreq.json").is_file()
 
 
 def test_partial_numerical_hessian_covers_only_the_requested_atoms(tmp_path, monkeypatch):
     hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=2, hessatoms=[1, 2])
     assert hessian.shape == (6, 6)
     assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS[3:]), abs=1e-10)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"npoint": 3}, "npoint"),
+        ({"runmode": "threads"}, "runmode"),
+        ({"hessatoms": []}, "hessatoms list is empty"),
+        ({"hessatoms": [3]}, "outside"),
+        ({"hessatoms": [0, 0]}, "duplicate"),
+        ({"displacement": 0.0}, "displacement"),
+        ({"numcores": 0}, "numcores"),
+        ({"temp": float("nan")}, "temperature"),
+        ({"rotmode_threshold": -1.0}, "rotmode_threshold"),
+        ({"scaling_factor": 0.0}, "scaling_factor"),
+        ({"hessatoms_masses": [16.0, 1.0, 0.0]}, "hessatoms_masses"),
+    ],
+)
+def test_invalid_numfreq_inputs_do_not_touch_an_existing_directory(water, kwargs, message):
+    scratch = Path("Numfreq_dir")
+    scratch.mkdir()
+    sentinel = scratch / "user-data.txt"
+    sentinel.write_text("keep me")
+    original_directory = Path.cwd()
+
+    with pytest.raises(InputError, match=message):
+        numerical_frequencies(fragment=water, theory=ZeroTheory(), qrrho=False, IR=False, **kwargs)
+
+    assert Path.cwd() == original_directory
+    assert sentinel.read_text() == "keep me"
+
+
+def test_numfreq_refuses_to_delete_an_unmanaged_existing_directory(water):
+    scratch = Path("Numfreq_dir")
+    scratch.mkdir()
+    sentinel = scratch / "user-data.txt"
+    sentinel.write_text("keep me")
+
+    with pytest.raises(InputError, match="refusing to delete"):
+        numerical_frequencies(fragment=water, theory=ZeroTheory(), qrrho=False, IR=False)
+
+    assert sentinel.read_text() == "keep me"
+
+
+def test_numfreq_refreshes_its_own_managed_workspace(tmp_path, monkeypatch):
+    _numerical_hessian(tmp_path, monkeypatch, npoint=2)
+    scratch = tmp_path / "Numfreq_dir"
+    stale_file = scratch / "stale-output.txt"
+    stale_directory = scratch / "stale-directory"
+    stale_file.write_text("old")
+    stale_directory.mkdir()
+    (stale_directory / "old.txt").write_text("old")
+
+    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=2)
+
+    assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS), abs=1e-10)
+    assert not stale_file.exists()
+    assert not stale_directory.exists()
+    assert (scratch / ".openmmqmmm-managed").is_file()
+    assert (scratch / ".openmmqmmm-active.lock").read_text() == ""
+
+
+def test_numfreq_does_not_clean_an_active_managed_workspace(water):
+    scratch = Path("Numfreq_dir")
+    scratch.mkdir()
+    (scratch / ".openmmqmmm-managed").write_text(openmmqmmm.freq._NUMFREQ_MARKER_CONTENT)
+    lock = scratch / ".openmmqmmm-active.lock"
+    sentinel = scratch / "live-output.txt"
+    sentinel.write_text("still running")
+
+    with lock.open("a+", encoding="utf-8") as active_lock:
+        active_lock.write("another-calculation")
+        active_lock.flush()
+        fcntl.flock(active_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(InputError, match="already in use"):
+            numerical_frequencies(fragment=water, theory=ZeroTheory(), qrrho=False, IR=False)
+        fcntl.flock(active_lock.fileno(), fcntl.LOCK_UN)
+
+    assert lock.read_text() == "another-calculation"
+    assert sentinel.read_text() == "still running"
+
+
+def test_numfreq_recovers_a_lock_file_left_by_a_dead_process(tmp_path, monkeypatch):
+    _numerical_hessian(tmp_path, monkeypatch, npoint=2)
+    scratch = tmp_path / "Numfreq_dir"
+    lock = scratch / ".openmmqmmm-active.lock"
+    lock.write_text("dead-process")
+
+    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=2)
+
+    assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS), abs=1e-10)
+    assert lock.read_text() == ""
+
+
+@pytest.mark.parametrize("custom_masses", [[2.5, 12.5], None], ids=["custom", "fragment-default"])
+def test_hessatom_order_keeps_metadata_and_masses_aligned(tmp_path, monkeypatch, custom_masses):
+    monkeypatch.chdir(tmp_path)
+    fragment = Fragment(elems=["O", "H", "H"], coords=HARMONIC_COORDS, charge=0, mult=1)
+
+    result = numerical_frequencies(
+        fragment=fragment,
+        theory=_HarmonicTheory(HARMONIC_COORDS),
+        displacement=0.005,
+        charge=0,
+        mult=1,
+        hessatoms=[2, 0],
+        hessatoms_masses=custom_masses,
+        qrrho=False,
+        IR=False,
+    )
+
+    expected_force_constants = FORCE_CONSTANTS[[6, 7, 8, 0, 1, 2]]
+    assert result.hessian == pytest.approx(np.diag(expected_force_constants), abs=1e-10)
+    assert result.freq_atoms == [2, 0]
+    expected_masses = custom_masses or [fragment.list_of_masses[2], fragment.list_of_masses[0]]
+    assert result.freq_masses == expected_masses
+    assert result.freq_elems == ["H", "O"]
+    assert result.freq_coords == pytest.approx(np.asarray(HARMONIC_COORDS)[[2, 0]])
+
+
+def test_numfreq_restores_cwd_when_a_displacement_fails(water):
+    class ExplodingTheory:
+        theorytype = "QM"
+        numcores = 1
+
+        def run(self, **_kwargs):
+            raise RuntimeError("displacement failed")
+
+    original_directory = Path.cwd()
+
+    with pytest.raises(RuntimeError, match="displacement failed"):
+        numerical_frequencies(fragment=water, theory=ExplodingTheory(), qrrho=False, IR=False)
+
+    assert Path.cwd() == original_directory
+    assert (original_directory / "Numfreq_dir" / ".openmmqmmm-managed").is_file()
+    assert (original_directory / "Numfreq_dir" / ".openmmqmmm-active.lock").read_text() == ""
+
+
+def test_orca_gbw_guess_is_copied_into_the_numfreq_workspace(water, monkeypatch):
+    class FakeORCATheory:
+        theorytype = "QM"
+        numcores = 1
+        filename = "guess"
+
+    def inspect_workspace_and_fail(**_kwargs):
+        assert Path("guess.gbw").read_text() == "orbitals"
+        raise RuntimeError("stop after inspecting workspace")
+
+    monkeypatch.setattr(openmmqmmm.orca, "ORCATheory", FakeORCATheory)
+    monkeypatch.setattr(openmmqmmm.freq, "_run_displacements_serially", inspect_workspace_and_fail)
+    Path("guess.gbw").write_text("orbitals")
+    original_directory = Path.cwd()
+
+    with pytest.raises(RuntimeError, match="stop after inspecting workspace"):
+        numerical_frequencies(fragment=water, theory=FakeORCATheory(), qrrho=False, IR=False)
+
+    assert Path.cwd() == original_directory
+    assert (original_directory / "Numfreq_dir" / "guess.gbw").read_text() == "orbitals"
+
+
+def _complete_displacement_gradients():
+    labels = [f"0_{axis}_{direction}" for axis in range(3) for direction in ("+", "-")]
+    return labels, {label: np.zeros((1, 3)) for label in labels}
+
+
+def test_incomplete_dipole_mapping_names_the_missing_displacement():
+    labels, gradients = _complete_displacement_gradients()
+    dipoles = {label: np.zeros(3) for label in labels[:-1]}
+
+    with pytest.raises(InternalError, match=r"dipole.*0_2_-"):
+        _assemble_hessian(
+            npoint=2,
+            hessatoms=[0],
+            displacement_bohr=0.01,
+            grads=gradients,
+            dipoles=dipoles,
+            polarizabilities={},
+            IR=True,
+            Raman=False,
+        )
+
+
+def test_incomplete_polarizability_mapping_names_the_missing_displacement():
+    labels, gradients = _complete_displacement_gradients()
+    polarizabilities = {label: np.zeros((3, 3)) for label in labels[:-1]}
+
+    with pytest.raises(InternalError, match=r"polarizability.*0_2_-"):
+        _assemble_hessian(
+            npoint=2,
+            hessatoms=[0],
+            displacement_bohr=0.01,
+            grads=gradients,
+            dipoles={},
+            polarizabilities=polarizabilities,
+            IR=False,
+            Raman=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("property_name", "bad_value"),
+    [
+        ("dipole", np.zeros(2)),
+        ("dipole", np.array([0.0, np.nan, 0.0])),
+        ("polarizability", np.zeros(9)),
+        ("polarizability", np.full((3, 3), np.inf)),
+    ],
+)
+def test_malformed_optional_property_mapping_names_the_displacement(property_name, bad_value):
+    labels, gradients = _complete_displacement_gradients()
+    dipoles = {label: np.zeros(3) for label in labels} if property_name == "dipole" else {}
+    polarizabilities = {label: np.zeros((3, 3)) for label in labels} if property_name == "polarizability" else {}
+    values = dipoles if property_name == "dipole" else polarizabilities
+    values[labels[-1]] = bad_value
+
+    with pytest.raises(InternalError, match=rf"Invalid {property_name}.*0_2_-"):
+        _assemble_hessian(
+            npoint=2,
+            hessatoms=[0],
+            displacement_bohr=0.01,
+            grads=gradients,
+            dipoles=dipoles,
+            polarizabilities=polarizabilities,
+            IR=property_name == "dipole",
+            Raman=property_name == "polarizability",
+        )
+
+
+@pytest.mark.parametrize("dipoles", [{}, dict.fromkeys(_complete_displacement_gradients()[0])])
+def test_entirely_absent_optional_properties_are_disabled(dipoles):
+    _labels, gradients = _complete_displacement_gradients()
+
+    _hessian, dipole_derivs, polarizability_derivs = _assemble_hessian(
+        npoint=2,
+        hessatoms=[0],
+        displacement_bohr=0.01,
+        grads=gradients,
+        dipoles=dipoles,
+        polarizabilities={},
+        IR=True,
+        Raman=True,
+    )
+
+    assert np.all(dipole_derivs == 0.0)
+    assert polarizability_derivs == []

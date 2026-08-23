@@ -73,7 +73,7 @@ OpenMM stack.
 ### Editable dependencies
 
 [forcefill](https://github.com/LouieSlocombe/forcefill) gets edited alongside this
-package, so every installer clones it **next to the repository** and installs it editable
+package, so every installer clones a reviewed commit **next to the repository** and installs it editable
 rather than pulling it from GitHub on each install:
 
 ```
@@ -92,6 +92,9 @@ longer list its workflows need, and a single set of checkouts serves both.
 
 CI is the exception: a GitHub runner has only this repository checked out, so the workflow
 installs forcefill straight from GitHub.
+
+Existing checkouts are never changed. For a new checkout, set `FORCEFILL_REF=main` to
+opt into the latest development branch instead of the reviewed default commit.
 
 ### Into an environment that already exists
 
@@ -140,8 +143,10 @@ does not include the `opes` module. PLUMED sources are cloned into
 from scratch on each run.
 
 `openmmqmmm` itself and forcefill are cloned into `$HOME/openmmqmmm_src` instead — outside
-the build area, since that is wiped — and installed editable, so `git pull` in a checkout
-is enough to update it. Set `SRC_DIR` to put them somewhere else.
+the build area, since that is wiped — and installed editable. Existing checkouts remain
+under your control. A new forcefill checkout is detached at the reviewed commit by
+default; set `FORCEFILL_REF=main` before the first install if you want a branch that can
+be updated with `git pull`. Set `SRC_DIR` to put the checkouts somewhere else.
 
 Submit it as a batch job from this directory:
 

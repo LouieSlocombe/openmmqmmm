@@ -26,8 +26,8 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
   the full set (ASE, OpenMM, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd, multiprocess,
   numpy, scipy, packaging)
 - **[forcefill](https://github.com/LouieSlocombe/forcefill)** is not on PyPI: `conda_install.sh`
-  clones it next to this repository and installs it in editable mode, so a `git pull` in that
-  checkout is enough to update it.
+  clones a reviewed commit next to this repository and installs it in editable mode. Existing
+  checkouts are preserved; set `FORCEFILL_REF=main` before a first install to follow development.
   Without it `openmm_modeller(parameterize_nonstandard=True)` raises `MissingDependencyError`;
   everything else except the PLUMED integration works. Its dependency stack (openff-toolkit,
   openmmforcefields, RDKit, AmberTools) comes from conda-forge via
@@ -35,8 +35,8 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
   below is recommended
 - `openmm_md_plumed` also requires **PLUMED** and **openmm-plumed**, neither of which can come
   from conda-forge: that `openmm-plumed` binary requires OpenMM `<8.5`, and that PLUMED build
-  omits the `opes` module. `conda_install.sh` compiles both from source (PLUMED 2.10.1, plugin
-  `master`) into the environment
+  omits the `opes` module. `conda_install.sh` compiles both from source (PLUMED 2.10.1,
+  OpenMM-PLUMED v2.1) into the environment
 - [ORCA](https://www.faccts.de/orca/) — installed separately (free for academic use); required for
   `ORCATheory` and QM/MM, not for the pure-MM/OpenMM functionality
 
@@ -59,7 +59,8 @@ environment is removed and recreated on every run; set `ENV_NAME` to build into 
 different one. The forcefill checkout it clones alongside this repository is left alone —
 set `SRC_DIR` to keep it elsewhere.
 
-[build_tools/README.md](build_tools/README.md) is the full installation guide — the other
+[build_tools/README.md](https://github.com/LouieSlocombe/openmmqmmm/blob/main/build_tools/README.md) is the full
+installation guide — the other
 two routes (Sol cluster, source-built OpenMM), what to do with an environment that already
 exists, and the equivalent commands run by hand.
 
@@ -254,10 +255,12 @@ engine.run(
 
 Do not seed beads from the hook when restarting from a checkpoint — it would overwrite the loaded
 bead state. The ORCA-free pattern for all of this is in
-[tests/test_nqe_interop.py](tests/test_nqe_interop.py), which runs whenever both packages share an
-environment (see [build_tools/README.md](build_tools/README.md)).
+[tests/test_nqe_interop.py](https://github.com/LouieSlocombe/openmmqmmm/blob/main/tests/test_nqe_interop.py), which
+runs whenever both packages share an environment (see the
+[build guide](https://github.com/LouieSlocombe/openmmqmmm/blob/main/build_tools/README.md)).
 
-Runnable scripts, including a gas-phase ORCA example, live in [examples/](examples/):
+Runnable scripts, including a gas-phase ORCA example, live in
+[examples/](https://github.com/LouieSlocombe/openmmqmmm/tree/main/examples):
 
 ```sh
 python examples/gasphase_hf.py

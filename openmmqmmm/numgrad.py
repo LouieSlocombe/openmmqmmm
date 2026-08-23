@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Sequence
+from numbers import Integral
 from typing import Any, Literal, TypeAlias
 
 import numpy as np
@@ -16,8 +18,35 @@ logger = logging.getLogger(__name__)
 # ORCA's step of 0.005 Bohr, in Angstrom: displacements are given in Angstrom here.
 DEFAULT_DISPLACEMENT = 0.005 * openmmqmmm.constants.BOHR_TO_ANG
 
-Displacement: TypeAlias = tuple[int, int, Literal["+", "-"]] | Literal["Originalgeo"]
+Displacement: TypeAlias = tuple[int, int, Literal["+", "-"]]
 RunMode: TypeAlias = Literal["serial", "parallel"]
+
+
+def _validate_numcores(numcores: int) -> int:
+    if isinstance(numcores, bool) or not isinstance(numcores, Integral) or numcores < 1:
+        raise InputError(f"NumGrad numcores must be a positive integer, not {numcores!r}")
+    return int(numcores)
+
+
+def _validate_geometry(current_coords: np.ndarray | None, elems: Sequence[str] | None) -> tuple[np.ndarray, list[str]]:
+    if current_coords is None:
+        raise InputError("NumGrad requires current_coords")
+    try:
+        coords = np.array(current_coords, dtype=float, copy=True)
+    except (TypeError, ValueError):
+        raise InputError("NumGrad current_coords must be a numeric N x 3 array") from None
+    if coords.ndim != 2 or coords.shape[0] == 0 or coords.shape[1] != 3:
+        raise InputError(f"NumGrad current_coords must have shape (N, 3) with N > 0, not {coords.shape}")
+    if not np.all(np.isfinite(coords)):
+        raise InputError("NumGrad current_coords must contain only finite values")
+    if elems is None:
+        raise InputError("NumGrad requires one element symbol per coordinate")
+    element_list = list(elems)
+    if len(element_list) != len(coords):
+        raise InputError(
+            f"NumGrad received {len(element_list)} elements for {len(coords)} coordinate rows; the lengths must match"
+        )
+    return coords, element_list
 
 
 class NumGrad:
@@ -32,22 +61,34 @@ class NumGrad:
         numcores: int = 1,
     ) -> None:
         logger.debug("Creating NumGrad wrapper object")
+        if not callable(getattr(theory, "run", None)):
+            raise InputError("NumGrad requires a wrapped theory with a callable run method")
         # Only the 1- and 2-point stencils are implemented. Without this check any other
         # value skips gradient assembly entirely and returns a zero gradient, which an
         # optimizer happily reads as a converged structure.
-        if npoint not in (1, 2):
+        if isinstance(npoint, bool) or not isinstance(npoint, Integral) or npoint not in (1, 2):
             raise InputError(f"NumGrad npoint must be 1 (forward difference) or 2 (central difference), not {npoint}")
+        if runmode not in ("serial", "parallel"):
+            raise InputError(f"NumGrad runmode must be 'serial' or 'parallel', not {runmode!r}")
+        if isinstance(displacement, bool):
+            raise InputError(f"NumGrad displacement must be a positive finite number, not {displacement!r}")
+        try:
+            displacement = float(displacement)
+        except (TypeError, ValueError):
+            raise InputError(f"NumGrad displacement must be a positive finite number, not {displacement!r}") from None
+        if not math.isfinite(displacement) or displacement <= 0:
+            raise InputError(f"NumGrad displacement must be a positive finite number, not {displacement!r}")
         self.theory = theory
         self.theorytype = "QM"
         self.theorynamelabel = "NumGrad"
         self.displacement = displacement
-        self.npoint = npoint
+        self.npoint = int(npoint)
         self.runmode = runmode
-        self.numcores = numcores
+        self.numcores = _validate_numcores(numcores)
 
     def set_numcores(self, numcores: int) -> None:
         """Set the number of cores used for parallel displacement runs."""
-        self.numcores = numcores
+        self.numcores = _validate_numcores(numcores)
 
     def cleanup(self) -> None:
         """Do nothing: NumGrad has no scratch files and does not clean up the wrapped theory's."""
@@ -73,39 +114,76 @@ class NumGrad:
         """Compute the energy and a finite-difference gradient of the wrapped theory."""
         logger.info(f"------------RUNNING {self.theorynamelabel} WRAPPER -------------")
 
-        numatoms = len(current_coords)
+        element_source = elems if elems is not None else qm_elems
+        coords, element_list = _validate_geometry(current_coords, element_source)
+        if hessian:
+            raise InputError("NumGrad does not compute Hessians; request a gradient instead")
+        if grad and pc:
+            raise InputError(
+                "NumGrad does not support point-charge gradients; use a theory with analytic QM and point-charge "
+                "gradients for electrostatic embedding"
+            )
+
+        def run_energy(geometry: np.ndarray) -> float:
+            # Keep the ordinary wrapper contract small: custom theories that worked
+            # before NumGrad gained QM/MM support should not have to accept unrelated
+            # point-charge keywords whose values are all absent.
+            arguments: dict[str, Any] = {
+                "current_coords": geometry,
+                "elems": element_list,
+                "grad": False,
+                "label": label,
+                "charge": charge,
+                "mult": mult,
+            }
+            if qm_elems is not None:
+                arguments["qm_elems"] = element_list
+            if current_mm_coords is not None:
+                arguments["current_mm_coords"] = current_mm_coords
+            if mm_charges is not None:
+                arguments["mm_charges"] = mm_charges
+            if pc:
+                arguments["pc"] = True
+            if numcores is not None:
+                arguments["numcores"] = numcores
+            return self.theory.run(**arguments)
+
+        if not grad:
+            self.energy = run_energy(coords)
+            self.gradient = None
+            return self.energy
+
+        numatoms = len(coords)
         displacement_bohr = self.displacement * openmmqmmm.constants.ANG_TO_BOHR
 
         list_of_displaced_geos, list_of_displacements, all_disp_fragments = _create_displaced_geometries(
-            current_coords, elems, self.displacement, self.npoint, charge, mult
+            coords, element_list, self.displacement, self.npoint, charge, mult
         )
         if self.runmode == "serial":
             logger.info("Numgrad: runmode is serial")
             logger.debug("Running original geometry first")
-            orig_energy = self.theory.run(
-                current_coords=current_coords, elems=elems, grad=False, label=label, charge=charge, mult=mult
-            )
+            orig_energy = run_energy(coords)
             dispdict = {}
             logger.debug("Will now loop over %s displacements", len(list_of_displacements))
 
-            for i, dispgeo in enumerate(list_of_displaced_geos):
-                disp = list_of_displacements[i]
+            for i, (dispgeo, disp) in enumerate(
+                zip(list_of_displaced_geos, list_of_displacements, strict=True), start=1
+            ):
                 logger.debug(
-                    f"Running displacement {i + 1} / {len(list_of_displaced_geos)}. Displacing Atom:{disp[0]} "
+                    f"Running displacement {i} / {len(list_of_displaced_geos)}. Displacing Atom:{disp[0]} "
                     f"Coord:{disp[1]} Direction:{disp[2]}"
                 )
-                energy = self.theory.run(
-                    current_coords=dispgeo, elems=elems, grad=False, label=label, charge=charge, mult=mult
-                )
-                dispdict[(disp)] = energy
+                energy = run_energy(dispgeo)
+                dispdict[disp] = energy
         elif self.runmode == "parallel":
             logger.info("Numgrad: runmode is parallel")
-            origfrag = openmmqmmm.Fragment(coords=current_coords, elems=elems, label="orig", charge=charge, mult=mult)
+            effective_numcores = _validate_numcores(self.numcores if numcores is None else numcores)
+            origfrag = openmmqmmm.Fragment(coords=coords, elems=element_list, label="orig", charge=charge, mult=mult)
             all_disp_fragments = [origfrag, *all_disp_fragments]
             result = openmmqmmm.parallel.job_parallel(
                 fragments=all_disp_fragments,
                 theories=[self.theory],
-                numcores=self.numcores,
+                numcores=effective_numcores,
                 allow_theory_parallelization=True,
                 grad=False,
                 copytheory=True,
@@ -117,7 +195,7 @@ class NumGrad:
         gradient = np.zeros((numatoms, 3))
         if self.npoint == 2:
             for atindex in range(numatoms):
-                for u in [0, 1, 2]:
+                for u in range(3):
                     if self.runmode == "parallel":
                         posval = dispdict[f"{atindex}_{u}_+"]
                         negval = dispdict[f"{atindex}_{u}_-"]
@@ -128,7 +206,7 @@ class NumGrad:
                     gradient[atindex, u] = grad_component
         elif self.npoint == 1:
             for atindex in range(numatoms):
-                for u in [0, 1, 2]:
+                for u in range(3):
                     posval = dispdict[f"{atindex}_{u}_+"] if self.runmode == "parallel" else dispdict[atindex, u, "+"]
                     grad_component = (posval - orig_energy) / displacement_bohr
                     gradient[atindex, u] = grad_component
@@ -136,10 +214,7 @@ class NumGrad:
         self.energy = orig_energy
         self.gradient = gradient
 
-        # Match the theory-object contract: energy alone unless a gradient was asked for
-        if grad:
-            return self.energy, self.gradient
-        return self.energy
+        return self.energy, self.gradient
 
 
 def _create_displaced_geometries(
@@ -156,34 +231,26 @@ def _create_displaced_geometries(
     logger.info("\nPrinting original geometry...")
     print_coords_all(current_coords, elems)
 
-    # Only displacing atom if in hessatoms list. i.e. possible partial Hessian
+    reference_coords = np.array(current_coords, dtype=float, copy=True)
     list_of_displaced_geos = []
     list_of_displacements = []
-    for atom_index in range(len(current_coords)):
+    for atom_index in range(len(reference_coords)):
         for coord_index in range(3):
-            val = current_coords[atom_index, coord_index]
-            current_coords[atom_index, coord_index] = val + displacement
-            y = current_coords.copy()
-            list_of_displaced_geos.append(y)
+            displaced = reference_coords.copy()
+            displaced[atom_index, coord_index] += displacement
+            list_of_displaced_geos.append(displaced)
             list_of_displacements.append((atom_index, coord_index, "+"))
             if npoint == 2:
-                current_coords[atom_index, coord_index] = val - displacement
-                y = current_coords.copy()
-                list_of_displaced_geos.append(y)
+                displaced = reference_coords.copy()
+                displaced[atom_index, coord_index] -= displacement
+                list_of_displaced_geos.append(displaced)
                 list_of_displacements.append((atom_index, coord_index, "-"))
-            current_coords[atom_index, coord_index] = val
-
-    if npoint == 1:
-        list_of_displaced_geos.append(current_coords)
-        list_of_displacements.append("Originalgeo")
 
     logger.debug("List of displacements: %s", list_of_displacements)
 
-    # Also calclabels, currently used by runmode serial only
     all_disp_fragments = []
-    for dispgeo, disp in zip(list_of_displaced_geos, list_of_displacements, strict=False):
-        # "Originalgeo" for the reference geometry, atom_axis_direction for a displacement
-        stringlabel = "Originalgeo" if disp == "Originalgeo" else f"{disp[0]}_{disp[1]}_{disp[2]}"
+    for dispgeo, disp in zip(list_of_displaced_geos, list_of_displacements, strict=True):
+        stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
         frag = openmmqmmm.Fragment(coords=dispgeo, elems=elems, label=stringlabel, charge=charge, mult=mult)
         all_disp_fragments.append(frag)
 

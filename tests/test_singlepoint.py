@@ -67,6 +67,7 @@ def test_single_point_gradient(hydrogen_fluoride):
     result = single_point(theory=ZeroTheory(), fragment=hydrogen_fluoride, grad=True)
 
     assert result.energy == 0.0
+    assert hydrogen_fluoride.energy == 0.0, "Energy storage must not depend on whether a gradient was requested"
     assert np.shape(result.gradient) == (hydrogen_fluoride.numatoms, 3), "One gradient row per atom"
 
 
@@ -89,12 +90,22 @@ def test_single_point_theories(hydrogen_fluoride):
     assert all(energy == 0.0 for energy in result.energies)
 
 
+def test_multi_entry_points_reject_empty_inputs(hydrogen_fluoride):
+    with pytest.raises(InputError, match="at least one theory"):
+        single_point_theories(theories=[], fragment=hydrogen_fluoride)
+    with pytest.raises(InputError, match="at least one fragment"):
+        single_point_fragments(theory=ZeroTheory(), fragments=[])
+    with pytest.raises(InputError, match="at least one theory"):
+        single_point_fragments_and_theories(theories=[], fragments=[hydrogen_fluoride])
+
+
 def test_single_point_theories_with_explicit_charge_and_mult():
     fragment = Fragment(coordsstring=HF_COORDS)
 
     result = single_point_theories(theories=[ZeroTheory()], fragment=fragment, charge=0, mult=1)
 
     assert result.energies == [0.0]
+    assert (result.charge, result.mult) == (0, 1)
 
 
 def test_qmmm_theory_carries_a_label():
@@ -148,6 +159,46 @@ def test_single_point_fragments_and_theories():
     assert all(len(row) == len(fragments) for row in result.energies)
 
 
+def test_single_point_fragments_and_theories_collects_reaction_energies():
+    fragments = _labelled_fragments(2)
+
+    result = single_point_fragments_and_theories(
+        theories=[ZeroTheory(label="a"), ZeroTheory(label="b")],
+        fragments=fragments,
+        stoichiometry=[-1, 1],
+    )
+
+    assert result.reaction_energies == [0.0, 0.0]
+
+
+def test_single_point_fragments_validates_orbital_file_count():
+    fragments = _labelled_fragments(2)
+
+    with pytest.raises(InputError, match="one per fragment"):
+        single_point_fragments(theory=ZeroTheory(), fragments=fragments, moreadfiles=["only-one.gbw"])
+
+    with pytest.raises(InputError, match="not a string"):
+        single_point_fragments(theory=ZeroTheory(), fragments=fragments, moreadfiles="orbitals.gbw")
+
+
+def test_single_point_fragments_validates_stoichiometry_before_running_theory():
+    fragments = _labelled_fragments(2)
+
+    with pytest.raises(InputError, match="stoichiometry values"):
+        single_point_fragments(theory=ZeroTheory(), fragments=fragments, stoichiometry=[-1])
+
+    assert all(fragment.energy is None for fragment in fragments)
+
+
+def test_single_point_fragments_reports_only_a_common_charge_and_multiplicity():
+    fragments = _labelled_fragments(2)
+    fragments[1].charge = 1
+
+    result = single_point_fragments(theory=ZeroTheory(), fragments=fragments)
+
+    assert (result.charge, result.mult) == (None, None)
+
+
 def test_reaction_energy_of_a_null_reaction():
     """With identical energies on both sides the reaction energy is zero."""
     reactant, product = _labelled_fragments(2)
@@ -158,10 +209,71 @@ def test_reaction_energy_of_a_null_reaction():
     assert reaction.reaction_energy == pytest.approx(0.0)
 
 
+def test_single_point_reaction_resolves_named_orbital_files():
+    fragments = _labelled_fragments(2)
+    reaction = Reaction(fragments=fragments, stoichiometry=[-1, 1])
+    reaction.orbital_dictionary["SCF"].extend(["reactant.gbw", "product.gbw"])
+    theory = ZeroTheory()
+
+    single_point_reaction(theory=theory, reaction=reaction, moreadfiles="SCF")
+
+    assert theory.moreadfile == "product.gbw"
+
+
+def test_single_point_reaction_rejects_an_unknown_orbital_set():
+    fragments = _labelled_fragments(2)
+    reaction = Reaction(fragments=fragments, stoichiometry=[-1, 1])
+
+    with pytest.raises(InputError, match="no orbital-file set"):
+        single_point_reaction(theory=ZeroTheory(), reaction=reaction, moreadfiles="missing")
+
+
+def test_single_point_reaction_validates_unit_before_running_theory():
+    fragments = _labelled_fragments(2)
+    reaction = Reaction(fragments=fragments, stoichiometry=[-1, 1], unit="bananas")
+
+    with pytest.raises(InputError, match="Unknown energy unit"):
+        single_point_reaction(theory=ZeroTheory(), reaction=reaction)
+
+    assert reaction.energies == []
+    assert all(fragment.energy is None for fragment in fragments)
+
+
+def test_single_point_reaction_revalidates_mutated_stoichiometry_before_running():
+    fragments = _labelled_fragments(2)
+    reaction = Reaction(fragments=fragments, stoichiometry=[-1, 1])
+    reaction.stoichiometry = ["bad", 1]
+
+    with pytest.raises(InputError, match="finite numeric"):
+        single_point_reaction(theory=ZeroTheory(), reaction=reaction)
+
+    assert reaction.energies == []
+    assert all(fragment.energy is None for fragment in fragments)
+
+
 def test_reaction_energy_applies_stoichiometry():
     energy, _unit = reaction_energy(list_of_energies=[-1.0, -2.0], stoichiometry=[-1, 1], unit="Eh", silent=True)
 
     assert energy == pytest.approx(-1.0)
+
+
+def test_reaction_energy_can_use_fragment_energies():
+    fragments = _labelled_fragments(2)
+    fragments[0].energy = -1.0
+    fragments[1].energy = -2.0
+
+    energy, error = reaction_energy(list_of_fragments=fragments, stoichiometry=[-1, 1], unit="Eh", silent=True)
+
+    assert energy == pytest.approx(-1.0)
+    assert error is None
+
+
+def test_reaction_energy_validates_source_data_and_unit():
+    fragments = _labelled_fragments(2)
+    with pytest.raises(InputError, match="stored energies"):
+        reaction_energy(list_of_fragments=fragments, stoichiometry=[-1, 1])
+    with pytest.raises(InputError, match="Unknown energy unit"):
+        reaction_energy(list_of_energies=[0.0, 0.0], stoichiometry=[-1, 1], unit="bananas")
 
 
 def test_reaction_rejects_mismatched_stoichiometry():

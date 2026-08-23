@@ -60,7 +60,7 @@ cmake .. \
     -DCMAKE_INSTALL_PREFIX="${CONDA_PREFIX}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DPYTHON_EXECUTABLE="$(which python)"
-make -j"$(nproc)"
+make -j"$(build_job_count)"
 make install
 make PythonInstall
 

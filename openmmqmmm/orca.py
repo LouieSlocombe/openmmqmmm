@@ -344,6 +344,7 @@ class ORCATheory:
                 logger.info("%s", opt_coords)
 
                 fragment.replace_coords(fragment.elems, opt_coords)
+                fragment.set_energy(self.energy)
             else:
                 raise ExternalProgramError("ORCA optimization failed to converge. Check ORCA output")
         else:

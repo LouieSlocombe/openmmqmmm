@@ -862,9 +862,9 @@ class GeometricOptimizer:
         logger.info("Final optimized energy: %s", finalenergy)
 
         fragment.replace_coords(fragment.elems, engine.full_current_coords, conn=False)
+        fragment.set_energy(finalenergy)
         fragment.print_system(filename="fragment_optimized.frag")
         fragment.write_xyzfile(xyzfilename="Fragment-optimized.xyz")
-        fragment.set_energy(finalenergy)
 
         if self.active_region is not True:
             logger.info("Final geometry")

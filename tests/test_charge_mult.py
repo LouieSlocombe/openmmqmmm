@@ -303,10 +303,11 @@ def test_single_point_theories_does_not_carry_one_theorys_charge_into_the_next()
     qmmm = _StandInQMMM(-1, 1)
     plain_qm = _RecordingQM()
 
-    single_point_theories(theories=[qmmm, plain_qm], fragment=fragment)
+    result = single_point_theories(theories=[qmmm, plain_qm], fragment=fragment)
 
     assert qmmm.calls[0]["charge"] == -1
     assert plain_qm.calls[0]["charge"] == 0, "The plain QM theory runs the whole fragment, so charge 0"
+    assert (result.charge, result.mult) == (None, None), "Mixed theory states cannot be represented by one pair"
 
 
 def test_worker_par_reads_charge_from_a_fragment_file(tmp_path):

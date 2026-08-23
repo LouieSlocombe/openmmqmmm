@@ -1752,13 +1752,17 @@ class OpenMMTheory:
 
     # Updating LJ interactions in OpenMM object. Used to set LJ sites to zero e.g. so that they do not contribute
     # Can be used to get QM-MM LJ interaction energy
-    def update_lj_epsilons(self, atomlist: Sequence[int], epsilons: Sequence[float]) -> None:
+    def get_lj_epsilons(self, atomlist: Sequence[int]) -> list[object]:
+        """Return Lennard-Jones epsilon values for selected atoms."""
+        return [self.nonbonded_force.getParticleParameters(atomindex)[2] for atomindex in atomlist]
+
+    def update_lj_epsilons(self, atomlist: Sequence[int], epsilons: Sequence[object]) -> None:
         """Set new Lennard-Jones epsilon values for selected atoms."""
         timeA = time.time()
         logger.debug("Updating LJ interaction strengths in OpenMM object.")
         if len(atomlist) != len(epsilons):
             raise InternalError("atomlist and epsilons size mismatch")
-        for atomindex, newepsilon in zip(atomlist, epsilons, strict=False):
+        for atomindex, newepsilon in zip(atomlist, epsilons, strict=True):
             charge, sigma, _oldepsilon = self.nonbonded_force.getParticleParameters(atomindex)
             if isinstance(self.nonbonded_force, openmm.CustomNonbondedForce):
                 self.nonbonded_force.setParticleParameters(atomindex, [charge, sigma, newepsilon])
@@ -1945,10 +1949,12 @@ class ForceReporter:
     def describeNextReport(  # noqa: N802 - OpenMM reporter API, do not rename
         self, simulation: openmm.app.Simulation
     ) -> tuple[int, bool, bool, bool, bool, None]:
+        """Return OpenMM's scheduling tuple for the next force report."""
         steps = self._reportInterval - simulation.currentStep % self._reportInterval
         return (steps, False, False, True, False, None)
 
     def report(self, simulation: openmm.app.Simulation, state: openmm.State) -> None:
+        """Write the supplied state's potential energy and per-atom forces."""
         energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
         forces = state.getForces().value_in_unit(openmm.unit.kilojoules / openmm.unit.mole / openmm.unit.nanometer)
         if self.atomic_units:
@@ -1964,6 +1970,7 @@ def clean_up_constraints_list(
     fragment: Fragment | None = None,
     constraints: Sequence[Sequence[float | int]] | None = None,
 ) -> list[list[float | int]]:
+    """Fill in missing equilibrium distances in two-atom constraint definitions."""
     logger.debug("Checking defined constraints.")
     newconstraints = []
     for con in constraints:
@@ -1993,6 +2000,7 @@ def write_xmlfile_nonbonded(
     skip_nb: bool = False,
     charmm: bool = False,
 ) -> str | os.PathLike[str]:
+    """Write residue templates and nonbonded parameters as an OpenMM force-field XML."""
     logger.debug("Writing nonbonded force-field XML")
 
     if not (len(resnames) == len(atomnames_per_res) == len(atomtypes_per_res)):

@@ -70,6 +70,7 @@ def _normalise_modeller_solvent_name(watermodel: str | None) -> str:
 
 
 def print_systemsize(modeller: openmm.app.Modeller) -> None:
+    """Log the number of atoms in an OpenMM Modeller."""
     logger.info(f"System size: {len(modeller.getPositions())} atoms\n")
 
 
@@ -639,6 +640,7 @@ def write_pdbfile_openmm_topology(
     filename: str | os.PathLike[str],
     connectivity_dict: Mapping[int, Sequence[int]] | None = None,
 ) -> None:
+    """Write an OpenMM topology and positions as PDB, optionally adding bonds."""
     if connectivity_dict is not None:
         logger.info("Connectivity passed to write_pdbfile_openMM")
         openmm_add_bonds_to_topology(topology, connectivity_dict)
@@ -654,6 +656,7 @@ def write_pdbxfile_openmm_topology(
     filename: str | os.PathLike[str],
     connectivity_dict: Mapping[int, Sequence[int]] | None = None,
 ) -> None:
+    """Write an OpenMM topology and positions as PDBx, optionally adding bonds."""
     if connectivity_dict is not None:
         logger.info("Connectivity passed to write_pdbxfile_openMM")
         openmm_add_bonds_to_topology(topology, connectivity_dict)
@@ -664,6 +667,7 @@ def write_pdbxfile_openmm_topology(
 
 
 def openmm_add_bonds_to_topology(topology: openmm.app.Topology, connectivity: Mapping[int, Sequence[int]]) -> None:
+    """Add every bond in an atom-index connectivity mapping to an OpenMM topology."""
     atoms = list(topology.atoms())
     for conatom, conlist in connectivity.items():
         for conl in conlist:
@@ -784,6 +788,7 @@ def solvate_small_molecule(
 
 
 def find_alternate_locations_residues(pdbfile: str | os.PathLike[str], use_higher_occupancy: bool = False) -> str:
+    """Reject PDB alternate locations or write a copy retaining the highest occupancy."""
     if use_higher_occupancy is True:
         logger.debug("Will keep higher occupancy atoms for alternate locations")
 

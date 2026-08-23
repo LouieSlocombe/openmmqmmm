@@ -4,13 +4,68 @@
 # are pinned here in one place.
 
 PLUMED_VERSION="v2.10.1"
-OPENMM_PLUMED_VERSION="master"
+OPENMM_PLUMED_VERSION="v2.1"
+
+# macOS does not provide GNU nproc. All supported install routes already run
+# inside a Python environment, so use Python's portable CPU-count API instead.
+build_job_count() {
+    python -c 'import os; count = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count(); print(count or 1)'
+}
+
+# build_linker_flags <system-name> <library-dir>
+# Apple ld supports rpath but not GNU ld's rpath-link option.
+build_linker_flags() {
+    local system_name="$1"
+    local library_dir="$2"
+
+    if [[ "${system_name}" == "Darwin" ]]; then
+        printf '%s\n' "-Wl,-rpath,${library_dir}"
+    else
+        printf '%s\n' "-Wl,-rpath-link,${library_dir} -Wl,-rpath,${library_dir}"
+    fi
+}
+
+# find_plumed_kernel <library-dir> [system-name]
+# PLUMED installs a .dylib on macOS and a .so on Linux. Prefer the native
+# extension, but accept either so custom toolchains remain usable.
+find_plumed_kernel() {
+    local library_dir="$1"
+    local system_name="${2:-$(uname -s)}"
+    local -a extensions
+    local extension
+    local candidate
+
+    if [[ "${system_name}" == "Darwin" ]]; then
+        extensions=("dylib" "so")
+    else
+        extensions=("so" "dylib")
+    fi
+    for extension in "${extensions[@]}"; do
+        candidate="${library_dir}/libplumedKernel.${extension}"
+        if [[ -f "${candidate}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    done
+
+    echo "Could not find libplumedKernel in ${library_dir}" >&2
+    return 1
+}
 
 # build_plumed <work_dir>
 # Compiles PLUMED (with the opes module) and the OpenMM-PLUMED plugin into $CONDA_PREFIX,
 # cloning the sources into <work_dir>. Leaves the shell in <work_dir>.
 build_plumed() {
     local work_dir="$1"
+    local system_name
+    local dependency_linker_flags=""
+    local linker_flags
+
+    system_name="$(uname -s)"
+    if [[ "${system_name}" != "Darwin" ]]; then
+        dependency_linker_flags="-Wl,-rpath-link,${CONDA_PREFIX}/lib"
+    fi
+    linker_flags="$(build_linker_flags "${system_name}" "${CONDA_PREFIX}/lib")"
 
     echo "=== Compiling PLUMED ${PLUMED_VERSION} ==="
     cd "${work_dir}"
@@ -26,8 +81,8 @@ build_plumed() {
     # instead of the ${CONDA_PREFIX} kernel it bakes itself.
     ./configure --prefix="${CONDA_PREFIX}" --enable-modules=opes --disable-python \
         LDFLAGS="-L${CONDA_PREFIX}/lib -Wl,-rpath,${CONDA_PREFIX}/lib" \
-        STATIC_LIBS="-Wl,-rpath-link,${CONDA_PREFIX}/lib"
-    make -j"$(nproc)"
+        STATIC_LIBS="${dependency_linker_flags}"
+    make -j"$(build_job_count)"
     make install
 
     export PLUMED_INCLUDE_DIR="${CONDA_PREFIX}/include/plumed"
@@ -45,8 +100,8 @@ build_plumed() {
         -DPLUMED_INCLUDE_DIR="${PLUMED_INCLUDE_DIR}" \
         -DPLUMED_LIBRARY_DIR="${PLUMED_LIBRARY_DIR}" \
         -DPYTHON_EXECUTABLE="$(which python)" \
-        -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,${CONDA_PREFIX}/lib -Wl,-rpath,${CONDA_PREFIX}/lib"
-    make -j"$(nproc)"
+        -DCMAKE_EXE_LINKER_FLAGS="${linker_flags}"
+    make -j"$(build_job_count)"
     make install
     # openmm-plumed's setup.py imports numpy without declaring it as a build
     # dependency, so the isolated pip run inside `make PythonInstall` fails; use
@@ -67,12 +122,14 @@ build_plumed() {
 # works without PLUMED_KERNEL being set. Requires cython. Leaves the shell in <work_dir>.
 build_py_plumed() {
     local work_dir="$1"
+    local plumed_kernel
 
     echo "=== Building py-plumed ${PLUMED_VERSION} ==="
     cd "${work_dir}/plumed2/python"
     # Stages ./PLUMED_VERSION and include/Plumed.h for setup.py.
     make pip
-    plumed_default_kernel="${CONDA_PREFIX}/lib/libplumedKernel.so" \
+    plumed_kernel="$(find_plumed_kernel "${CONDA_PREFIX}/lib")"
+    plumed_default_kernel="${plumed_kernel}" \
         pip install . --no-build-isolation
 
     cd "${work_dir}"

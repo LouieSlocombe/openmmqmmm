@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import fcntl
+import functools
 import logging
 import math
 import os
 import shutil
+import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
+from contextvars import ContextVar
+from numbers import Integral
 from os import PathLike
-from typing import Any, TypeAlias
+from pathlib import Path
+from typing import Any, ParamSpec, TypeAlias, TypeVar
+from uuid import uuid4
 
 import numpy as np
 
@@ -17,7 +25,7 @@ import openmmqmmm.constants
 import openmmqmmm.coords
 import openmmqmmm.orca
 from openmmqmmm.coords import Fragment, check_charge_mult
-from openmmqmmm.exceptions import InputError
+from openmmqmmm.exceptions import InputError, InternalError
 from openmmqmmm.qmmm import QMMMTheory
 from openmmqmmm.results import Results
 from openmmqmmm.utils import clean_number, listdiff, log_time_since, main_header
@@ -25,6 +33,165 @@ from openmmqmmm.utils import clean_number, listdiff, log_time_since, main_header
 logger = logging.getLogger(__name__)
 
 Displacement: TypeAlias = tuple[int, int, str] | str
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+_NUMFREQ_DIRECTORY = "Numfreq_dir"
+_NUMFREQ_MARKER = ".openmmqmmm-managed"
+_NUMFREQ_MARKER_CONTENT = "Managed numerical-frequency workspace. Its contents may be replaced.\n"
+_NUMFREQ_LOCK = ".openmmqmmm-active.lock"
+_NUMFREQ_PROCESS_LOCK = threading.Lock()
+_NUMFREQ_LOCK_OWNER: ContextVar[str | None] = ContextVar("numfreq_lock_owner", default=None)
+_NUMFREQ_LOCK_HANDLE: ContextVar[Any | None] = ContextVar("numfreq_lock_handle", default=None)
+
+
+def _release_numfreq_lock(parent: Path, owner: str) -> None:
+    """Release this invocation's advisory lock without disturbing another owner."""
+    lock = parent / _NUMFREQ_DIRECTORY / _NUMFREQ_LOCK
+    lock_file = _NUMFREQ_LOCK_HANDLE.get()
+    if lock_file is None:
+        return
+    try:
+        lock_file.seek(0)
+        stored_owner = lock_file.read()
+        if stored_owner != owner:
+            logger.warning("Numerical-frequency lock %s changed owner while held", lock)
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.flush()
+    except (OSError, UnicodeError) as error:
+        logger.warning("Could not clear numerical-frequency workspace lock %s: %s", lock, error)
+    finally:
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        with contextlib.suppress(OSError):
+            lock_file.close()
+        _NUMFREQ_LOCK_HANDLE.set(None)
+
+
+def _restore_working_directory(function: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Serialize process-local runs and restore their directory and owned lock."""
+
+    @functools.wraps(function)
+    def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        if not _NUMFREQ_PROCESS_LOCK.acquire(blocking=False):
+            raise InputError("Another numerical-frequency calculation is already active in this process")
+        try:
+            original_directory = Path.cwd()
+        except BaseException:
+            _NUMFREQ_PROCESS_LOCK.release()
+            raise
+
+        owner = f"{os.getpid()}:{threading.get_ident()}:{uuid4().hex}"
+        owner_context = _NUMFREQ_LOCK_OWNER.set(owner)
+        handle_context = _NUMFREQ_LOCK_HANDLE.set(None)
+        try:
+            return function(*args, **kwargs)
+        finally:
+            try:
+                os.chdir(original_directory)
+            finally:
+                try:
+                    _release_numfreq_lock(original_directory, owner)
+                finally:
+                    _NUMFREQ_LOCK_HANDLE.reset(handle_context)
+                    _NUMFREQ_LOCK_OWNER.reset(owner_context)
+                    _NUMFREQ_PROCESS_LOCK.release()
+
+    return wrapped
+
+
+def _prepare_numfreq_directory(parent: Path, owner: str) -> Path:
+    """Acquire and safely refresh the managed numerical-frequency workspace."""
+    directory = parent / _NUMFREQ_DIRECTORY
+    marker = directory / _NUMFREQ_MARKER
+    lock = directory / _NUMFREQ_LOCK
+
+    if not directory.exists() and not directory.is_symlink():
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            pass
+        else:
+            marker.write_text(_NUMFREQ_MARKER_CONTENT, encoding="utf-8")
+
+    managed = False
+    if directory.is_dir() and not directory.is_symlink() and marker.is_file() and not marker.is_symlink():
+        with contextlib.suppress(OSError, UnicodeError):
+            managed = marker.read_text(encoding="utf-8") == _NUMFREQ_MARKER_CONTENT
+    if not managed:
+        raise InputError(
+            f"{directory.name} already exists and is not an openmmqmmm-managed workspace; refusing to delete "
+            "or overwrite it. Move it aside and retry."
+        )
+    if lock.is_symlink():
+        raise InputError(f"{_NUMFREQ_LOCK} must be a regular file, not a symbolic link")
+
+    lock_file = lock.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.seek(0)
+        existing_owner = lock_file.read()
+        lock_file.close()
+        owner_detail = f" (owner {existing_owner})" if existing_owner else ""
+        raise InputError(
+            f"{directory.name} is already in use by another numerical-frequency calculation{owner_detail}"
+        ) from None
+    except OSError:
+        lock_file.close()
+        raise
+
+    try:
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write(owner)
+        lock_file.flush()
+        os.fsync(lock_file.fileno())
+    except OSError:
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        lock_file.close()
+        raise
+    _NUMFREQ_LOCK_HANDLE.set(lock_file)
+
+    # A lock file left by a killed process is harmless: the kernel releases the
+    # advisory lock, this invocation acquires it above, and the recorded owner is
+    # replaced. Only a descriptor that is still locked blocks workspace cleanup.
+    for entry in directory.iterdir():
+        if entry in (marker, lock):
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+    return directory
+
+
+def _copy_orca_guess(theory: Any, source_directory: Path, scratch_directory: Path) -> None:
+    """Copy an available ORCA GBW guess into the displacement workspace."""
+    orca_theory = None
+    if isinstance(theory, openmmqmmm.orca.ORCATheory):
+        orca_theory = theory
+    elif isinstance(getattr(theory, "qm_theory", None), openmmqmmm.orca.ORCATheory):
+        orca_theory = theory.qm_theory
+
+    filename = getattr(orca_theory, "filename", None)
+    if filename is None:
+        return
+
+    source = source_directory / f"{filename}.gbw"
+    if not source.is_file():
+        return
+
+    destination = scratch_directory / source.name
+    try:
+        shutil.copy2(source, destination)
+    except OSError as error:
+        logger.warning("Could not copy ORCA GBW guess %s into %s: %s", source, scratch_directory, error)
+    else:
+        logger.info("Copied ORCA GBW guess into %s", scratch_directory.name)
 
 
 # Analytical frequencies function. Only for theories with this option added (e.g. ORCATheory and CFourTheory)
@@ -273,6 +440,64 @@ def _run_displacements_in_parallel(
     )
 
 
+def _expected_displacement_labels(npoint: int, hessatoms: Sequence[int]) -> list[str]:
+    labels = []
+    directions = ("+",) if npoint == 1 else ("+", "-")
+    for atomindex in hessatoms:
+        for coordinate in (0, 1, 2):
+            labels.extend(f"{atomindex}_{coordinate}_{direction}" for direction in directions)
+    if npoint == 1:
+        labels.append("Originalgeo")
+    return labels
+
+
+def _property_mapping_is_complete(
+    values: Mapping[str, Any],
+    expected_labels: Sequence[str],
+    property_name: str,
+    expected_shape: tuple[int, ...],
+) -> bool:
+    """Validate optional displacement data, disabling it only when entirely absent."""
+    present = []
+    missing = []
+    malformed = []
+    for label in expected_labels:
+        if label not in values or values[label] is None:
+            missing.append(label)
+            continue
+        try:
+            value = np.asarray(values[label])
+        except (TypeError, ValueError):
+            present.append(label)
+            malformed.append(label)
+            continue
+        if value.size == 0:
+            missing.append(label)
+            continue
+        present.append(label)
+        try:
+            finite = bool(np.all(np.isfinite(value)))
+        except TypeError:
+            finite = False
+        if value.shape != expected_shape or not finite:
+            malformed.append(label)
+
+    if not present:
+        return False
+    if missing:
+        malformed_detail = f"; malformed labels: {', '.join(malformed)}" if malformed else ""
+        raise InternalError(
+            f"Incomplete {property_name} data for numerical frequencies; missing displacement labels: "
+            f"{', '.join(missing)}{malformed_detail}"
+        )
+    if malformed:
+        raise InternalError(
+            f"Invalid {property_name} data for numerical frequencies; expected finite arrays with shape "
+            f"{expected_shape}; malformed displacement labels: {', '.join(malformed)}"
+        )
+    return True
+
+
 def _assemble_hessian(
     *,
     npoint: int,
@@ -291,8 +516,18 @@ def _assemble_hessian(
     dipole_derivs = np.zeros((hesslength, 3))
     polarizability_derivs = []
 
-    want_dipoles = IR is True and len(dipoles) > 0 and not any(value is None for value in dipoles.values())
-    want_polarizabilities = Raman is True and len(polarizabilities) > 0
+    expected_labels = _expected_displacement_labels(npoint, hessatoms)
+    missing_gradients = [label for label in expected_labels if label not in grads or grads[label] is None]
+    if missing_gradients:
+        raise InternalError(
+            "Incomplete gradient data for numerical frequencies; missing displacement labels: "
+            f"{', '.join(missing_gradients)}"
+        )
+
+    want_dipoles = IR is True and _property_mapping_is_complete(dipoles, expected_labels, "dipole", (3,))
+    want_polarizabilities = Raman is True and _property_mapping_is_complete(
+        polarizabilities, expected_labels, "polarizability", (3, 3)
+    )
     # Forward difference measures against the undisplaced geometry over one step; central
     # difference measures the two displacements against each other, so over two.
     step = displacement_bohr if npoint == 1 else 2 * displacement_bohr
@@ -307,7 +542,7 @@ def _assemble_hessian(
             grad_minus = np.ravel(_get_partial_matrix(grads[minus], hessatoms))
             hessian[hessindex, :] = (grad_plus - grad_minus) / step
 
-            if want_dipoles and len(dipoles[plus]) > 0:
+            if want_dipoles:
                 dipole_derivs[hessindex, :] = (np.array(dipoles[plus]) - np.array(dipoles[minus])) / step
             if want_polarizabilities:
                 polarizability_derivs.append(
@@ -318,6 +553,7 @@ def _assemble_hessian(
     return (hessian + hessian.transpose()) / 2, dipole_derivs, polarizability_derivs
 
 
+@_restore_working_directory
 def numerical_frequencies(
     *,
     fragment: Fragment | None = None,
@@ -347,6 +583,56 @@ def numerical_frequencies(
     logger.info("------------NUMERICAL FREQUENCIES-------------")
     if fragment is None or theory is None:
         raise InputError("NumFreq requires a fragment and a theory object")
+
+    if not isinstance(npoint, Integral) or isinstance(npoint, bool) or npoint not in (1, 2):
+        raise InputError("Unknown npoint option. npoint should be 1 (forward) or 2 (central difference).")
+    if runmode not in ("serial", "parallel"):
+        raise InputError("Unknown runmode. Choose 'serial' or 'parallel'.")
+    if not isinstance(numcores, Integral) or isinstance(numcores, bool) or numcores < 1:
+        raise InputError("numcores must be a positive integer")
+    normalized_values = []
+    for name, value in (("displacement", displacement), ("temperature", temp), ("pressure", pressure)):
+        try:
+            normalized_value = float(value)
+            valid = math.isfinite(normalized_value) and normalized_value > 0
+        except (OverflowError, TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise InputError(f"{name} must be a positive finite number")
+        normalized_values.append(normalized_value)
+    displacement, temp, pressure = normalized_values
+
+    try:
+        rotmode_threshold = float(rotmode_threshold)
+    except (OverflowError, TypeError, ValueError):
+        raise InputError("rotmode_threshold must be a non-negative finite number") from None
+    if not math.isfinite(rotmode_threshold) or rotmode_threshold < 0:
+        raise InputError("rotmode_threshold must be a non-negative finite number")
+
+    try:
+        scaling_factor = float(scaling_factor)
+    except (OverflowError, TypeError, ValueError):
+        raise InputError("scaling_factor must be a positive finite number") from None
+    if not math.isfinite(scaling_factor) or scaling_factor <= 0:
+        raise InputError("scaling_factor must be a positive finite number")
+
+    if qrrho and qrrho_method not in ("Grimme", "Truhlar"):
+        raise InputError("Unknown qrrho_method. Choose 'Grimme' or 'Truhlar'.")
+    if qrrho:
+        try:
+            qrrho_omega_0 = float(qrrho_omega_0)
+            valid_qrrho_cutoff = math.isfinite(qrrho_omega_0) and qrrho_omega_0 > 0
+        except (OverflowError, TypeError, ValueError):
+            valid_qrrho_cutoff = False
+        if not valid_qrrho_cutoff:
+            raise InputError("qrrho_omega_0 must be a positive finite number")
+    if symmetry_number is not None and (
+        not isinstance(symmetry_number, Integral) or isinstance(symmetry_number, bool) or symmetry_number < 1
+    ):
+        raise InputError("symmetry_number must be a positive integer")
+    if force_projection is not None and not isinstance(force_projection, bool):
+        raise InputError("force_projection must be True, False, or None")
+
     charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "NumFreq", theory=theory)
     coords = fragment.coords
     elems = copy.deepcopy(fragment.elems)
@@ -365,8 +651,25 @@ def numerical_frequencies(
                 "\nactive-region in the optimization (or the QM-region)\nExiting now."
             )
         hessatoms = allatoms
-        projection = True
-    elif len(hessatoms) == fragment.numatoms:
+    else:
+        try:
+            hessatoms = list(hessatoms)
+        except TypeError:
+            raise InputError("hessatoms must be a sequence of atom indices") from None
+        if not hessatoms:
+            raise InputError("hessatoms list is empty")
+        invalid_types = [index for index in hessatoms if not isinstance(index, Integral) or isinstance(index, bool)]
+        if invalid_types:
+            raise InputError(f"hessatoms contains non-integer indices: {invalid_types}")
+        invalid_indices = [int(index) for index in hessatoms if index < 0 or index >= numatoms]
+        if invalid_indices:
+            raise InputError(f"hessatoms contains indices outside 0..{numatoms - 1}: {invalid_indices}")
+        hessatoms = [int(index) for index in hessatoms]
+        duplicate_indices = sorted(index for index, count in Counter(hessatoms).items() if count > 1)
+        if duplicate_indices:
+            raise InputError(f"hessatoms contains duplicate indices: {duplicate_indices}")
+
+    if len(hessatoms) == fragment.numatoms:
         logger.info("Hessatoms list provided but equal to number of fragment atoms. Rot+trans projection is on!")
         projection = True
     else:
@@ -382,51 +685,44 @@ def numerical_frequencies(
             logger.info("force_projection set to to False. Turning projection off")
             projection = False
 
-    hessatoms = sorted(set(hessatoms))
-
-    if hessatoms_masses is not None and len(hessatoms_masses) != len(hessatoms):
-        raise InputError(
-            "Error: Number of provided masses (hessatoms_masses keyword) is not equal to number of "
-            "Hessian-atoms.\nCheck input masses!"
-        )
+    if hessatoms_masses is not None:
+        try:
+            hessatoms_masses = [float(mass) for mass in hessatoms_masses]
+        except (OverflowError, TypeError, ValueError):
+            raise InputError("hessatoms_masses must be a sequence of positive finite numbers") from None
+        if len(hessatoms_masses) != len(hessatoms):
+            raise InputError(
+                "Error: Number of provided masses (hessatoms_masses keyword) is not equal to number of "
+                "Hessian-atoms.\nCheck input masses!"
+            )
+        if not all(math.isfinite(mass) and mass > 0 for mass in hessatoms_masses):
+            raise InputError("hessatoms_masses must contain only positive finite numbers")
     # Checking for linearity. Determines how many Trans+Rot modes
     if detect_linear(coords=fragment.coords, elems=fragment.elems, threshold=rotmode_threshold) is True:
         tr_modenum = 5
     else:
         tr_modenum = 6
-    # ORCA-specific: Copy old GBW file from .. dir
-    try:
-        if theory.theorytype == "QM":
-            if isinstance(theory, openmmqmmm.orca.ORCATheory):
-                logger.info("Copying GBW file into Numfreq_dir")
-                shutil.copy("../" + theory.filename + ".gbw", "./" + theory.filename + ".gbw")
-        elif theory.theorytype == "QM/MM" and isinstance(theory.qm_theory, openmmqmmm.orca.ORCATheory):
-            logger.info("Copying GBW file into Numfreq_dir")
-            shutil.copy("../" + theory.qm_theory.filename + ".gbw", "./" + theory.qm_theory.filename + ".gbw")
-    except (OSError, AttributeError):
-        pass
-
-    shutil.rmtree("Numfreq_dir", ignore_errors=True)
-    os.mkdir("Numfreq_dir")
-    os.chdir("Numfreq_dir")
-    logger.debug("Creating separate directory for displacement calculations: Numfreq_dir ")
+    original_directory = Path.cwd()
+    lock_owner = _NUMFREQ_LOCK_OWNER.get()
+    if lock_owner is None:
+        raise InternalError("Numerical-frequency workspace owner was not initialized")
+    scratch_directory = _prepare_numfreq_directory(original_directory, lock_owner)
+    _copy_orca_guess(theory, original_directory, scratch_directory)
+    os.chdir(scratch_directory)
+    logger.debug("Using managed displacement workspace: %s", scratch_directory)
 
     displacement_bohr = displacement * openmmqmmm.constants.ANG_TO_BOHR
     logger.info("Starting Numerical Frequencies job for fragment")
     logger.info("Hessian atoms: %s", hessatoms)
     if hessatoms != allatoms:
         logger.info("This is a partial Hessian job.")
-        if len(hessatoms) == 0:
-            raise InputError("hessatoms list is empty. Exiting.")
     if npoint == 1:
         logger.info("One-point formula used (forward difference)")
-    elif npoint == 2:
-        logger.info("Two-point formula used (central difference)")
     else:
-        raise InputError("Unknown npoint option. npoint should be set to 1 (one-point) or 2 (two-point formula).")
+        logger.info("Two-point formula used (central difference)")
     if runmode == "serial":
         logger.info("Numfreq running in serial mode")
-    elif runmode == "parallel":
+    else:
         logger.info("Numfreq running in parallel mode")
     logger.info(f"\nDisplacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
     logger.debug("\nStarting geometry:")
@@ -456,12 +752,10 @@ def numerical_frequencies(
             IR=IR,
             Raman=Raman,
         )
-    elif runmode == "parallel":
+    else:
         grads, dipoles, polarizabilities = _run_displacements_in_parallel(
             theory=theory, fragments=all_disp_fragments, numcores=numcores
         )
-    else:
-        raise InputError("Unknown runmode.")
     displacement_grad_dictionary = grads
     displacement_dipole_dictionary = dipoles
     displacement_polarizability_dictionary = polarizabilities
@@ -488,13 +782,13 @@ def numerical_frequencies(
         logger.info("allatoms: %s", allatoms)
         logger.info("hessatoms: %s", hessatoms)
         logger.debug("Atomic masses: %s", fragment.list_of_masses)
-        hessmasses = openmmqmmm.coords.get_partial_list(allatoms, hessatoms, fragment.list_of_masses)
+        hessmasses = [fragment.list_of_masses[index] for index in hessatoms]
     else:
         hessmasses = hessatoms_masses
 
     logger.info("hessmasses: %s", hessmasses)
     _mwhessian, _massmatrix = _mass_weight_hessian(hessian, hessmasses)
-    hesselems = openmmqmmm.coords.get_partial_list(allatoms, hessatoms, elems)
+    hesselems = [elems[index] for index in hessatoms]
 
     hesscoords = np.take(fragment.coords, hessatoms, axis=0)
     logger.info("Elements: %s", hesselems)
@@ -574,7 +868,7 @@ def numerical_frequencies(
 
     fragment.hessian = hessian  # Hessian
 
-    os.chdir("..")
+    os.chdir(original_directory)
     log_time_since(module_init_time, "NumFreq")
     result = Results(
         label="Numfreq",

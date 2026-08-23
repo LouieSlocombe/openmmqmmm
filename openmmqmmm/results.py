@@ -1,14 +1,122 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from openmmqmmm.coords import Fragment
+from openmmqmmm.exceptions import FileFormatError
 
 logger = logging.getLogger(__name__)
+
+
+class _NonFiniteValueError(ValueError):
+    """Internal signal used to omit a field that JSON cannot represent safely."""
+
+
+class _UnsupportedValueError(TypeError):
+    """Internal signal used to omit a field containing a known unsupported value."""
+
+
+_OMIT = object()
+
+
+def _json_compatible(value: Any) -> Any:
+    """Recursively convert common scientific Python values to strict JSON values."""
+    if isinstance(value, Fragment):
+        raise _UnsupportedValueError("Fragment objects are not part of the on-disk Results schema")
+    if isinstance(value, np.ndarray):
+        if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+            raise _NonFiniteValueError
+        return _json_compatible(value.tolist())
+    if isinstance(value, np.generic):
+        if isinstance(value, np.bool_):
+            return bool(value)
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            converted = float(value)
+            if not np.isfinite(converted):
+                raise _NonFiniteValueError
+            return converted
+        if isinstance(value, np.complexfloating):
+            raise _UnsupportedValueError("complex NumPy values have no JSON number representation")
+        converted = value.item()
+        if isinstance(converted, np.generic):
+            raise _UnsupportedValueError(f"NumPy scalar type {value.dtype} has no lossless JSON representation")
+        return _json_compatible(converted)
+    if isinstance(value, float) and not np.isfinite(value):
+        raise _NonFiniteValueError
+    if isinstance(value, complex):
+        raise _UnsupportedValueError("complex values have no JSON number representation")
+    if isinstance(value, Mapping):
+        converted_mapping = {}
+        original_keys = {}
+        for key, item in value.items():
+            normalized_key = str(key)
+            if normalized_key in converted_mapping:
+                raise _UnsupportedValueError(
+                    f"mapping keys {original_keys[normalized_key]!r} and {key!r} both normalize to {normalized_key!r}"
+                )
+            converted_mapping[normalized_key] = _json_compatible(item)
+            original_keys[normalized_key] = key
+        return converted_mapping
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_json_compatible(item) for item in value]
+    if isinstance(value, PathLike):
+        return os.fspath(value)
+    return value
+
+
+_ARRAY_FIELDS = {
+    "depolarization_ratios",
+    "freq_coords",
+    "freq_dipole_derivs",
+    "freq_polarizability_derivs",
+    "gradient",
+    "hessian",
+    "ir_intensities",
+    "normal_modes",
+    "raman_activities",
+    "vib_eigenvectors",
+}
+
+_ARRAY_MAPPING_FIELDS = {
+    "displacement_dipole_dictionary",
+    "displacement_polarizability_dictionary",
+    "gradients_dict",
+}
+
+
+def _restore_array_fields(data: dict[str, Any]) -> None:
+    """Restore the ndarray fields promised by the Results annotations."""
+    for name in _ARRAY_FIELDS.intersection(data):
+        if data[name] is not None:
+            data[name] = np.asarray(data[name])
+    if data.get("gradients") is not None:
+        data["gradients"] = [np.asarray(gradient) for gradient in data["gradients"]]
+    for name in _ARRAY_MAPPING_FIELDS.intersection(data):
+        if data[name] is not None:
+            data[name] = {key: None if value is None else np.asarray(value) for key, value in data[name].items()}
+
+
+def _serialize_field(name: str, value: Any) -> Any:
+    """Convert one Results field, returning a sentinel when policy omits it."""
+    try:
+        return _json_compatible(value)
+    except _NonFiniteValueError:
+        logger.warning("Non-finite value found in %s; omitting that field from the results file", name)
+        return _OMIT
+    except _UnsupportedValueError as error:
+        logger.warning("Cannot serialize %s; omitting that field from the results file: %s", name, error)
+        return _OMIT
 
 
 @dataclass
@@ -23,24 +131,24 @@ class Results:
     gradient: np.ndarray | None = None
     reaction_energy: float | None = None
 
-    energies: list | None = None
-    reaction_energies: list | None = None
-    relative_energies: list | None = None
-    labels: list | None = None
-    gradients: list | None = None
-    energies_dict: dict | None = None
-    gradients_dict: dict | None = None
+    energies: list[Any] | None = None
+    reaction_energies: list[float] | None = None
+    relative_energies: list[float] | None = None
+    labels: list[str | None] | None = None
+    gradients: list[np.ndarray] | None = None
+    energies_dict: dict[Any, float] | None = None
+    gradients_dict: dict[Any, np.ndarray] | None = None
     # Name of worker directories that could be accessed later
-    worker_dirnames: dict | None = None
+    worker_dirnames: dict[Any, str] | None = None
     charge: int | None = None
     mult: int | None = None
-    properties: dict | None = None
+    properties: dict[Any, Any] | None = None
     hessian: np.ndarray | None = None
-    frequencies: list | None = None
-    freq_masses: list | None = None
-    freq_elems: list | None = None
+    frequencies: list[float] | None = None
+    freq_masses: list[float] | None = None
+    freq_elems: list[str] | None = None
     freq_coords: np.ndarray | None = None
-    freq_atoms: list | None = None
+    freq_atoms: list[int] | None = None
     freq_tr_modenum: int | None = None
     freq_projection: bool | None = None
     freq_scaling_factor: float | None = None
@@ -52,53 +160,50 @@ class Results:
     ir_intensities: np.ndarray | None = None
     depolarization_ratios: np.ndarray | None = None
     vib_eigenvectors: np.ndarray | None = None
-    thermochemistry: dict | None = None
-    displacement_dipole_dictionary: dict | None = None
-    displacement_polarizability_dictionary: dict | None = None
+    thermochemistry: dict[str, Any] | None = None
+    displacement_dipole_dictionary: dict[Any, Any] | None = None
+    displacement_polarizability_dictionary: dict[Any, Any] | None = None
 
     def write_to_disk(self, filename: str | PathLike[str] = "results.json") -> None:
-        """Write the defined attributes to a JSON file."""
+        """Write defined attributes atomically as strict JSON.
+
+        NumPy values are converted recursively, including arrays nested inside
+        dictionaries. Fields containing NaN or infinity are omitted because JSON has
+        no portable representation for them. A serialization failure leaves any
+        existing results file untouched.
+        """
         import json
 
-        logger.info("\nWriting to disk defined attributes of Results dataclass")
+        logger.info("Writing defined Results attributes to %s", filename)
 
-        newdict = {}
-        for k, v in self.__dict__.items():
-            if isinstance(v, np.ndarray):
-                if np.any(np.isnan(v)):
-                    logger.warning("NaN found in array %s; omitting it from the results file", k)
-                else:
-                    newv = v.tolist()
-                    newdict[k] = newv
-            # Dealing with cases of lists of np arrays (e.g. pol derivs)
-            elif isinstance(v, list):
-                if len(v) == 0:
-                    newdict[k] = v
-                elif isinstance(v[0], np.ndarray):
-                    newv = [i.tolist() for i in v]
-                    newdict[k] = newv
-                else:
-                    newdict[k] = v
-            elif isinstance(v, Fragment):
-                logger.warning("Fragment objects are not included in the results file on disk")
-            else:
-                newdict[k] = v
+        serialized_fields: dict[str, Any] = {}
+        for name, value in self.__dict__.items():
+            serialized_value = _serialize_field(name, value)
+            if serialized_value is not _OMIT:
+                serialized_fields[name] = serialized_value
 
-        logger.info("Results object data:")
-        for k, v in newdict.items():
-            if type(v) is list or type(v) is np.ndarray:
-                if len(v) < 20:
-                    logger.info(f"{k} : {len(v)}")
-                else:
-                    logger.info(f"{k} : too long to print")
-            elif v is not None:
-                logger.info(f"{k} : {v}")
+        # Serialize before opening a destination so unsupported user-defined values
+        # cannot truncate a valid result from an earlier calculation.
         try:
-            with open(filename, "w") as f:
-                f.write(json.dumps(newdict, allow_nan=True))
-        except TypeError as e:
-            logger.error("Failed to write Results to disk; skipping it: %s", e)
+            document = json.dumps(serialized_fields, allow_nan=False, indent=2) + "\n"
+        except (TypeError, ValueError) as error:
+            logger.error("Failed to serialize Results; leaving %s untouched: %s", filename, error)
             return
+
+        destination = Path(filename)
+        temporary_name: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=destination.parent, prefix=f".{destination.name}.", delete=False
+            ) as temporary:
+                temporary.write(document)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+                temporary_name = temporary.name
+            os.replace(temporary_name, destination)
+        finally:
+            if temporary_name is not None:
+                Path(temporary_name).unlink(missing_ok=True)
 
 
 def read_results_from_file(filename: str | PathLike[str] = "results.json") -> Results:
@@ -109,10 +214,12 @@ def read_results_from_file(filename: str | PathLike[str] = "results.json") -> Re
     logger.info("Reading Results data from file:")
     with open(filename) as f:
         data = json.load(f)
-    logger.info("Data read from file:")
-    for k, v in data.items():
-        logger.info(f"{k} : {v}")
+    if not isinstance(data, dict):
+        raise FileFormatError(f"Results file must contain a JSON object, not {type(data).__name__}")
+    logger.debug("Results fields read: %s", sorted(data))
 
     # Ignore keys from files written by older versions with more fields
     known_fields = {f.name for f in fields(Results)}
-    return Results(**{k: v for k, v in data.items() if k in known_fields})
+    known_data = {k: v for k, v in data.items() if k in known_fields}
+    _restore_array_fields(known_data)
+    return Results(**known_data)

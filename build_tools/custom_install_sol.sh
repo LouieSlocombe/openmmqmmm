@@ -8,9 +8,9 @@
 #
 # The environment is recreated from scratch on every run.
 #
-# openmmqmmm and forcefill are cloned into $SRC_DIR and installed editable, so a
-# `git pull` there is all it takes to update them. Existing checkouts are used as they
-# are, never wiped.
+# openmmqmmm and forcefill are cloned into $SRC_DIR and installed editable. Existing
+# checkouts are used as they are, never wiped; new forcefill clones use the reviewed
+# commit from editable_repos.sh unless FORCEFILL_REF selects a development branch.
 
 set -eo pipefail
 

@@ -1,3 +1,11 @@
 # Keep the test suite out of the sdist: setuptools would sweep in tests/*.py but not
 # conftest.py or the reference data, shipping test modules that cannot run.
 prune tests
+
+# The packaged README directs source-distribution users to these installers, guides,
+# and runnable examples, so keep those references usable outside a Git checkout.
+recursive-include build_tools *.md *.sh *.yml
+# conda_install.sh creates this ignored third-party checkout tree; never sweep it
+# into an sdist merely because a developer built PLUMED before packaging.
+prune build_tools/sources
+recursive-include examples *.py

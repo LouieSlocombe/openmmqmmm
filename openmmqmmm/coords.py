@@ -8,6 +8,7 @@ import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from math import sqrt
+from numbers import Real
 from typing import TYPE_CHECKING, Any, Literal, TextIO, TypeVar
 
 import numpy as np
@@ -88,13 +89,24 @@ class Reaction:
         for frag in self.fragments:
             if frag.charge is None or frag.mult is None:
                 raise InputError(f"Error: Missing charge/mult information in fragment: {frag.formula}")
-        # Checked here rather than in reaction_energy so a mis-typed stoichiometry fails
-        # immediately instead of after every fragment has been through the QM program.
-        if len(self.stoichiometry) != len(self.fragments):
+        try:
+            coefficients = list(self.stoichiometry)
+        except TypeError:
+            raise InputError("Reaction stoichiometry must be a sequence of signed numeric coefficients") from None
+        if len(coefficients) != len(self.fragments):
             raise InputError(
-                f"Error: {len(self.stoichiometry)} stoichiometry values for "
+                f"Error: {len(coefficients)} stoichiometry values for "
                 f"{len(self.fragments)} fragments. One signed coefficient per fragment is required."
             )
+        invalid = [
+            coefficient
+            for coefficient in coefficients
+            if isinstance(coefficient, bool)
+            or not isinstance(coefficient, Real)
+            or not math.isfinite(float(coefficient))
+        ]
+        if invalid:
+            raise InputError(f"Reaction stoichiometry must contain only finite numeric coefficients; got {invalid!r}")
 
     def calculate_reaction_energy(self) -> None:
         """Combine the stored fragment energies into the reaction energy."""
@@ -333,18 +345,34 @@ class Fragment:
     ) -> None:
         """Append atoms parsed from a multi-line "El x y z" coordinate string."""
         logger.debug("Getting coordinates from string: %s", coordsstring)
-        if len(self.coords) > 0:
+        had_atoms = len(self.coords) > 0
+        if had_atoms:
             logger.info("Fragment already contains coordinates")
             logger.debug("Adding extra coordinates")
-        coordslist = coordsstring.split("\n")
-        tempcoords = []
-        for line in coordslist:
+        new_elems = []
+        new_coords = []
+        for line in coordsstring.splitlines():
             if len(line) > 5:
-                self.elems.append(reformat_element(line.split()[0]))
-                clist = [float(line.split()[1]), float(line.split()[2]), float(line.split()[3])]
-                tempcoords.append(clist)
-        self.coords = _reformat_list_to_array(tempcoords)
-        self.label = "".join(self.elems)
+                fields = line.split()
+                new_elems.append(reformat_element(fields[0]))
+                new_coords.append([float(fields[1]), float(fields[2]), float(fields[3])])
+
+        parsed_coords = _reformat_list_to_array(new_coords)
+        if had_atoms:
+            self.coords = np.vstack((self.coords, parsed_coords))
+            self.elems.extend(new_elems)
+            self.atomcharges.extend([0.0] * len(new_elems))
+            self.atomtypes.extend(["None"] * len(new_elems))
+            self.fragmenttype_labels.extend(["None"] * len(new_elems))
+            self._invalidate_structure_caches(atom_identity_changed=True)
+            self.label = "".join(self.elems)
+            self.update_attributes()
+            if conncalc:
+                self.calc_connectivity(scale=scale, tol=tol)
+        else:
+            self.coords = parsed_coords
+            self.elems = new_elems
+            self.label = "".join(self.elems)
 
     def create_coords_from_smiles(self, smiles: str) -> None:
         """Generate 3D coordinates from a SMILES string (requires OpenBabel)."""
@@ -367,11 +395,54 @@ class Fragment:
         """Replace the elements and coordinates with a new set."""
         logger.info("Replacing coordinates in fragment.")
 
-        self.elems = elems
-        self.coords = _reformat_list_to_array(coords)
+        replacement_coords = _reformat_list_to_array(coords)
+        if len(elems) != len(replacement_coords):
+            raise InputError(
+                f"Replacement coordinates ({len(replacement_coords)}) and elements ({len(elems)}) have different "
+                "lengths"
+            )
+
+        atom_identity_changed = list(elems) != self.elems
+        self.elems = list(elems)
+        self.coords = replacement_coords
+        self._invalidate_structure_caches(
+            atom_identity_changed=atom_identity_changed,
+            connectivity_changed=atom_identity_changed or conn,
+        )
+        if atom_identity_changed:
+            self.atomcharges = []
+            self.atomtypes = []
+            self.fragmenttype_labels = []
         self.update_attributes()
         if conn is True:
             self.calc_connectivity(scale=scale, tol=tol)
+
+    def _invalidate_structure_caches(
+        self,
+        *,
+        atom_identity_changed: bool,
+        connectivity_changed: bool = True,
+    ) -> None:
+        """Discard calculated state invalidated by a coordinate or atom-list mutation."""
+        self.energy = None
+        self.hessian = None
+
+        if connectivity_changed:
+            self.connectivity = []
+            # The OpenMM topology and explicit CONECT records both contain bonds.
+            self.pdb_topology = None
+            self.pdb_conect_lines = None
+
+        if atom_identity_changed:
+            self.Centralmainfrag = []
+            if hasattr(self, "constraints"):
+                self.constraints = None
+            self.pdb_topology = None
+            self.pdb_conect_lines = None
+            self.pdb_atomnames = None
+            self.pdb_resnames = None
+            self.pdb_chainlabels = None
+            self.pdb_residlabels = None
 
     def get_non_h_atomindices(self) -> list[int]:
         """Return the indices of all atoms that are not hydrogen."""
@@ -385,6 +456,7 @@ class Fragment:
         self.atomtypes.pop(atomindex)
         self.fragmenttype_labels.pop(atomindex)
 
+        self._invalidate_structure_caches(atom_identity_changed=True)
         self.update_attributes()
 
     def print_coords(self) -> None:
@@ -602,6 +674,8 @@ class Fragment:
             import openmm.app
         except ImportError:
             raise InputError("Error: OpenMM not found. Cannot define a topology") from None
+        from openmmqmmm.openmm.systemsetup import openmm_add_bonds_to_topology
+
         logger.debug("Defining new basic single-chain, multi-residue topology")
         self.pdb_topology = openmm.app.Topology()
         chain = self.pdb_topology.addChain()
@@ -631,7 +705,7 @@ class Fragment:
                 self.pdb_topology.addAtom(atomname, element, residue)
 
         logger.debug("Adding connectivity to PDB topology")
-        openmmqmmm.openmm.openmm_add_bonds_to_topology(self.pdb_topology, connectivity_dict)
+        openmm_add_bonds_to_topology(self.pdb_topology, connectivity_dict)
 
         return self.pdb_topology
 
@@ -651,6 +725,7 @@ class Fragment:
             raise InputError(
                 "Error: OpenMM library not found. the OpenMM library is required to write PDB files."
             ) from None
+        from openmmqmmm.openmm.systemsetup import openmm_add_bonds_to_topology
 
         if ".pdb" not in filename:
             filename += ".pdb"
@@ -672,7 +747,7 @@ class Fragment:
             logger.info("Connectivity calculation requested for Fragment")
             connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, 1.0, 0.1)
             logger.debug("Adding connectivity to PDB topology")
-            openmmqmmm.openmm.openmm_add_bonds_to_topology(self.pdb_topology, connectivity_dict)
+            openmm_add_bonds_to_topology(self.pdb_topology, connectivity_dict)
 
         if skip_connectivity is True:
             logger.info("skip_connectivity True: this will not write connectivity lines to PDB-file")
@@ -1197,20 +1272,23 @@ def angle(A: np.ndarray, B: np.ndarray, C: np.ndarray) -> float:
 
 
 def dihedral(A: np.ndarray, B: np.ndarray, C: np.ndarray, D: np.ndarray) -> float:
-    v1 = B - A
-    v2 = C - B
-    v3 = D - C
+    axis = np.asarray(C, dtype=float) - np.asarray(B, dtype=float)
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm < 1e-12:
+        raise InputError("Dihedral is undefined because the central bond has zero length")
+    axis /= axis_norm
 
-    n1 = np.cross(v1, v2)
-    n2 = np.cross(v2, v3)
-
-    dot = np.dot(n1, n2)
-    if dot < 0:
-        dihedral_angle = -1 * (np.arccos(dot / (np.linalg.norm(n1) * np.linalg.norm(n2))))
-    else:
-        dihedral_angle = np.arccos(dot / (np.linalg.norm(n1) * np.linalg.norm(n2)))
-
-    return dihedral_angle * 180 / np.pi
+    # Project the two outer bonds onto the plane perpendicular to the central
+    # bond.  atan2 retains the handedness that arccos alone necessarily loses.
+    first = np.asarray(A, dtype=float) - np.asarray(B, dtype=float)
+    last = np.asarray(D, dtype=float) - np.asarray(C, dtype=float)
+    first -= np.dot(first, axis) * axis
+    last -= np.dot(last, axis) * axis
+    if np.linalg.norm(first) < 1e-12 or np.linalg.norm(last) < 1e-12:
+        raise InputError("Dihedral is undefined when an outer bond is collinear with the central bond")
+    x = np.dot(first, last)
+    y = np.dot(np.cross(axis, first), last)
+    return float(np.degrees(np.arctan2(y, x)))
 
 
 def distance_between_atoms(fragment: Fragment | None = None, atoms: Sequence[int] | None = None) -> float:
@@ -1680,19 +1758,27 @@ def write_pdbfile(
     if len(atomnames) > 99999:
         logger.info("System larger than 99999 atoms. Will use hexadecimal notation for atom indices 100K and larger. ")
 
-    if (len(atomnames) == len(coords) == len(resnames) == len(residlabels) == len(segmentlabels)) is False:
-        logger.error("Something went wrong in write_pdbfile. Exiting. File a bug report.")
-        logger.error("Problem with lists...")
-        logger.info("len: atomnames %s", len(atomnames))
-        logger.info("len: coords %s", len(coords))
-        raise InternalError(
-            f"len: resnames {len(resnames)}\nlen: residlabels {len(residlabels)}\nlen: segmentlabels "
-            f"{len(segmentlabels)}\nlen elems: {len(elems)}"
+    expected = len(coords)
+    field_lengths = {
+        "elements": len(elems),
+        "atom names": len(atomnames),
+        "residue names": len(resnames),
+        "residue IDs": len(residlabels),
+        "chain labels": len(chainlabels),
+        "segment labels": len(segmentlabels),
+    }
+    if charges_column is not None:
+        field_lengths["charges"] = len(charges_column)
+    mismatched = {name: length for name, length in field_lengths.items() if length != expected}
+    if mismatched:
+        details = ", ".join(f"{name}={length}" for name, length in mismatched.items())
+        raise InputError(
+            f"PDB fields must contain one entry per coordinate ({expected}); mismatched lengths: {details}"
         )
 
     with open(outputname + ".pdb", "w") as pfile:
         for count, (atomname, c, resname, chainlabel, resid, _seg, el) in enumerate(
-            zip(atomnames, coords, resnames, chainlabels, residlabels, segmentlabels, elems, strict=False)
+            zip(atomnames, coords, resnames, chainlabels, residlabels, segmentlabels, elems, strict=True)
         ):
             atomindex = count + 1
             # Convert to hexadecimal if >= 100K.
@@ -1992,15 +2078,16 @@ def calculate_rmsd(
     import geometric
 
     trans, rot = geometric.molecule.get_rotate_translate(subsetA_coords, subsetB_coords)
-    Anew = np.dot(subsetA_coords, rot) + trans
+    aligned_subset = np.dot(subsetA_coords, rot) + trans
 
-    rmsdval = float(np.sqrt(((Anew - subsetB_coords) ** 2).sum() / len(Anew)))
+    rmsdval = float(np.sqrt(((aligned_subset - subsetB_coords) ** 2).sum() / len(aligned_subset)))
 
     logger.info("RMSD: %s", rmsdval)
 
     if write_aligned_structure:
         logger.info("write_aligned_structure active")
-        newfrag = Fragment(elems=fragment_a.elems, coords=Anew)
+        aligned_full = np.dot(fragment_a.coords, rot) + trans
+        newfrag = Fragment(elems=fragment_a.elems, coords=aligned_full)
         newfrag.write_xyzfile("structA_aligned.xyz")
 
     return rmsdval
@@ -2051,11 +2138,12 @@ def expand_qm_region(
     subsetcoords = np.take(fragment.coords, initial_atoms, axis=0)
     if len(fragment.connectivity) == 0:
         logger.debug("No connectivity found. Using slow way of finding nearby fragments...")
-    atomlist = []
+    initial_atom_set = set(initial_atoms)
+    atomlist = list(initial_atom_set)
 
     for c in subsetcoords:
         for index, allc in enumerate(fragment.coords):
-            if index >= len(subsetcoords):
+            if index not in initial_atom_set:
                 dist = distance(c, allc)
                 if dist < radius:
                     if len(fragment.connectivity) == 0:
@@ -2063,10 +2151,8 @@ def expand_qm_region(
                             fragment.coords, fragment.elems, 99, scale, tol, atomindex=index
                         )
                     else:
-                        for q in fragment.connectivity:
-                            if index in q:
-                                wholemol = q
-                                break
+                        molecule_index = search_list_of_lists_for_index(index, fragment.connectivity)
+                        wholemol = [index] if molecule_index is None else fragment.connectivity[molecule_index]
 
                     atomlist = atomlist + wholemol
     return np.unique(atomlist).tolist()
@@ -2562,6 +2648,7 @@ def insert_solute_into_solvent(
             import openmm.app
         except ImportError:
             raise MissingDependencyError("Error: OpenMM library not found. Please install OpenMM") from None
+        from openmmqmmm.openmm.systemsetup import write_pdbfile_openmm_topology
 
         pdb1 = openmm.app.PDBFile(solute_pdb)
         solute_resname = next(iter(pdb1.topology.residues())).name
@@ -2609,7 +2696,7 @@ def insert_solute_into_solvent(
                 logger.debug("Adding to solution PDB-file")
                 modeller.topology.setPeriodicBoxVectors(solvent_box_vectors)
 
-        openmmqmmm.openmm.write_pdbfile_openmm_topology(modeller.topology, mergedPositions, outputname)
+        write_pdbfile_openmm_topology(modeller.topology, mergedPositions, outputname)
     return new_frag
 
 
