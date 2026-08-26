@@ -73,8 +73,8 @@ OpenMM stack.
 ### Editable dependencies
 
 [forcefill](https://github.com/LouieSlocombe/forcefill) gets edited alongside this
-package, so every installer clones a reviewed commit **next to the repository** and installs it editable
-rather than pulling it from GitHub on each install:
+package, so every installer clones a reviewed commit **next to the repository** and installs
+it editable rather than pulling it from GitHub on each install:
 
 ```
 skunkworks/
@@ -194,16 +194,10 @@ listed.
 ## Configuring ORCA
 
 [ORCA](https://www.faccts.de/orca/) is licensed separately (free for academic use) and has
-to be installed by hand. It is required for `ORCATheory` and QM/MM, but not for the pure-MM
-OpenMM functionality. It is located in this order, and every candidate is validated (the
-directory must contain the `orca` binary and its `orca_*` helper binaries):
-
-1. the `orcadir` argument to `ORCATheory`,
-2. the `OPENMMQMMM_ORCADIR` environment variable, e.g. `export OPENMMQMMM_ORCADIR=~/orca_6_1_1`,
-3. an `orca` binary found in `PATH`.
-
-For parallel ORCA runs (`numcores` > 1) the matching OpenMPI version must also be set up,
-as for any ORCA installation.
+to be installed by hand — no route above installs it. It is required for `ORCATheory` and
+QM/MM, but not for the pure-MM OpenMM functionality. Setting `OPENMMQMMM_ORCADIR` to the
+installation directory is enough; [Configuring ORCA](../README.md#configuring-orca) in the
+main README has the full search order and the OpenMPI note for parallel runs.
 
 ## Next steps
 

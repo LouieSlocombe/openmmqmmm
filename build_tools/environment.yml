@@ -1,3 +1,6 @@
+# Conda environment for building, developing and running openmmqmmm.
+#
+# Usage (from this directory):
 #   bash conda_install.sh
 #
 # That script creates this environment, compiles PLUMED, the OpenMM-PLUMED plugin and
