@@ -48,9 +48,19 @@ test = ["pytest", "pytest-cov"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts
 # between releases, so a skew lets a locally-clean tree fail the CI format gate.
 dev = ["ruff == 0.16.2", "pre-commit"]
+# Sphinx only. The docs build also needs every runtime dependency above, because
+# conf.py mocks nothing and autodoc imports the package; `pip install -e ".[docs]"`
+# from a checkout covers both halves.
+docs = [
+    "sphinx >= 8.1",
+    "furo >= 2024.8.6",
+    "myst-parser >= 4.0",
+    "sphinx-copybutton >= 0.5.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/LouieSlocombe/openmmqmmm"
+Documentation = "https://openmmqmmm.readthedocs.io"
 Repository = "https://github.com/LouieSlocombe/openmmqmmm.git"
 Issues = "https://github.com/LouieSlocombe/openmmqmmm/issues"
 Upstream = "https://github.com/RagnarB83/ash"
