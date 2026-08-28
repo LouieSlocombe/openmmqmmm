@@ -89,3 +89,26 @@ jobs:
           pip install --force-reinstall --no-deps --no-build-isolation dist/*.tar.gz
           cd "$(mktemp -d)"
           python -c "import openmmqmmm; print(openmmqmmm.__version__)"
+
+  # Mirrors what Read the Docs runs (fail_on_warning in .readthedocs.yaml), so a
+  # malformed docstring or a page missing from a toctree fails the pull request
+  # instead of only the release build. Plain pip rather than the micromamba setup
+  # the tests use: every runtime dependency resolves from PyPI on linux, and
+  # autodoc needs all of them because conf.py mocks nothing.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Must match build.tools.python in .readthedocs.yaml.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[docs]"
+      - run: sphinx-build -W --keep-going -b html docs/source docs/build/html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: html-docs
+          path: docs/build/html/
+          retention-days: 7

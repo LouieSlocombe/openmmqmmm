@@ -1,17 +1,15 @@
 # openmmqmmm — ORCA + OpenMM QM/MM
 
+[![Documentation](https://readthedocs.org/projects/openmmqmmm/badge/?version=latest)](https://openmmqmmm.readthedocs.io/en/latest/)
+[![CI](https://github.com/LouieSlocombe/openmmqmmm/actions/workflows/ci.yml/badge.svg)](https://github.com/LouieSlocombe/openmmqmmm/actions/workflows/ci.yml)
+
 Electrostatically embedded QM/MM for biomolecular systems, combining the
 [ORCA](https://www.faccts.de/orca/) quantum chemistry program with the
 [OpenMM](https://openmm.org) molecular-mechanics library. Derived from the
 [ASH](https://github.com/RagnarB83/ash) multiscale modelling program and reduced to the
 ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 
-> **Compatibility note:** two releases broke the API. Version 1.0 renamed it (snake_case
-> functions, no import-time side effects, logging instead of print) — the Conventions section
-> below describes the naming now in force. Version 2.0 removed the in-house ligand
-> parameterization (`small_molecule_parameterizer`, `write_xmlfile_parmed`,
-> `create_sys_and_check_14_scaling_nonbonding`, `calc_nonbonding_energy_exceptions`) in favour of
-> [forcefill](https://github.com/LouieSlocombe/forcefill); see Ligand force fields below.
+**📖 Full documentation: [openmmqmmm.readthedocs.io](https://openmmqmmm.readthedocs.io)**
 
 `openmmqmmm.__all__` is the public API. Its core is the theory classes `ORCATheory`,
 `OpenMMTheory`, `QMMMTheory`, `OpenMMQMMMCalculator` and `Fragment`, the job functions
@@ -20,34 +18,13 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 setup helpers `openmm_modeller`, `openmm_minimize`, `openmm_box_equilibration`,
 `gentle_warmup_md`, `openmm_md_plumed` and `solvate_small_molecule`.
 
+> **Compatibility note:** two releases broke the API. Version 1.0 renamed it (snake_case
+> functions, no import-time side effects, logging instead of print). Version 2.0 removed the
+> in-house ligand parameterization in favour of
+> [forcefill](https://github.com/LouieSlocombe/forcefill). Both are described under
+> [Conventions](https://openmmqmmm.readthedocs.io/en/latest/conventions.html).
+
 ## Installation
-
-### Requirements
-
-- Linux or macOS, Python ≥ 3.10
-- Every Python dependency is required — there are no feature-gated extras. `pip install .` pulls
-  the full set (ASE, OpenMM, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd, multiprocess,
-  numpy, scipy, packaging)
-- **[forcefill](https://github.com/LouieSlocombe/forcefill)** is not on PyPI: `conda_install.sh`
-  clones a reviewed commit next to this repository and installs it in editable mode. Existing
-  checkouts are preserved; set `FORCEFILL_REF=main` before a first install to follow development.
-  Without it `openmm_modeller(parameterize_nonstandard=True)` raises `MissingDependencyError`,
-  and nothing else is affected. Its dependency stack (openff-toolkit, openmmforcefields, RDKit,
-  AmberTools) comes from conda-forge via `build_tools/environment.yml` — openff-toolkit is not
-  on PyPI, which is why the conda route below is recommended
-- `openmm_md_plumed` also requires **PLUMED** and **openmm-plumed**, neither of which can come
-  from conda-forge: that `openmm-plumed` binary requires OpenMM `<8.5`, and that PLUMED build
-  omits the `opes` module. `conda_install.sh` compiles both from source (PLUMED 2.10.1,
-  OpenMM-PLUMED v2.1) into the environment
-- [ORCA](https://www.faccts.de/orca/) — installed separately (free for academic use); required for
-  `ORCATheory` and QM/MM, not for the pure-MM/OpenMM functionality
-
-The full environment is large (~5 GB): forcefill's openff-toolkit dependency pulls AmberTools,
-which pulls PyTorch and CUDA.
-
-### Conda environment (recommended)
-
-From the repository root:
 
 ```sh
 bash build_tools/conda_install.sh
@@ -56,79 +33,18 @@ bash build_tools/conda_install.sh
 One command: it creates the `openmmqmmm` conda environment from
 `build_tools/environment.yml`, compiles PLUMED 2.10.1 (with the `opes` module), the
 OpenMM-PLUMED plugin and the PLUMED Python bindings into it, installs this package and
-forcefill in editable mode, and verifies each piece by importing it. The
-environment is removed and recreated on every run; set `ENV_NAME` to build into a
-different one. The forcefill checkout it clones alongside this repository is left alone —
-set `SRC_DIR` to keep it elsewhere.
+forcefill in editable mode, and verifies each piece by importing it. The full environment is
+large (~5 GB).
 
+[ORCA](https://www.faccts.de/orca/) is installed separately (free for academic use) and found
+through the `orcadir` argument, the `OPENMMQMMM_ORCADIR` environment variable, or `PATH` — in
+that order.
+
+The [installation guide](https://openmmqmmm.readthedocs.io/en/latest/install.html) covers the
+pip-only route and what it leaves out, and
 [build_tools/README.md](https://github.com/LouieSlocombe/openmmqmmm/blob/main/build_tools/README.md)
-is the full installation guide — the other two routes (Sol cluster, source-built OpenMM), what
-to do with an environment that already exists, and the equivalent commands run by hand.
-
-### Configuring ORCA
-
-ORCA is located in this order, and every candidate is validated (the directory must contain the
-`orca` binary and its `orca_*` helper binaries):
-
-1. the `orcadir` argument to `ORCATheory`,
-2. the `OPENMMQMMM_ORCADIR` environment variable, e.g. `export OPENMMQMMM_ORCADIR=~/orca_6_1_1`,
-3. an `orca` binary found in `PATH`.
-
-For parallel ORCA runs (`numcores` > 1) the matching OpenMPI version must also be set up, as for
-any ORCA installation.
-
-## Ligand force fields (forcefill)
-
-[forcefill](https://github.com/LouieSlocombe/forcefill) parameterizes the residues a
-biomolecular force field does not cover: `build_ligand_xml` / `build_forcefield_xml` produce an
-OpenMM force-field XML (GAFF via antechamber/AM1-BCC, OpenFF SMIRNOFF, or CHARMM CGenFF), and
-`assemble_openmm_ffxml` / `validate_forcefield_xml` cover the lower-level XML writing and
-checking. It replaced the in-house parameterizer in version 2.0.
-
-Build the XML from an SDF/MOL2/PDB file or a SMILES (XYZ-only inputs: convert to SDF first, e.g.
-with RDKit's `rdDetermineBonds` or OpenBabel), then feed it to any of the setup helpers:
-
-```py
-from forcefill import build_ligand_xml
-
-result = build_ligand_xml({"LIG": "ligand.sdf"}, "lig_ff.xml")  # or LigandSpec(smiles=...)
-
-openmm_modeller(pdbfile="complex.pdb", forcefield="Amber14", extraxmlfile=result.forcefield_xml)
-# or
-OpenMMTheory(xmlfiles=["amber14-all.xml", "amber14/tip3p.xml", "lig_ff.xml"], pdbfile="complex.pdb", periodic=True)
-# or
-solvate_small_molecule(fragment=fragment, xmlfile=result.forcefield_xml, watermodel="tip3p")
-```
-
-`openmm_modeller` can also do this in one step: with `parameterize_nonstandard=True`, every
-residue the chosen forcefield cannot match is parameterized through
-`forcefill.build_forcefield_xml` and the generated `nonstandard_ff.xml` is loaded automatically:
-
-```py
-openmm_modeller(pdbfile="complex.pdb", forcefield="Amber14", parameterize_nonstandard=True, net_charges={"LIG": 0})
-```
-
-Non-standard residues must carry explicit hydrogens and CONECT records in the PDB-file.
-`ligand_files={"LIG": "ligand.sdf"}` supplies bond orders from a file instead of PDB geometry
-perception, and `ligand_backend` selects `"gaff"` (default), `"smirnoff"` or `"charmm"`. For finer
-control (charge methods, per-ligand `LigandSpec`, minimization checks) call forcefill directly and
-pass the XML via `extraxmlfile=`.
-
-## Output
-
-The package is silent by default (standard library behavior). To get the classic calculation
-output on the console — and optionally into a file — configure logging once at the top of a run
-script:
-
-```py
-import openmmqmmm
-
-openmmqmmm.configure_logging()  # INFO to console, including geomeTRIC output
-# openmmqmmm.configure_logging(level="DEBUG", file="calc.log")
-```
-
-Step timings are logged at DEBUG level on the `openmmqmmm.timings` logger. The
-`OPENMMQMMM_LOGLEVEL` environment variable overrides the level.
+covers the Sol cluster and source-built-OpenMM routes, reusing an existing environment, and
+sharing one environment with [openmmnqe](https://github.com/LouieSlocombe/openmmnqe).
 
 ## QM/MM example
 
@@ -153,179 +69,40 @@ optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
 openmm_md(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
 ```
 
-### QM/MM ring-polymer molecular dynamics
-
-OpenMM 8.5.2's `PythonForce` lets the RPMD integrator request the QM/MM energy and gradient for
-the bead it is currently propagating. Create the MM theory without constraints — OpenMM's
-`RPMDIntegrator` does not support them — and select the RPMD integrator normally:
-
-```py
-omm = OpenMMTheory(
-    xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"],
-    pdbfile="system.pdb",
-    periodic=True,
-    autoconstraints=None,
-    rigidwater=False,
-    hydrogenmass=None,
-)
-qm_mm = QMMMTheory(
-    qm_theory=qm_orca,
-    mm_theory=omm,
-    fragment=fragment,
-    qm_charge=-1,
-    qm_mult=6,
-    qmatoms=qmatoms,
-)
-openmm_md(
-    fragment=fragment,
-    theory=qm_mm,
-    integrator="RPMDIntegrator",
-    rpmd_num_copies=32,
-    timestep=0.0005,
-    simulation_steps=100,
-)
-```
-
-By default the QM force is evaluated independently on every bead. `RPMDIntegrator` evaluates
-the potential twice per step, so this example performs 64 QM/MM evaluations per MD step. To use
-OpenMM's ring-polymer contraction approximation for only the QM force, set — for example —
-`rpmd_qm_num_copies=1` for a centroid calculation or another value no larger than
-`rpmd_num_copies`. Final bead evaluations are cached, so ordinary exact-RPMD state and force
-reporting does not relaunch identical QM jobs. RPMD restart files contain positions and velocities
-for every bead.
-
-`truncated_pc`, `update_qm_region_charges`, `special_wrapping` and `dummyatomrestraint` are rejected
-for QM/MM RPMD because their current state is shared across beads. Standard OpenMM periodic
-wrapping remains available through the `PythonForce` state.
-
-RPMD and the adaptive quantum thermal bath require physical nuclear masses. Selecting either
-`RPMDIntegrator` or `QTBIntegrator` therefore disables OpenMM's automatic hydrogen-mass
-repartitioning and restores the mass transferred from each bonded heavy atom. For adQTB dynamics,
-select `integrator="QTBIntegrator"`; it uses the same temperature, coupling-frequency and timestep
-options as the Langevin integrators.
-
-#### Running the QM/MM potential through openmmnqe
-
-The sibling [openmmnqe](https://github.com/LouieSlocombe/openmmnqe) package provides staged NQE
-workflows (RPMD equilibration/production, adQTB) and ring-polymer reporters. Neither package
-imports the other: they meet at plain OpenMM objects. `export_rpmd_potential` hands over the MM
-System with the bead-specific `PythonForce` already attached plus a matching `Modeller`, and
-openmmnqe's `PreparedSystem` routes that System through its stages unchanged:
-
-```py
-export = export_rpmd_potential(theory=qm_mm, num_beads=32)
-prepared = openmmnqe.PreparedSystem(export.system)
-
-openmmnqe.run_openmm_rpmd_equilibration(export.modeller, prepared, n_beads=32)
-openmmnqe.run_openmm_rpmd_prod(
-    export.modeller, prepared, checkpoint_file="rpmd_ready.chk", n_beads=32, barostat_freq=None
-)
-```
-
-Always pass `barostat_freq=None` to the openmmnqe RPMD and adQTB production stages: their defaults
-add a barostat, and openmmnqe refuses one on a System carrying a `PythonForce`. Build a fresh
-export for each stage that mutates the System (barostat, PLUMED bias, deuteration). The export
-restores physical hydrogen masses and rejects a constrained System for `num_beads > 1`, so build
-the underlying `OpenMMTheory` with `autoconstraints=None` and `rigidwater=False`.
-`run_openmm_rpmd_contracted` leaves the QM `PythonForce` in its own group, evaluated on every
-bead; use openmmqmmm's own `rpmd_qm_num_copies` for QM-force contraction instead. Start
-openmmnqe's classical preparation stages from a plain force field and bridge into the QM/MM RPMD
-stages through the stage-final PDB (binary checkpoints do not survive the System change; the bead
-archive does).
-
-The reverse direction also works: `MolecularDynamicsEngine.run` takes `extra_reporters` (attached
-alongside the engine's own; in RPMD runs they are driven every `traj_frequency` steps) and
-`pre_dynamics_hook` (called once with the engine after the Simulation exists, before dynamics), so
-openmmnqe's utilities plug into an openmmqmmm-driven run:
-
-```py
-modeller = modeller_from_topology(topology=omm.topology, coords_angstrom=fragment.coords)
-openmmnqe.deuterate_system(modeller, omm.system, option="water")
-engine = MolecularDynamicsEngine(fragment=fragment, theory=qm_mm, integrator="RPMDIntegrator", rpmd_num_copies=32)
-engine.run(
-    simulation_steps=1000,
-    extra_reporters=[
-        openmmnqe.RPMDCentroidReporter(
-            topology=modeller.topology, file_name="centroid.pdb", reportInterval=100, num_beads=32
-        )
-    ],
-    pre_dynamics_hook=lambda md: openmmnqe.init_beads(modeller, md.simulation, 32),
-)
-```
-
-Do not seed beads from the hook when restarting from a checkpoint — it would overwrite the loaded
-bead state. The ORCA-free pattern for all of this is in
-[tests/test_nqe_interop.py](https://github.com/LouieSlocombe/openmmqmmm/blob/main/tests/test_nqe_interop.py),
-which runs whenever both packages share an environment (see the
-[build guide](https://github.com/LouieSlocombe/openmmqmmm/blob/main/build_tools/README.md)).
-
-## Examples
+The package is silent by default; `configure_logging()` turns on the calculation output. Each
+job function returns a `Results` object and writes it to a `results_*.json` file.
 
 Runnable scripts, including a gas-phase ORCA example, live in
-[examples/](https://github.com/LouieSlocombe/openmmqmmm/tree/main/examples):
+[examples/](https://github.com/LouieSlocombe/openmmqmmm/tree/main/examples).
 
-```sh
-python examples/gasphase_hf.py
-python examples/qmmm_optimization.py system.pdb
-python examples/qmmm_rpmd_nqe_stages.py system.pdb
-```
+## In the documentation
 
-## ASE calculator
+- [Quick start](https://openmmqmmm.readthedocs.io/en/latest/quickstart.html) — a first
+  calculation, start to finish.
+- [Preparing a system](https://openmmqmmm.readthedocs.io/en/latest/guide/system_setup.html) —
+  PDB repair, solvation, ions, ligand force fields through forcefill.
+- [QM/MM](https://openmmqmmm.readthedocs.io/en/latest/guide/qmmm.html) — QM region, link atoms,
+  embedding, active region.
+- [Molecular dynamics](https://openmmqmmm.readthedocs.io/en/latest/guide/dynamics.html) —
+  integrators, reporters, restarts, PLUMED metadynamics.
+- [Ring-polymer dynamics](https://openmmqmmm.readthedocs.io/en/latest/guide/rpmd.html) — QM/MM
+  RPMD and adQTB for nuclear quantum effects.
+- [Working with openmmnqe](https://openmmqmmm.readthedocs.io/en/latest/guide/nqe_interop.html) —
+  the staged-NQE interop protocol.
+- [ASE calculator](https://openmmqmmm.readthedocs.io/en/latest/guide/ase.html)
+- [API reference](https://openmmqmmm.readthedocs.io/en/latest/api/index.html) — every public name.
 
-`OpenMMQMMMCalculator` exposes a configured `QMMMTheory` to ASE with energies in eV and forces
-in eV/Å. The ASE atoms must retain the atom count, elements and ordering of the `Fragment` used
-to create the QM/MM theory. Cell changes and stress are not supported.
-
-```py
-from ase import Atoms
-from ase.optimize import BFGS
-from openmmqmmm import OpenMMQMMMCalculator
-
-atoms = Atoms(fragment.elems, positions=fragment.coords)
-atoms.calc = OpenMMQMMMCalculator(qm_mm, directory="ase-qmmm")
-BFGS(atoms).run(fmax=0.05)
-```
-
-The QM-region charge and multiplicity are taken from `QMMMTheory.qm_charge` and `qm_mult`. If
-they were not set on the theory, pass `charge=` and `mult=` to the calculator. Use a separate
-theory instance, process and calculation directory for every concurrent ASE calculation.
-
-## Errors
-
-All package errors derive from `openmmqmmm.OpenMMQMMMError`, with specific subclasses
-`InputError`, `MissingDependencyError`, `ExternalProgramError`, `FileFormatError` and
-`InternalError` (each also inherits the closest builtin, so `except ValueError` etc. keep
-working).
-
-## Conventions
-
-Importing the package is silent and side-effect free, and errors raise exceptions rather than
-exiting the interpreter. Job functions are snake_case (`single_point`, `optimize_geometry`,
-`numerical_frequencies`, `openmm_md`), classes are CapWords (`ORCATheory`, `OpenMMTheory`,
-`QMMMTheory`, `OpenMMQMMMCalculator`, `Fragment`, `Results`), and keyword arguments are
-snake_case (`grad=`, `active_region=`, `num_grad=`). Fragment files use the `.frag` extension,
-and each job function writes its `Results` object to a `results_*.json` file — for example
-`results_singlepoint.json`, `results_optimizer.json`, `results_numfreq.json`.
-
-The package ships inline type annotations and a `py.typed` marker, so type checkers use its
-function and method signatures when checking downstream code.
-
-## Testing
+## Development
 
 ```sh
 pytest
 ```
 
-from the repository root, which takes about five minutes. The fragment/OpenMM/optimizer tests
-run without ORCA, and so do the ORCA input-writing and output-parsing tests (they use a fake
-ORCA installation and committed reference output); the four end-to-end QM/MM tests are skipped
-automatically when no ORCA installation is found. Set `OPENMMQMMM_ORCADIR` to run those too.
-
-Coverage is measured with `pytest --cov` (needs the `test` extra: `pip install -e ".[test]"`).
-Tests run in isolated temporary directories, so no output files are left behind. The test data
-(~2.5 MB) lives in the source repository and is not shipped in wheels.
-
-`python -m build` produces an sdist and a wheel under `dist/`.
+from the repository root, which takes about five minutes. The four end-to-end QM/MM tests skip
+automatically when no ORCA installation is found; set `OPENMMQMMM_ORCADIR` to run them too.
+See the
+[development guide](https://openmmqmmm.readthedocs.io/en/latest/development.html) for
+coverage, linting, building the documentation and building the package.
 
 ## Citation
 

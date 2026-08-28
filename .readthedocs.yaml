@@ -1,0 +1,32 @@
+# Read the Docs build configuration.
+# https://docs.readthedocs.com/platform/stable/config-file/v2.html
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    # Matches the docs job in .github/workflows/ci.yml, so a warning-free build
+    # there means a warning-free build here.
+    python: "3.13"
+
+sphinx:
+  configuration: docs/source/conf.py
+  # autodoc imports the real package: an unimportable module or a malformed
+  # docstring must fail the build, not ship as a silently empty page.
+  fail_on_warning: true
+
+python:
+  install:
+    # Nothing is mocked in conf.py, so the whole runtime stack is installed. Every
+    # dependency resolves from PyPI on linux-x86_64 -- openmm 8.5.2 and pdbfixer
+    # included -- so this needs none of the conda machinery build_tools/ sets up.
+    #
+    # Absent on purpose: PLUMED, openmm-plumed and forcefill. All three are
+    # imported inside the functions that need them, so autodoc never loads them.
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
+
+formats:
+  - htmlzip

@@ -68,6 +68,7 @@ def test_forcefill_install_sources_are_pinned():
         REPOSITORY_ROOT / "README.md",
         BUILD_TOOLS / "README.md",
         REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml",
+        *(REPOSITORY_ROOT / "docs" / "source").rglob("*.md"),
     ]
     offenders = [
         str(path.relative_to(REPOSITORY_ROOT)) for path in checked_files if unpinned_url.search(path.read_text())
