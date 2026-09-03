@@ -55,6 +55,15 @@ def test_source_builds_use_stable_release_tags():
     assert 'VERSION="master"' not in script
 
 
+def test_openmm_plumed_build_tolerates_cmake_4():
+    script = (BUILD_TOOLS / "build_plumed.sh").read_text()
+
+    assert "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" in script, (
+        "openmm-plumed v2.1 declares CMAKE_MINIMUM_REQUIRED(VERSION 2.8), and CMake 4 removed "
+        "compatibility with anything below 3.5"
+    )
+
+
 def test_forcefill_install_sources_are_pinned():
     editable_repos = (BUILD_TOOLS / "editable_repos.sh").read_text()
     workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text()

@@ -93,7 +93,12 @@ build_plumed() {
     git clone --branch "${OPENMM_PLUMED_VERSION}" --depth 1 --filter=blob:none https://github.com/openmm/openmm-plumed.git
     cd openmm-plumed
     mkdir -p build && cd build
+    # openmm-plumed v2.1 still declares CMAKE_MINIMUM_REQUIRED(VERSION 2.8), and CMake 4
+    # -- what conda-forge now ships -- removed compatibility with anything below 3.5.
+    # This restores it without unpinning the tag. The variable arrived in CMake 3.31 and
+    # is merely an unused cache entry on older ones, so it is safe to pass either way.
     cmake .. \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_INSTALL_PREFIX="${CONDA_PREFIX}" \
         -DCMAKE_BUILD_TYPE=Release \
         -DOPENMM_DIR="${CONDA_PREFIX}" \
