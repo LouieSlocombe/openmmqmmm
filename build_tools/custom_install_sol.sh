@@ -47,7 +47,7 @@ source activate "${ENV_NAME}"
 echo "=== Installing Dependencies ==="
 mamba install -c conda-forge -y \
     ase \
-    openmm=8.5.2 \
+    openmm=8.6.1 \
     cmake \
     make \
     swig \

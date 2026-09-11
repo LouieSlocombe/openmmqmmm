@@ -24,7 +24,7 @@ dependencies = [
     "scipy",
     "geometric >= 1.0.1",
     # Required at import time.
-    "openmm == 8.5.2",
+    "openmm == 8.6.1",
     "pdbfixer",
     "mdtraj",
     "parmed",
@@ -41,7 +41,7 @@ dependencies = [
 # openmm_modeller(parameterize_nonstandard=True) unavailable. build_tools/ covers both:
 # environment.yml pulls forcefill's dependency stack (openff-toolkit, openmmforcefields,
 # rdkit) and the PLUMED source-build prerequisites from conda-forge, and
-# conda_install.sh compiles PLUMED and OpenMM-PLUMED against OpenMM 8.5.2 and installs
+# conda_install.sh compiles PLUMED and OpenMM-PLUMED against OpenMM 8.6.1 and installs
 # forcefill editable from a checkout next to this repository.
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]

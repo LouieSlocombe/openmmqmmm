@@ -5,7 +5,7 @@ and classical MD misses both. Two integrators cover them, and both work with a Q
 `RPMDIntegrator` for ring-polymer molecular dynamics, and `QTBIntegrator` for the adaptive
 quantum thermal bath.
 
-OpenMM 8.5.2's `PythonForce` is what makes QM/MM RPMD possible: the RPMD integrator asks for
+OpenMM's `PythonForce` is what makes QM/MM RPMD possible: the RPMD integrator asks for
 the QM/MM energy and gradient of the bead it is currently propagating, and gets them.
 
 ## A QM/MM RPMD run

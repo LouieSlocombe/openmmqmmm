@@ -17,7 +17,7 @@ dependencies:
   - pip
   # Atomic Simulation Environment integration
   - ase
-  - openmm =8.5.2
+  - openmm =8.6.1
   # PLUMED itself is absent on purpose: build_plumed.sh compiles it into the same
   # prefix, so a conda-forge copy would be silently overwritten by `make install`,
   # and that build omits the opes module openmm_md_plumed needs. These are the

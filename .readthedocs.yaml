@@ -18,7 +18,7 @@ sphinx:
 python:
   install:
     # Nothing is mocked in conf.py, so the whole runtime stack is installed. Every
-    # dependency resolves from PyPI on linux-x86_64 -- openmm 8.5.2 and pdbfixer
+    # dependency resolves from PyPI on linux-x86_64 -- openmm 8.6.1 and pdbfixer
     # included -- so this needs none of the conda machinery build_tools/ sets up.
     #
     # Absent on purpose: PLUMED, openmm-plumed and forcefill. All three are
