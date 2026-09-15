@@ -1,28 +1,14 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Sequence
-from types import ModuleType
 
+import mdtraj
 import numpy as np
 
-from openmmqmmm.exceptions import (
-    MissingDependencyError,
-)
+from openmmqmmm.utils import basename
 
 logger = logging.getLogger(__name__)
-
-
-def mdtraj_load() -> ModuleType:
-    logger.debug("Importing mdtraj (https://www.mdtraj.org)")
-    try:
-        import mdtraj
-    except ImportError:
-        raise MissingDependencyError(
-            "Problem importing mdtraj. Try: 'pip install mdtraj' or 'conda install -c conda-forge mdtraj'"
-        ) from None
-    return mdtraj
 
 
 def mdtraj_rmsf(
@@ -35,8 +21,6 @@ def mdtraj_rmsf(
 ) -> np.ndarray:
     """Return the indices of the atoms fluctuating most in a trajectory (per-atom RMSF via mdtraj)."""
     logger.debug("Calculating RMSF with MDTraj")
-    mdtraj = mdtraj_load()
-
     logger.debug("Loading trajectory using mdtraj.")
     traj = mdtraj.load(trajectory, top=pdbtopology)
     firstframe = traj[0]
@@ -71,10 +55,8 @@ def mdtraj_image_trajectory(
     solute_anchor: bool | None = None,
 ) -> np.ndarray:
     """Re-image a periodic trajectory so molecules stay whole, returning the last frame's coordinates."""
-    traj_basename = os.path.splitext(trajectory)[0]
-    pdb_basename = os.path.splitext(pdbtopology)[0]
-
-    mdtraj = mdtraj_load()
+    traj_basename = basename(trajectory)
+    pdb_basename = basename(pdbtopology)
 
     logger.debug("Loading trajectory using mdtraj.")
     traj = mdtraj.load(trajectory, top=pdbtopology)

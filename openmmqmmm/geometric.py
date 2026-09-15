@@ -1105,7 +1105,6 @@ class GeometricEngine:
         with open(pdbtrajectoryfile, "a") as pdbfh:
             self.theory.mm_theory.openmm.app.PDBFile.writeFile(self.theory.mm_theory.topology, newpos, file=pdbfh)
 
-    # Read_data and copydir not used (dummy variables)
     def calc(
         self,
         coords: np.ndarray,

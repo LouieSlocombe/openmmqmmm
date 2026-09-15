@@ -4,14 +4,11 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-import numpy.typing as npt
-
-from openmmqmmm.coords import Fragment
 from openmmqmmm.exceptions import (
     InputError,
-    MissingDependencyError,
+    require,
 )
-from openmmqmmm.openmm.md import MolecularDynamicsEngine, engine_kwargs_from
+from openmmqmmm.openmm.md import MolecularDynamicsEngine, engine_kwargs_checked
 from openmmqmmm.utils import (
     main_header,
     write_string_to_file,
@@ -22,67 +19,35 @@ logger = logging.getLogger(__name__)
 
 def openmm_md_plumed(
     *,
-    fragment: Fragment | None = None,
-    theory: Any = None,
-    timestep: float = 0.001,
+    plumed_input_string: str | None = None,
     simulation_steps: int | None = None,
     simulation_time: float | None = None,
-    traj_frequency: int = 1000,
-    temperature: float = 300,
-    integrator: str = "LangevinMiddleIntegrator",
-    rpmd_num_copies: int | None = None,
-    rpmd_qm_num_copies: int | None = None,
-    specialatoms: Sequence[int] | None = None,
-    specialtraj_frequency: int = 1000,
-    barostat: str | None = None,
-    pressure: float = 1,
-    trajectory_file_option: str = "DCD",
-    trajfilename: str = "trajectory",
-    coupling_frequency: float = 1,
-    charge: int | None = None,
-    mult: int | None = None,
-    platform: str = "CPU",
-    hydrogenmass: float | None = 1.5,
-    constraints: Sequence[Sequence[float | int]] | None = None,
-    anderson_thermostat: bool = False,
     restraints: Sequence[Sequence[float | int]] | None = None,
-    enforce_periodic_box: bool = True,
-    special_wrapping: bool = False,
-    special_wrapping_updatepos: bool = False,
-    wrapping_atoms: Sequence[int] | None = None,
-    dummyatomrestraint: bool = False,
-    center_on_atoms: Sequence[int] | None = None,
-    solute_indices: Sequence[int] | None = None,
-    datafilename: str | None = None,
-    dummy_mm: bool = False,
-    add_centerforce: bool = False,
-    centerforce_atoms: Sequence[int] | None = None,
-    centerforce_distance: float = 10.0,
-    centerforce_constant: float = 1.0,
-    centerforce_center: npt.ArrayLike | None = None,
-    barostat_frequency: int = 25,
-    chkfile: str | None = None,
-    statefile: str | None = None,
-    plumed_input_string: str | None = None,
+    **md_options: Any,
 ) -> None:
-    """Run MD with a PLUMED bias (requires the openmm-plumed plugin)."""
-    # Captured before any local is bound; the PLUMED-specific parameters are filtered out.
-    engine_kwargs = engine_kwargs_from(locals())
+    """Run MD with a PLUMED bias (requires the openmm-plumed plugin).
+
+    Every keyword of :class:`~openmmqmmm.MolecularDynamicsEngine` is accepted through
+    ``md_options`` and forwarded unchanged; an unrecognised one raises ``InputError``.
+    """
+    engine_kwargs = engine_kwargs_checked(md_options, restraints=restraints)
 
     logger.info(main_header("OpenMM MD using the OpenMM-Plumed interface"))
 
-    try:
-        # Imported for the side effect: this registers the PLUMED plugin with OpenMM, so
-        # find_spec would report availability without actually making it available.
-        import openmmplumed  # noqa: F401
-    except ModuleNotFoundError:
-        raise MissingDependencyError(
-            "openmmplumed module plugin not found. The current conda-forge build requires OpenMM <8.5 and is "
-            "incompatible with this project's OpenMM 8.6.1 requirement. Install from scratch with "
-            "`bash build_tools/conda_install.sh`, or build it into the active environment with the "
-            "build_plumed function in build_tools/build_plumed.sh; see build_tools/README.md and "
+    # Imported for the side effect: this registers the PLUMED plugin with OpenMM, so
+    # find_spec would report availability without actually making it available.
+    require(
+        "openmmplumed",
+        hint=(
+            "`bash build_tools/conda_install.sh` from scratch, or the build_plumed function in "
+            "build_tools/build_plumed.sh for the active environment; see build_tools/README.md and "
             "https://github.com/openmm/openmm-plumed"
-        ) from None
+        ),
+        feature=(
+            "PLUMED-biased dynamics. The current conda-forge build requires OpenMM <8.5 and is "
+            "incompatible with this project's OpenMM 8.6.1 requirement"
+        ),
+    )
 
     # The PLUMED input is the whole bias specification; there is nothing to fall back on.
     if plumed_input_string is None:

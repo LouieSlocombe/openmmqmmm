@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import logging
 import math
 import os
@@ -9,7 +8,8 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from math import sqrt
 from numbers import Real
-from typing import TYPE_CHECKING, Any, Literal, TextIO, TypeVar
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, TextIO
 
 import numpy as np
 
@@ -23,7 +23,6 @@ from openmmqmmm.exceptions import (
     FileFormatError,
     InputError,
     InternalError,
-    MissingDependencyError,
 )
 from openmmqmmm.utils import (
     isint,
@@ -41,8 +40,6 @@ if TYPE_CHECKING:
 
     from openmmqmmm.openmm.theory import OpenMMTheory
     from openmmqmmm.qmmm import QMMMTheory
-
-_T = TypeVar("_T")
 
 logger = logging.getLogger(__name__)
 
@@ -239,28 +236,28 @@ class Fragment:
             if not os.path.isfile(xyzfile):
                 raise InputError(f"XYZ-file {xyzfile} not found. Exiting.")
 
-            self.label = xyzfile.split("/")[-1].split(".")[0]
-            self.read_xyzfile(xyzfile, readchargemult=readchargemult, conncalc=conncalc)
+            self.label = Path(xyzfile).stem
+            self.read_xyzfile(xyzfile, readchargemult=readchargemult)
         elif pdbfile is not None:
-            self.label = pdbfile.split("/")[-1].split(".")[0]
+            self.label = Path(pdbfile).stem
             self.read_pdbfile_openmm(pdbfile)
         elif pdbxfile is not None:
-            self.label = pdbxfile.split("/")[-1].split(".")[0]
+            self.label = Path(pdbxfile).stem
             self.read_pdbxfile(pdbxfile)
         elif grofile is not None:
-            self.label = grofile.split("/")[-1].split(".")[0]
-            self.read_grofile(grofile, conncalc=False)
+            self.label = Path(grofile).stem
+            self.read_grofile(grofile)
         elif amber_inpcrdfile is not None:
-            self.label = amber_inpcrdfile.split("/")[-1].split(".")[0]
+            self.label = Path(amber_inpcrdfile).stem
             logger.info("Reading Amber INPCRD file")
             if amber_prmtopfile is None:
                 raise InputError("amber_prmtopfile argument must be provided as well!")
-            self.read_amberfile(inpcrdfile=amber_inpcrdfile, prmtopfile=amber_prmtopfile, conncalc=conncalc)
+            self.read_amberfile(inpcrdfile=amber_inpcrdfile, prmtopfile=amber_prmtopfile)
         elif chemshellfile is not None:
-            self.label = chemshellfile.split("/")[-1].split(".")[0]
-            self.read_chemshellfile(chemshellfile, conncalc=conncalc)
+            self.label = Path(chemshellfile).stem
+            self.read_chemshellfile(chemshellfile)
         elif fragfile is not None:
-            self.label = fragfile.split("/")[-1].split(".")[0]
+            self.label = Path(fragfile).stem
             self.read_fragment_from_file(fragfile)
         else:
             raise InputError("Fragment requires some kind of valid coordinate input!")
@@ -300,7 +297,6 @@ class Fragment:
         if not isinstance(self.coords, np.ndarray):
             raise InputError("self.coords is not a numpy array. Something is wrong. Exiting.")
         self.nuccharge = total_nuclear_charge(self.elems)
-        self.nuc_charges = elems_to_nuclear_charges(self.elems)
         self.numatoms = len(self.coords)
         self.atomlist = list(range(self.numatoms))
         self.allatoms = self.atomlist
@@ -470,12 +466,7 @@ class Fragment:
         """Log the coordinates of selected atoms."""
         print_coords_for_atoms(self.coords, self.elems, members, labels=labels)
 
-    def read_amberfile(
-        self,
-        inpcrdfile: str | None = None,
-        prmtopfile: str | None = None,
-        conncalc: bool = False,
-    ) -> None:
+    def read_amberfile(self, inpcrdfile: str | None = None, prmtopfile: str | None = None) -> None:
         """Read coordinates and topology from Amber inpcrd/prmtop files."""
         logger.info(
             f"Reading coordinates from Amber INPCRD file: '{inpcrdfile}' and PRMTOP file: '{prmtopfile}' into fragment."
@@ -487,13 +478,7 @@ class Fragment:
         self.coords = _reformat_list_to_array(coords)
         self.elems = elems
 
-    def read_grofile(
-        self,
-        filename: str,
-        conncalc: bool = False,
-        scale: float | None = None,
-        tol: float | None = None,
-    ) -> None:
+    def read_grofile(self, filename: str) -> None:
         """Read coordinates from a GROMACS .gro file."""
         logger.info(f"Reading coordinates from Gromacs GRO file '{filename}' into fragment")
         try:
@@ -503,13 +488,7 @@ class Fragment:
         self.coords = coords
         self.elems = elems
 
-    def read_chemshellfile(
-        self,
-        filename: str,
-        conncalc: bool = False,
-        scale: float | None = None,
-        tol: float | None = None,
-    ) -> None:
+    def read_chemshellfile(self, filename: str) -> None:
         """Read coordinates from a ChemShell fragment file (Bohr units)."""
         logger.info(f"Reading coordinates from Chemshell file '{filename}' into fragment.")
         try:
@@ -522,12 +501,8 @@ class Fragment:
     def read_pdbfile_openmm(self, filename: str) -> None:
         """Read a PDB file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbfile_openmm: Reading coordinates from PDB file '{filename}' into fragment.")
-        try:
-            import openmm.app
-        except ImportError:
-            raise FileFormatError(
-                "Error: OpenMM library not found. the OpenMM library is required to read PDB files."
-            ) from None
+        import openmm.app
+
         pdb = openmm.app.PDBFile(filename)
         self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
         self.elems = []
@@ -546,26 +521,15 @@ class Fragment:
     def read_pdbxfile(self, filename: str) -> None:
         """Read a PDBx/mmCIF file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbxfile: Reading coordinates from PDBX file '{filename}' into fragment.")
-        try:
-            import openmm.app
-        except ImportError:
-            raise FileFormatError(
-                "Error: OpenMM library not found. the OpenMM library is required to read PDB files."
-            ) from None
+        import openmm.app
+
         pdb = openmm.app.PDBxFile(filename)
         self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
         self.elems = [atom.element.symbol for atom in pdb.topology.atoms()]
 
         self.pdb_topology = pdb.topology
 
-    def read_xyzfile(
-        self,
-        filename: str,
-        scale: float | None = None,
-        tol: float | None = None,
-        readchargemult: bool = False,
-        conncalc: bool = True,
-    ) -> None:
+    def read_xyzfile(self, filename: str, readchargemult: bool = False) -> None:
         """Read coordinates from an XYZ file."""
         logger.info(f"Reading coordinates from XYZ file '{filename}' into fragment.")
         coords = []
@@ -670,10 +634,8 @@ class Fragment:
 
     def define_topology(self, scale: float = 1.0, tol: float = 0.1, resname: str = "MOL") -> Topology:
         """Build an OpenMM topology for the fragment from its connectivity."""
-        try:
-            import openmm.app
-        except ImportError:
-            raise InputError("Error: OpenMM not found. Cannot define a topology") from None
+        import openmm.app
+
         from openmmqmmm.openmm.systemsetup import openmm_add_bonds_to_topology
 
         logger.debug("Defining new basic single-chain, multi-residue topology")
@@ -719,12 +681,8 @@ class Fragment:
     ) -> str:
         """Write a PDB file via OpenMM, building a topology if none is defined."""
         logger.info("write_pdbfile_openmm\n")
-        try:
-            import openmm.app
-        except ImportError:
-            raise InputError(
-                "Error: OpenMM library not found. the OpenMM library is required to write PDB files."
-            ) from None
+        import openmm.app
+
         from openmmqmmm.openmm.systemsetup import openmm_add_bonds_to_topology
 
         if ".pdb" not in filename:
@@ -2097,15 +2055,6 @@ def _centroid(X: np.ndarray) -> np.ndarray:
     return X.mean(axis=0)
 
 
-def get_partial_list(allatoms: Sequence[int], partialatoms: Sequence[int], full_list: list[_T]) -> list[_T]:
-    newlist = copy.copy(full_list)  # Otherwise object may be updated
-    otheratoms = listdiff(allatoms, partialatoms)
-    otheratoms.reverse()
-    for at in otheratoms:
-        del newlist[at]
-    return newlist
-
-
 def _reorder(
     reorder_method: Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray],
     p_coord: np.ndarray,
@@ -2644,10 +2593,8 @@ def insert_solute_into_solvent(
 
     if write_pdb:
         logger.info("Write_PDB is active. Will write PDB-file of solute+solvent system for topology purposes")
-        try:
-            import openmm.app
-        except ImportError:
-            raise MissingDependencyError("Error: OpenMM library not found. Please install OpenMM") from None
+        import openmm.app
+
         from openmmqmmm.openmm.systemsetup import write_pdbfile_openmm_topology
 
         pdb1 = openmm.app.PDBFile(solute_pdb)
@@ -2712,10 +2659,8 @@ def nuc_nuc_repulsion(coords: np.ndarray, charges: Sequence[float] | np.ndarray)
 
 
 def define_dummy_topology(elems: Sequence[str], resname: str = "MOL") -> Topology:
-    try:
-        import openmm.app
-    except ImportError:
-        raise InputError("Error: OpenMM not found. Cannot define a topology") from None
+    import openmm.app
+
     logger.debug("Defining new basic single-chain, multi-residue topology")
     pdb_topology = openmm.app.Topology()
     chain = pdb_topology.addChain()

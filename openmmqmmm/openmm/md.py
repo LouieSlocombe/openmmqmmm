@@ -12,6 +12,7 @@ from numbers import Integral
 from sys import stdout
 from typing import Any, TextIO
 
+import mdtraj
 import numpy as np
 import numpy.typing as npt
 import openmm
@@ -29,9 +30,8 @@ from openmmqmmm.coords import (
 )
 from openmmqmmm.exceptions import (
     InputError,
-    MissingDependencyError,
 )
-from openmmqmmm.mdtraj import mdtraj_image_trajectory, mdtraj_load, mdtraj_rmsf
+from openmmqmmm.mdtraj import mdtraj_image_trajectory, mdtraj_rmsf
 from openmmqmmm.openmm.nqe_export import attach_qmmm_rpmd_force
 from openmmqmmm.openmm.rpmd_force import (
     RPMDExternalQMForceProvider,
@@ -134,9 +134,23 @@ class _RPMDStateDataReporter:
         self._output.flush()
 
 
+def _engine_parameters() -> set[str]:
+    return set(inspect.signature(MolecularDynamicsEngine.__init__).parameters) - {"self"}
+
+
 def engine_kwargs_from(caller_locals: Mapping[str, Any], **overrides: Any) -> dict[str, Any]:
-    engine_parameters = set(inspect.signature(MolecularDynamicsEngine.__init__).parameters) - {"self"}
+    engine_parameters = _engine_parameters()
     return {name: value for name, value in caller_locals.items() if name in engine_parameters} | overrides
+
+
+def engine_kwargs_checked(md_options: Mapping[str, Any], **overrides: Any) -> dict[str, Any]:
+    """Engine kwargs from an explicit **kwargs dict, rejecting names the engine does not take."""
+    # A wrapper that forwards **kwargs cannot let Python reject a mistyped option for it,
+    # so the check that TypeError used to provide happens here instead.
+    unknown = sorted(set(md_options) - _engine_parameters())
+    if unknown:
+        raise InputError(f"Unknown molecular-dynamics option(s): {', '.join(unknown)}")
+    return dict(md_options) | overrides
 
 
 def _close_on_error(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -482,10 +496,8 @@ class MolecularDynamicsEngine:
                 )
             )
         elif self.trajectory_file_option == "NetCDFReporter":
-            mdtraj = mdtraj_load()
             self._rpmd_reporters.append(mdtraj.reporters.NetCDFReporter(self.trajfilename + ".nc", self.traj_frequency))
         elif self.trajectory_file_option == "HDF5Reporter":
-            mdtraj = mdtraj_load()
             self._rpmd_reporters.append(
                 mdtraj.reporters.HDF5Reporter(
                     self.trajfilename + ".lh5", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
@@ -695,14 +707,10 @@ class MolecularDynamicsEngine:
             )
             logger.info("DCDReporter added")
         elif self.trajectory_file_option == "NetCDFReporter":
-            logger.info("NetCDFReporter traj format selected. This requires mdtraj. Importing.")
-            mdtraj = mdtraj_load()
             self._add_simulation_reporter(
                 simulation, mdtraj.reporters.NetCDFReporter(self.trajfilename + ".nc", self.traj_frequency)
             )
         elif self.trajectory_file_option == "HDF5Reporter":
-            logger.info("HDF5Reporter traj format selected. This requires mdtraj. Importing.")
-            mdtraj = mdtraj_load()
             self._add_simulation_reporter(
                 simulation,
                 mdtraj.reporters.HDF5Reporter(
@@ -928,7 +936,6 @@ class MolecularDynamicsEngine:
         logger.debug("Defining atom positions from fragment")
         # self.positions rather than the fragment's, because a dummy atom may be appended below
         self.positions = self.fragment.coords
-        self.dummyatomrestraint = dummyatomrestraint
         if dummyatomrestraint is not True:
             return
 
@@ -1113,12 +1120,6 @@ class MolecularDynamicsEngine:
             return None, None, None
 
         logger.info("special_wrapping is True. Wrapping will be handled in each step by mdtraj library")
-        try:
-            import mdtraj
-        except ImportError:
-            raise MissingDependencyError(
-                "Error: mdtraj not found, needs to be installed (pip install mdtraj)"
-            ) from None
         boxvectors = self._get_simulation_state().getPeriodicBoxVectors(asNumpy=True)
         mdtrajtopology = mdtraj.Topology.from_openmm(self.openmmobject.topology)
 
@@ -1622,12 +1623,9 @@ def openmm_box_equilibration(
         logger.info(f"NPT trajectory: {trajfilename}.{trajectory_file_option.lower()}")
 
         if use_mdtraj is True:
-            logger.debug("Trying to load mdtraj for reimaging trajectory")
             try:
                 logger.info("Imaging trajectory")
                 mdtraj_image_trajectory(f"{trajfilename}.dcd", f"{trajfilename}_lastframe.pdb")
-            except ImportError:
-                logger.warning("MDTraj could not be imported; skipping trajectory reimaging")
             except ValueError as e:
                 logger.warning("MDTraj reimaging failed; skipping it: %s", e)
 
@@ -1768,8 +1766,6 @@ def gentle_warmup_md(
                     threshold=0.005,
                     largest_values=10,
                 )
-            except ImportError:
-                logger.warning("MDTraj could not be imported; skipping trajectory analysis")
             except ValueError as e:
                 logger.warning("MDTraj trajectory analysis failed; skipping it: %s", e)
 
@@ -1784,8 +1780,6 @@ def diff_wrap_box_coords(
     anchoratoms: Sequence[int],
 ) -> npt.NDArray[np.float64]:
     """Image periodic coordinates around a chosen anchor molecule with MDTraj."""
-    import mdtraj
-
     traj = mdtraj.Trajectory(coords_nm, mdtrajtopology)
     traj.unitcell_vectors = np.array(boxvectors).reshape(1, 3, 3)
     # Anchoratoms (usually QM-region or similar)

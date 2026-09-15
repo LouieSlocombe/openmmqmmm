@@ -10,7 +10,7 @@ import numpy as np
 
 import openmmqmmm
 import openmmqmmm.constants
-from openmmqmmm.coords import Fragment, print_coords_all
+from openmmqmmm.coords import print_coords_all
 from openmmqmmm.exceptions import InputError
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,12 @@ def _validate_numcores(numcores: int) -> int:
     if isinstance(numcores, bool) or not isinstance(numcores, Integral) or numcores < 1:
         raise InputError(f"NumGrad numcores must be a positive integer, not {numcores!r}")
     return int(numcores)
+
+
+def _displacement_label(displacement: Displacement) -> str:
+    """One key spelling for a displacement, shared by both runmodes and by the job labels."""
+    atom_index, coord_index, direction = displacement
+    return f"{atom_index}_{coord_index}_{direction}"
 
 
 def _validate_geometry(current_coords: np.ndarray | None, elems: Sequence[str] | None) -> tuple[np.ndarray, list[str]]:
@@ -156,8 +162,8 @@ class NumGrad:
         numatoms = len(coords)
         displacement_bohr = self.displacement * openmmqmmm.constants.ANG_TO_BOHR
 
-        list_of_displaced_geos, list_of_displacements, all_disp_fragments = _create_displaced_geometries(
-            coords, element_list, self.displacement, self.npoint, charge, mult
+        list_of_displaced_geos, list_of_displacements = _create_displaced_geometries(
+            coords, element_list, self.displacement, self.npoint
         )
         if self.runmode == "serial":
             logger.info("Numgrad: runmode is serial")
@@ -173,13 +179,23 @@ class NumGrad:
                     f"Running displacement {i} / {len(list_of_displaced_geos)}. Displacing Atom:{disp[0]} "
                     f"Coord:{disp[1]} Direction:{disp[2]}"
                 )
-                energy = run_energy(dispgeo)
-                dispdict[disp] = energy
+                dispdict[_displacement_label(disp)] = run_energy(dispgeo)
         elif self.runmode == "parallel":
             logger.info("Numgrad: runmode is parallel")
             effective_numcores = _validate_numcores(self.numcores if numcores is None else numcores)
-            origfrag = openmmqmmm.Fragment(coords=coords, elems=element_list, label="orig", charge=charge, mult=mult)
-            all_disp_fragments = [origfrag, *all_disp_fragments]
+            all_disp_fragments = [
+                openmmqmmm.Fragment(coords=coords, elems=element_list, label="orig", charge=charge, mult=mult),
+                *(
+                    openmmqmmm.Fragment(
+                        coords=dispgeo,
+                        elems=element_list,
+                        label=_displacement_label(disp),
+                        charge=charge,
+                        mult=mult,
+                    )
+                    for dispgeo, disp in zip(list_of_displaced_geos, list_of_displacements, strict=True)
+                ),
+            ]
             result = openmmqmmm.parallel.job_parallel(
                 fragments=all_disp_fragments,
                 theories=[self.theory],
@@ -193,23 +209,13 @@ class NumGrad:
             orig_energy = dispdict["orig"]
 
         gradient = np.zeros((numatoms, 3))
-        if self.npoint == 2:
-            for atindex in range(numatoms):
-                for u in range(3):
-                    if self.runmode == "parallel":
-                        posval = dispdict[f"{atindex}_{u}_+"]
-                        negval = dispdict[f"{atindex}_{u}_-"]
-                    else:
-                        posval = dispdict[(atindex, u, "+")]
-                        negval = dispdict[(atindex, u, "-")]
-                    grad_component = (posval - negval) / (2 * displacement_bohr)
-                    gradient[atindex, u] = grad_component
-        elif self.npoint == 1:
-            for atindex in range(numatoms):
-                for u in range(3):
-                    posval = dispdict[f"{atindex}_{u}_+"] if self.runmode == "parallel" else dispdict[atindex, u, "+"]
-                    grad_component = (posval - orig_energy) / displacement_bohr
-                    gradient[atindex, u] = grad_component
+        for atindex in range(numatoms):
+            for u in range(3):
+                posval = dispdict[f"{atindex}_{u}_+"]
+                if self.npoint == 2:
+                    gradient[atindex, u] = (posval - dispdict[f"{atindex}_{u}_-"]) / (2 * displacement_bohr)
+                else:
+                    gradient[atindex, u] = (posval - orig_energy) / displacement_bohr
 
         self.energy = orig_energy
         self.gradient = gradient
@@ -222,9 +228,7 @@ def _create_displaced_geometries(
     elems: Sequence[str],
     displacement: float,
     npoint: int,
-    charge: int | None,
-    mult: int | None,
-) -> tuple[list[np.ndarray], list[Displacement], list[Fragment]]:
+) -> tuple[list[np.ndarray], list[Displacement]]:
     displacement_bohr = displacement * openmmqmmm.constants.ANG_TO_BOHR
     logger.info(f"Displacement: {displacement:5.4f} Å ({displacement_bohr:5.4f} Bohr)")
     logger.debug("Starting geometry:")
@@ -247,11 +251,4 @@ def _create_displaced_geometries(
                 list_of_displacements.append((atom_index, coord_index, "-"))
 
     logger.debug("List of displacements: %s", list_of_displacements)
-
-    all_disp_fragments = []
-    for dispgeo, disp in zip(list_of_displaced_geos, list_of_displacements, strict=True):
-        stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
-        frag = openmmqmmm.Fragment(coords=dispgeo, elems=elems, label=stringlabel, charge=charge, mult=mult)
-        all_disp_fragments.append(frag)
-
-    return list_of_displaced_geos, list_of_displacements, all_disp_fragments
+    return list_of_displaced_geos, list_of_displacements

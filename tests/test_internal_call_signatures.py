@@ -69,12 +69,9 @@ def test_no_call_site_passes_an_unknown_keyword():
     assert not problems, "Keyword arguments that no signature accepts:\n" + "\n".join(problems)
 
 
-@pytest.mark.parametrize(
-    "entry_point",
-    ["openmm_md", "openmm_box_equilibration", "openmm_md_plumed"],
-)
+@pytest.mark.parametrize("entry_point", ["openmm_md", "openmm_box_equilibration"])
 def test_md_entry_points_forward_every_argument_they_accept(entry_point):
-    """The MD wrappers restate the engine's parameters; none may be silently dropped."""
+    """These two wrappers restate engine parameters; none may be silently dropped."""
     from openmmqmmm.openmm.md import MolecularDynamicsEngine
 
     module = importlib.import_module(getattr(openmmqmmm, entry_point).__module__)
@@ -95,3 +92,20 @@ def test_md_entry_points_forward_every_argument_they_accept(entry_point):
 
     dropped = sorted((wrapper_parameters & engine_parameters) - forwarded)
     assert not dropped, f"{entry_point} accepts but never forwards: {dropped}"
+
+
+def test_kwargs_forwarder_covers_the_engine_and_rejects_anything_else():
+    """openmm_md_plumed forwards **md_options, so its option set is checked here instead."""
+    from openmmqmmm.exceptions import InputError
+    from openmmqmmm.openmm.md import MolecularDynamicsEngine, engine_kwargs_checked
+    from openmmqmmm.openmm.plumed import openmm_md_plumed
+
+    engine_parameters = set(inspect.signature(MolecularDynamicsEngine.__init__).parameters) - {"self"}
+    assert set(engine_kwargs_checked(dict.fromkeys(engine_parameters))) == engine_parameters
+
+    with pytest.raises(InputError, match="not_an_md_option"):
+        engine_kwargs_checked({"not_an_md_option": 1})
+
+    # A mistyped option used to be a TypeError from the restated signature; it must still fail.
+    with pytest.raises(InputError, match="timesteep"):
+        openmm_md_plumed(plumed_input_string="d: DISTANCE ATOMS=1,2", timesteep=0.001)

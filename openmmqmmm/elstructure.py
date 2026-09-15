@@ -7,9 +7,9 @@ import subprocess as sp
 from collections.abc import Sequence
 
 import numpy as np
+from scipy.spatial.distance import cdist
 from scipy.special import erfinv
 
-import openmmqmmm.coords
 from openmmqmmm.elements import cm5_dz, cm5_radii
 from openmmqmmm.exceptions import ExternalProgramError, InternalError
 
@@ -30,14 +30,6 @@ _CM5_PAIRS = {
 }
 
 
-def _distance_matrix_from_coords(coords: np.ndarray) -> list[list[float]]:
-    distmatrix = []
-    for i in coords:
-        dist_row = [openmmqmmm.coords.distance(i, j) for j in coords]
-        distmatrix.append(dist_row)
-    return distmatrix
-
-
 def calc_cm5(
     atomic_numbers: Sequence[int] | np.ndarray,
     coords: Sequence[Sequence[float]] | np.ndarray,
@@ -46,7 +38,7 @@ def calc_cm5(
     coords = np.array(coords)
     atomic_numbers = np.array(atomic_numbers)
     # all matrices have the naming scheme matrix[k,k'] according to the paper
-    distances = np.array(_distance_matrix_from_coords(coords))
+    distances = cdist(coords, coords)
     Rz = cm5_radii[atomic_numbers - 1]
     RzSum = np.tile(Rz, (len(Rz), 1))
     RzSum = np.add(RzSum, np.transpose(RzSum))
