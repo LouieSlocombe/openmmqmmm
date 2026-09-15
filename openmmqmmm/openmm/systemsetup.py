@@ -10,9 +10,7 @@ from typing import Any
 import numpy as np
 import openmm
 import openmm.app
-import openmm.app as openmm_app
 import openmm.unit
-import openmm.unit as openmm_unit
 from packaging import version
 
 import openmmqmmm.constants
@@ -26,7 +24,7 @@ from openmmqmmm.coords import (
 )
 from openmmqmmm.exceptions import (
     InputError,
-    MissingDependencyError,
+    require,
 )
 from openmmqmmm.openbabel import xyz_to_pdb_with_connectivity
 from openmmqmmm.openmm.theory import OpenMMTheory
@@ -322,17 +320,12 @@ def _build_forcefield_object(
             raise InputError(f"File {extraxmlfile} can not be found. Exiting.")
     logger.debug("Now creating forcefield object")
     files = [f for f in (xmlfile, extraxmlfile, waterxmlfile) if f is not None]
-    return openmm_app.forcefield.ForceField(*files)
+    return openmm.app.forcefield.ForceField(*files)
 
 
 def _run_pdbfixer(pdbfile: str | os.PathLike[str]) -> str:
     """Add the missing residues and atoms PDBFixer can find, and return the repaired PDB path."""
-    try:
-        import pdbfixer
-    except ImportError:
-        raise MissingDependencyError(
-            "Problem importing pdbfixer. Install first via conda:\nconda install -c conda-forge pdbfixer"
-        ) from None
+    import pdbfixer
 
     logger.debug("\nRunning PDBFixer")
     fixer = pdbfixer.PDBFixer(pdbfile)
@@ -347,7 +340,7 @@ def _run_pdbfixer(pdbfile: str | os.PathLike[str]) -> str:
     logger.info("Added missing atoms.")
 
     with open("system_afterfixes.pdb", "w") as pdbfh:
-        openmm_app.PDBFile.writeFile(fixer.topology, fixer.positions, pdbfh)
+        openmm.app.PDBFile.writeFile(fixer.topology, fixer.positions, pdbfh)
     logger.warning(
         "PDBFixer can create unreasonable orientations of residues if residues are missing or "
         "multiple occupancies are present.\n         You should inspect the created PDB-file to be sure."
@@ -390,13 +383,7 @@ def openmm_modeller(
     """Prepare a protein system from a raw PDB file using pdbfixer."""
     module_init_time = time.time()
     logger.info(main_header("OpenMM Modeller"))
-    try:
-        logger.info("Imported OpenMM library version: %s", openmm.__version__)
-    except ImportError:
-        raise ImportError(
-            "OpenMM requires installing the OpenMM package. Try: 'conda install -c conda-forge openmm'  \
-            Also see http://docs.openmm.org/latest/userguide/application.html"
-        ) from None
+    logger.info("Imported OpenMM library version: %s", openmm.__version__)
     if pdbfile is None:
         raise InputError("You must provide a pdbfile keyword argument")
 
@@ -457,9 +444,9 @@ def openmm_modeller(
             ligand_backend=ligand_backend,
         )
 
-    pdb = openmm_app.PDBFile(pdbfile_for_modeller)
+    pdb = openmm.app.PDBFile(pdbfile_for_modeller)
     logger.debug("\n\nNow loading Modeller.")
-    modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
+    modeller = openmm.app.Modeller(pdb.topology, pdb.positions)
     modeller_numatoms = modeller.topology.getNumAtoms()
     numresidues = modeller.topology.getNumResidues()
     numchains = modeller.topology.getNumChains()
@@ -490,7 +477,7 @@ def openmm_modeller(
     residue_states = _log_residue_table(modeller_residues, residue_variants)
 
     with open("system_afterfixes2.pdb", "w") as pdbfh:
-        openmm_app.PDBFile.writeFile(modeller.topology, modeller.positions, pdbfh)
+        openmm.app.PDBFile.writeFile(modeller.topology, modeller.positions, pdbfh)
 
     if len(residue_states) != numresidues:
         raise InputError("residue_states != numresidues. Something went wrong")
@@ -688,13 +675,7 @@ def solvate_small_molecule(
     if solvent_boxdims is None:
         solvent_boxdims = [70.0, 70.0, 70.0]
     logger.info(main_header("SmallMolecule Solvator"))
-    try:
-        logger.info("Imported OpenMM library version: %s", openmm.__version__)
-    except ImportError:
-        raise ImportError(
-            "OpenMM requires installing the OpenMM package. Try: conda install -c conda-forge openmm  \
-            Also see http://docs.openmm.org/latest/userguide/application.html"
-        ) from None
+    logger.info("Imported OpenMM library version: %s", openmm.__version__)
 
     if fragment is None:
         raise InputError("No fragment object provided. Exiting.")
@@ -738,10 +719,10 @@ def solvate_small_molecule(
 
     if skip_xmlfile is True:
         logger.debug("Creating forcefield using XML-files: %s", waterxmlfile)
-        forcefield = openmm_app.forcefield.ForceField(*[waterxmlfile])
+        forcefield = openmm.app.forcefield.ForceField(*[waterxmlfile])
     else:
         logger.debug("Creating forcefield using XML-files: %s %s", xmlfile, waterxmlfile)
-        forcefield = openmm_app.forcefield.ForceField(*[xmlfile, waterxmlfile])
+        forcefield = openmm.app.forcefield.ForceField(*[xmlfile, waterxmlfile])
 
     if skip_xmlfile is True:
         atomnames = [el + "Y" + str(i) for i, el in enumerate(fragment.elems)]
@@ -754,9 +735,9 @@ def solvate_small_molecule(
         atomnames = [el + "Y" + str(i) for i, el in enumerate(fragment.elems)]
         pdbfile = write_pdbfile(fragment, outputname="smallmol", dummyname="LIG", atomnames=atomnames)
 
-    pdb = openmm_app.PDBFile(pdbfile)
+    pdb = openmm.app.PDBFile(pdbfile)
     logger.debug("Loading Modeller.")
-    modeller = openmm_app.Modeller(pdb.topology, pdb.positions)
+    modeller = openmm.app.Modeller(pdb.topology, pdb.positions)
     logger.info(f"Modeller topology has {modeller.topology.getNumResidues()} residues.")
 
     logger.debug("Adding solvent, watermodel: %s", watermodel)
@@ -767,7 +748,7 @@ def solvate_small_molecule(
         logger.info(f"Solvent boxdimension provided: {solvent_boxdims} Å")
         modeller.addSolvent(
             forcefield,
-            boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm_unit.angstrom,
+            boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm.unit.angstrom,
         )
 
     logger.info("Creating PDB-file: system_aftersolvent.pdb")
@@ -904,14 +885,14 @@ def _parameterize_nonstandard_residues(
     ligand_backend: str,
 ) -> str | None:
     """Generate a forcefill XML for unmatched residues and load it into the forcefield object."""
-    try:
-        from forcefill import build_forcefield_xml
-    except ImportError:
-        raise MissingDependencyError(
-            "parameterize_nonstandard=True requires the forcefill package, which is not on PyPI.\n"
-            "The installers in build_tools/ clone it next to this repository and install it editable; by hand:\n"
+    build_forcefield_xml = require(
+        "forcefill",
+        hint=(
+            "the installers in build_tools/ clone it next to this repository and install it editable; by hand:\n"
             "  git clone https://github.com/LouieSlocombe/forcefill.git && pip install --no-deps -e forcefill"
-        ) from None
+        ),
+        feature="parameterize_nonstandard=True (forcefill is not on PyPI)",
+    ).build_forcefield_xml
 
     base_forcefield = [x for x in (xmlfile, extraxmlfile, waterxmlfile) if x is not None]
     logger.debug("\nNow parameterizing non-standard residues with forcefill")
@@ -1019,10 +1000,10 @@ def _add_solvent_or_membrane(
             lipidType=membrane_lipidtype,
             positiveIon=pos_iontype,
             negativeIon=neg_iontype,
-            ionicStrength=ionicstrength * openmm_unit.molar,
+            ionicStrength=ionicstrength * openmm.unit.molar,
             neutralize=True,
-            membraneCenterZ=membrane_center_z * openmm_unit.angstrom,
-            minimumPadding=membrane_padding * openmm_unit.angstrom,
+            membraneCenterZ=membrane_center_z * openmm.unit.angstrom,
+            minimumPadding=membrane_padding * openmm.unit.angstrom,
         )
 
         write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
@@ -1041,11 +1022,11 @@ def _add_solvent_or_membrane(
             logger.debug("Adding ionic strength: %s M, using ions: %s and %s", ionicstrength, pos_iontype, neg_iontype)
             modeller.addSolvent(
                 forcefield_obj,
-                boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm_unit.angstrom,
+                boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm.unit.angstrom,
                 neutralize=True,
                 positiveIon=pos_iontype,
                 negativeIon=neg_iontype,
-                ionicStrength=ionicstrength * openmm_unit.molar,
+                ionicStrength=ionicstrength * openmm.unit.molar,
                 residueTemplates=residue_templates,
             )
         else:
@@ -1054,12 +1035,12 @@ def _add_solvent_or_membrane(
             logger.info("residueTemplates: %s", residue_templates)
             modeller.addSolvent(
                 forcefield_obj,
-                padding=solvent_padding * openmm_unit.angstrom,
+                padding=solvent_padding * openmm.unit.angstrom,
                 model=modeller_solvent_name,
                 neutralize=True,
                 positiveIon=pos_iontype,
                 negativeIon=neg_iontype,
-                ionicStrength=ionicstrength * openmm_unit.molar,
+                ionicStrength=ionicstrength * openmm.unit.molar,
                 residueTemplates=residue_templates,
             )
         write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")

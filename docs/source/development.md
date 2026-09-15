@@ -48,18 +48,18 @@ build needs the full runtime stack. The `docs` extra adds only Sphinx, furo, mys
 sphinx-copybutton on top of it.
 
 Two tests guard the reference pages. `tests/test_api_docs.py` requires a docstring on every
-exported class, method and function, and freezes the set of public names.
-`tests/test_docs.py` requires every one of those names to appear on a reference page, so a new
-export cannot silently go undocumented.
+exported class, method and function. `tests/test_docs.py` matches `__all__` against the
+reference pages in both directions, so neither a new export nor a stray directive can go
+unnoticed.
 
 ## Adding to the public API
 
 1. Add the name to `__all__` in `openmmqmmm/__init__.py`, in the semantic group it belongs to.
-2. Add it to `EXPECTED_PUBLIC_EXPORTS` in `tests/test_api_docs.py`.
-3. Give it a docstring — one line, and see the note below.
-4. Add it to the matching page under `docs/source/api/`.
+2. Give it a docstring — one line, and see the note below.
+3. Add it to the matching page under `docs/source/api/`, in both the autosummary table and a
+   directive below it.
 
-Steps 2 and 4 are each enforced by a test, so the suite tells you if you miss one.
+Steps 2 and 3 are each enforced by a test, so the suite tells you if you miss one.
 
 :::{note}
 Docstrings in this package are one-line summaries. The `Args:`/`Returns:`/`Raises:` blocks

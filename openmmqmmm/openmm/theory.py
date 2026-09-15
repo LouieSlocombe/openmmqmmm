@@ -8,24 +8,10 @@ from numbers import Integral
 
 import numpy as np
 import numpy.typing as npt
+import openmm
+import openmm.app
+import openmm.unit
 from packaging import version
-
-from openmmqmmm.exceptions import (
-    FileFormatError,
-    InputError,
-    InternalError,
-)
-
-try:
-    import openmm
-    import openmm.app
-    import openmm.unit
-except ImportError:
-    raise ImportError(
-        "OpenMMTheory requires the OpenMM library. Try: conda install -c conda-forge openmm "
-        "(see http://docs.openmm.org/latest/userguide/application.html)"
-    ) from None
-
 
 import openmmqmmm.constants
 import openmmqmmm.parallel
@@ -35,6 +21,11 @@ from openmmqmmm.coords import (
     distance_between_atoms,
 )
 from openmmqmmm.coords_pbc import cell_params_to_vectors
+from openmmqmmm.exceptions import (
+    FileFormatError,
+    InputError,
+    InternalError,
+)
 from openmmqmmm.utils import (
     log_time_since,
     main_header,

@@ -92,44 +92,19 @@ The seam with openmmnqe and anything else that drives OpenMM itself; see
 Lower-level helpers
 -------------------
 
-Exported from ``openmmqmmm.openmm`` only, not from the package root: topology and
-PDB/PDBx writing, the nonbonded-parameter dump, the force reporter the MD engine
-attaches, and the readers for what a run leaves on disk.
+Exported from ``openmmqmmm.openmm`` only, not from the package root: the alternate-location
+report, the nonbonded-parameter dump and the system-size summary.
 
 .. currentmodule:: openmmqmmm.openmm
 
 .. autosummary::
 
-   openmm_add_bonds_to_topology
    find_alternate_locations_residues
-   write_pdbfile_openmm_topology
-   write_pdbxfile_openmm_topology
    write_xmlfile_nonbonded
    print_systemsize
-   clean_up_constraints_list
-   ForceReporter
-   print_current_step_info
-   read_npt_statefile
-   diff_wrap_box_coords
-
-.. autofunction:: openmm_add_bonds_to_topology
 
 .. autofunction:: find_alternate_locations_residues
-
-.. autofunction:: write_pdbfile_openmm_topology
-
-.. autofunction:: write_pdbxfile_openmm_topology
 
 .. autofunction:: write_xmlfile_nonbonded
 
 .. autofunction:: print_systemsize
-
-.. autofunction:: clean_up_constraints_list
-
-.. autoclass:: ForceReporter
-
-.. autofunction:: print_current_step_info
-
-.. autofunction:: read_npt_statefile
-
-.. autofunction:: diff_wrap_box_coords

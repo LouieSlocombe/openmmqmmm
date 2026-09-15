@@ -4,7 +4,7 @@ import logging
 import os
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -73,38 +73,6 @@ def _json_compatible(value: Any) -> Any:
     if isinstance(value, PathLike):
         return os.fspath(value)
     return value
-
-
-_ARRAY_FIELDS = {
-    "depolarization_ratios",
-    "freq_coords",
-    "freq_dipole_derivs",
-    "freq_polarizability_derivs",
-    "gradient",
-    "hessian",
-    "ir_intensities",
-    "normal_modes",
-    "raman_activities",
-    "vib_eigenvectors",
-}
-
-_ARRAY_MAPPING_FIELDS = {
-    "displacement_dipole_dictionary",
-    "displacement_polarizability_dictionary",
-    "gradients_dict",
-}
-
-
-def _restore_array_fields(data: dict[str, Any]) -> None:
-    """Restore the ndarray fields promised by the Results annotations."""
-    for name in _ARRAY_FIELDS.intersection(data):
-        if data[name] is not None:
-            data[name] = np.asarray(data[name])
-    if data.get("gradients") is not None:
-        data["gradients"] = [np.asarray(gradient) for gradient in data["gradients"]]
-    for name in _ARRAY_MAPPING_FIELDS.intersection(data):
-        if data[name] is not None:
-            data[name] = {key: None if value is None else np.asarray(value) for key, value in data[name].items()}
 
 
 def _serialize_field(name: str, value: Any) -> Any:
@@ -206,10 +174,30 @@ class Results:
                 Path(temporary_name).unlink(missing_ok=True)
 
 
+# Taken from the annotations, so an ndarray field added to Results is restored without a
+# second list to keep in step. The dict-valued ndarray fields are not distinguishable from
+# the plain dict fields by annotation, so those stay explicit.
+_ARRAY_FIELDS = frozenset(f.name for f in fields(Results) if f.type == "np.ndarray | None")
+_ARRAY_MAPPING_FIELDS = frozenset(
+    {"displacement_dipole_dictionary", "displacement_polarizability_dictionary", "gradients_dict"}
+)
+
+
+def _restore_array_fields(data: dict[str, Any]) -> None:
+    """Restore the ndarray fields promised by the Results annotations."""
+    for name in _ARRAY_FIELDS.intersection(data):
+        if data[name] is not None:
+            data[name] = np.asarray(data[name])
+    if data.get("gradients") is not None:
+        data["gradients"] = [np.asarray(gradient) for gradient in data["gradients"]]
+    for name in _ARRAY_MAPPING_FIELDS.intersection(data):
+        if data[name] is not None:
+            data[name] = {key: None if value is None else np.asarray(value) for key, value in data[name].items()}
+
+
 def read_results_from_file(filename: str | PathLike[str] = "results.json") -> Results:
     """Read a Results object from a JSON file written by Results.write_to_disk."""
     import json
-    from dataclasses import fields
 
     logger.info("Reading Results data from file:")
     with open(filename) as f:

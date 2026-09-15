@@ -29,6 +29,23 @@ def _cleanup_theory(theory: Any) -> None:
         cleanup()
 
 
+def _archive_theory_output(theory: Any, calc_label: str) -> None:
+    """Copy the theory's output file aside under a per-job name, when it wrote one."""
+    with contextlib.suppress(OSError, AttributeError):
+        shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
+
+
+def _fragment_calc_label(fragment: Fragment) -> str:
+    """Per-fragment name for the archived output of a multi-fragment job."""
+    return f"Frag_{fragment.formula}_{fragment.charge}_{fragment.mult}_"
+
+
+def _common_state(resolved_states: Sequence[tuple[int | None, int | None]]) -> tuple[int | None, int | None]:
+    """The single (charge, mult) shared by every job, or (None, None) when they differ."""
+    first = resolved_states[0]
+    return first if all(state == first for state in resolved_states) else (None, None)
+
+
 def _energy_conversion_factor(unit: str) -> float:
     try:
         return openmmqmmm.constants.ENERGY_UNIT_FROM_HARTREE[unit]
@@ -138,16 +155,14 @@ def single_point_theories(
             result_write_to_disk=False,
         )
 
-        calc_label = "Frag_" + theory.__class__.__name__ + "_"
-        with contextlib.suppress(OSError, AttributeError):
-            shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
+        _archive_theory_output(theory, f"Frag_{theory.__class__.__name__}_")
 
         logger.info(f"Theory Label: {theory.label} Energy: {result.energy} Eh")
         _cleanup_theory(theory)
         energies.append(result.energy)
 
     _log_theories_table(theories, energies, resolved_states)
-    common_state = resolved_states[0] if all(state == resolved_states[0] for state in resolved_states) else (None, None)
+    common_state = _common_state(resolved_states)
     result = Results(
         label="Singlepoint_theories",
         energies=energies,
@@ -159,19 +174,25 @@ def single_point_theories(
     return result
 
 
+def _log_table_header(width: int, title: str, columns: str) -> None:
+    """Banner and column header shared by the result tables."""
+    logger.info("%s", "=" * width)
+    logger.info("%s", title)
+    logger.info("%s", "=" * width)
+    logger.info("%s", columns)
+    logger.info("%s", "-" * width)
+
+
 def _log_theories_table(
     theories: Sequence[Any],
     energies: Sequence[float],
     resolved_states: Sequence[tuple[int | None, int | None]],
 ) -> None:
-    logger.info("%s", "=" * 70)
-    logger.info("Singlepoint_theories: Table of energies of each theory:")
-    logger.info("%s", "=" * 70)
-
-    logger.info(
-        "%s", "\n{:15} {:15} {:>7} {:>7} {:>20}".format("Theory class", "Theory Label", "Charge", "Mult", "Energy(Eh)")
+    _log_table_header(
+        70,
+        "Singlepoint_theories: Table of energies of each theory:",
+        "\n{:15} {:15} {:>7} {:>7} {:>20}".format("Theory class", "Theory Label", "Charge", "Mult", "Energy(Eh)"),
     )
-    logger.info("%s", "-" * 70)
     for t, e, (charge, mult) in zip(theories, energies, resolved_states, strict=True):
         logger.info(f"{t.__class__.__name__:15} {t.label!s:15} {charge!s:>7} {mult!s:>7} {e:>20.10f}\n")
 
@@ -182,11 +203,11 @@ def _log_fragments_table(
     tabletitle: str = "Singlepoint_fragments: ",
     unit: str = "Eh",
 ) -> None:
-    logger.info("%s", "=" * 100)
-    logger.info(f"{tabletitle}Table of energies of each fragment:")
-    logger.info("%s", "=" * 100)
-    logger.info("%s", "{:15} {:<25} {:>7} {:>7} {:>30}".format("Formula", "Label", "Charge", "Mult", f"Energy({unit})"))
-    logger.info("%s", "-" * 100)
+    _log_table_header(
+        100,
+        f"{tabletitle}Table of energies of each fragment:",
+        "{:15} {:<25} {:>7} {:>7} {:>30}".format("Formula", "Label", "Charge", "Mult", f"Energy({unit})"),
+    )
     for frag, e in zip(fragments, energies, strict=True):
         label = "None" if frag.label is None else str(frag.label)
         logger.info(f"{frag.formula:15} {label:<25} {frag.charge:>7} {frag.mult:>7} {e:>30.10f}\n")
@@ -239,14 +260,12 @@ def single_point_fragments(
 
         logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {result.energy} Eh")
 
-        calc_label = "Frag_" + str(frag.formula) + "_" + str(frag.charge) + "_" + str(frag.mult) + "_"
-        with contextlib.suppress(OSError, AttributeError):
-            shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
+        _archive_theory_output(theory, _fragment_calc_label(frag))
 
         _cleanup_theory(theory)
         energies.append(result.energy)
 
-    common_state = resolved_states[0] if all(state == resolved_states[0] for state in resolved_states) else (None, None)
+    common_state = _common_state(resolved_states)
     result = Results(
         label="Singlepoint_fragments",
         energies=energies,
@@ -370,9 +389,7 @@ def single_point_reaction(
         )
         energy = result.energy
         logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {energy} Eh")
-        calc_label = "Frag_" + str(frag.formula) + "_" + str(frag.charge) + "_" + str(frag.mult) + "_"
-        with contextlib.suppress(OSError, AttributeError):
-            shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
+        _archive_theory_output(theory, _fragment_calc_label(frag))
         _cleanup_theory(theory)
         reaction.energies.append(energy)
 

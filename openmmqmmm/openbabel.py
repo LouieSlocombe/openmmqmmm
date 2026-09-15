@@ -4,28 +4,22 @@ import logging
 import os
 
 from openmmqmmm.coords import reformat_element
-from openmmqmmm.exceptions import (
-    MissingDependencyError,
-)
+from openmmqmmm.utils import basename
 
 logger = logging.getLogger(__name__)
 
 
 def xyz_to_pdb_with_connectivity(file: str, resname: str = "UNL") -> str:
     logger.info("xyz_to_pdb_with_connectivity function:")
-    try:
-        from openbabel import openbabel, pybel
-    except ModuleNotFoundError:
-        raise MissingDependencyError(
-            "Error: xyz_to_pdb_with_connectivity requires OpenBabel library but it could not be imported\nYou can "
-            "install OpenBabel like this:    conda install --yes -c conda-forge openbabel"
-        ) from None
-    mol = next(pybel.readfile("xyz", file))
-    mol.write(format="pdb", filename=os.path.splitext(file)[0] + "temp.pdb", overwrite=True)
-    # Read-in again (this will create a Residue)
-    newmol = next(pybel.readfile("pdb", os.path.splitext(file)[0] + "temp.pdb"))
+    from openbabel import openbabel, pybel
 
-    os.remove(os.path.splitext(file)[0] + "temp.pdb")
+    stem = basename(file)
+    mol = next(pybel.readfile("xyz", file))
+    mol.write(format="pdb", filename=stem + "temp.pdb", overwrite=True)
+    # Read-in again (this will create a Residue)
+    newmol = next(pybel.readfile("pdb", stem + "temp.pdb"))
+
+    os.remove(stem + "temp.pdb")
 
     # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
     logger.debug("Creating new atomnames for PDBfile")
@@ -37,19 +31,14 @@ def xyz_to_pdb_with_connectivity(file: str, resname: str = "UNL") -> str:
             res.SetAtomID(atom, atomname.strip() + str(i + 1))
             atomname = res.GetAtomID(atom)
 
-    newmol.write(format="pdb", filename=os.path.splitext(file)[0] + ".pdb", overwrite=True)
-    logger.info("Wrote PDB-file: %s", os.path.splitext(file)[0] + ".pdb")
-    return os.path.splitext(file)[0] + ".pdb"
+    newmol.write(format="pdb", filename=stem + ".pdb", overwrite=True)
+    logger.info("Wrote PDB-file: %s", stem + ".pdb")
+    return stem + ".pdb"
 
 
 def smiles_to_coords(smiles_string: str) -> tuple[list[str], list[list[float]]]:
-    try:
-        from openbabel import openbabel, pybel
-    except ModuleNotFoundError:
-        raise MissingDependencyError(
-            "Error: smiles_to_coords requires OpenBabel library but it could not be imported\nYou can install like "
-            "this:    conda install --yes -c conda-forge openbabel"
-        ) from None
+    from openbabel import openbabel, pybel
+
     logger.info("Reading SMILES by OpenBabel")
     mol = pybel.readstring("smi", smiles_string)
     logger.info("Guessing 3D coordinates (uses MMFF94 forcefield)")

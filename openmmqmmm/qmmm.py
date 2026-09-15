@@ -155,7 +155,6 @@ class QMMMTheory:
         # All-atom Bool-array for whether atom-index is a QM-atom index or not
         # Used by make_QM_PC_gradient
         self.xatom_mask = np.isin(self.allatoms, self.qmatoms)
-        self.sum_xatom_mask = np.sum(self.xatom_mask)
 
         self.mmatoms = np.setdiff1d(self.allatoms, self.qmatoms)
 
@@ -560,23 +559,22 @@ class QMMMTheory:
         if self.mm_theory is not None:
             self.mm_theory.set_numcores(numcores)
 
-    def get_dipole_moment(self) -> Sequence[float] | np.ndarray | None:
-        """Return the QM theory's dipole moment, or None if it does not provide one."""
-        logger.debug("Getting dipole moment from QM part of QM/MM theory")
-        getter = getattr(self.qm_theory, "get_dipole_moment", None)
+    def _delegate_to_qm_theory(self, name: str, description: str) -> Any:
+        """Call the QM theory's own accessor of that name, or return None when it has none."""
+        logger.debug("Getting %s from QM part of QM/MM theory", description)
+        getter = getattr(self.qm_theory, name, None)
         if getter is None:
-            logger.debug("QM theory does not provide a dipole moment")
+            logger.debug("QM theory does not provide a %s", description)
             return None
         return getter()
 
+    def get_dipole_moment(self) -> Sequence[float] | np.ndarray | None:
+        """Return the QM theory's dipole moment, or None if it does not provide one."""
+        return self._delegate_to_qm_theory("get_dipole_moment", "dipole moment")
+
     def get_polarizability_tensor(self) -> np.ndarray | None:
         """Return the QM theory's polarizability tensor, or None if it does not provide one."""
-        logger.debug("Getting polarizability from QM part of QM/MM theory")
-        getter = getattr(self.qm_theory, "get_polarizability_tensor", None)
-        if getter is None:
-            logger.debug("QM theory does not provide a polarizability tensor")
-            return None
-        return getter()
+        return self._delegate_to_qm_theory("get_polarizability_tensor", "polarizability tensor")
 
     def resolve_qm_charge_mult(self, *, charge: int | None = None, mult: int | None = None) -> tuple[int, int]:
         """Resolve the charge and multiplicity of the QM region."""
@@ -845,6 +843,47 @@ class QMMMTheory:
             gradient[fullatomindex_qm] += QM1grad_contrib
             gradient[fullatomindex_mm] += MM1grad_contrib
 
+    def _resolve_numcores(self, numcores: int) -> int:
+        """Fall back to the theory's own core count when run() was not given one."""
+        return self.numcores if numcores == 1 else numcores
+
+    def _compute_extforce_energy(self, current_coords: np.ndarray, gradient: np.ndarray, checkpoint: float) -> None:
+        """Energy of the OpenMM external force, subtracted from the QM/MM energy later."""
+        logger.info("OpenMM externalforce is True")
+        scaled_current_coords = current_coords * openmmqmmm.constants.ANG_TO_BOHR
+        self.extforce_energy = 3 * np.mean(np.sum(gradient * scaled_current_coords, axis=0))
+        logger.info(f"Extforce energy: {self.extforce_energy}")
+        log_time_since(checkpoint, "extforce prepare")
+
+    def _run_mm_theory(self, current_coords: np.ndarray, *, grad: bool) -> None:
+        """Run the MM theory over the full system, or zero its contribution when there is none."""
+        if self.mm_theory_name != "OpenMMTheory":
+            self.MMenergy = 0.0
+            if grad:
+                self.MMgradient = np.zeros((len(current_coords), 3))
+        elif grad:
+            self.MMenergy, self.MMgradient = self.mm_theory.run(
+                current_coords=current_coords, qmatoms=self.qmatoms, grad=True
+            )
+        else:
+            logger.info("QM/MM Grad is false")
+            self.MMenergy = self.mm_theory.run(current_coords=current_coords, qmatoms=self.qmatoms)
+
+    def _write_gradient_debug_files(
+        self,
+        label: str | None,
+        entries: Sequence[tuple[np.ndarray, Sequence[str], Sequence[int], str, str]],
+    ) -> None:
+        """Write each named gradient to its own file."""
+        for gradient, elems, indices, stem, description in entries:
+            openmmqmmm.coords.write_coords_all(
+                gradient,
+                elems,
+                indices=indices,
+                file=f"{stem}_{label}",
+                description=f"{description} {label} (au/Bohr):",
+            )
+
     def mech_run(
         self,
         current_coords: np.ndarray | None = None,
@@ -861,9 +900,7 @@ class QMMMTheory:
         CheckpointTime = time.time()
         _used_mmcoords, used_qmcoords = self._prepare_run(current_coords, "Mechanical")
 
-        # If numcores was set when calling QMMMTheory.run then using, otherwise use self.numcores
-        if numcores == 1:
-            numcores = self.numcores
+        numcores = self._resolve_numcores(numcores)
 
         logger.debug("Running QM/MM with %s cores available", numcores)
 
@@ -942,29 +979,14 @@ class QMMMTheory:
             if grad:
                 CheckpointTime = time.time()
                 if self.openmm_externalforce is True:
-                    logger.info("OpenMM externalforce is True")
-                    # Calculate energy associated with external force so that we can subtract it later
-                    scaled_current_coords = current_coords * openmmqmmm.constants.ANG_TO_BOHR
-                    self.extforce_energy = 3 * np.mean(np.sum(self.QM_MM_gradient * scaled_current_coords, axis=0))
-                    logger.info(f"Extforce energy: {self.extforce_energy}")
-                    log_time_since(CheckpointTime, "extforce prepare")
+                    self._compute_extforce_energy(current_coords, self.QM_MM_gradient, CheckpointTime)
                     # NOTE: Now moved mm_theory.update_custom_external_force call to MD simulation instead
                     # as we don't have access to simulation object here anymore. Uses self.QM_PC_gradient
                     if exit_after_customexternalforce_update is True:
                         logger.info("OpenMM custom external force updated. Exit requested")
                         # This is used if OpenMM MD is handling forces and dynamics
                         return self.QMenergy, self.QM_MM_gradient
-
-                self.MMenergy, self.MMgradient = self.mm_theory.run(
-                    current_coords=current_coords, qmatoms=self.qmatoms, grad=True
-                )
-            else:
-                logger.info("QM/MM Grad is false")
-                self.MMenergy = self.mm_theory.run(current_coords=current_coords, qmatoms=self.qmatoms)
-        else:
-            self.MMenergy = 0.0
-            if grad:
-                self.MMgradient = np.zeros((len(current_coords), 3))
+        self._run_mm_theory(current_coords, grad=grad)
         log_time_since(CheckpointTime, "MM step")
         CheckpointTime = time.time()
 
@@ -984,26 +1006,19 @@ class QMMMTheory:
 
         if grad is True:
             if logger.isEnabledFor(logging.DEBUG):
-                openmmqmmm.coords.write_coords_all(
-                    self.QMgradient_wo_linkatoms,
-                    self.qmelems,
-                    indices=self.qmatoms,
-                    file=f"QMgradient-without-linkatoms_{label}",
-                    description=f"QM gradient w/o linkatoms {label} (au/Bohr):",
-                )
-                openmmqmmm.coords.write_coords_all(
-                    self.MMgradient,
-                    self.elems,
-                    indices=self.allatoms,
-                    file=f"MMgradient_{label}",
-                    description=f"MM gradient {label} (au/Bohr):",
-                )
-                openmmqmmm.coords.write_coords_all(
-                    self.QM_MM_gradient,
-                    self.elems,
-                    indices=self.allatoms,
-                    file=f"QM_MMgradient_{label}",
-                    description=f"QM/MM gradient {label} (au/Bohr):",
+                self._write_gradient_debug_files(
+                    label,
+                    [
+                        (
+                            self.QMgradient_wo_linkatoms,
+                            self.qmelems,
+                            self.qmatoms,
+                            "QMgradient-without-linkatoms",
+                            "QM gradient w/o linkatoms",
+                        ),
+                        (self.MMgradient, self.elems, self.allatoms, "MMgradient", "MM gradient"),
+                        (self.QM_MM_gradient, self.elems, self.allatoms, "QM_MMgradient", "QM/MM gradient"),
+                    ],
                 )
             logger.info("------------ENDING QM/MM MODULE-------------")
             log_time_since(module_init_time, "QM/MM mech run")
@@ -1265,9 +1280,7 @@ class QMMMTheory:
 
             # Modifies self.pointcharges and self.pointchargecoords
 
-        # If numcores was set when calling QMMMTheory.run then using, otherwise use self.numcores
-        if numcores == 1:
-            numcores = self.numcores
+        numcores = self._resolve_numcores(numcores)
 
         logger.info("Number of pointcharges (to QM program): %s", len(self.pointcharges))
         logger.info("Number of charge coordinates: %s", len(self.pointchargecoords))
@@ -1364,31 +1377,15 @@ class QMMMTheory:
                 raise InternalError("QMCharges have not been zeroed")
             if grad is True:
                 CheckpointTime = time.time()
-
                 if self.openmm_externalforce is True:
-                    logger.info("OpenMM externalforce is True")
-                    # Calculate energy associated with external force so that we can subtract it later
-                    scaled_current_coords = current_coords * openmmqmmm.constants.ANG_TO_BOHR
-                    self.extforce_energy = 3 * np.mean(np.sum(self.QM_PC_gradient * scaled_current_coords, axis=0))
-                    logger.info(f"Extforce energy: {self.extforce_energy}")
-                    log_time_since(CheckpointTime, "extforce prepare")
+                    self._compute_extforce_energy(current_coords, self.QM_PC_gradient, CheckpointTime)
                     # NOTE: Now moved mm_theory.update_custom_external_force call to MD simulation instead
                     # as we don't have access to simulation object here anymore. Uses self.QM_PC_gradient
                     if exit_after_customexternalforce_update is True:
                         logger.info("OpenMM custom external force updated. Exit requested")
                         # This is used if OpenMM MD is handling forces and dynamics
                         return self.QMenergy - self.extforce_energy, self.QM_PC_gradient
-
-                self.MMenergy, self.MMgradient = self.mm_theory.run(
-                    current_coords=current_coords, qmatoms=self.qmatoms, grad=True
-                )
-            else:
-                logger.info("QM/MM Grad is false")
-                self.MMenergy = self.mm_theory.run(current_coords=current_coords, qmatoms=self.qmatoms)
-        else:
-            self.MMenergy = 0.0
-            if grad:
-                self.MMgradient = np.zeros((len(current_coords), 3))
+        self._run_mm_theory(current_coords, grad=grad)
         log_time_since(CheckpointTime, "MM step")
         CheckpointTime = time.time()
 
@@ -1420,47 +1417,28 @@ class QMMMTheory:
                 self.QM_MM_gradient = self.QM_PC_gradient + self.MMgradient - self.subtractive_correction_G
 
             if logger.isEnabledFor(logging.DEBUG):
-                openmmqmmm.coords.write_coords_all(
-                    self.QMgradient_wo_linkatoms,
-                    self.qmelems,
-                    indices=self.qmatoms,
-                    file=f"QMgradient-without-linkatoms_{label}",
-                    description=f"QM gradient w/o linkatoms {label} (au/Bohr):",
-                )
-                openmmqmmm.coords.write_coords_all(
-                    self.QMgradient,
-                    self.qmelems + ["L" for i in range(self.num_linkatoms)],
-                    indices=self.qmatoms + [0 for i in range(self.num_linkatoms)],
-                    file=f"QMgradient-with-linkatoms_{label}",
-                    description=f"QM gradient with linkatoms {label} (au/Bohr):",
-                )
-                openmmqmmm.coords.write_coords_all(
-                    self.PCgradient,
-                    self.mmelems,
-                    indices=self.mmatoms,
-                    file=f"PCgradient_{label}",
-                    description=f"PC gradient {label} (au/Bohr):",
-                )
-                openmmqmmm.coords.write_coords_all(
-                    self.QM_PC_gradient,
-                    self.elems,
-                    indices=self.allatoms,
-                    file=f"QM+PCgradient_{label}",
-                    description=f"QM+PC gradient {label} (au/Bohr):",
-                )
-                openmmqmmm.coords.write_coords_all(
-                    self.MMgradient,
-                    self.elems,
-                    indices=self.allatoms,
-                    file=f"MMgradient_{label}",
-                    description=f"MM gradient {label} (au/Bohr):",
-                )
-                openmmqmmm.coords.write_coords_all(
-                    self.QM_MM_gradient,
-                    self.elems,
-                    indices=self.allatoms,
-                    file=f"QM_MMgradient_{label}",
-                    description=f"QM/MM gradient {label} (au/Bohr):",
+                self._write_gradient_debug_files(
+                    label,
+                    [
+                        (
+                            self.QMgradient_wo_linkatoms,
+                            self.qmelems,
+                            self.qmatoms,
+                            "QMgradient-without-linkatoms",
+                            "QM gradient w/o linkatoms",
+                        ),
+                        (
+                            self.QMgradient,
+                            self.qmelems + ["L"] * self.num_linkatoms,
+                            self.qmatoms + [0] * self.num_linkatoms,
+                            "QMgradient-with-linkatoms",
+                            "QM gradient with linkatoms",
+                        ),
+                        (self.PCgradient, self.mmelems, self.mmatoms, "PCgradient", "PC gradient"),
+                        (self.QM_PC_gradient, self.elems, self.allatoms, "QM+PCgradient", "QM+PC gradient"),
+                        (self.MMgradient, self.elems, self.allatoms, "MMgradient", "MM gradient"),
+                        (self.QM_MM_gradient, self.elems, self.allatoms, "QM_MMgradient", "QM/MM gradient"),
+                    ],
                 )
             logger.info("------------ENDING QM/MM MODULE-------------")
             log_time_since(module_init_time, "QM/MM run")

@@ -16,7 +16,6 @@ from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.exceptions import (
     ExternalProgramError,
     InputError,
-    MissingDependencyError,
     OpenMMQMMMError,
 )
 from openmmqmmm.qmmm import QMMMTheory
@@ -65,15 +64,9 @@ def _import_pool(version: ParallelBackend = "multiprocessing") -> type[Any]:
     # Active fork of multiprocessing that uses dill instead of pickle etc. https://github.com/uqfoundation/multiprocess
     elif version == "multiprocess":
         logger.info("Job_parallel: Using version: multiprocess")
-        try:
-            from multiprocess.pool import Pool
+        from multiprocess.pool import Pool
 
-            logger.info("multiprocess library successfully loaded")
-        except ImportError:
-            raise MissingDependencyError(
-                "This requires the multiprocess library to be installed\nPlease install using pip: pip install "
-                "multiprocess"
-            ) from None
+        logger.info("multiprocess library successfully loaded")
     else:
         raise InputError(f"Unknown parallel backend {version!r}; expected 'multiprocessing' or 'multiprocess'")
     return Pool
@@ -416,7 +409,6 @@ def worker_par(
     grad: bool = False,
     copytheory: bool = False,
     optimizer: GeometricOptimizer | None = None,
-    version: ParallelBackend = "multiprocessing",
 ) -> tuple[Label, float, np.ndarray, str, dict[str, Any]] | tuple[Label, float, str, dict[str, Any]]:
     logger.info("Fragment: %s", fragment)
     logger.info("fragmentfile: %s", fragmentfile)

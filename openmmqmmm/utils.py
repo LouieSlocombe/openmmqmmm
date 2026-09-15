@@ -195,9 +195,7 @@ def isint(s: object) -> bool:
     try:
         int(s)
         return True
-    except ValueError:
-        return False
-    except TypeError:
+    except (TypeError, ValueError):
         return False
 
 

@@ -40,7 +40,6 @@ class _RPMDPythonForceProvider:
         self.cache_size = max(1, int(cache_size))
         self.evaluation_count = 0
         self.cache_hits = 0
-        self.last_energy_hartree = None
         self._cache = OrderedDict()
         self._lock = threading.RLock()
 
@@ -105,7 +104,6 @@ class _RPMDPythonForceProvider:
             energy_kj_mol = energy_hartree * openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
             forces_kj_mol_nm = -gradient * openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
             self.evaluation_count += 1
-            self.last_energy_hartree = energy_hartree
             self._cache[key] = (energy_kj_mol, forces_kj_mol_nm.copy())
             self._cache.move_to_end(key)
             while len(self._cache) > self.cache_size:
