@@ -1,0 +1,13 @@
+# Optional OpenMM-ML dependencies, added after creating the base environment.
+# From the repository root (omit --prune to retain the base environment's packages):
+#   conda env update -n openmmqmmm -f build_tools/environment_ml.yml
+#
+# OpenMM-ML 1.8 requires Python 3.11+; the core package still supports Python 3.10.
+# Model-specific backends and pretrained weights are installed separately.
+name: openmmqmmm
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.11
+  - openmm =8.6.1
+  - openmm-ml =1.8

@@ -36,6 +36,11 @@ OpenMM-PLUMED plugin and the PLUMED Python bindings into it, installs this packa
 forcefill in editable mode, and verifies each piece by importing it. The full environment is
 large (~5 GB).
 
+For OpenMM-ML 1.8 alongside OpenMM 8.6.1, add the optional ML dependencies with
+`conda env update -n openmmqmmm -f build_tools/environment_ml.yml` after the base install.
+This option requires Python 3.11 or higher; model backends and weights are installed
+separately. See the installation guide for details.
+
 [ORCA](https://www.faccts.de/orca/) is installed separately (free for academic use) and found
 through the `orcadir` argument, the `OPENMMQMMM_ORCADIR` environment variable, or `PATH` — in
 that order.

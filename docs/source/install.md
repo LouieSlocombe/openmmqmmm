@@ -51,6 +51,22 @@ is the full installation guide: the other two routes (Sol cluster, source-built 
 what to do with an environment that already exists, how to put openmmqmmm and openmmnqe in
 one environment, and the equivalent commands run by hand.
 
+## Optional OpenMM-ML
+
+[OpenMM-ML](https://github.com/openmm/openmm-ml) 1.8 can share the environment for ML/MM
+workflows. After creating the base environment, run from the repository root:
+
+```bash
+conda env update -n openmmqmmm -f build_tools/environment_ml.yml
+conda activate openmmqmmm
+python -c "import openmm; from openmmml import MLPotential; print(openmm.__version__)"
+```
+
+This pins OpenMM 8.6.1 and OpenMM-ML 1.8 and requires Python 3.11 or higher. The core
+ORCA QM/MM package still supports Python 3.10. Omit `--prune` so the base environment's
+packages remain installed. Model-specific backends and pretrained weights are separate
+installs; see the [OpenMM-ML documentation](https://openmm.github.io/openmm-ml/).
+
 ## pip
 
 The package itself is not published on PyPI, but every one of its runtime dependencies is,

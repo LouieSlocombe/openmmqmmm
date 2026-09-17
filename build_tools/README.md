@@ -114,6 +114,27 @@ Do **not** install conda-forge's `plumed` or `openmm-plumed` packages here — t
 has no `opes` module and would be overwritten in place by `build_plumed`'s `make install`,
 and the second requires `openmm <8.5`.
 
+### Optional OpenMM-ML
+
+To add [OpenMM-ML](https://github.com/openmm/openmm-ml) 1.8 to an existing environment,
+run this from the repository root after installing the base environment:
+
+```bash
+conda env update -n openmmqmmm -f build_tools/environment_ml.yml
+conda activate openmmqmmm
+python -c "import openmm; from openmmml import MLPotential; print(openmm.__version__)"
+```
+
+The additional environment file pins OpenMM 8.6.1 and OpenMM-ML 1.8. It requires Python
+3.11 or higher; the core package and base environment continue to support Python 3.10.
+Do not add `--prune`: this file only lists the additional ML requirements. Replace
+`-n openmmqmmm` with your environment's name when using another installation route.
+
+OpenMM-ML is an optional companion library, not a dependency of the ORCA QM/MM API.
+Install model-specific backends and pretrained weights separately, following the
+[OpenMM-ML documentation](https://openmm.github.io/openmm-ml/). Its ASE adapter can use
+the ASE installation already included in the base environment.
+
 ### One environment for openmmqmmm + openmmnqe
 
 The QM/MM-through-openmmnqe workflows (see the main README) need both packages importable
