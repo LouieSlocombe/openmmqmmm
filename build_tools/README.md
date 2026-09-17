@@ -102,14 +102,15 @@ Install the dependencies, then run the same two build functions against the acti
 environment:
 
 ```bash
-conda install -c conda-forge ase "openmm=8.6.1" cmake make swig cxx-compiler doxygen cython \
-  pdbfixer mdtraj parmed rdkit openmmforcefields openff-toolkit multiprocess rmsd
+conda install -c conda-forge "ase>=3.20.1" "numpy>=1.21" "openmm=8.6.1" \
+  cmake make swig cxx-compiler doxygen cython \
+  pdbfixer mdtraj parmed rdkit openmmforcefields openff-toolkit multiprocess "rmsd>=1.4"
 pip install .
 source build_plumed.sh && build_plumed "$(mktemp -d)"
 ```
 
-`pip install .` adds OpenBabel and geomeTRIC from PyPI; conda-forge has no OpenBabel
-build past Python 3.12. Add forcefill and py-plumed the same way `conda_install.sh` does.
+`pip install .` adds OpenBabel and geomeTRIC from PyPI. Add forcefill and py-plumed
+the same way `conda_install.sh` does.
 Do **not** install conda-forge's `plumed` or `openmm-plumed` packages here — the first
 has no `opes` module and would be overwritten in place by `build_plumed`'s `make install`,
 and the second requires `openmm <8.5`.

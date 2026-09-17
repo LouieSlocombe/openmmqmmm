@@ -46,7 +46,7 @@ source activate "${ENV_NAME}"
 # compiles it into this prefix below.
 echo "=== Installing Dependencies ==="
 mamba install -c conda-forge -y \
-    ase \
+    "ase>=3.20.1" \
     openmm=8.6.1 \
     cmake \
     make \
@@ -56,7 +56,7 @@ mamba install -c conda-forge -y \
     cython \
     pdbfixer \
     mdtraj \
-    numpy \
+    "numpy>=1.21" \
     scipy \
     packaging \
     parmed \
@@ -64,10 +64,10 @@ mamba install -c conda-forge -y \
     openff-toolkit \
     rdkit \
     multiprocess \
-    rmsd \
-    pytest \
-    pytest-cov
-pip3 install "geometric>=1.0.1" openbabel
+    "rmsd>=1.4" \
+    "pytest>=6.2.5" \
+    "pytest-cov>=6"
+pip3 install "geometric>=1.1" "openbabel>=3.0"
 
 echo "=== Preparing Build Directory ==="
 mkdir -p "${WORK_DIR}"

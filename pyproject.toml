@@ -17,22 +17,24 @@ maintainers = [
 ]
 requires-python = ">= 3.10"
 dependencies = [
-    "ase",
-    "numpy",
+    # Calculator._directory and numpy.typing.NDArray, respectively.
+    "ase >= 3.20.1",
+    "numpy >= 1.21",
     "packaging",
     # openmmqmmm.constants derives every physical constant from scipy.constants (CODATA)
     "scipy",
-    "geometric >= 1.0.1",
+    # IRC and rigid-body optimization.
+    "geometric >= 1.1",
     # Required at import time.
     "openmm == 8.6.1",
     "pdbfixer",
     "mdtraj",
     "parmed",
     "multiprocess",
-    "rmsd",
-    # Wheels exist for linux-x86_64 and macOS-arm64 only; conda-forge has no build past
-    # python 3.12, so pip is the route for this one even inside a conda environment.
-    "openbabel",
+    # Includes reorder_inertia_hungarian.
+    "rmsd >= 1.4",
+    # The adapters use the Python package layout introduced in Open Babel 3.
+    "openbabel >= 3.0",
 ]
 
 # Development tooling only. Every runtime dependency is required above, with two
@@ -44,10 +46,12 @@ dependencies = [
 # conda_install.sh compiles PLUMED and OpenMM-PLUMED against OpenMM 8.6.1 and installs
 # forcefill editable from a checkout next to this repository.
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov"]
+# Python 3.10 support; pytest-cov 6 supplies coverage>=7.5 for exclude_also below.
+test = ["pytest >= 6.2.5", "pytest-cov >= 6"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts
 # between releases, so a skew lets a locally-clean tree fail the CI format gate.
-dev = ["ruff == 0.16.2", "pre-commit"]
+# pre-commit-hooks v5.0.0 requires pre-commit 3.2.0.
+dev = ["ruff == 0.16.2", "pre-commit >= 3.2.0"]
 # Sphinx only. The docs build also needs every runtime dependency above, because
 # conf.py mocks nothing and autodoc imports the package; `pip install -e ".[docs]"`
 # from a checkout covers both halves.

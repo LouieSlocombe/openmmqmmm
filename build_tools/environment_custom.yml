@@ -9,7 +9,7 @@ dependencies:
   - python>=3.10
   - pip
   # Atomic Simulation Environment integration
-  - ase
+  - ase >=3.20.1
   # Pinned even though custom_install.sh replaces it: pdbfixer, openmmforcefields and
   # openff-toolkit all depend on openmm, so conda installs one either way, and pinning
   # keeps that solve identical to the conda route. `make install` and `make PythonInstall`
@@ -28,7 +28,7 @@ dependencies:
   - cython
   - pdbfixer
   - mdtraj
-  - numpy
+  - numpy >=1.21
   - scipy
   - packaging
   # Amber/CHARMM/GROMACS topology handling in OpenMMTheory
@@ -45,12 +45,11 @@ dependencies:
   # Alternative multiprocessing backend for job_parallel
   - multiprocess
   # flexible_align(reordering=True)
-  - rmsd
-  - pytest
-  - pytest-cov
+  - rmsd >=1.4
+  - pytest >=6.2.5
+  - pytest-cov >=6
   - python-build
   - pip:
-      - geometric >=1.0.1
-      # Fragment(smiles=...) and xyz_to_pdb_with_connectivity. Not from conda-forge:
-      # it has no build past python 3.12. PyPI ships linux-x86_64 and macOS-arm64 wheels.
-      - openbabel
+      - geometric >=1.1
+      # PyPI wheels for Fragment(smiles=...) and xyz_to_pdb_with_connectivity.
+      - openbabel >=3.0
