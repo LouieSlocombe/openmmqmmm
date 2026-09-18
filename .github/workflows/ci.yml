@@ -36,11 +36,15 @@ jobs:
         shell: bash -el {0}
     steps:
       - uses: actions/checkout@v4
-      - uses: mamba-org/setup-micromamba@v2
+      # The default post-cleanup (shell-init) errors out removing a micromamba-shell that
+      # is already gone, failing the job after the steps have passed; a GitHub-hosted
+      # runner is discarded anyway. https://github.com/mamba-org/setup-micromamba/issues/130
+      - uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: build_tools/environment.yml
           create-args: python=${{ matrix.python }}
           cache-environment: true
+          post-cleanup: none
       - run: pip install -e . --no-deps
       # The installers in build_tools/ clone forcefill next to the repository and install
       # it editable; a runner has only this repository checked out, so CI takes it from
@@ -67,10 +71,11 @@ jobs:
         shell: bash -el {0}
     steps:
       - uses: actions/checkout@v4
-      - uses: mamba-org/setup-micromamba@v2
+      - uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: build_tools/environment.yml
           cache-environment: true
+          post-cleanup: none
       - run: python -m build
       - name: Validate source-distribution contents and examples
         run: |
