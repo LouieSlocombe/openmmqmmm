@@ -17,7 +17,8 @@ dependencies:
   - pip
   # Atomic Simulation Environment integration
   - ase >=3.20.1
-  - openmm =8.6.1
+  # 8.6.1 has no conda-forge build for Python 3.10; 8.6.0 is the last that does.
+  - openmm >=8.6,<8.7
   # PLUMED itself is absent on purpose: build_plumed.sh compiles it into the same
   # prefix, so a conda-forge copy would be silently overwritten by `make install`,
   # and that build omits the opes module openmm_md_plumed needs. These are the

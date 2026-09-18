@@ -10,7 +10,7 @@ There are three ways to install `openmmqmmm`, depending on what you need:
 
 Every route compiles PLUMED, the `openmm-plumed` plugin and the PLUMED Python bindings
 (py-plumed), because there is no prebuilt combination that works: conda-forge's
-`openmm-plumed` requires `openmm <8.5`, while this package pins `openmm == 8.6.1` —
+`openmm-plumed` requires `openmm <8.5`, while this package requires `openmm >=8.6` —
 `openmm.PythonForce`, which QM/MM RPMD evaluates the per-bead force through, arrived in
 8.5. Building from source also gets you PLUMED's `opes` module, which the conda-forge
 build omits and which `openmm_md_plumed` needs, since a PLUMED bias is the only
@@ -102,7 +102,7 @@ Install the dependencies, then run the same two build functions against the acti
 environment:
 
 ```bash
-conda install -c conda-forge "ase>=3.20.1" "numpy>=1.21" "openmm=8.6.1" \
+conda install -c conda-forge "ase>=3.20.1" "numpy>=1.21" "openmm>=8.6,<8.7" \
   cmake make swig cxx-compiler doxygen cython \
   pdbfixer mdtraj parmed rdkit openmmforcefields openff-toolkit multiprocess "rmsd>=1.4"
 pip install .
@@ -141,7 +141,7 @@ the ASE installation already included in the base environment.
 The QM/MM-through-openmmnqe workflows (see the main README) need both packages importable
 from one interpreter. The `openmmnqe` environment is the superset — it already carries
 OpenMM, openmm-ml, OpenMM-PLUMED, and the shared editable checkouts. Before adding this
-package, make sure that environment uses OpenMM 8.6.1, and rebuild OpenMM-PLUMED against
+package, make sure that environment uses OpenMM 8.6, and rebuild OpenMM-PLUMED against
 it if upgrading from an older OpenMM version (see the existing-environment steps above):
 
 ```bash

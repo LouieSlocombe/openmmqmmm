@@ -45,7 +45,7 @@ def openmm_md_plumed(
         ),
         feature=(
             "PLUMED-biased dynamics. The current conda-forge build requires OpenMM <8.5 and is "
-            "incompatible with this project's OpenMM 8.6.1 requirement"
+            "incompatible with this project's OpenMM 8.6 requirement"
         ),
     )
 

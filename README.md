@@ -31,7 +31,7 @@ bash build_tools/conda_install.sh
 ```
 
 One command: it creates the `openmmqmmm` conda environment from
-`build_tools/environment.yml` with OpenMM 8.6.1, compiles PLUMED 2.10.1 (with the `opes` module), the
+`build_tools/environment.yml` with OpenMM 8.6, compiles PLUMED 2.10.1 (with the `opes` module), the
 OpenMM-PLUMED plugin and the PLUMED Python bindings into it, installs this package and
 forcefill in editable mode, and verifies each piece by importing it. The full environment is
 large (~5 GB).

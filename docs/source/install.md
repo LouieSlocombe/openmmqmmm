@@ -4,7 +4,7 @@
 
 - Linux or macOS, Python ≥ 3.10.
 - Every Python dependency is required — there are no feature-gated extras. `pip install .`
-  pulls the full set: ASE, OpenMM 8.6.1, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd,
+  pulls the full set: ASE, OpenMM 8.6, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd,
   multiprocess, numpy, scipy and packaging.
 - [ORCA](https://www.faccts.de/orca/), installed separately (free for academic use). It is
   needed for {class}`~openmmqmmm.ORCATheory` and therefore for QM/MM, but not for the

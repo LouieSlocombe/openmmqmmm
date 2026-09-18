@@ -69,8 +69,8 @@ cd "${WORK_DIR}"
 build_plumed "${WORK_DIR}"
 build_py_plumed "${WORK_DIR}"
 
-# --no-deps matters more here than in the conda route: pyproject.toml pins
-# openmm == 8.6.1, which a master build does not report. Letting pip resolve dependencies
+# --no-deps matters more here than in the conda route: pyproject.toml requires
+# openmm >=8.6,<8.7, which a master build does not report. Letting pip resolve dependencies
 # could replace that source build. environment_custom.yml is the authority on dependencies.
 echo "=== Installing openmmqmmm (editable) ==="
 pip install -e "${REPO_DIR}" --no-deps
