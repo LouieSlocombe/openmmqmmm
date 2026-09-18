@@ -182,7 +182,7 @@ def test_rpmd_prod_rejects_barostat_on_exported_system():
     prepared = openmmnqe.PreparedSystem(export.system)
     force_count = export.system.getNumForces()
 
-    with pytest.raises(ValueError, match="PythonForce"):
+    with pytest.raises(ValueError, match="barostat"):
         openmmnqe.run_openmm_rpmd_prod(
             export.modeller,
             prepared,
