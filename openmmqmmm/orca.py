@@ -8,7 +8,7 @@ import shutil
 import subprocess as sp
 import time
 from collections.abc import Mapping, Sequence
-from typing import Any, TextIO, TypeAlias
+from typing import Any, TextIO
 
 import numpy as np
 
@@ -34,11 +34,11 @@ from openmmqmmm.utils import (
 
 logger = logging.getLogger(__name__)
 
-StrPath: TypeAlias = str | os.PathLike[str]
-Coordinates: TypeAlias = np.ndarray | Sequence[Sequence[float]]
-AtomSpecificBasis: TypeAlias = Mapping[tuple[str, int], Sequence[str]]
-RunLabel: TypeAlias = str | float | tuple[object, ...]
-ORCARunResult: TypeAlias = float | tuple[float, np.ndarray] | tuple[float, np.ndarray, np.ndarray]
+type StrPath = str | os.PathLike[str]
+type Coordinates = np.ndarray | Sequence[Sequence[float]]
+type AtomSpecificBasis = Mapping[tuple[str, int], Sequence[str]]
+type RunLabel = str | float | tuple[object, ...]
+type ORCARunResult = float | tuple[float, np.ndarray] | tuple[float, np.ndarray, np.ndarray]
 
 
 class ORCATheory:

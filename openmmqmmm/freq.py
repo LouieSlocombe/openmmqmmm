@@ -16,7 +16,7 @@ from contextvars import ContextVar
 from numbers import Integral
 from os import PathLike
 from pathlib import Path
-from typing import Any, ParamSpec, TypeAlias, TypeVar
+from typing import Any
 from uuid import uuid4
 
 import numpy as np
@@ -32,9 +32,7 @@ from openmmqmmm.utils import clean_number, listdiff, log_time_since, main_header
 
 logger = logging.getLogger(__name__)
 
-Displacement: TypeAlias = tuple[int, int, str] | str
-_P = ParamSpec("_P")
-_R = TypeVar("_R")
+type Displacement = tuple[int, int, str] | str
 
 _NUMFREQ_DIRECTORY = "Numfreq_dir"
 _NUMFREQ_MARKER = ".openmmqmmm-managed"
@@ -69,11 +67,11 @@ def _release_numfreq_lock(parent: Path, owner: str) -> None:
         _NUMFREQ_LOCK_HANDLE.set(None)
 
 
-def _restore_working_directory(function: Callable[_P, _R]) -> Callable[_P, _R]:
+def _restore_working_directory[**P, R](function: Callable[P, R]) -> Callable[P, R]:
     """Serialize process-local runs and restore their directory and owned lock."""
 
     @functools.wraps(function)
-    def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
         if not _NUMFREQ_PROCESS_LOCK.acquire(blocking=False):
             raise InputError("Another numerical-frequency calculation is already active in this process")
         try:

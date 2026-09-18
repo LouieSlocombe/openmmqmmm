@@ -6,7 +6,7 @@ import re
 import time
 from collections.abc import Iterable, Sequence
 from os import PathLike
-from typing import Any, TypeVar
+from typing import Any
 
 import numpy as np
 
@@ -17,8 +17,6 @@ from openmmqmmm.exceptions import (
 logger = logging.getLogger(__name__)
 timings_logger = logging.getLogger("openmmqmmm.timings")
 
-
-_T = TypeVar("_T")
 
 _HANDLER_MARKER = "_openmmqmmm_handler"
 
@@ -167,7 +165,7 @@ def find_replace_string_in_file(
         f.write(filedata)
 
 
-def listdiff(list1: Iterable[_T], list2: Iterable[_T]) -> list[_T]:
+def listdiff[T](list1: Iterable[T], list2: Iterable[T]) -> list[T]:
     diff = list(set(list1) - set(list2))
     diff.sort()
     return diff
@@ -199,7 +197,7 @@ def isint(s: object) -> bool:
         return False
 
 
-def search_list_of_lists_for_index(i: _T, list_of_lists: Sequence[Sequence[_T]]) -> int | None:
+def search_list_of_lists_for_index[T](i: T, list_of_lists: Sequence[Sequence[T]]) -> int | None:
     return next((c for c, f in enumerate(list_of_lists) if i in f), None)
 
 
@@ -248,5 +246,5 @@ def clean_number(number: Any) -> Any:
     return np.real_if_close(number)
 
 
-def column(matrix: Iterable[Sequence[_T]], i: int) -> list[_T]:
+def column[T](matrix: Iterable[Sequence[T]], i: int) -> list[T]:
     return [row[i] for row in matrix]

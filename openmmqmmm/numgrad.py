@@ -4,7 +4,7 @@ import logging
 import math
 from collections.abc import Sequence
 from numbers import Integral
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
 import numpy as np
 
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # ORCA's step of 0.005 Bohr, in Angstrom: displacements are given in Angstrom here.
 DEFAULT_DISPLACEMENT = 0.005 * openmmqmmm.constants.BOHR_TO_ANG
 
-Displacement: TypeAlias = tuple[int, int, Literal["+", "-"]]
-RunMode: TypeAlias = Literal["serial", "parallel"]
+type Displacement = tuple[int, int, Literal["+", "-"]]
+type RunMode = Literal["serial", "parallel"]
 
 
 def _validate_numcores(numcores: int) -> int:

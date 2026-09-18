@@ -8,7 +8,7 @@ import re
 import shutil
 import subprocess as sp
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-StrPath: TypeAlias = str | os.PathLike[str]
-Label: TypeAlias = StrPath | int | float | tuple[object, ...]
-ParallelBackend: TypeAlias = Literal["multiprocessing", "multiprocess"]
+type StrPath = str | os.PathLike[str]
+type Label = StrPath | int | float | tuple[object, ...]
+type ParallelBackend = Literal["multiprocessing", "multiprocess"]
 
 _UNSAFE_WORKER_LABEL = re.compile(r"[^A-Za-z0-9_-]+")
 

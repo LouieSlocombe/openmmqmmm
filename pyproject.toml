@@ -15,7 +15,7 @@ authors = [
 maintainers = [
     { name = "Louie Slocombe", email = "louie.l.slocombe@gmail.com" },
 ]
-requires-python = ">= 3.10"
+requires-python = ">= 3.12"
 dependencies = [
     # Calculator._directory and numpy.typing.NDArray, respectively.
     "ase >= 3.20.1",
@@ -46,7 +46,7 @@ dependencies = [
 # conda_install.sh compiles PLUMED and OpenMM-PLUMED against OpenMM 8.6 and installs
 # forcefill editable from a checkout next to this repository.
 [project.optional-dependencies]
-# Python 3.10 support; pytest-cov 6 supplies coverage>=7.5 for exclude_also below.
+# pytest-cov 6 supplies coverage>=7.5 for exclude_also below.
 test = ["pytest >= 6.2.5", "pytest-cov >= 6"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts
 # between releases, so a skew lets a locally-clean tree fail the CI format gate.
@@ -94,7 +94,7 @@ exclude_also = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 # Ruff's current defaults, pinned so a future release cannot silently reformat the tree.
 [tool.ruff.format]

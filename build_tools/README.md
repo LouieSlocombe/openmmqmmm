@@ -21,7 +21,7 @@ None of the routes install ORCA — see [Configuring ORCA](#configuring-orca) be
 ## Prerequisites
 
 - A compatible operating system: Linux, macOS, or Windows via WSL.
-- Python 3.10 or higher.
+- Python 3.12 or higher.
 - Conda or Mamba.
 - Git, to clone the PLUMED sources and the editable dependency. The compiler, `cmake` and
   `make` come from the environment; git does not.
@@ -126,8 +126,8 @@ conda activate openmmqmmm
 python -c "import openmm; from openmmml import MLPotential; print(openmm.__version__)"
 ```
 
-The additional environment file pins OpenMM 8.6.1 and OpenMM-ML 1.8. It requires Python
-3.11 or higher; the core package and base environment continue to support Python 3.10.
+The additional environment file pins OpenMM 8.6.1 and OpenMM-ML 1.8. Its Python 3.11
+floor sits below this package's own 3.12 requirement, so the base environment satisfies it.
 Do not add `--prune`: this file only lists the additional ML requirements. Replace
 `-n openmmqmmm` with your environment's name when using another installation route.
 

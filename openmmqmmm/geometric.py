@@ -9,7 +9,7 @@ import threading
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any
 
 import numpy as np
 
@@ -49,11 +49,11 @@ from openmmqmmm.utils import log_time_since, main_header, pygrep2, sub_header
 
 logger = logging.getLogger(__name__)
 
-ConstraintDict: TypeAlias = dict[str, list[Any]]
-ConvergenceCriteria: TypeAlias = dict[str, float]
-HessianOption: TypeAlias = np.ndarray | str | None
-StrPath: TypeAlias = str | os.PathLike[str]
-CalculationResult: TypeAlias = dict[str, float | np.ndarray]
+type ConstraintDict = dict[str, list[Any]]
+type ConvergenceCriteria = dict[str, float]
+type HessianOption = np.ndarray | str | None
+type StrPath = str | os.PathLike[str]
+type CalculationResult = dict[str, float | np.ndarray]
 
 _GEOMETRIC_LOGGING_LOCK = threading.RLock()
 
@@ -522,7 +522,7 @@ class GeometricOptimizer:
             # raises NotADirectoryError on. Absent entries are fine: this is a pre-run tidy.
             try:
                 shutil.rmtree(tmpfile)
-            except FileNotFoundError:  # noqa: PERF203 - a file system call per entry dwarfs the try
+            except FileNotFoundError:
                 pass
             except NotADirectoryError:
                 os.remove(tmpfile)
