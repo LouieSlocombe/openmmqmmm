@@ -8,7 +8,7 @@ from importlib.metadata import version as _package_version
 project = "openmmqmmm"
 # Sphinx accepts this alias for `copyright`, which would shadow the builtin (ruff A001).
 project_copyright = "2026, R. Bjornsson and Louie Slocombe"
-author = "R. Bjornsson, Louie Slocombe"
+author = "Louie Slocombe"
 
 # Single-sourced from the installed package's metadata; pyproject.toml owns the number.
 release = _package_version("openmmqmmm")

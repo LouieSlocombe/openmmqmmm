@@ -10,9 +10,6 @@ readme = "README.md"
 license = "GPL-2.0-or-later"
 license-files = ["LICENSE"]
 authors = [
-    { name = "R. Bjornsson", email = "ragnar.bjornsson@gmail.com" },
-]
-maintainers = [
     { name = "Louie Slocombe", email = "louie.l.slocombe@gmail.com" },
 ]
 requires-python = ">= 3.12"
