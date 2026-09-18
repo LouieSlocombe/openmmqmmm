@@ -7,7 +7,7 @@ name = "openmmqmmm"
 version = "1.0.0"
 description = "ORCA + OpenMM QM/MM for biomolecular calculations (derived from ASH)"
 readme = "README.md"
-license = "MIT"
+license = "GPL-2.0-or-later"
 license-files = ["LICENSE"]
 authors = [
     { name = "R. Bjornsson", email = "ragnar.bjornsson@gmail.com" },
@@ -16,6 +16,27 @@ maintainers = [
     { name = "Louie Slocombe", email = "louie.l.slocombe@gmail.com" },
 ]
 requires-python = ">= 3.12"
+keywords = [
+    "QM/MM",
+    "computational chemistry",
+    "quantum chemistry",
+    "molecular dynamics",
+    "ORCA",
+    "OpenMM",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Typing :: Typed",
+]
 dependencies = [
     # Calculator._directory and numpy.typing.NDArray, respectively.
     "ase >= 3.20.1",
@@ -46,8 +67,9 @@ dependencies = [
 # conda_install.sh compiles PLUMED and OpenMM-PLUMED against OpenMM 8.6 and installs
 # forcefill editable from a checkout next to this repository.
 [project.optional-dependencies]
-# pytest-cov 6 supplies coverage>=7.5 for exclude_also below.
-test = ["pytest >= 6.2.5", "pytest-cov >= 6"]
+# pytest-cov 6 supplies coverage>=7.5 for exclude_also below; pytest 8.3 is the first
+# release that runs on the 3.13 leg of the CI matrix.
+test = ["pytest >= 8.3", "pytest-cov >= 6"]
 # Pin must match .pre-commit-config.yaml and ci.yml: ruff's formatter output shifts
 # between releases, so a skew lets a locally-clean tree fail the CI format gate.
 # pre-commit-hooks v5.0.0 requires pre-commit 3.2.0.

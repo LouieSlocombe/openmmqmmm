@@ -49,15 +49,16 @@ its signatures into your code. The docstrings are one-line summaries by design; 
 annotation is where a parameter's type is stated, which is why the API reference keeps
 annotations in the signature.
 
-## Version history
+## Changes from ASH
 
-Two releases broke the API.
+Version 1.0 is the first release, and it is not a drop-in replacement for
+[ASH](https://github.com/RagnarB83/ash).
 
-**Version 1.0** renamed it: snake_case job functions, no import-time side effects, `logging`
+The API was renamed: snake_case job functions, no import-time side effects, `logging`
 instead of `print`, exceptions instead of process exit, and no `~/ash_user_settings.ini`. The
 naming described above dates from here. ASH drop-in compatibility was abandoned deliberately.
 
-**Version 2.0** removed the in-house ligand parameterization —
+The in-house ligand parameterization was also removed —
 `small_molecule_parameterizer`, `write_xmlfile_parmed`,
 `create_sys_and_check_14_scaling_nonbonding` and `calc_nonbonding_energy_exceptions` — in
 favour of [forcefill](https://github.com/LouieSlocombe/forcefill). See

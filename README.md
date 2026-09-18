@@ -18,9 +18,9 @@ ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
 setup helpers `openmm_modeller`, `openmm_minimize`, `openmm_box_equilibration`,
 `gentle_warmup_md`, `openmm_md_plumed` and `solvate_small_molecule`.
 
-> **Compatibility note:** two releases broke the API. Version 1.0 renamed it (snake_case
-> functions, no import-time side effects, logging instead of print). Version 2.0 removed the
-> in-house ligand parameterization in favour of
+> **Coming from ASH?** This is not a drop-in replacement. The API was renamed (snake_case
+> functions, no import-time side effects, logging instead of print), and the in-house ligand
+> parameterization was replaced by
 > [forcefill](https://github.com/LouieSlocombe/forcefill). Both are described under
 > [Conventions](https://openmmqmmm.readthedocs.io/en/latest/conventions.html).
 
@@ -38,8 +38,18 @@ large (~5 GB).
 
 For OpenMM-ML 1.8 alongside OpenMM 8.6.1, add the optional ML dependencies with
 `conda env update -n openmmqmmm -f build_tools/environment_ml.yml` after the base install.
-This option requires Python 3.11 or higher; model backends and weights are installed
-separately. See the installation guide for details.
+OpenMM-ML's own floor is Python 3.11, below this package's 3.12 requirement; model backends
+and weights are installed separately. See the installation guide for details.
+
+Python 3.12 or newer is required. For a pip-only install from a checkout, every runtime
+dependency resolves from PyPI, but forcefill and PLUMED are left out, so
+`openmm_modeller(parameterize_nonstandard=True)` and `openmm_md_plumed` are unavailable:
+
+```sh
+git clone https://github.com/LouieSlocombe/openmmqmmm.git
+cd openmmqmmm
+pip install .
+```
 
 [ORCA](https://www.faccts.de/orca/) is installed separately (free for academic use) and found
 through the `orcadir` argument, the `OPENMMQMMM_ORCADIR` environment variable, or `PATH` — in
@@ -114,3 +124,8 @@ coverage, linting, building the documentation and building the package.
 This package is derived from ASH. If it is useful in your research please cite:
 [ASH: a Multi-scale, Multi-theory Modeling program](https://onlinelibrary.wiley.com/doi/10.1002/jcc.70359),
 R. Bjornsson, *J. Comput. Chem* **2026**, 47, e70359.
+
+## License
+
+GNU General Public License v2.0 or later, inherited from
+[ASH](https://github.com/RagnarB83/ash). See [LICENSE](LICENSE).
