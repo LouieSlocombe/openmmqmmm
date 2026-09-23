@@ -5,6 +5,7 @@ import pytest
 
 from openmmqmmm import Fragment, QMMMTheory
 from openmmqmmm.constants import ANG_TO_BOHR
+from openmmqmmm.exceptions import InputError
 from openmmqmmm.qmmm import _linkatom_force_adv, _linkatom_force_chainrule
 
 
@@ -148,12 +149,8 @@ def test_truncated_full_refresh_includes_cap_and_virtual_charge_gradients(placem
     assert np.sum(gradient, axis=0) == pytest.approx(np.zeros(3), abs=1.0e-14)
 
 
-def test_truncated_cached_correction_retains_cap_gradient():
+def test_truncated_cached_correction_rejects_cap_gradient():
     theory, fragment = _boundary_theory(truncated_pc=True, truncated_pc_radius=0.1, truncated_pc_recalc_iter=50)
-    energy, gradient = theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
-    gradient = gradient.copy()
-    cached_energy, cached_gradient = theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
-
-    assert theory.truncated_pc_recalc_flag is False
-    assert cached_energy == pytest.approx(energy, abs=1.0e-14)
-    assert cached_gradient == pytest.approx(gradient, abs=1.0e-14)
+    with pytest.raises(InputError, match="truncated_pc_recalc_iter=1"):
+        theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
+    assert theory.runcalls == 0

@@ -154,6 +154,8 @@ ignore = [
 # Tests and the runnable examples may print.
 "tests/*" = ["T20", "ANN"]
 "examples/*" = ["T20", "ANN"]
+# Historical audit probes are runnable diagnostics, like tests and examples.
+"docs/audits/embedding-repros/*" = ["T201", "ANN"]
 # __all__ is grouped semantically, not alphabetically
 "openmmqmmm/__init__.py" = ["RUF022"]
 # Mathematical/physics argument notation (A, B, C, T, Qcoord, Lgrad, ...)

@@ -1181,7 +1181,13 @@ class OpenMMTheory:
 
     # This removes interactions between particles in a region (e.g. QM-QM or frozen-frozen pairs)
     def addexceptions(self, atomlist: Sequence[int]) -> None:
-        """Exclude the listed atoms from all nonbonded interactions with each other."""
+        """Remove direct pair interactions within the listed region.
+
+        Periodic image interactions and analytical dispersion tails retain the
+        underlying MM force's policy. In particular, a periodic all-QM system
+        need not have zero MM energy: exclusions remove primary-cell pairs,
+        not the MM interactions with their periodic replicas.
+        """
         timeA = time.time()
         logger.info("Add exceptions/exclusions. Removing i-j interactions for list: %s atoms", len(atomlist))
 
@@ -1193,16 +1199,26 @@ class OpenMMTheory:
             logger.debug("force: %s", force)
             if isinstance(force, openmm.NonbondedForce):
                 logger.info("Case Nonbondedforce. Adding Exception for ij pair.")
+                excluded_exceptions = set()
                 for idx_i, i in enumerate(atomlist):
                     for j in atomlist[idx_i + 1 :]:
                         logger.debug("i,j: %s and %s", i, j)
-                        force.addException(i, j, 0, 0, 0, replace=True)
+                        exception = force.addException(i, j, 0, 0, 0, replace=True)
+                        excluded_exceptions.add(exception)
+                        if hasattr(self, "_exception_charge_scales"):
+                            self._exception_charge_scales[tuple(sorted((i, j)))] = 0.0
 
                         # NOTE: Case where there is also a CustomNonbonded force present (GROMACS interface).
                         # Then we have to add exclusion there too to avoid this issue: https://github.com/choderalab/perses/issues/357
                         # Basically both nonbonded forces have to have same exclusions (or exception where chargepro=0,
 
                         numexceptions += 1
+                # Offsets are independent of the base parameters. Leaving one
+                # active would restore an interaction that was just excluded.
+                for offset in range(force.getNumExceptionParameterOffsets()):
+                    name, exception, *_parameters = force.getExceptionParameterOffset(offset)
+                    if exception in excluded_exceptions:
+                        force.setExceptionParameterOffset(offset, name, exception, 0, 0, 0)
             elif isinstance(force, openmm.CustomNonbondedForce):
                 # Only applies to system with CustomNonbondedForce: GROMACS-setup, CHARMM-from-XML
                 logger.info("Case CustomNonbondedforce. Adding Exclusion for kl pair.")
@@ -1654,6 +1670,9 @@ class OpenMMTheory:
             log_time_since(timeA, "context: apply constraints")
             timeA = time.time()
 
+        # Supplied virtual-site rows are dependent coordinates. Recompute them
+        # after real-atom positions (and any constraints) have been applied.
+        simulation.context.computeVirtualSites()
         logger.debug("Calling OpenMM getState.")
         if grad is True:
             state = simulation.context.getState(getEnergy=True, getForces=True)
@@ -1662,6 +1681,12 @@ class OpenMMTheory:
                 / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
             )
             self.gradient = np.array(state.getForces(asNumpy=True) / factor)
+            # OpenMM has already transferred site forces to their parent atoms.
+            # The remaining site rows are not derivatives with respect to the
+            # independent input coordinates and must not be counted again.
+            for atom in range(self.system.getNumParticles()):
+                if self.system.isVirtualSite(atom):
+                    self.gradient[atom] = 0.0
         else:
             state = simulation.context.getState(getEnergy=True, getForces=False)
             self.energy = (
@@ -1710,6 +1735,8 @@ class OpenMMTheory:
                     if p1 in selected or p2 in selected:
                         force.setExceptionParameters(exc, p1, p2, 0, sigmaij, epsilonij)
                         selected_exceptions.add(exc)
+                        if hasattr(self, "_exception_charge_scales"):
+                            self._exception_charge_scales[tuple(sorted((p1, p2)))] = 0.0
                 for offset in range(force.getNumExceptionParameterOffsets()):
                     name, exc, _charge, sigma, epsilon = force.getExceptionParameterOffset(offset)
                     if exc in selected_exceptions:
@@ -1849,22 +1876,79 @@ class OpenMMTheory:
         logger.debug("done here")
         log_time_since(timeA, "update_LJ_epsilons")
 
-    # Taking list of atom-indices and list of charges (usually zero) and setting new charge
-    # Note: Exceptions also needs to be dealt with (see delete_exceptions)
     def update_charges(self, atomlist: Sequence[int], atomcharges: Sequence[float]) -> None:
-        """Set new partial charges for selected atoms."""
+        """Assign fixed charges and preserve known Coulomb exception scaling.
+
+        Existing zero-product exceptions are exclusions unless a previous call
+        established their scaling before a particle charge crossed zero. A
+        nonzero exception with zero endpoint charge product has no inferable
+        scaling; it can be suppressed by assigning a zero charge, but cannot be
+        rescaled to nonzero charges. Independent exception charge offsets also
+        require an explicit fixed-charge model before a nonzero reassignment.
+        """
         timeA = time.time()
         logger.info("Updating charges in OpenMM object.")
         if len(atomlist) != len(atomcharges):
             raise InternalError("atomlist and atomcharges size mismatch")
+        selected = set(atomlist)
+        exception_updates = []
+        exception_offset_updates = []
+        new_scales = {}
         # A fixed charge assignment must also remove any alchemical/global charge
         # offsets, which OpenMM adds independently to the base particle charge.
         if isinstance(self.nonbonded_force, openmm.NonbondedForce):
-            selected = set(atomlist)
+            force = self.nonbonded_force
+            old_charges = [
+                force.getParticleParameters(index)[0].value_in_unit(openmm.unit.elementary_charge)
+                for index in range(force.getNumParticles())
+            ]
+            new_charges = old_charges.copy()
+            for index, charge in zip(atomlist, atomcharges, strict=True):
+                new_charges[index] = charge
+            scales = getattr(self, "_exception_charge_scales", {})
+            charge_offset_exceptions = set()
+            for offset in range(force.getNumExceptionParameterOffsets()):
+                name, exception, charge, sigma, epsilon = force.getExceptionParameterOffset(offset)
+                p1, p2, *_parameters = force.getExceptionParameters(exception)
+                if p1 in selected or p2 in selected:
+                    exception_offset_updates.append((offset, name, exception, sigma, epsilon))
+                    if charge != 0:
+                        charge_offset_exceptions.add(exception)
+            for exception in range(force.getNumExceptions()):
+                p1, p2, chargeprod, sigma, epsilon = force.getExceptionParameters(exception)
+                if p1 not in selected and p2 not in selected:
+                    continue
+                old_product = old_charges[p1] * old_charges[p2]
+                new_product = new_charges[p1] * new_charges[p2]
+                product = chargeprod.value_in_unit(openmm.unit.elementary_charge**2)
+                key = tuple(sorted((p1, p2)))
+                if old_product != 0:
+                    scale = product / old_product
+                elif product != 0:
+                    scale = None
+                else:
+                    scale = scales.get(key, 0.0)
+                if new_product != 0 and (scale is None or exception in charge_offset_exceptions):
+                    raise InputError(
+                        f"Cannot infer fixed-charge Coulomb scaling for exception {exception} ({p1}, {p2}). "
+                        "A nonzero custom product with zero endpoint charges, or independent charge parameter "
+                        "offsets, requires an explicit fixed-charge exception model before updating charges."
+                    )
+                new_scales[key] = scale
+                new_product = 0.0 if new_product == 0 else scale * new_product
+                exception_updates.append((exception, p1, p2, new_product, sigma, epsilon))
+
+            # Validate every affected exception before mutating any force or
+            # cached charge. An unsupported custom model must fail atomically.
             for offset in range(self.nonbonded_force.getNumParticleParameterOffsets()):
                 name, particle, _charge, sigma, epsilon = self.nonbonded_force.getParticleParameterOffset(offset)
                 if particle in selected:
                     self.nonbonded_force.setParticleParameterOffset(offset, name, particle, 0, sigma, epsilon)
+            for exception, p1, p2, product, sigma, epsilon in exception_updates:
+                force.setExceptionParameters(exception, p1, p2, product, sigma, epsilon)
+            for offset, name, exception, sigma, epsilon in exception_offset_updates:
+                force.setExceptionParameterOffset(offset, name, exception, 0, sigma, epsilon)
+            self._exception_charge_scales = {**scales, **new_scales}
         for atomindex, newcharge in zip(atomlist, atomcharges, strict=False):
             self.charges[atomindex] = newcharge
             _oldcharge, sigma, epsilon = self.nonbonded_force.getParticleParameters(atomindex)
@@ -1900,8 +1984,9 @@ class OpenMMTheory:
         numcustomtorsionterms_removed = 0
         numcmaptorsionterms_removed = 0
         numcustombondterms_removed = 0
+        replacement_torsion_forces = []
 
-        for force in self.system.getForces():
+        for force_index, force in enumerate(self.system.getForces()):
             if isinstance(force, openmm.HarmonicBondForce):
                 logger.debug("HarmonicBonded force")
                 logger.debug("There are %s HarmonicBond terms defined", force.getNumBonds())
@@ -1974,21 +2059,32 @@ class OpenMMTheory:
             elif isinstance(force, openmm.CustomTorsionForce):
                 logger.debug("CustomTorsionForce force")
                 logger.debug("There are %s CustomTorsionForce terms defined", force.getNumTorsions())
+                retained_torsions = []
                 for i in range(force.getNumTorsions()):
                     p1, p2, p3, p4, pars = force.getTorsionParameters(i)
-                    presence = [i in atomlist for i in [p1, p2, p3, p4]]
-                    # Excluding if 3 or 4 QM atoms. i.e. a QM3-QM2-QM1-MM1 or QM4-QM3-QM2-QM1 term
-                    if presence.count(True) >= 3:
-                        logger.debug("Found torsion in QM-region")
-                        logger.debug("presence.count(True): %s", presence.count(True))
-                        logger.debug("exclude True")
-                        logger.debug("atomlist: %s", atomlist)
-                        logger.debug("i: %s", i)
-                        logger.debug("Before p1: %s p2: %s p3: %s p4: %s pars %s", p1, p2, p3, p4, pars)
-                        force.setTorsionParameters(i, p1, p2, p3, p4, (0.0, 0.0))
+                    if sum(p in atomlist for p in (p1, p2, p3, p4)) >= 3:
                         numcustomtorsionterms_removed += 1
-                        p1, p2, p3, p4, pars = force.getTorsionParameters(i)
-                        logger.debug("After p1: %s p2: %s p3: %s p4: %s pars %s", p1, p2, p3, p4, pars)
+                    else:
+                        retained_torsions.append((p1, p2, p3, p4, pars))
+                if len(retained_torsions) != force.getNumTorsions():
+                    # No parameter value can universally disable an arbitrary
+                    # custom expression (which may use globals or no parameters).
+                    # Rebuild only this force and omit the selected terms.
+                    replacement = openmm.CustomTorsionForce(force.getEnergyFunction())
+                    for i in range(force.getNumPerTorsionParameters()):
+                        replacement.addPerTorsionParameter(force.getPerTorsionParameterName(i))
+                    for i in range(force.getNumGlobalParameters()):
+                        replacement.addGlobalParameter(
+                            force.getGlobalParameterName(i), force.getGlobalParameterDefaultValue(i)
+                        )
+                    for i in range(force.getNumEnergyParameterDerivatives()):
+                        replacement.addEnergyParameterDerivative(force.getEnergyParameterDerivativeName(i))
+                    replacement.setName(force.getName())
+                    replacement.setForceGroup(force.getForceGroup())
+                    replacement.setUsesPeriodicBoundaryConditions(force.usesPeriodicBoundaryConditions())
+                    for torsion in retained_torsions:
+                        replacement.addTorsion(*torsion)
+                    replacement_torsion_forces.append((force_index, replacement))
             elif isinstance(force, openmm.CMAPTorsionForce):
                 logger.debug("CMAPTorsionForce force")
                 logger.debug("There are %s CMAP terms defined", force.getNumTorsions())
@@ -2016,6 +2112,17 @@ class OpenMMTheory:
                         force.setBondParameters(i, p1, p2, [0.0 for _ in params])
                         numcustombondterms_removed += 1
                         p1, p2, params = force.getBondParameters(i)
+
+        # System has no replaceForce operation. Remove in reverse index order;
+        # explicit force groups and every custom-force setting remain unchanged.
+        for force_index, _replacement in reversed(replacement_torsion_forces):
+            self.system.removeForce(force_index)
+        for _force_index, replacement in replacement_torsion_forces:
+            self.system.addForce(replacement)
+        if replacement_torsion_forces and hasattr(self, "forcegroups"):
+            # The old map contains wrappers for the deleted C++ forces.
+            # Refresh references without renumbering any explicit force group.
+            self.forcegroups = {force: force.getForceGroup() for force in self.system.getForces()}
 
         logger.info("\nNumber of bonded terms removed:")
         logger.info("Harmonic Bond terms: %s", numharmbondterms_removed)

@@ -2174,6 +2174,16 @@ def get_boundary_atoms(
         connatoms = _get_connected_atoms_np(coords, elems, scale, tol, qmatom)
         boundaryatom = listdiff(connatoms, qmatoms)
 
+        for mmatom in boundaryatom:
+            if elems[qmatom] != "C" or elems[mmatom] != "C":
+                logger.warning("QM-MM boundary is not the ideal C-C scenario:")
+                logger.warning(f"QM-MM boundary: {elems[qmatom]}({qmatom}) - {elems[mmatom]}({mmatom})")
+                if unusualboundary is False:
+                    raise InputError(
+                        "Make sure you know what you are doing (note that atoms are counted from 0, not 1). "
+                        "Exiting.\nTo override exit, add: unusualboundary=True  to QMMMTheory object"
+                    )
+
         if len(boundaryatom) > 1:
             logger.error(f"Found more than 1 boundaryatom for QM-atom {qmatom} . This is considered unusual")
             logger.info(
@@ -2187,16 +2197,6 @@ def get_boundary_atoms(
                 logger.info(f"{b} {elems[b]} {coords[b][0]} {coords[b][1]} {coords[b][2]}")
             qm_mm_boundary_dict[qmatom] = boundaryatom
         elif len(boundaryatom) == 1:
-            if elems[qmatom] != "C" or elems[boundaryatom[0]] != "C":
-                logger.warning("QM-MM boundary is not the ideal C-C scenario:")
-                logger.warning(
-                    f"QM-MM boundary: {elems[qmatom]}({qmatom}) - {elems[boundaryatom[0]]}({boundaryatom[0]})"
-                )
-                if unusualboundary is False:
-                    raise InputError(
-                        "Make sure you know what you are doing (note that atoms are counted from 0, not 1). "
-                        "Exiting.\nTo override exit, add: unusualboundary=True  to QMMMTheory object"
-                    )
             qm_mm_boundary_dict[qmatom] = [boundaryatom[0]]
     logger.info("QM-MM boundary dictionary: %s", qm_mm_boundary_dict)
     log_time_since(timeA, "get_boundary_atoms")

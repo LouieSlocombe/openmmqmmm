@@ -1,0 +1,499 @@
+{
+  "checkout": "b4495f8",
+  "date": "2026-09-23",
+  "notes": "Exploratory single-run timings overlapped other tests; not production speedup estimates. No trajectories or NVE drift benchmarked.",
+  "orca_version": "6.1.1",
+  "openmm_version": "8.6.1.dev-b399af4",
+  "lysozyme_fmm": {
+    "runs": [
+      {
+        "mode": "baseline",
+        "repeat": 0,
+        "wall_s": 12.47276553499978,
+        "energy_Eh": -243.6209471447768,
+        "scf_iterations": "14",
+        "orca_timings": {
+          "total_time": 6.042,
+          "xc_gradient": 0.506,
+          "pc_gradient": 2.9,
+          "one_elec_gradient": 0.023,
+          "rij_coulomb_gradient": 0.14,
+          "time_scfiterations": 1.619,
+          "time_scfgrad": 3.659
+        },
+        "n_pc": 26131,
+        "n_real_atoms": 26131,
+        "n_caps": 1
+      },
+      {
+        "mode": "baseline",
+        "repeat": 1,
+        "wall_s": 10.120166624000376,
+        "energy_Eh": -243.6209471431738,
+        "scf_iterations": "3",
+        "orca_timings": {
+          "total_time": 5.6,
+          "xc_gradient": 0.996,
+          "pc_gradient": 2.7,
+          "one_elec_gradient": 0.035,
+          "rij_coulomb_gradient": 0.323,
+          "time_scfiterations": 0.703,
+          "time_scfgrad": 4.112
+        },
+        "n_pc": 26131,
+        "n_real_atoms": 26131,
+        "n_caps": 1
+      },
+      {
+        "mode": "fmm",
+        "repeat": 0,
+        "wall_s": 12.825614647999828,
+        "energy_Eh": -243.62094630018078,
+        "scf_iterations": "14",
+        "orca_timings": {
+          "total_time": 7.434,
+          "xc_gradient": 0.545,
+          "pc_gradient": 2.5,
+          "one_elec_gradient": 0.021,
+          "rij_coulomb_gradient": 0.121,
+          "time_scfiterations": 2.601,
+          "time_scfgrad": 3.218
+        },
+        "n_pc": 26131,
+        "n_real_atoms": 26131,
+        "n_caps": 1
+      },
+      {
+        "mode": "fmm",
+        "repeat": 1,
+        "wall_s": 11.45518054599961,
+        "energy_Eh": -243.6209462985778,
+        "scf_iterations": "3",
+        "orca_timings": {
+          "total_time": 5.199,
+          "xc_gradient": 0.551,
+          "pc_gradient": 2.4,
+          "one_elec_gradient": 0.027,
+          "rij_coulomb_gradient": 0.193,
+          "time_scfiterations": 0.759,
+          "time_scfgrad": 3.189
+        },
+        "n_pc": 26131,
+        "n_real_atoms": 26131,
+        "n_caps": 1
+      }
+    ],
+    "comparison": {
+      "fmm_minus_baseline_energy_Eh": 8.445960020253551e-07,
+      "energy_kcal_mol": 0.0005299919930265564,
+      "force_component_rms_Eh_bohr": 3.174534924476144e-08,
+      "force_component_max_abs_Eh_bohr": 2.519412936052845e-06,
+      "qm_force_component_max_abs_Eh_bohr": 1.6062588635568087e-07
+    }
+  },
+  "methanol_water_ri": [
+    {
+      "method": "nori",
+      "stage": "cold",
+      "wall_seconds": 2.2178492829998504,
+      "iterations": "11",
+      "energy": -115.495033230176,
+      "gradient": [
+        [
+          0.005477211148,
+          -0.000360410993,
+          0.001152401392
+        ],
+        [
+          -0.0016345786,
+          -0.000410773486,
+          -0.000872198674
+        ],
+        [
+          -0.009290585456,
+          -0.002142862341,
+          -2.24623e-07
+        ],
+        [
+          -0.000314508509,
+          -0.001334572255,
+          -0.016016226126
+        ],
+        [
+          -0.002047810635,
+          0.006369544973,
+          0.007994626098
+        ],
+        [
+          0.009839462148,
+          -0.003630564075,
+          0.004820775885
+        ],
+        [
+          -0.005460567688,
+          -0.008340258481,
+          0.006097583187
+        ],
+        [
+          0.001911944661,
+          0.017766903794,
+          -0.000372334379
+        ],
+        [
+          0.001519432931,
+          -0.007917007136,
+          -0.002804402762
+        ]
+      ],
+      "timings": {
+        "total_time": 2.121,
+        "xc_gradient": 0.295,
+        "pc_gradient": 0.1,
+        "one_elec_gradient": 0.015,
+        "time_scfiterations": 1.33,
+        "time_scfgrad": 0.6
+      }
+    },
+    {
+      "method": "nori",
+      "stage": "warm_same",
+      "wall_seconds": 1.3329278950004664,
+      "iterations": "3",
+      "energy": -115.495033230931,
+      "gradient": [
+        [
+          0.005477200912,
+          -0.000360296454,
+          0.001152261906
+        ],
+        [
+          -0.001634573741,
+          -0.000410814905,
+          -0.000872165987
+        ],
+        [
+          -0.009290432351,
+          -0.002142928957,
+          2.3056e-08
+        ],
+        [
+          -0.000314717985,
+          -0.001333432411,
+          -0.016019858721
+        ],
+        [
+          -0.002047762426,
+          0.006369278326,
+          0.007993976841
+        ],
+        [
+          0.009838974307,
+          -0.003630544895,
+          0.004820844356
+        ],
+        [
+          -0.005460352254,
+          -0.00834007817,
+          0.006097594328
+        ],
+        [
+          0.001911911614,
+          0.01776682446,
+          -0.000366515622
+        ],
+        [
+          0.001519751923,
+          -0.007918006994,
+          -0.002806160161
+        ]
+      ],
+      "timings": {
+        "total_time": 1.241,
+        "xc_gradient": 0.233,
+        "pc_gradient": 0.0,
+        "one_elec_gradient": 0.006,
+        "time_scfiterations": 0.575,
+        "time_scfgrad": 0.426
+      }
+    },
+    {
+      "method": "nori",
+      "stage": "warm_displaced",
+      "wall_seconds": 2.2651875980000113,
+      "iterations": "8",
+      "energy": -115.494484253742,
+      "gradient": [
+        [
+          0.005670070931,
+          -0.000195932157,
+          0.001077069155
+        ],
+        [
+          -0.001630411679,
+          -0.000405114605,
+          -0.000864725942
+        ],
+        [
+          -0.009211753507,
+          -0.002105626851,
+          2.6859807e-05
+        ],
+        [
+          0.001381268429,
+          -0.000632792947,
+          -0.011395705027
+        ],
+        [
+          -0.003757590195,
+          0.005281822016,
+          0.000677827244
+        ],
+        [
+          0.010071989344,
+          -0.005163133084,
+          0.003427776055
+        ],
+        [
+          -0.005317679752,
+          -0.008427388529,
+          0.005940339721
+        ],
+        [
+          0.001166809282,
+          0.019646006538,
+          0.003268341777
+        ],
+        [
+          0.001627297146,
+          -0.00799784038,
+          -0.002157782793
+        ]
+      ],
+      "timings": {
+        "total_time": 2.184,
+        "xc_gradient": 0.683,
+        "pc_gradient": 0.1,
+        "one_elec_gradient": 0.015,
+        "time_scfiterations": 0.867,
+        "time_scfgrad": 1.114
+      }
+    },
+    {
+      "method": "ri",
+      "stage": "cold",
+      "wall_seconds": 1.998161483000331,
+      "iterations": "11",
+      "energy": -115.495182376679,
+      "gradient": [
+        [
+          0.005477153611,
+          -0.000360605329,
+          0.0011522384
+        ],
+        [
+          -0.001634568863,
+          -0.000410733208,
+          -0.000872118259
+        ],
+        [
+          -0.009291172859,
+          -0.002142879504,
+          3.5336e-08
+        ],
+        [
+          -0.000330163471,
+          -0.001297402627,
+          -0.016020778275
+        ],
+        [
+          -0.00204704831,
+          0.006363174627,
+          0.008004327342
+        ],
+        [
+          0.009843705626,
+          -0.003633739226,
+          0.004823559807
+        ],
+        [
+          -0.005457989815,
+          -0.008348032914,
+          0.006099783942
+        ],
+        [
+          0.001936746601,
+          0.017721300097,
+          -0.0003803284
+        ],
+        [
+          0.00150333748,
+          -0.007891081916,
+          -0.002806719897
+        ]
+      ],
+      "timings": {
+        "total_time": 1.889,
+        "xc_gradient": 0.311,
+        "pc_gradient": 0.0,
+        "one_elec_gradient": 0.006,
+        "rij_coulomb_gradient": 0.067,
+        "time_scfiterations": 1.074,
+        "time_scfgrad": 0.485
+      }
+    },
+    {
+      "method": "ri",
+      "stage": "warm_same",
+      "wall_seconds": 1.2112461590004386,
+      "iterations": "3",
+      "energy": -115.49518237746,
+      "gradient": [
+        [
+          0.005477136887,
+          -0.000360487514,
+          0.001152095814
+        ],
+        [
+          -0.001634561786,
+          -0.00041077487,
+          -0.000872084513
+        ],
+        [
+          -0.009291009575,
+          -0.002142945801,
+          2.86742e-07
+        ],
+        [
+          -0.000330387504,
+          -0.001296221967,
+          -0.016024560923
+        ],
+        [
+          -0.002047010103,
+          0.006362947058,
+          0.008003710619
+        ],
+        [
+          0.009843256417,
+          -0.003633739563,
+          0.004823638264
+        ],
+        [
+          -0.005457796128,
+          -0.008347891774,
+          0.006099808104
+        ],
+        [
+          0.001936702788,
+          0.017721234976,
+          -0.000374351809
+        ],
+        [
+          0.001503669004,
+          -0.007892120545,
+          -0.002808542302
+        ]
+      ],
+      "timings": {
+        "total_time": 1.103,
+        "xc_gradient": 0.417,
+        "pc_gradient": 0.1,
+        "one_elec_gradient": 0.006,
+        "rij_coulomb_gradient": 0.07,
+        "time_scfiterations": 0.314,
+        "time_scfgrad": 0.588
+      }
+    },
+    {
+      "method": "ri",
+      "stage": "warm_displaced",
+      "wall_seconds": 1.6261630629996944,
+      "iterations": "8",
+      "energy": -115.494634479548,
+      "gradient": [
+        [
+          0.005669974052,
+          -0.000196145763,
+          0.001076875104
+        ],
+        [
+          -0.001630388917,
+          -0.00040506638,
+          -0.000864625333
+        ],
+        [
+          -0.009212264802,
+          -0.002105593659,
+          2.7117622e-05
+        ],
+        [
+          0.001365138674,
+          -0.000596127851,
+          -0.011401734114
+        ],
+        [
+          -0.003756140865,
+          0.005276275384,
+          0.000688824002
+        ],
+        [
+          0.010076811938,
+          -0.005166132743,
+          0.003430623351
+        ],
+        [
+          -0.005315731536,
+          -0.008434717842,
+          0.005942822712
+        ],
+        [
+          0.001190113287,
+          0.019598776939,
+          0.003261493233
+        ],
+        [
+          0.001612488168,
+          -0.007971268085,
+          -0.002161396581
+        ]
+      ],
+      "timings": {
+        "total_time": 1.548,
+        "xc_gradient": 0.364,
+        "pc_gradient": 0.1,
+        "one_elec_gradient": 0.015,
+        "rij_coulomb_gradient": 0.134,
+        "time_scfiterations": 0.735,
+        "time_scfgrad": 0.627
+      }
+    }
+  ],
+  "selected_tests": {
+    "passed": 174,
+    "wall_seconds": 282.01
+  },
+  "context_reuse_experiment": {
+    "atoms": 26131,
+    "geometries": 12,
+    "platform": "CPU",
+    "threads": 2,
+    "fresh_seconds": 48.197,
+    "reuse_seconds": 57.896,
+    "max_abs_energy_difference_Eh": 4.99e-06,
+    "max_abs_gradient_component_difference_Eh_bohr": 1.26e-05,
+    "interpretation": "Concurrent, unreplicated phases; no demonstrated speedup. Standalone path, not MD."
+  },
+  "periodic_image_microbenchmark": {
+    "description": "Synthetic water boxes, fastest of three current-code timings; no optimized implementation benchmarked.",
+    "atoms": [
+      3001,
+      30001,
+      99991
+    ],
+    "seconds": [
+      0.041,
+      0.212,
+      0.325
+    ]
+  }
+}

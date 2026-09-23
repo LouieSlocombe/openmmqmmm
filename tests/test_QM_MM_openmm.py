@@ -146,6 +146,12 @@ def _meoh_water_qmmm(qmatoms, embedding, tag, unusualboundary=False):
         autoconstraints=None,
         rigidwater=False,
     )
+    # This fixture deliberately has a nonbonded-only force-field template and
+    # omits PDB connectivity. Supply the known methanol covalent graph explicitly
+    # so boundary detection can use topology without inventing distance bonds.
+    atoms = list(mm.topology.atoms())
+    for first, second in ((3, 4), (3, 5), (3, 6), (3, 7), (7, 8)):
+        mm.topology.addBond(atoms[first], atoms[second])
     qmmm = QMMMTheory(
         fragment=fragment,
         qm_theory=qm,

@@ -21,9 +21,10 @@ the QM potential and its gradient at the current coordinates. OpenMM can request
 for integration, pressure trials, and reporting, so there may be several QM calculations
 per step. Repeated requests at identical coordinates and box vectors reuse cached results.
 
-QM/MM dynamics reject `truncated_pc=True` and `update_qm_region_charges=True`: both make the
-potential depend on earlier evaluations and are incompatible with these callback and cache
-semantics. Use a fixed charge model and the full point-charge field for dynamics.
+QM/MM dynamics reject `truncated_pc=True` and `update_qm_region_charges=True`. Cached
+truncation corrections depend on evaluation history. Updating population charges changes
+the shared MM force field and lacks the charge-response derivatives required for consistent
+forces. Use a fixed charge model and the full point-charge field for dynamics.
 
 ## Integrators and temperature
 

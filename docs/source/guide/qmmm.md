@@ -52,12 +52,22 @@ mechanical embedding, where the two regions interact only through the MM force f
 Polarizable Drude embedding (`"polembed_drude"`) is not implemented and raises an error.
 
 Electrostatic embedding removes MM charges and Coulomb exception charge products involving
-QM atoms; QM–MM Lennard-Jones interactions remain. MM terms wholly inside the QM region are
-removed, including CMAP and RB torsions. At a covalent boundary, the existing force-field
-policy removes angles with at least two QM atoms and ordinary/RB torsions with at least
+QM atoms; QM–MM Lennard-Jones interactions remain. Internal QM bonded terms and direct
+QM–QM nonbonded pairs are removed, including their nonbonded parameter offsets. Periodic
+MM image and tail contributions follow the policy described below. At a covalent boundary,
+the force-field policy removes angles with at least two QM atoms and ordinary, custom,
+and RB torsions with at least
 three. A CMAP spanning the boundary remains in MM; a CMAP whose unique atoms are all QM is
 removed. Crossing bond terms remain unless `delete_qm1_mm1_bonded=True` was set on the MM
 theory.
+
+Native OpenMM virtual charge sites and all their hosts must remain in the MM region.
+Standalone calculations recompute the sites from their hosts before evaluating the QM
+field and return forces on the independent host coordinates, with zero virtual-site rows.
+The native OpenMM callback performs its own force redistribution during dynamics. Two- and
+three-particle average, out-of-plane, and local-coordinate sites are supported. A QM region
+containing a native site or any of its hosts is rejected because a charge-conserving
+partition of those dependencies is not defined.
 
 ## Periodic embedding
 
@@ -81,11 +91,23 @@ introduce discontinuities in the finite QM field. Check cell-size convergence an
 conservation for the intended calculation; image consistency alone does not establish
 periodic electrostatic accuracy. `embedding="pbcmm-elstat"` remains unsupported.
 
+QM–QM nonbonded exclusions remove direct pairs in the primary cell. The configured MM
+periodic image interactions and dispersion-tail corrections remain. Thus an entirely QM
+periodic system can still have MM energy, forces, and pressure contributions: mechanical
+embedding retains periodic Coulomb image terms, and either embedding can retain LJ image
+or tail terms. This is the defined finite-QM/periodic-MM model. Converge cell size and
+long-range MM settings as well as the finite QM charge field.
+
 ## The QM/MM boundary
 
 A boundary cutting through a covalent bond is capped with a link atom. The QM calculation
 sees a QM–H bond where the real system has a QM–MM bond, and the charge of the MM host atom
 is redistributed so the cap does not sit on top of a full point charge.
+
+OpenMM's covalent topology determines both the boundary and the charge-redistribution
+neighbours for periodic and nonperiodic systems. Distance inference is used only when no
+topology is available. A stretched bond or close nonbonded contact therefore does not
+change a topology-defined cut.
 
 `linkatom_method`
 : `"simple"` (default) places the link atom at a fixed distance along the broken bond, set by
@@ -107,7 +129,9 @@ is redistributed so the cap does not sit on top of a full point charge.
 `chargeboundary_method`
 : `"shift"` (default) moves the host charge onto its neighbours, with `dipole_correction`
   restoring the dipole those shifts would otherwise change. `"rcd"` is the redistributed
-  charge and dipole scheme.
+  charge and dipole scheme. Other capped boundary hosts cannot receive redistributed
+  charge. An electrostatic partition without a non-boundary MM neighbour is rejected;
+  expand the QM region or choose a different cut.
 
 `excludeboundaryatomlist` and `unusualboundary`
 : Escape hatches for boundaries the automatic detection declines to cut — an unusual bond
@@ -124,16 +148,34 @@ that is a lot of charges:
 
 `truncated_pc=True`
 : Uses only the charges within `truncated_pc_radius` (55 Å by default) for most steps,
-  recomputing the full set every `truncated_pc_recalc_iter` calls. At a full-field gradient
-  refresh, the correction restores every QM gradient, including cap gradients before their
-  projection, and every point-charge gradient. Between refreshes, the stored energy and
-  gradient corrections remain an approximation; check its effect on your system before
-  relying on it. Classical and ring-polymer QM/MM dynamics reject `truncated_pc` because
-  these cached corrections depend on evaluation history ({doc}`dynamics`, {doc}`rpmd`).
+  recomputing the full set every `truncated_pc_recalc_iter` calls. Cached corrections are
+  an energy-only, history-dependent approximation. Gradient evaluations, optimization,
+  and numerical frequencies require `truncated_pc_recalc_iter=1`, or `truncated_pc=False`:
+  independently cached energy and gradient corrections are not consistent derivatives.
+  With interval 1, every evaluation restores the full-field energy and all QM, cap, and
+  point-charge gradients. This mode provides no truncation speedup. The radius must be
+  finite and positive, and the refresh interval a positive integer. Classical and
+  ring-polymer QM/MM dynamics reject `truncated_pc` ({doc}`dynamics`, {doc}`rpmd`).
 
 `charges=`
 : Supply the MM charges yourself instead of taking them from the MM theory.
   {func}`~openmmqmmm.read_charges_from_psf` reads them from a CHARMM PSF file.
+
+`update_qm_region_charges=True`
+: For uncapped mechanical embedding, recompute the QM population charges for each
+  energy-only evaluation. ORCA uses Mulliken populations regardless of population logging.
+  Other backends must implement `get_atomic_charges()` or initialize a legacy `charges`
+  attribute. Charges must be finite, match the QM atom count and order, and preserve the
+  specified QM-region charge within output rounding. Gradients, optimization, frequencies,
+  and dynamics reject this option because population-charge response derivatives are not
+  implemented. Capped regions are rejected until a conserving map of cap populations is
+  defined. Use fixed charges for these workflows.
+
+Fixed charge assignment preserves known Coulomb exception scaling, including a charge
+passing through zero. Existing zero-product exceptions are treated as exclusions unless
+a previous update established their scaling. An ambiguous nonzero custom exception or
+independent charge offset is rejected before mutation when it cannot be rescaled to the
+new fixed charges. QM–MM Lennard-Jones exception parameters are preserved.
 
 ## The active region
 

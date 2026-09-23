@@ -59,7 +59,8 @@ These are rejected rather than silently approximated, because each keeps state t
 across beads and cannot represent all of them at once:
 
 - `truncated_pc` — its point-charge correction history is one shared set.
-- `update_qm_region_charges` — likewise one shared MM charge set.
+- `update_qm_region_charges` — one shared MM charge set and missing population-charge
+  response derivatives.
 - `special_wrapping` — use OpenMM's own periodic wrapping through the `PythonForce` state.
 - `dummyatomrestraint`.
 - A barostat. `RPMDIntegrator` and `MonteCarloBarostat` cannot be combined.

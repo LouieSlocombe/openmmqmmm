@@ -110,7 +110,7 @@ def test_rejected_engine_leaves_standalone_qmmm_energy_intact(invalid_option):
         MolecularDynamicsEngine(fragment=fragment, theory=qmmm, integrator="VerletIntegrator", **engine_kwargs)
     assert not qmmm.openmm_externalforce
     assert not qmmm.exit_after_customexternalforce_update
-    result = single_point(fragment=fragment, theory=qmmm, grad=True)
+    result = single_point(fragment=fragment, theory=qmmm, grad=False)
     expected_qm_energy = qm.run(current_coords=fragment.coords)
     expected_mm_energy = 0.5 * 30.0 * (0.1 - 0.07) ** 2 / constants.HARTREE_TO_KJ_PER_MOL
     assert result.energy == pytest.approx(expected_qm_energy + expected_mm_energy, abs=1e-12)

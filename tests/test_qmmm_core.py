@@ -269,6 +269,7 @@ def test_truncated_pc_energy_then_gradient_initializes_both_corrections():
         qm_mult=1,
         truncated_pc=True,
         truncated_pc_radius=1.0,
+        truncated_pc_recalc_iter=1,
     )
     expected_energy = 0.5 * -0.25 * (5.0 * ANG_TO_BOHR) ** 2
 

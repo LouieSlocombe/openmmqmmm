@@ -1,0 +1,68 @@
+QM/MM embedding audit reproduction results
+Recorded: 2026-09-23
+Runtime: Python 3.13.15; OpenMM 8.6.1.dev-b399af4
+Run directory: /tmp (outside the repository)
+All six scripts completed with exit status 0.
+Repeated sandbox startup messages ('Failed to create stream fd: Operation not permitted') omitted below.
+These probes report observed behavior, including known failures; exit status 0 is not a claim that all physics checks passed.
+
+boundary.py
+===========
+adjacent_mm1_shift: {"boundary":{"0":[1],"3":[2]},"recipients":{"1":[2],"2":[1]},"charges":[0.4,0.3,-2.5,2.5,-3.3333333333333335,3.3333333333333335],"positions":[[1.4,0,0],[2.8,0,0],[2.884,0,0],[2.7159999999999997,0,0],[1.3159999999999998,0,0],[1.484,0,0]],"original_dipole":[1.5399999999999998,0,0],"modified_dipole":[1.5399999999999996,0,0]}
+adjacent_mm1_rcd: {"boundary":{"0":[1],"3":[2]},"recipients":{"1":[2],"2":[1]},"charges":[-0.4,-0.3,0.6,0.8],"positions":[[1.4,0,0],[2.8,0,0],[2.0999999999999996,0,0],[2.0999999999999996,0,0]],"original_dipole":[1.5399999999999998,0,0],"modified_dipole":[1.5399999999999996,0,0]}
+isolated_mm1_shift: {"total_charge":0,"original_dipole":[-0.14,-0.42,0],"modified_dipole":[-0.13999999999999968,-0.4200000000000004,0]}
+isolated_mm1_rcd: {"total_charge":0,"original_dipole":[-0.14,-0.42,0],"modified_dipole":[-0.14000000000000024,-0.42,0]}
+nonpolar_guard_1: "InputError"
+nonpolar_guard_2: {"0":[1,2]}
+missed_topology_bond: {"periodic":false,"topology_bonds":[[0,1],[1,2]],"boundary":{},"linkatoms":false}
+invented_topology_bond: {"periodic":false,"topology_bonds":[[1,2]],"boundary":{"0":[1]},"linkatoms":true}
+
+mm.py
+=====
+offsets elstat base [0, 1, 0.0 e**2, 0.0 nm, 0.0 kJ/mol] offset ['lambda', 0, 0.0, 0.3, 1.0] MM energy/force (expected all zero) (-0.5852086544036865, array([[ 6.87754869,  0.        ,  0.        ],
+       [-6.87754869,  0.        ,  0.        ]]))
+offsets mech base [0, 1, 0.0 e**2, 0.0 nm, 0.0 kJ/mol] offset ['lambda', 0, 0.15, 0.3, 1.0] MM energy/force (expected all zero) (51.51558796223956, array([[-123.37444285,    0.        ,    0.        ],
+       [ 123.37444285,    0.        ,    0.        ]]))
+charge_update q 0.8 e exception -0.05 e**2 E -17.366932205547748 expected -69.46772882219099
+custom_torsion OpenMMException CustomTorsionForce: Wrong number of parameters for torsion 0
+charge_response reported gradient atom 0 x 0.0013126336891339707 finite_difference 0.0034128475918063757 difference 0.002100213902672405
+
+virtual_sites.py
+================
+gradient x [-7.77857000e-03 -6.48261125e-07 -6.48261125e-07  7.77727348e-03]
+host analytic -6.482611249457671e-07 host numeric chain 0.003888636743306975 relative error 1.0001667065266668
+stale site E -0.08819620175733332 PC coords [[7.0, 1.0, 1.0], [8.0, 1.0, 1.0], [7.0, 1.0, 1.0]]
+correct site E -0.08141187854523077
+MD QM gradient x [-0.00777857  0.00388929  0.00388929  0.00777857]
+MD host analytic 0.003889285002210122 MD host numeric 0.003889285001526469
+last raw QM PC host/site rows [-0.00777858 -0.         -0.          0.00777858]
+
+periodic_residuals.py
+=====================
+elstat 4 LRC False charges [0.0, 0.0] MM E30A 0.0 E25A 0.0 max gradient 0.0
+elstat 4 LRC True charges [0.0, 0.0] MM E30A -3.445282602259411e-07 E25A -5.953448336704261e-07 max gradient 0.0
+elstat 5 LRC False charges [0.0, 0.0] MM E30A -1.5143907355407547e-06 E25A -3.510556665983824e-07 max gradient 1.3618269128845415e-07
+elstat 5 LRC True charges [0.0, 0.0] MM E30A -1.5143907355407547e-06 E25A -3.510556665983824e-07 max gradient 1.3618269128845415e-07
+mech 4 LRC False charges [0, 0] MM E30A 0.0 E25A 0.0 max gradient 0.0
+mech 4 LRC True charges [0, 0] MM E30A -3.445282602259411e-07 E25A -5.953448336704261e-07 max gradient 0.0
+mech 5 LRC False charges [0, 0] MM E30A -1.5143907355407547e-06 E25A -3.510556665983824e-07 max gradient 1.3618269128845415e-07
+mech 5 LRC True charges [0, 0] MM E30A -1.5143907355407547e-06 E25A -3.510556665983824e-07 max gradient 1.3618269128845415e-07
+mech 4 LRC False charges [1.0, -1.0] MM E30A -0.001067828042207129 E25A -0.0018795129704836523 max gradient 0.00023599511000183608
+mech 0 LRC False charges [1.0, -1.0] MM E30A 0.0 E25A 0.0 max gradient 0.0
+
+orca_derivatives.py
+===================
+embedded energy -1.116895540781
+net gradient [1.3552527156068805e-18, 0.0, 0.0]
+derivative 0 0 analytic -0.027452814356 numeric -0.027451893577999653 difference -9.207780003461785e-07
+derivative 2 0 analytic -3.3367353e-05 numeric -3.336726901039994e-05 difference -8.398960005810046e-11
+derivative 3 1 analytic -6.5030667e-05 numeric -6.5030851991491e-05 difference 1.8499149099778043e-10
+
+orca_charge_updates.py
+======================
+InputError: Found no charges attribute on the QM-theory object - update_QMregion_charges can not be used
+QM energy: -1.116759307204
+has charges attribute: False
+Mulliken charges property: [0.0, 0.0]
+
+

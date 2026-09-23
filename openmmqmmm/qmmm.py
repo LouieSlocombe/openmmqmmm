@@ -21,6 +21,7 @@ from openmmqmmm.exceptions import (
 )
 from openmmqmmm.periodic_embedding import PeriodicQMGeometry
 from openmmqmmm.utils import log_time_since, main_header, write_list_to_file
+from openmmqmmm.virtual_sites import NativeVirtualSites
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,21 @@ class QMMMTheory:
 
         self.mmatoms = np.setdiff1d(self.allatoms, self.qmatoms)
 
+        # Reject an unsupported native-site partition before assigning charges
+        # or stripping any force-field terms from the supplied MM object.
+        self._get_native_virtual_sites()
+        self._topology_neighbors: list[list[int]] | None = None
+        topology_bonds = []
+        topology = getattr(self.mm_theory, "topology", None) if self.mm_theory_name == "OpenMMTheory" else None
+        if topology is not None:
+            # Covalent topology is authoritative even without periodic imaging.
+            # Virtual-site parent links are added only to the imaging graph below.
+            topology_bonds = [(first.index, second.index) for first, second in topology.bonds()]
+            self._topology_neighbors = [[] for _ in self.allatoms]
+            for first, second in topology_bonds:
+                self._topology_neighbors[first].append(second)
+                self._topology_neighbors[second].append(first)
+
         self._periodic_geometry: PeriodicQMGeometry | None = None
         self._current_periodic_box_vectors: np.ndarray | None = None
         if self.mm_theory_name == "OpenMMTheory" and getattr(self.mm_theory, "periodic", False):
@@ -171,7 +187,7 @@ class QMMMTheory:
                     image_links.extend((index, site.getParticle(parent)) for parent in range(site.getNumParticles()))
             self._periodic_geometry = PeriodicQMGeometry(
                 self.num_allatoms,
-                ((first.index, second.index) for first, second in self.mm_theory.topology.bonds()),
+                topology_bonds,
                 self.qmatoms,
                 image_links=image_links,
             )
@@ -287,6 +303,7 @@ class QMMMTheory:
         self.truncated_pc_calls = 0
         self.truncated_pc_recalc_flag = False
         self.truncated_pc_recalc_iter = truncated_pc_recalc_iter
+        self._validate_truncated_pc_settings()
 
         if self.truncated_pc is True:
             logger.info("Truncated PC approximation in QM/MM is active.")
@@ -309,26 +326,25 @@ class QMMMTheory:
         # if boundarydict is not empty we need to zero MM1 charge and distribute charge from MM1 atom to MM2,MM3,MM4
         self.MMboundarydict = {}
         qm_atom_set = set(self.qmatoms)
-        for MM1atom in self.boundaryatoms.values():
-            # Boundary values are lists in current callers; retain support for the
-            # historical scalar representation while normalizing the loop here.
-            mm1_atoms = MM1atom if isinstance(MM1atom, list) else [MM1atom]
-            for mat in mm1_atoms:
-                if mat in self.MMboundarydict:
-                    continue
-                periodic_geometry = getattr(self, "_periodic_geometry", None)
-                connatoms = (
-                    periodic_geometry.neighbors[mat]
-                    if periodic_geometry is not None
-                    else openmmqmmm.coords.get_connected_atoms(self.coords, self.elems, scale, tol, mat)
-                )
-                self.MMboundarydict[mat] = [atom for atom in connatoms if atom not in qm_atom_set]
+        # Normalize historical scalar values while preserving boundary order.
+        mm1_atoms = dict.fromkeys(
+            atom for atoms in self.boundaryatoms.values() for atom in (atoms if isinstance(atoms, list) else [atoms])
+        )
+        excluded_recipients = qm_atom_set | set(mm1_atoms)
+        topology_neighbors = getattr(self, "_topology_neighbors", None)
+        for mat in mm1_atoms:
+            connatoms = (
+                topology_neighbors[mat]
+                if topology_neighbors is not None
+                else openmmqmmm.coords.get_connected_atoms(self.coords, self.elems, scale, tol, mat)
+            )
+            self.MMboundarydict[mat] = [atom for atom in connatoms if atom not in excluded_recipients]
 
         empty_boundaries = [mm1 for mm1, mm_neighbors in self.MMboundarydict.items() if not mm_neighbors]
         if self.embedding == "elstat" and empty_boundaries:
             raise InputError(
                 "Electrostatic QM/MM charge shifting cannot redistribute charge from MM boundary atom(s) "
-                f"{empty_boundaries}: they have no MM-side neighbours beyond the QM-MM bond. "
+                f"{empty_boundaries}: they have no MM-side neighbours outside the complete MM1 boundary. "
                 "Expand the QM region or use mechanical embedding."
             )
 
@@ -500,8 +516,32 @@ class QMMMTheory:
             for atom_index, derivative_weight in host_mappings:
                 self.QM_PC_gradient[atom_index] += derivative_weight * site_gradient
 
+    def _validate_truncated_pc_settings(self, *, require_gradients: bool = False) -> None:
+        """Validate truncation controls and refuse nonconservative cached gradients."""
+        try:
+            radius = float(self.truncated_pc_radius)
+            valid_radius = (
+                not isinstance(self.truncated_pc_radius, (bool, np.bool_)) and math.isfinite(radius) and radius > 0
+            )
+        except (OverflowError, TypeError, ValueError):
+            valid_radius = False
+        if not valid_radius:
+            raise InputError("truncated_pc_radius must be a positive finite number")
+        interval = self.truncated_pc_recalc_iter
+        if isinstance(interval, (bool, np.bool_)) or not isinstance(interval, (int, np.integer)) or interval < 1:
+            raise InputError("truncated_pc_recalc_iter must be an integer greater than or equal to 1")
+        self.truncated_pc_radius = radius
+        self.truncated_pc_recalc_iter = int(interval)
+        if require_gradients and interval != 1:
+            raise InputError(
+                "Cached truncated-PC corrections do not provide gradients consistent with the reported energy. "
+                "Disable truncated_pc or set truncated_pc_recalc_iter=1 for gradients, optimization, "
+                "or numerical frequencies. Cached corrections remain available for energy-only calculations."
+            )
+
     def truncated_pc_function(self, used_qmcoords: np.ndarray, *, require_gradients: bool) -> None:
         """Reduce the point-charge field to the atoms near the QM region."""
+        self._validate_truncated_pc_settings(require_gradients=require_gradients)
         self.truncated_pc_calls += 1
         logger.info("TruncatedPC approximation!")
         energy_correction_missing = not hasattr(self, "truncPC_E_correction")
@@ -665,6 +705,7 @@ class QMMMTheory:
                 f"Number of atoms in fragment ({fragment.numatoms}) and MMtheory object differ "
                 f"({self.mm_theory.numatoms})\nThis does not make sense. Check coordinates and forcefield files."
             )
+        self._get_native_virtual_sites()
 
         # Tolerance is bumped so that connected atoms are definitely caught and the QM-MM
         # boundary comes out right: scale=1.0/tol=0.1 missed the S-C bond in rubredoxin from
@@ -675,10 +716,8 @@ class QMMMTheory:
         # If a QM-MM boundary issue aborts the run then printing QM-coordinates is useful
         logger.info("QM-region coordinates (before linkatoms):")
         openmmqmmm.coords.print_coords_for_atoms(self.coords, self.elems, self.qmatoms, labels=self.qmatoms)
-        if self._periodic_geometry is not None:
-            # The force-field topology remains authoritative across box faces;
-            # a distance search on arbitrarily wrapped input misses these bonds.
-            self.boundaryatoms = self._periodic_boundary_atoms()
+        if self._topology_neighbors is not None:
+            self.boundaryatoms = self._topology_boundary_atoms()
         else:
             self.boundaryatoms = openmmqmmm.coords.get_boundary_atoms(
                 self.qmatoms,
@@ -692,9 +731,12 @@ class QMMMTheory:
         if len(self.boundaryatoms) > 0:
             logger.info(
                 f"Found covalent QM-MM boundary. Linkatoms option set to True\n"
-                f"Boundaryatoms (QM:MM pairs): {self.boundaryatoms}\n"
-                f"Note: used connectivity settings, scale={conn_scale} and tol={conn_tolerance} to determine boundary."
+                f"Boundaryatoms (QM:MM pairs): {self.boundaryatoms}"
             )
+            if self._topology_neighbors is None:
+                logger.info("Boundary inferred with connectivity scale=%s and tol=%s", conn_scale, conn_tolerance)
+            else:
+                logger.info("Boundary defined by the MM covalent topology")
             self.linkatoms = True
             logger.info("Linkatom_forceprojection_method: %s", self.linkatom_forceproj_method)
             self.get_mm_boundary(conn_scale, conn_tolerance)
@@ -734,14 +776,14 @@ class QMMMTheory:
 
         self._log_region_charges()
 
-    def _periodic_boundary_atoms(self) -> dict[int, list[int]]:
+    def _topology_boundary_atoms(self) -> dict[int, list[int]]:
         excluded = set(() if self.excludeboundaryatomlist is None else self.excludeboundaryatomlist)
         qm_atoms = set(self.qmatoms)
         boundary = {}
         for atom in self.qmatoms:
             if atom in excluded:
                 continue
-            neighbors = [other for other in self._periodic_geometry.neighbors[atom] if other not in qm_atoms]
+            neighbors = [other for other in self._topology_neighbors[atom] if other not in qm_atoms]
             if not neighbors:
                 continue
             if not self.unusualboundary and any(self.elems[index] != "C" for index in [atom, *neighbors]):
@@ -751,19 +793,48 @@ class QMMMTheory:
             boundary[atom] = neighbors
         return boundary
 
+    def _get_native_virtual_sites(self) -> NativeVirtualSites | None:
+        if not hasattr(self, "_native_virtual_sites"):
+            system = getattr(self.mm_theory, "system", None)
+            native_sites = None
+            if self.mm_theory_name == "OpenMMTheory" and system is not None:
+                sites = [i for i in range(system.getNumParticles()) if system.isVirtualSite(i)]
+                if set(sites).intersection(self.qmatoms):
+                    raise InputError("Native OpenMM virtual sites cannot be included in qmatoms")
+                qm_atoms = set(self.qmatoms)
+                for index in sites:
+                    site = system.getVirtualSite(index)
+                    if qm_atoms.intersection(site.getParticle(i) for i in range(site.getNumParticles())):
+                        raise InputError(
+                            "Native OpenMM virtual sites and their hosts must remain entirely in the MM region; "
+                            "a QM/MM partition through a native virtual-site dependency is unsupported"
+                        )
+                if sites:
+                    native_sites = NativeVirtualSites(system)
+            self._native_virtual_sites = native_sites
+        return self._native_virtual_sites
+
     def _image_periodic_coords(
         self, current_coords: np.ndarray, periodic_box_vectors: np.ndarray | None = None
     ) -> np.ndarray:
+        native_sites = self._get_native_virtual_sites()
         if self._periodic_geometry is None:
             if periodic_box_vectors is not None:
                 raise InputError("periodic_box_vectors requires a periodic OpenMM QM/MM system")
             self._current_periodic_box_vectors = None
-            return np.asarray(current_coords)
+            coords = np.asarray(current_coords)
+            return native_sites.place(coords) if native_sites is not None else coords
         if periodic_box_vectors is None:
             periodic_box_vectors = openmm.unit.Quantity(
                 self.mm_theory.system.getDefaultPeriodicBoxVectors()
             ).value_in_unit(openmm.unit.angstrom)
         self._current_periodic_box_vectors = np.asarray(periodic_box_vectors, dtype=float)
+        if native_sites is not None:
+            return self._periodic_geometry.image(
+                native_sites.seed(current_coords),
+                self._current_periodic_box_vectors,
+                place_virtual_sites=native_sites.place,
+            )
         return self._periodic_geometry.image(current_coords, self._current_periodic_box_vectors)
 
     def _log_region_charges(self) -> None:
@@ -820,8 +891,9 @@ class QMMMTheory:
         if runner is None:
             raise InputError(f"Unknown embedding '{self.embedding}'. Expected one of mech, elstat, pbcmm-elstat.")
 
-        return runner(
-            current_coords=self._image_periodic_coords(current_coords, periodic_box_vectors),
+        prepared_coords = self._image_periodic_coords(current_coords, periodic_box_vectors)
+        result = runner(
+            current_coords=prepared_coords,
             elems=elems,
             grad=grad,
             numcores=numcores,
@@ -830,6 +902,17 @@ class QMMMTheory:
             charge=charge,
             mult=mult,
         )
+        native_sites = self._get_native_virtual_sites()
+        # Native OpenMM force evaluation distributes these site forces itself.
+        # Standalone calls instead return derivatives with respect to independent
+        # host coordinates and zero derivatives for the ignored input site rows.
+        delegated_projection = self.openmm_externalforce and exit_after_customexternalforce_update
+        if grad and native_sites is not None and not delegated_projection:
+            energy, gradient = result
+            self.QM_MM_gradient = native_sites.project(prepared_coords, gradient)
+            self.QM_PC_gradient = native_sites.project(prepared_coords, self.QM_PC_gradient)
+            return energy, self.QM_MM_gradient
+        return result
 
     def run_openmm_python_force(
         self,
@@ -962,6 +1045,48 @@ class QMMMTheory:
                 description=f"{description} {label} (au/Bohr):",
             )
 
+    def _validate_qm_charge_update(self, *, grad: bool) -> None:
+        """Check the energy-only population-charge contract before launching QM."""
+        if not self.update_qm_region_charges:
+            return
+        if grad:
+            raise InputError(
+                "update_qm_region_charges supports energy-only evaluations: gradients require "
+                "population-charge response derivatives, which are not implemented"
+            )
+        if self.linkatoms:
+            raise InputError(
+                "update_qm_region_charges does not support link atoms: a charge-conserving mapping "
+                "of cap populations onto real atoms has not been defined"
+            )
+        if not callable(getattr(self.qm_theory, "get_atomic_charges", None)) and not hasattr(self.qm_theory, "charges"):
+            raise InputError(
+                "update_qm_region_charges requires a QM backend with get_atomic_charges() or an "
+                "initialized legacy charges attribute"
+            )
+
+    def _updated_qm_atomic_charges(self, charge: int) -> list[float]:
+        """Read finite, charge-conserving populations in the QM input atom order."""
+        accessor = getattr(self.qm_theory, "get_atomic_charges", None)
+        populations = accessor() if callable(accessor) else self.qm_theory.charges
+        try:
+            charges = np.asarray(populations, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise InputError("QM atomic charges must be a finite numeric array") from error
+        if charges.shape != (len(self.qmatoms),) or not np.all(np.isfinite(charges)):
+            raise InputError(
+                f"QM atomic charges must contain one finite value per QM atom; expected {len(self.qmatoms)} values"
+            )
+        # ORCA prints Mulliken charges to six decimal places. Permit accumulated
+        # output rounding, but never silently change the region's total charge.
+        tolerance = max(1e-5, len(charges) * 1e-6)
+        if not np.isclose(charges.sum(), charge, atol=tolerance, rtol=0):
+            raise InputError(
+                f"QM atomic charges sum to {charges.sum():.8g}, but the QM-region charge is {charge}; "
+                "use a population model that preserves the QM-region charge"
+            )
+        return charges.tolist()
+
     def mech_run(
         self,
         current_coords: np.ndarray | None = None,
@@ -973,9 +1098,16 @@ class QMMMTheory:
         charge: int | None = None,
         mult: int | None = None,
     ) -> float | tuple[float, np.ndarray]:
-        """Run mechanical embedding: QM and MM energies added with no electrostatic coupling."""
+        """Run mechanical embedding with optional energy-only population updates.
+
+        Updated populations come from ``get_atomic_charges()`` (Mulliken for
+        ORCA) or a legacy ``charges`` attribute. Capped regions and gradients
+        are unsupported because cap-charge mapping and charge-response
+        derivatives have not been defined.
+        """
         module_init_time = time.time()
         CheckpointTime = time.time()
+        self._validate_qm_charge_update(grad=grad)
         _used_mmcoords, used_qmcoords = self._prepare_run(current_coords, "Mechanical")
 
         numcores = self._resolve_numcores(numcores)
@@ -1014,20 +1146,11 @@ class QMMMTheory:
         CheckpointTime = time.time()
 
         if self.update_qm_region_charges:
-            logger.info("update_QMregion_charges is True")
-            logger.info("Will try to find charges attribute in QM-object")
-            try:
-                newqmcharges = self.qm_theory.charges
-            except AttributeError:
-                raise InputError(
-                    "Found no charges attribute on the QM-theory object - update_QMregion_charges can not be used"
-                ) from None
-            if self.num_linkatoms > 0:
-                newqmcharges = newqmcharges[0 : -self.num_linkatoms]
+            newqmcharges = self._updated_qm_atomic_charges(charge)
+            logger.info("Updating charges of QM-region in MMTheory object")
+            self.mm_theory.update_charges(self.qmatoms, newqmcharges)
             for i, index in enumerate(self.qmatoms):
                 self.charges[index] = newqmcharges[i]
-            logger.info("Updating charges of QM-region in MMTheory object")
-            self.mm_theory.update_charges(self.qmatoms, list(newqmcharges))
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Defined charges of QM region:")
             for i in self.qmatoms:
@@ -1329,6 +1452,8 @@ class QMMMTheory:
         mult: int | None = None,
     ) -> float | tuple[float, np.ndarray]:
         """Run electrostatic embedding: the QM region sees the MM charges as point charges."""
+        if self.truncated_pc is True:
+            self._validate_truncated_pc_settings(require_gradients=grad)
         module_init_time = time.time()
         CheckpointTime = time.time()
 

@@ -435,6 +435,22 @@ class ORCATheory:
         # Save path to last GBW-file (used if the run changes directories, e.g. goes from NumFreq)
         self.path_to_last_gbwfile_used = f"{os.getcwd()}/{self.filename}.gbw"
 
+    def get_atomic_charges(self) -> list[float]:
+        """Read Mulliken charges from the current calculation's ORCA output.
+
+        Values follow the QM input atom order and include any link atoms.
+        Population logging does not need to be enabled. Read the output on
+        every call so an earlier geometry's cached properties cannot be reused.
+        """
+        try:
+            charges = grab_orca_atom_charges("Mulliken", self.filename + ".out")
+        except OSError as error:
+            raise InputError("No readable ORCA output is available for Mulliken atomic charges") from error
+        if not charges or not np.all(np.isfinite(charges)):
+            raise InputError("ORCA output does not contain finite Mulliken atomic charges")
+        self.properties["Mulliken_charges"] = charges.copy()
+        return charges
+
     def _log_population_analysis(self, qm_elems: Sequence[str]) -> None:
         """Parse and report the Mulliken charges and spin populations."""
         logger.info("\nPrinting Mulliken Population analysis:")

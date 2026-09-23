@@ -581,6 +581,8 @@ def numerical_frequencies(
     logger.info("------------NUMERICAL FREQUENCIES-------------")
     if fragment is None or theory is None:
         raise InputError("NumFreq requires a fragment and a theory object")
+    if isinstance(theory, QMMMTheory) and theory.embedding == "elstat" and theory.truncated_pc:
+        theory._validate_truncated_pc_settings(require_gradients=True)
 
     if not isinstance(npoint, Integral) or isinstance(npoint, bool) or npoint not in (1, 2):
         raise InputError("Unknown npoint option. npoint should be 1 (forward) or 2 (central difference).")

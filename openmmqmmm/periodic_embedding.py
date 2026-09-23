@@ -7,7 +7,7 @@ Jacobian is the identity away from image-switching surfaces.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 import numpy as np
 from ase.geometry import find_mic
@@ -58,7 +58,13 @@ class PeriodicQMGeometry:
             self.components.append(np.asarray(component, dtype=int))
         self.qm_members = [np.intersect1d(component, self.qmatoms) for component in self.components]
 
-    def image(self, coords: np.ndarray, box_vectors: np.ndarray) -> np.ndarray:
+    def image(
+        self,
+        coords: np.ndarray,
+        box_vectors: np.ndarray,
+        *,
+        place_virtual_sites: Callable[[np.ndarray], np.ndarray] | None = None,
+    ) -> np.ndarray:
         """Return whole molecules near the QM region, with coordinates and box in Å."""
         box = np.asarray(box_vectors, dtype=float)
         if box.shape != (3, 3) or not np.all(np.isfinite(box)) or np.linalg.det(box) <= 1e-12:
@@ -79,6 +85,9 @@ class PeriodicQMGeometry:
             bond_images, _lengths = find_mic(source[second] - source[first], box)
             if not np.allclose(imaged[second] - imaged[first], bond_images, atol=1e-6, rtol=0):
                 raise InputError("Periodic QM/MM cannot unwrap a covalent network that winds around the cell")
+
+        if place_virtual_sites is not None:
+            imaged = place_virtual_sites(imaged)
 
         anchor_component = next(members for members in self.qm_members if self.qmatoms[0] in members)
         anchor = imaged[anchor_component].mean(axis=0)
