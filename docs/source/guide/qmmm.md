@@ -49,7 +49,37 @@ charges actually matter, by the size of their contribution.
 `embedding="elstat"` (the default) is electrostatic embedding: the MM point charges enter the
 QM Hamiltonian, so the QM region is polarized by its environment. `embedding="mech"` is
 mechanical embedding, where the two regions interact only through the MM force field.
-`"polembed_drude"` covers polarizable Drude force fields.
+Polarizable Drude embedding (`"polembed_drude"`) is not implemented and raises an error.
+
+Electrostatic embedding removes MM charges and Coulomb exception charge products involving
+QM atoms; QM–MM Lennard-Jones interactions remain. MM terms wholly inside the QM region are
+removed, including CMAP and RB torsions. At a covalent boundary, the existing force-field
+policy removes angles with at least two QM atoms and ordinary/RB torsions with at least
+three. A CMAP spanning the boundary remains in MM; a CMAP whose unique atoms are all QM is
+removed. Crossing bond terms remain unless `delete_qm1_mm1_bonded=True` was set on the MM
+theory.
+
+## Periodic embedding
+
+For a periodic OpenMM system, the force-field topology defines bonded molecules and the
+covalent QM/MM boundary. Every QM/MM evaluation unwraps these molecules, brings separate
+QM molecules together, and images other whole molecules around the QM region. OpenMM
+virtual charge sites follow their hosts. Equivalent lattice images therefore produce the
+same finite embedding cluster, including caps and charge-shift sites. A covalent network
+that winds around the cell is rejected because it cannot be unwrapped without cutting a
+bond.
+
+Standalone calls use the OpenMM System's default box. `QMMMTheory.run` also accepts
+`periodic_box_vectors`, a 3 × 3 array in Å, and uses that cell for both QM imaging and the MM
+energy. Classical and RPMD force callbacks supply the instantaneous OpenMM box, including
+barostat trial boxes.
+
+This remains **finite-field electrostatic embedding**: the QM Hamiltonian contains one
+image of each MM molecule, without a periodic/Ewald sum for QM–MM or QM-image interactions.
+The MM subsystem uses its configured periodic force field. Molecule image changes can
+introduce discontinuities in the finite QM field. Check cell-size convergence and energy
+conservation for the intended calculation; image consistency alone does not establish
+periodic electrostatic accuracy. `embedding="pbcmm-elstat"` remains unsupported.
 
 ## The QM/MM boundary
 
@@ -60,14 +90,19 @@ is redistributed so the cap does not sit on top of a full point charge.
 `linkatom_method`
 : `"simple"` (default) places the link atom at a fixed distance along the broken bond, set by
   `linkatom_simple_distance`. `"ratio"` places it at a fixed fraction of the bond, set by
-  `linkatom_ratio` (0.723 by default).
+  `linkatom_ratio` (0.723 by default). The force projection differentiates this placement
+  rule, including both bond stretching and changes in bond direction.
 
 `linkatom_type`
 : The capping element, `"H"` by default.
 
 `linkatom_forceproj_method`
-: How the link atom's force is projected back onto the two real atoms: `"adv"` (default),
-  `"lever"`, `"chain"` or `"none"`.
+: `"adv"` (default), `"lever"`, and `"chain"` are compatibility aliases for the exact
+  derivative of the chosen `linkatom_method`. For `"ratio"`, the QM and MM hosts receive
+  fractions `1-linkatom_ratio` and `linkatom_ratio` of the cap force. For `"simple"`, the
+  projection accounts for the fixed cap distance as the host bond changes direction.
+  `"none"` or `None` deliberately omits the cap force: use it only for diagnostics, since
+  the resulting forces generally are not derivatives of the reported energy.
 
 `chargeboundary_method`
 : `"shift"` (default) moves the host charge onto its neighbours, with `dipole_correction`
@@ -89,9 +124,12 @@ that is a lot of charges:
 
 `truncated_pc=True`
 : Uses only the charges within `truncated_pc_radius` (55 Å by default) for most steps,
-  recomputing the full set every `truncated_pc_recalc_iter` steps. An approximation — check
-  its effect on your system before relying on it, and note that it is rejected outright for
-  ring-polymer dynamics ({doc}`rpmd`).
+  recomputing the full set every `truncated_pc_recalc_iter` calls. At a full-field gradient
+  refresh, the correction restores every QM gradient, including cap gradients before their
+  projection, and every point-charge gradient. Between refreshes, the stored energy and
+  gradient corrections remain an approximation; check its effect on your system before
+  relying on it. Classical and ring-polymer QM/MM dynamics reject `truncated_pc` because
+  these cached corrections depend on evaluation history ({doc}`dynamics`, {doc}`rpmd`).
 
 `charges=`
 : Supply the MM charges yourself instead of taking them from the MM theory.
@@ -122,6 +160,13 @@ compute_decomposed_qm_mm_energy(theory=qm_mm, fragment=fragment)
 
 Logs the QM, MM and QM–MM coupling contributions separately, which is how you find out
 whether a surprising energy came from the chemistry or from the force field.
+
+Use a standalone electrostatically embedded theory before attaching an MD callback. LJ
+decomposition evaluates cloned forces, preserving the live MM System and the original cap
+settings. It includes standard nonbonded exceptions and the supported CHARMM/GROMACS LJ
+custom forces. An unrecognized custom pair potential raises an error instead of being
+silently omitted. Covalent coupling is not decomposed separately: the function logs this
+limitation and retains those terms in the MM contribution.
 
 ## Running it
 

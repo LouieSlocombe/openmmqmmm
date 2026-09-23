@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from collections.abc import Mapping, Sequence
 from numbers import Integral
@@ -11,6 +12,7 @@ import numpy.typing as npt
 import openmm
 import openmm.app
 import openmm.unit
+from openmm.app.internal.unitcell import computePeriodicBoxVectors
 from packaging import version
 
 import openmmqmmm.constants
@@ -20,7 +22,6 @@ from openmmqmmm.coords import (
     define_dummy_topology,
     distance_between_atoms,
 )
-from openmmqmmm.coords_pbc import cell_params_to_vectors
 from openmmqmmm.exceptions import (
     FileFormatError,
     InputError,
@@ -65,6 +66,27 @@ NONBONDED_METHODS_NO_PBC = {
 # physical particle masses rather than masses altered to permit longer classical
 # MD timesteps.
 NUCLEAR_QUANTUM_INTEGRATORS = frozenset({"RPMDIntegrator", "QTBIntegrator"})
+
+
+def _reduced_cell_vectors(dimensions: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """Validate cell lengths/angles and return reduced OpenMM vectors in Angstrom."""
+    dimensions = np.asarray(dimensions, dtype=float)
+    if (
+        dimensions.shape != (6,)
+        or not np.all(np.isfinite(dimensions))
+        or np.any(dimensions[:3] <= 0)
+        or np.any(dimensions[3:] <= 0)
+        or np.any(dimensions[3:] >= 180)
+    ):
+        raise InputError("periodic_cell_dimensions requires three positive lengths and three angles in (0, 180)")
+    try:
+        vectors = computePeriodicBoxVectors(*dimensions[:3] / 10, *np.radians(dimensions[3:]))
+    except (ValueError, ZeroDivisionError) as exc:
+        raise InputError("periodic_cell_dimensions does not define a valid three-dimensional cell") from exc
+    periodic_cell_vectors = np.asarray(vectors.value_in_unit(openmm.unit.angstrom))
+    if np.linalg.det(periodic_cell_vectors) <= 0:
+        raise InputError("periodic_cell_dimensions must define a cell with positive volume")
+    return periodic_cell_vectors
 
 
 class OpenMMTheory:
@@ -817,6 +839,8 @@ class OpenMMTheory:
         logger.info("periodic_cell_vectors: %s", periodic_cell_vectors)
         logger.info("periodic_cell_dimensions: %s", periodic_cell_dimensions)
         logger.info("pdb_pbc_vectors: %s", pdb_pbc_vectors)
+        if periodic_cell_vectors is None and periodic_cell_dimensions is not None:
+            periodic_cell_vectors = _reduced_cell_vectors(periodic_cell_dimensions)
         # IF PBC vectors provided then we need to set them in the topology (otherwise system creation does not work)
         if periodic_cell_vectors is not None:
             logger.info("\nPBC vectors provided by user (in Angstrom): %s", periodic_cell_vectors)
@@ -847,67 +871,6 @@ class OpenMMTheory:
                     self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][1] = periodic_cell_vectors[0][0]
                     self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][2] = periodic_cell_vectors[1][1]
                     self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][3] = periodic_cell_vectors[2][2]
-        elif periodic_cell_dimensions is not None:
-            logger.info("\nPBC cell dimensions provided by user: %s", periodic_cell_dimensions)
-            self.topology.setUnitCellDimensions = [
-                openmm.unit.Quantity(value=periodic_cell_dimensions[0], unit=openmm.unit.angstrom),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[1], unit=openmm.unit.angstrom),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[2], unit=openmm.unit.angstrom),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[3], unit=openmm.unit.degree),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[4], unit=openmm.unit.degree),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[5], unit=openmm.unit.degree),
-            ]
-            logger.info("Topology PBC dimensions set: %s", self.topology.getUnitCellDimensions())
-            if self.topology.getUnitCellDimensions() is None:
-                logger.warning("Problems with unitcell dimensions setting.")
-                logger.warning("Will assume cubic box and set PBC vectors instead")
-                self.topology.setPeriodicBoxVectors(
-                    [
-                        [periodic_cell_dimensions[0], 0, 0],
-                        [0, periodic_cell_dimensions[1], 0],
-                        [0, 0, periodic_cell_dimensions[2]],
-                    ]
-                    * openmm.unit.angstrom
-                )
-            logger.info("PeriodicBoxVectors:  %s", self.topology.getPeriodicBoxVectors())
-            logger.debug("Setting PBC box in forcefield object")
-            self.forcefield.box = [
-                openmm.unit.Quantity(value=periodic_cell_dimensions[0], unit=openmm.unit.angstrom),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[1], unit=openmm.unit.angstrom),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[2], unit=openmm.unit.angstrom),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[3], unit=openmm.unit.degree),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[4], unit=openmm.unit.degree),
-                openmm.unit.Quantity(value=periodic_cell_dimensions[5], unit=openmm.unit.degree),
-            ]
-            logger.info("PBC box set: %s", self.forcefield.box)
-            if charmm_files is True and use_parmed is False:
-                self.forcefield.setBox(
-                    openmm.unit.Quantity(value=periodic_cell_dimensions[0], unit=openmm.unit.angstrom),
-                    openmm.unit.Quantity(value=periodic_cell_dimensions[1], unit=openmm.unit.angstrom),
-                    openmm.unit.Quantity(value=periodic_cell_dimensions[2], unit=openmm.unit.angstrom),
-                    alpha=openmm.unit.Quantity(value=periodic_cell_dimensions[3], unit=openmm.unit.degree),
-                    beta=openmm.unit.Quantity(value=periodic_cell_dimensions[4], unit=openmm.unit.degree),
-                    gamma=openmm.unit.Quantity(value=periodic_cell_dimensions[5], unit=openmm.unit.degree),
-                )
-                logger.info("PBC box set: %s", self.forcefield.box)
-                logger.info("Set box vectors: %s", self.forcefield.box_vectors)
-            if (charmm_files is True and use_parmed is True) or (amber_files is True and use_parmed is True):
-                pass
-            elif amber_files is True and use_parmed is False:
-                logger.info("Amber ff getIfBox %s", self.forcefield._prmtop.getIfBox())
-                # Hacky thing to make sure PBC is on for Amber.
-                # PBCvectors will be grabbed from topology above
-                # Happens if no IFBOX defined in prmtop file but we still want periodicity
-                self.forcefield._prmtop._raw_data["POINTERS"][27] = 1
-
-                if version.parse(openmm.__version__) < version.parse("8.1"):
-                    logger.warning("Amber prmtop file detected and OpenMM version < 8.1")
-                    logger.warning("Will assume cubic box and set PBC vectors in a hacky way")
-                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"] = np.array([0.0, 0.0, 0.0, 0.0])
-                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][0] = 90.0
-                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][1] = periodic_cell_dimensions[0]
-                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][2] = periodic_cell_dimensions[1]
-                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][3] = periodic_cell_dimensions[2]
         elif pdb_pbc_vectors is not None:
             logger.warning(
                 "Neither periodic_cell_vectors nor periodic_cell_dimensions was set; using periodic-box information "
@@ -964,9 +927,9 @@ class OpenMMTheory:
         logger.debug("Updating cell vectors")
         logger.info("New periodic_cell_vectors are: %s", periodic_cell_vectors)
         if periodic_cell_vectors is not None:
-            self.periodic_cell_vectors = periodic_cell_vectors
+            self.periodic_cell_vectors = np.asarray(periodic_cell_vectors, dtype=float)
         elif periodic_cell_dimensions is not None:
-            self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+            self.periodic_cell_vectors = _reduced_cell_vectors(periodic_cell_dimensions)
 
         cellvecs_nm = self.periodic_cell_vectors / 10
         a = cellvecs_nm[0]
@@ -1595,12 +1558,18 @@ class OpenMMTheory:
         mm_charges: Sequence[float] | None = None,
         qm_elems: Sequence[str] | None = None,
         numcores: int = 1,
+        periodic_box_vectors: npt.ArrayLike | None = None,
     ) -> float | tuple[float, npt.NDArray[np.float64]]:
         """Compute the MM energy (and gradient) of a geometry."""
         module_init_time = time.time()
         timeA = time.time()
 
         simulation = self.create_simulation()
+        if periodic_box_vectors is not None:
+            box = np.asarray(periodic_box_vectors, dtype=float)
+            if box.shape != (3, 3) or not np.all(np.isfinite(box)) or np.linalg.det(box) <= 0:
+                raise InputError("periodic_box_vectors must be a finite 3x3 cell with positive volume, in Angstrom")
+            simulation.context.setPeriodicBoxVectors(*(box * 0.1))
 
         logger.info(sub_header("Running Single-point OpenMM Interface"))
         # If no coords given to run then a single-point job probably (not part of Optimizer or MD which would supply
@@ -1729,16 +1698,22 @@ class OpenMMTheory:
 
     # Used to delete Coulomb interactions involving QM-QM and QM-MM atoms
     def delete_exceptions(self, atomlist: Sequence[int]) -> None:
-        """Remove the nonbonded exceptions previously added for the listed atoms."""
+        """Zero exception Coulomb products involving these atoms, preserving LJ."""
         timeA = time.time()
+        selected = set(atomlist)
         logger.debug("Deleting Coulombexceptions for atomlist: %s", atomlist)
         for force in self.system.getForces():
             if isinstance(force, openmm.NonbondedForce):
+                selected_exceptions = set()
                 for exc in range(force.getNumExceptions()):
-                    p1, p2, chargeprod, sigmaij, epsilonij = force.getExceptionParameters(exc)
-                    if p1 in atomlist or p2 in atomlist:
-                        chargeprod._value = 0.0
-                        force.setExceptionParameters(exc, p1, p2, chargeprod, sigmaij, epsilonij)
+                    p1, p2, _chargeprod, sigmaij, epsilonij = force.getExceptionParameters(exc)
+                    if p1 in selected or p2 in selected:
+                        force.setExceptionParameters(exc, p1, p2, 0, sigmaij, epsilonij)
+                        selected_exceptions.add(exc)
+                for offset in range(force.getNumExceptionParameterOffsets()):
+                    name, exc, _charge, sigma, epsilon = force.getExceptionParameterOffset(offset)
+                    if exc in selected_exceptions:
+                        force.setExceptionParameterOffset(offset, name, exc, 0, sigma, epsilon)
         log_time_since(timeA, "delete_exceptions")
 
     # Updating LJ interactions in OpenMM object. Used to set LJ sites to zero e.g. so that they do not contribute
@@ -1746,6 +1721,117 @@ class OpenMMTheory:
     def get_lj_epsilons(self, atomlist: Sequence[int]) -> list[object]:
         """Return Lennard-Jones epsilon values for selected atoms."""
         return [self.nonbonded_force.getParticleParameters(atomindex)[2] for atomindex in atomlist]
+
+    def qmmm_lj_energy(self, atomlist: Sequence[int], coords: npt.ArrayLike) -> float:
+        """Return cross-region Lennard-Jones energy in Hartree without mutation.
+
+        Standard NonbondedForce terms (including exceptions, LJPME, and
+        dispersion corrections) and OpenMM's CHARMM/GROMACS LJ expressions are
+        supported. Unknown custom pair potentials are rejected: their energy
+        cannot safely be classified as Lennard-Jones by parameter names alone.
+        Coordinates are in Angstrom; the System's default periodic box is used.
+        """
+        selected = set(atomlist)
+        n_atoms = self.system.getNumParticles()
+        if any(not isinstance(i, Integral) or i < 0 or i >= n_atoms for i in selected):
+            raise InputError("Lennard-Jones decomposition atom indices are outside the MM system")
+        positions = np.asarray(coords, dtype=float)
+        if positions.shape != (n_atoms, 3) or not np.all(np.isfinite(positions)):
+            raise InputError("Lennard-Jones decomposition requires finite coordinates for every MM particle")
+        lj_system = openmm.System()
+        for i in range(n_atoms):
+            lj_system.addParticle(self.system.getParticleMass(i))
+        lj_system.setDefaultPeriodicBoxVectors(*self.system.getDefaultPeriodicBoxVectors())
+        known_custom_nb = {
+            "acoef(type1,type2)/r^12-bcoef(type1,type2)/r^6",
+            "(a/r6)^2-b/r6;r6=r^6;a=acoef(type1,type2);b=bcoef(type1,type2)",
+            "A1*A2/r^12-C1*C2/r^6",
+        }
+        for original in self.system.getForces():
+            if isinstance(original, openmm.NonbondedForce):
+                # Inclusion-exclusion gives precisely cross pairs, also for
+                # reciprocal LJ and analytical long-range corrections. Unlike
+                # zeroing QM epsilons alone it cannot include intra-QM LJ.
+                for group in range(3):
+                    force = openmm.XmlSerializer.clone(original)
+                    force.setForceGroup(group)
+                    force.setReciprocalSpaceForceGroup(group)
+                    inactive = set() if group == 0 else (set(range(n_atoms)) - selected if group == 1 else selected)
+                    for i in range(n_atoms):
+                        _charge, sigma, epsilon = force.getParticleParameters(i)
+                        force.setParticleParameters(i, 0, sigma, 0 if i in inactive else epsilon)
+                    inactive_exceptions = set()
+                    for i in range(force.getNumExceptions()):
+                        p1, p2, _charge, sigma, epsilon = force.getExceptionParameters(i)
+                        if p1 in inactive or p2 in inactive:
+                            inactive_exceptions.add(i)
+                            epsilon = 0
+                        force.setExceptionParameters(i, p1, p2, 0, sigma, epsilon)
+                    for i in range(force.getNumParticleParameterOffsets()):
+                        name, particle, _charge, sigma, epsilon = force.getParticleParameterOffset(i)
+                        force.setParticleParameterOffset(
+                            i, name, particle, 0, sigma, 0 if particle in inactive else epsilon
+                        )
+                    for i in range(force.getNumExceptionParameterOffsets()):
+                        name, exc, _charge, sigma, epsilon = force.getExceptionParameterOffset(i)
+                        force.setExceptionParameterOffset(
+                            i, name, exc, 0, sigma, 0 if exc in inactive_exceptions else epsilon
+                        )
+                    lj_system.addForce(force)
+            elif isinstance(original, openmm.CustomNonbondedForce):
+                expression = "".join(original.getEnergyFunction().split()).rstrip(";")
+                if expression not in known_custom_nb:
+                    raise InputError(
+                        "Lennard-Jones decomposition does not support this CustomNonbondedForce expression: "
+                        + original.getEnergyFunction()
+                    )
+                force = openmm.XmlSerializer.clone(original)
+                parameter = "qmmmLJRegion"
+                names = {force.getPerParticleParameterName(i) for i in range(force.getNumPerParticleParameters())}
+                if parameter in names:
+                    raise InputError("Lennard-Jones decomposition parameter name conflicts with the custom force")
+                force.addPerParticleParameter(parameter)
+                for i in range(n_atoms):
+                    force.setParticleParameters(i, [*force.getParticleParameters(i), float(i in selected)])
+                energy, *definitions = expression.split(";")
+                force.setEnergyFunction(";".join([f"({energy})*({parameter}1-{parameter}2)^2", *definitions]))
+                force.setForceGroup(0)
+                lj_system.addForce(force)
+            elif isinstance(original, openmm.CustomBondForce):
+                expression = "".join(original.getEnergyFunction().split()).rstrip(";")
+                if not (
+                    re.fullmatch(r"[0-9.eE+\-]+\*epsilon\*\(\(sigma/r\)\^12-\(sigma/r\)\^6\)", expression)
+                    or expression == "-C/r^6+A/r^12"
+                ):
+                    raise InputError(
+                        "Lennard-Jones decomposition does not support this CustomBondForce expression: "
+                        + original.getEnergyFunction()
+                    )
+                force = openmm.XmlSerializer.clone(original)
+                parameter = "qmmmLJCross"
+                names = {force.getPerBondParameterName(i) for i in range(force.getNumPerBondParameters())}
+                if parameter in names:
+                    raise InputError("Lennard-Jones decomposition parameter name conflicts with the custom force")
+                force.addPerBondParameter(parameter)
+                force.setEnergyFunction(f"({expression})*{parameter}")
+                for i in range(force.getNumBonds()):
+                    p1, p2, parameters = force.getBondParameters(i)
+                    force.setBondParameters(i, p1, p2, [*parameters, float((p1 in selected) != (p2 in selected))])
+                force.setForceGroup(0)
+                lj_system.addForce(force)
+        integrator = openmm.VerletIntegrator(0.001)
+        context = openmm.Context(lj_system, integrator, openmm.Platform.getPlatformByName("Reference"))
+        try:
+            context.setPositions(positions * openmm.unit.angstrom)
+            energies = [
+                context.getState(getEnergy=True, groups=1 << group)
+                .getPotentialEnergy()
+                .value_in_unit(openmm.unit.kilojoules_per_mole)
+                for group in range(3)
+            ]
+            return (energies[0] - energies[1] - energies[2]) / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
+        finally:
+            del context, integrator
 
     def update_lj_epsilons(self, atomlist: Sequence[int], epsilons: Sequence[object]) -> None:
         """Set new Lennard-Jones epsilon values for selected atoms."""
@@ -1771,6 +1857,14 @@ class OpenMMTheory:
         logger.info("Updating charges in OpenMM object.")
         if len(atomlist) != len(atomcharges):
             raise InternalError("atomlist and atomcharges size mismatch")
+        # A fixed charge assignment must also remove any alchemical/global charge
+        # offsets, which OpenMM adds independently to the base particle charge.
+        if isinstance(self.nonbonded_force, openmm.NonbondedForce):
+            selected = set(atomlist)
+            for offset in range(self.nonbonded_force.getNumParticleParameterOffsets()):
+                name, particle, _charge, sigma, epsilon = self.nonbonded_force.getParticleParameterOffset(offset)
+                if particle in selected:
+                    self.nonbonded_force.setParticleParameterOffset(offset, name, particle, 0, sigma, epsilon)
         for atomindex, newcharge in zip(atomlist, atomcharges, strict=False):
             self.charges[atomindex] = newcharge
             _oldcharge, sigma, epsilon = self.nonbonded_force.getParticleParameters(atomindex)
@@ -1786,8 +1880,15 @@ class OpenMMTheory:
         log_time_since(timeA, "update_charges")
 
     def modify_bonded_forces(self, atomlist: Sequence[int]) -> None:
-        """Zero the bonded terms that lie entirely inside the given atom set."""
+        """Remove QM bonded terms under the boundary policy.
+
+        Bonds wholly inside QM are removed (crossing bonds are optional); angles
+        with at least two QM atoms and ordinary/RB torsions with at least three
+        QM atoms are removed. A coupled CMAP term is removed only when all its
+        unique atoms are QM; boundary-spanning maps remain MM contributions.
+        """
         timeA = time.time()
+        atomlist = set(atomlist)
         logger.info("Modifying bonded forces.\n")
         # This is typically used by QM/MM object to set bonded forces to zero for qmatoms (atomlist)
         # Mimicking: https://github.com/openmm/openmm/issues/2792
@@ -1795,6 +1896,7 @@ class OpenMMTheory:
         numharmbondterms_removed = 0
         numharmangleterms_removed = 0
         numpertorsionterms_removed = 0
+        numrbtorsionterms_removed = 0
         numcustomtorsionterms_removed = 0
         numcmaptorsionterms_removed = 0
         numcustombondterms_removed = 0
@@ -1863,6 +1965,12 @@ class OpenMMTheory:
                             f"After p1: {p1} p2: {p2} p3: {p3} p4: {p4} periodicity: {periodicity} phase: {phase} k: "
                             f"{k}"
                         )
+            elif isinstance(force, openmm.RBTorsionForce):
+                for i in range(force.getNumTorsions()):
+                    p1, p2, p3, p4, *_coefficients = force.getTorsionParameters(i)
+                    if sum(p in atomlist for p in (p1, p2, p3, p4)) >= 3:
+                        force.setTorsionParameters(i, p1, p2, p3, p4, 0, 0, 0, 0, 0, 0)
+                        numrbtorsionterms_removed += 1
             elif isinstance(force, openmm.CustomTorsionForce):
                 logger.debug("CustomTorsionForce force")
                 logger.debug("There are %s CustomTorsionForce terms defined", force.getNumTorsions())
@@ -1885,19 +1993,17 @@ class OpenMMTheory:
                 logger.debug("CMAPTorsionForce force")
                 logger.debug("There are %s CMAP terms defined", force.getNumTorsions())
                 logger.debug("There are %s CMAP maps defined", force.getNumMaps())
-                # Note (RB). CMAP is between pairs of backbone dihedrals.
-                # Not sure if we can delete the terms:
-                # http://docs.openmm.org/latest/api-c++/generated/OpenMM.CMAPTorsionForce.html
+                # Maps are shared by many torsions. Redirect selected terms to
+                # zero maps instead of changing a map used by retained MM terms.
+                zero_maps = {}
                 for i in range(force.getNumTorsions()):
                     jj, p1, p2, p3, p4, v1, v2, v3, v4 = force.getTorsionParameters(i)
-                    presence = [i in atomlist for i in [p1, p2, p3, p4, v1, v2, v3, v4]]
-                    if presence.count(True) >= 4:
-                        logger.debug(
-                            f"jj: {jj} p1: {p1} p2: {p2} p3: {p3} p4: {p4}      v1: {v1} v2: {v2} v3: {v3} v4: {v4}"
-                        )
-                        logger.debug("presence: %s", presence)
-                        logger.debug("Found CMAP torsion partner in QM-region")
-                        logger.debug("Not deleting. To be revisited...")
+                    if all(p in atomlist for p in (p1, p2, p3, p4, v1, v2, v3, v4)):
+                        size, _energies = force.getMapParameters(jj)
+                        if size not in zero_maps:
+                            zero_maps[size] = force.addMap(size, [0.0] * (size * size))
+                        force.setTorsionParameters(i, zero_maps[size], p1, p2, p3, p4, v1, v2, v3, v4)
+                        numcmaptorsionterms_removed += 1
             elif isinstance(force, openmm.CustomBondForce):
                 logger.debug("CustomBondForce")
                 logger.debug("There are %s force terms defined", force.getNumBonds())
@@ -1915,6 +2021,7 @@ class OpenMMTheory:
         logger.info("Harmonic Bond terms: %s", numharmbondterms_removed)
         logger.info("Harmonic Angle terms: %s", numharmangleterms_removed)
         logger.info("Periodic Torsion terms: %s", numpertorsionterms_removed)
+        logger.info("RB Torsion terms: %s", numrbtorsionterms_removed)
         logger.info("Custom Torsion terms: %s", numcustomtorsionterms_removed)
         logger.info("CMAP Torsion terms: %s", numcmaptorsionterms_removed)
         logger.info("CustomBond terms %s", numcustombondterms_removed)
@@ -1942,7 +2049,7 @@ class ForceReporter:
     ) -> tuple[int, bool, bool, bool, bool, None]:
         """Return OpenMM's scheduling tuple for the next force report."""
         steps = self._reportInterval - simulation.currentStep % self._reportInterval
-        return (steps, False, False, True, False, None)
+        return (steps, False, False, True, True, None)
 
     def report(self, simulation: openmm.app.Simulation, state: openmm.State) -> None:
         """Write the supplied state's potential energy and per-atom forces."""

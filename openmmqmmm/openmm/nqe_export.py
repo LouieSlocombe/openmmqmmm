@@ -68,7 +68,7 @@ def modeller_from_topology(*, topology: openmm.app.Topology, coords_angstrom: np
     return openmm.app.Modeller(topology, positions)
 
 
-def attach_qmmm_rpmd_force(
+def attach_qmmm_python_force(
     *,
     theory: QMMMTheory,
     elems: Sequence[str],
@@ -77,23 +77,23 @@ def attach_qmmm_rpmd_force(
     num_beads: int,
     periodic: bool,
     cache_size: int | None = None,
+    restore_physical_masses: bool = False,
 ) -> tuple[RPMDQMMMForceProvider, openmm.PythonForce, int]:
-    """Attach the bead-specific QM/MM ``PythonForce`` to the theory's MM System.
+    """Attach the instantaneous QM/MM potential to the theory's MM System.
 
-    Shared wiring between ``MolecularDynamicsEngine`` and ``export_rpmd_potential``:
-    validates RPMD-incompatible theory options (including System constraints for
-    ``num_beads > 1``), restores physical hydrogen masses, switches the theory
-    into external-force mode, and returns ``(provider, python_force, force_group)``.
+    Callback evaluations may be repeated at the same geometry or occur at trial
+    coordinates, so history-dependent charge updates and truncated-PC corrections
+    cannot define the potential. Multi-bead dynamics additionally forbids constraints.
     """
     if theory.truncated_pc:
         raise InputError(
-            "QM/MM RPMD does not support truncated_pc because its correction history is shared across "
-            "beads. Disable truncated_pc for bead-resolved dynamics."
+            "QM/MM PythonForce dynamics does not support truncated_pc because history-dependent "
+            "corrections cannot provide consistent energies and gradients at arbitrary callback coordinates."
         )
     if theory.update_qm_region_charges:
         raise InputError(
-            "QM/MM RPMD does not support update_qm_region_charges because one shared MM charge set "
-            "cannot represent every bead."
+            "QM/MM PythonForce dynamics does not support update_qm_region_charges because changing "
+            "the shared MM charge set during callback evaluation does not define a fixed potential."
         )
     if isinstance(num_beads, bool) or not isinstance(num_beads, Integral) or num_beads < 1:
         raise InputError("num_beads must be a positive integer matching the RPMD copy count the System will run under.")
@@ -106,13 +106,8 @@ def attach_qmmm_rpmd_force(
             f"{num_constraints}. Create OpenMMTheory with autoconstraints=None, rigidwater=False, "
             "and without bondconstraints."
         )
-    # NQE drivers need physical nuclear masses.
-    theory.mm_theory._disable_hydrogen_mass_repartitioning()
-
-    # The provider evaluates only the QM and coupling terms; these flags make
-    # QMMMTheory.run skip the MM part, which the System's native forces own.
-    theory.exit_after_customexternalforce_update = True
-    theory.openmm_externalforce = True
+    if restore_physical_masses:
+        theory.mm_theory._disable_hydrogen_mass_repartitioning()
 
     if cache_size is None:
         # RPMDIntegrator evaluates the potential twice per step at every bead.
@@ -127,7 +122,35 @@ def attach_qmmm_rpmd_force(
         cache_size=cache_size,
     )
     python_force, force_group = add_rpmd_python_force(theory.mm_theory.system, provider, periodic=periodic)
+    # Switch to external mode only after validation and attachment succeed.
+    # A rejected engine/export must leave standalone QM/MM evaluation intact.
+    # The provider owns QM and coupling terms; native forces own the MM terms.
+    theory.exit_after_customexternalforce_update = True
+    theory.openmm_externalforce = True
     return provider, python_force, force_group
+
+
+def attach_qmmm_rpmd_force(
+    *,
+    theory: QMMMTheory,
+    elems: Sequence[str],
+    charge: int,
+    mult: int,
+    num_beads: int,
+    periodic: bool,
+    cache_size: int | None = None,
+) -> tuple[RPMDQMMMForceProvider, openmm.PythonForce, int]:
+    """Attach the QM/MM callback and restore the physical nuclear masses for NQE."""
+    return attach_qmmm_python_force(
+        theory=theory,
+        elems=elems,
+        charge=charge,
+        mult=mult,
+        num_beads=num_beads,
+        periodic=periodic,
+        cache_size=cache_size,
+        restore_physical_masses=True,
+    )
 
 
 def export_rpmd_potential(
@@ -143,7 +166,8 @@ def export_rpmd_potential(
 
     The returned System is ``theory.mm_theory.system`` itself, carrying the
     QM/MM ``PythonForce`` in its own force group; the Modeller pairs the MM
-    topology with the fragment coordinates. Exporting restores physical
+    topology with the fragment coordinates, unwrapping periodic bonded molecules
+    for native MM forces. Exporting restores physical
     hydrogen masses and, for ``num_beads > 1``, rejects a System that carries
     constraints. ``num_beads`` must match the RPMD copy count the external
     driver will run (it sizes the provider's coordinate cache); use
@@ -159,9 +183,12 @@ def export_rpmd_potential(
 
     charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "export_rpmd_potential", theory=theory)
 
-    # Build the Modeller first: its shape validation runs before anything mutates
-    # the theory or its System.
-    modeller = modeller_from_topology(topology=theory.mm_theory.topology, coords_angstrom=fragment.coords)
+    # Validate/build initial coordinates before attaching a force to the System.
+    # Native bonds need contiguous molecules even when input atoms are wrapped.
+    coords = fragment.coords
+    if theory.mm_theory.periodic:
+        coords = theory._image_periodic_coords(coords)
+    modeller = modeller_from_topology(topology=theory.mm_theory.topology, coords_angstrom=coords)
     provider, python_force, force_group = attach_qmmm_rpmd_force(
         theory=theory,
         elems=fragment.elems,

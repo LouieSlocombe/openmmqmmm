@@ -10,6 +10,7 @@ from os import PathLike
 from typing import Any
 
 import numpy as np
+import openmm.unit
 
 import openmmqmmm.constants
 import openmmqmmm.coords
@@ -18,6 +19,7 @@ from openmmqmmm.exceptions import (
     InputError,
     InternalError,
 )
+from openmmqmmm.periodic_embedding import PeriodicQMGeometry
 from openmmqmmm.utils import log_time_since, main_header, write_list_to_file
 
 logger = logging.getLogger(__name__)
@@ -94,7 +96,8 @@ class QMMMTheory:
         self.linkatom_simple_distance = linkatom_simple_distance  # For method simple, Default 1.09 Angstrom
         # For method ratio. see https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9314059/
         self.linkatom_ratio = linkatom_ratio
-        # Linkatom projection method Options: 'adv', 'lever', 'chain', 'none'
+        # Historical projection names are aliases for the exact derivative of
+        # the selected placement rule. Only 'none' deliberately omits projection.
         if linkatom_forceproj_method is None:
             self.linkatom_forceproj_method = "none"
         elif isinstance(linkatom_forceproj_method, str):
@@ -158,6 +161,22 @@ class QMMMTheory:
 
         self.mmatoms = np.setdiff1d(self.allatoms, self.qmatoms)
 
+        self._periodic_geometry: PeriodicQMGeometry | None = None
+        self._current_periodic_box_vectors: np.ndarray | None = None
+        if self.mm_theory_name == "OpenMMTheory" and getattr(self.mm_theory, "periodic", False):
+            image_links = []
+            for index in range(self.mm_theory.system.getNumParticles()):
+                if self.mm_theory.system.isVirtualSite(index):
+                    site = self.mm_theory.system.getVirtualSite(index)
+                    image_links.extend((index, site.getParticle(parent)) for parent in range(site.getNumParticles()))
+            self._periodic_geometry = PeriodicQMGeometry(
+                self.num_allatoms,
+                ((first.index, second.index) for first, second in self.mm_theory.topology.bonds()),
+                self.qmatoms,
+                image_links=image_links,
+            )
+            self.coords = self._image_periodic_coords(np.asarray(fragment.coords))
+
         logger.info(f"QM region ({len(self.qmatoms)} atoms): {self.qmatoms}")
         logger.info(f"MM region ({len(self.mmatoms)} atoms)")
 
@@ -203,6 +222,11 @@ class QMMMTheory:
                 "mechanical)"
             )
         logger.info("Embedding: %s", self.embedding)
+        if self._periodic_geometry is not None and self.embedding == "elstat":
+            logger.warning(
+                "Periodic QM/MM uses a finite, molecule-imaged point-charge cluster. "
+                "The QM Hamiltonian has no periodic/Ewald electrostatics; check convergence with cell size."
+            )
         if self.update_qm_region_charges and (self.embedding != "mech" or self.mm_theory is None):
             raise InputError(
                 "update_qm_region_charges requires mechanical embedding and an MM theory whose charges can be updated"
@@ -292,7 +316,12 @@ class QMMMTheory:
             for mat in mm1_atoms:
                 if mat in self.MMboundarydict:
                     continue
-                connatoms = openmmqmmm.coords.get_connected_atoms(self.coords, self.elems, scale, tol, mat)
+                periodic_geometry = getattr(self, "_periodic_geometry", None)
+                connatoms = (
+                    periodic_geometry.neighbors[mat]
+                    if periodic_geometry is not None
+                    else openmmqmmm.coords.get_connected_atoms(self.coords, self.elems, scale, tol, mat)
+                )
                 self.MMboundarydict[mat] = [atom for atom in connatoms if atom not in qm_atom_set]
 
         empty_boundaries = [mm1 for mm1, mm_neighbors in self.MMboundarydict.items() if not mm_neighbors]
@@ -527,11 +556,9 @@ class QMMMTheory:
         PCgradient_trunc: np.ndarray,
     ) -> None:
         """Compute the QM and point-charge gradient corrections for PC truncation and store them."""
-        qm_difference = (
-            QMgradient_full[: len(QMgradient_full) - self.num_linkatoms]
-            - QMgradient_trunc[: len(QMgradient_full) - self.num_linkatoms]
-        )
-        self.original_QMcorrection_gradient = qm_difference
+        # Correct link-atom rows as well: they are projected onto the real
+        # boundary atoms only after the full QM gradient has been restored.
+        self.original_QMcorrection_gradient = QMgradient_full - QMgradient_trunc
         truncated_indices = np.asarray(self.truncated_PC_region_indices, dtype=int)
         pc_difference = np.zeros((len(PCgradient_full), 3))
         pc_difference[truncated_indices] = PCgradient_full[truncated_indices] - PCgradient_trunc
@@ -541,15 +568,15 @@ class QMMMTheory:
         self.original_PCcorrection_gradient = pc_difference
 
     def truncated_pc_gradient_update(
-        self, QMgradient_wo_linkatoms: np.ndarray, PCgradient: np.ndarray
+        self, QMgradient: np.ndarray, PCgradient: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """Apply the stored truncation correction to this step's gradients."""
-        newQMgradient_wo_linkatoms = QMgradient_wo_linkatoms + self.original_QMcorrection_gradient
+        newQMgradient = QMgradient + self.original_QMcorrection_gradient
 
         new_full_PC_gradient = np.copy(self.original_PCcorrection_gradient)
         new_full_PC_gradient[self.truncated_PC_region_indices] += PCgradient
 
-        return newQMgradient_wo_linkatoms, new_full_PC_gradient
+        return newQMgradient, new_full_PC_gradient
 
     def set_numcores(self, numcores: int) -> None:
         """Set the core count used by both the QM and MM theories."""
@@ -648,15 +675,20 @@ class QMMMTheory:
         # If a QM-MM boundary issue aborts the run then printing QM-coordinates is useful
         logger.info("QM-region coordinates (before linkatoms):")
         openmmqmmm.coords.print_coords_for_atoms(self.coords, self.elems, self.qmatoms, labels=self.qmatoms)
-        self.boundaryatoms = openmmqmmm.coords.get_boundary_atoms(
-            self.qmatoms,
-            self.coords,
-            self.elems,
-            conn_scale,
-            conn_tolerance,
-            excludeboundaryatomlist=self.excludeboundaryatomlist,
-            unusualboundary=self.unusualboundary,
-        )
+        if self._periodic_geometry is not None:
+            # The force-field topology remains authoritative across box faces;
+            # a distance search on arbitrarily wrapped input misses these bonds.
+            self.boundaryatoms = self._periodic_boundary_atoms()
+        else:
+            self.boundaryatoms = openmmqmmm.coords.get_boundary_atoms(
+                self.qmatoms,
+                self.coords,
+                self.elems,
+                conn_scale,
+                conn_tolerance,
+                excludeboundaryatomlist=self.excludeboundaryatomlist,
+                unusualboundary=self.unusualboundary,
+            )
         if len(self.boundaryatoms) > 0:
             logger.info(
                 f"Found covalent QM-MM boundary. Linkatoms option set to True\n"
@@ -687,6 +719,8 @@ class QMMMTheory:
             logger.info("Charges of QM atoms set to 0 (since Electrostatic Embedding):")
             self.zero_qm_charges()
             self.mm_theory.update_charges(self.qmatoms, [0.0 for _ in self.qmatoms])
+            if self.mm_theory_name == "OpenMMTheory":
+                self.mm_theory.delete_exceptions(self.qmatoms)
         elif embedding == "polembed_drude":
             # Would zero the QM charges and then delete the QM-MM Coulomb exceptions
             # in OpenMM via mm_theory.delete_exceptions(self.qmatoms).
@@ -699,6 +733,38 @@ class QMMMTheory:
             raise InputError("embedding='pbcmm-elstat' is not supported in this distribution")
 
         self._log_region_charges()
+
+    def _periodic_boundary_atoms(self) -> dict[int, list[int]]:
+        excluded = set(() if self.excludeboundaryatomlist is None else self.excludeboundaryatomlist)
+        qm_atoms = set(self.qmatoms)
+        boundary = {}
+        for atom in self.qmatoms:
+            if atom in excluded:
+                continue
+            neighbors = [other for other in self._periodic_geometry.neighbors[atom] if other not in qm_atoms]
+            if not neighbors:
+                continue
+            if not self.unusualboundary and any(self.elems[index] != "C" for index in [atom, *neighbors]):
+                raise InputError(
+                    f"QM-MM boundary at atom {atom} is not a C-C bond; use unusualboundary=True to accept this cut"
+                )
+            boundary[atom] = neighbors
+        return boundary
+
+    def _image_periodic_coords(
+        self, current_coords: np.ndarray, periodic_box_vectors: np.ndarray | None = None
+    ) -> np.ndarray:
+        if self._periodic_geometry is None:
+            if periodic_box_vectors is not None:
+                raise InputError("periodic_box_vectors requires a periodic OpenMM QM/MM system")
+            self._current_periodic_box_vectors = None
+            return np.asarray(current_coords)
+        if periodic_box_vectors is None:
+            periodic_box_vectors = openmm.unit.Quantity(
+                self.mm_theory.system.getDefaultPeriodicBoxVectors()
+            ).value_in_unit(openmm.unit.angstrom)
+        self._current_periodic_box_vectors = np.asarray(periodic_box_vectors, dtype=float)
+        return self._periodic_geometry.image(current_coords, self._current_periodic_box_vectors)
 
     def _log_region_charges(self) -> None:
         """Log the per-atom charge each region carries, at DEBUG."""
@@ -724,6 +790,7 @@ class QMMMTheory:
         mm_charges: Sequence[float] | None = None,
         qm_elems: Sequence[str] | None = None,
         pc: bool | None = None,
+        periodic_box_vectors: np.ndarray | None = None,
     ) -> float | tuple[float, np.ndarray]:
         """Run a QM/MM energy (and gradient) calculation."""
         logger.info("------------RUNNING QM/MM MODULE-------------")
@@ -754,7 +821,7 @@ class QMMMTheory:
             raise InputError(f"Unknown embedding '{self.embedding}'. Expected one of mech, elstat, pbcmm-elstat.")
 
         return runner(
-            current_coords=current_coords,
+            current_coords=self._image_periodic_coords(current_coords, periodic_box_vectors),
             elems=elems,
             grad=grad,
             numcores=numcores,
@@ -771,6 +838,7 @@ class QMMMTheory:
         elems: Sequence[str],
         charge: int,
         mult: int,
+        periodic_box_vectors: np.ndarray | None = None,
     ) -> tuple[float, np.ndarray]:
         """Return the physical external energy and gradient for an OpenMM ``PythonForce``.
 
@@ -786,6 +854,7 @@ class QMMMTheory:
             exit_after_customexternalforce_update=True,
             charge=charge,
             mult=mult,
+            periodic_box_vectors=periodic_box_vectors,
         )
         if not isinstance(result, tuple) or len(result) != 2:
             raise InternalError("QM/MM force evaluation must return an (energy, gradient) pair.")
@@ -818,8 +887,8 @@ class QMMMTheory:
     def _add_linkatom_force_projection(
         self, gradient: np.ndarray, used_qmcoords: np.ndarray, current_coords: np.ndarray
     ) -> None:
-        for pair in sorted(self.linkatoms_dict.keys()):
-            linkatomindex = self.linkatom_indices.pop(0)
+        """Apply the exact placement Jacobian, retaining historical method aliases."""
+        for pair, linkatomindex in zip(sorted(self.linkatoms_dict), self.linkatom_indices, strict=True):
             Lgrad = self.QMgradient[linkatomindex]
             Lcoord = self.linkatoms_dict[pair]
             fullatomindex_qm = pair[0]
@@ -828,17 +897,19 @@ class QMMMTheory:
             fullatomindex_mm = pair[1]
             Mcoord = current_coords[fullatomindex_mm]
 
-            if self.linkatom_forceproj_method == "adv":
-                QM1grad_contrib, MM1grad_contrib = _linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad)
-            elif self.linkatom_forceproj_method == "lever":
-                QM1grad_contrib, MM1grad_contrib = _linkatom_force_lever(Qcoord, Mcoord, Lcoord, Lgrad)
-            elif self.linkatom_forceproj_method == "chain":
-                QM1grad_contrib, MM1grad_contrib = _linkatom_force_chainrule(Qcoord, Mcoord, Lcoord, Lgrad)
-            elif self.linkatom_forceproj_method == "none":
+            if self.linkatom_forceproj_method == "none":
                 QM1grad_contrib = np.zeros(3)
                 MM1grad_contrib = np.zeros(3)
+            elif self.linkatom_method == "ratio":
+                # L = (1-r)Q + rM, so its Jacobians are (1-r)I and rI.
+                # Use the signed input ratio, rather than recovering its
+                # magnitude from a distance ratio.
+                QM1grad_contrib = (1.0 - self.linkatom_ratio) * Lgrad
+                MM1grad_contrib = self.linkatom_ratio * Lgrad
+            elif self.linkatom_method == "simple":
+                QM1grad_contrib, MM1grad_contrib = _linkatom_force_adv(Qcoord, Mcoord, Lcoord, Lgrad)
             else:
-                raise InputError("Unknown linkatom_forceproj_method. Exiting")
+                raise InputError("Unknown linkatom_method. Exiting")
 
             gradient[fullatomindex_qm] += QM1grad_contrib
             gradient[fullatomindex_mm] += MM1grad_contrib
@@ -863,11 +934,18 @@ class QMMMTheory:
                 self.MMgradient = np.zeros((len(current_coords), 3))
         elif grad:
             self.MMenergy, self.MMgradient = self.mm_theory.run(
-                current_coords=current_coords, qmatoms=self.qmatoms, grad=True
+                current_coords=current_coords,
+                qmatoms=self.qmatoms,
+                grad=True,
+                periodic_box_vectors=self._current_periodic_box_vectors,
             )
         else:
             logger.info("QM/MM Grad is false")
-            self.MMenergy = self.mm_theory.run(current_coords=current_coords, qmatoms=self.qmatoms)
+            self.MMenergy = self.mm_theory.run(
+                current_coords=current_coords,
+                qmatoms=self.qmatoms,
+                periodic_box_vectors=self._current_periodic_box_vectors,
+            )
 
     def _write_gradient_debug_files(
         self,
@@ -1131,12 +1209,11 @@ class QMMMTheory:
     ) -> None:
         """Turn this step's QM and point-charge gradients into self.QM_PC_gradient."""
         prep_start = time.time()
-        QMgradient_wo_linkatoms = self._qm_gradient_without_linkatoms(QMgradient)
 
         if self.truncated_pc is not True:
             self.QMenergy = QMenergy
             # No TruncPC approximation active. No change to original QM and PCgradient from QMcode
-            self.QMgradient_wo_linkatoms = QMgradient_wo_linkatoms
+            self.QMgradient = QMgradient
             if self.embedding.lower() in {"elstat", "polembed_drude"}:
                 self.PCgradient = PCgradient
         elif self.truncated_pc_recalc_flag is True:
@@ -1144,7 +1221,6 @@ class QMMMTheory:
                 QMenergy=QMenergy,
                 QMgradient=QMgradient,
                 PCgradient=PCgradient,
-                QMgradient_wo_linkatoms=QMgradient_wo_linkatoms,
                 used_qmcoords=used_qmcoords,
                 charge=charge,
                 mult=mult,
@@ -1153,11 +1229,10 @@ class QMMMTheory:
         else:
             checkpoint = time.time()
             self.QMenergy = QMenergy + self.truncPC_E_correction
-            self.QMgradient_wo_linkatoms, self.PCgradient = self.truncated_pc_gradient_update(
-                QMgradient_wo_linkatoms, PCgradient
-            )
+            self.QMgradient, self.PCgradient = self.truncated_pc_gradient_update(QMgradient, PCgradient)
             log_time_since(checkpoint, "trunc pcgrad update")
 
+        self.QMgradient_wo_linkatoms = self._qm_gradient_without_linkatoms(self.QMgradient)
         checkpoint = time.time()
         self.make_qm_pc_gradient()  # populates self.QM_PC_gradient
         log_time_since(checkpoint, "QMpcgrad prepare")
@@ -1173,7 +1248,6 @@ class QMMMTheory:
         QMenergy: float,
         QMgradient: np.ndarray,
         PCgradient: np.ndarray,
-        QMgradient_wo_linkatoms: np.ndarray,
         used_qmcoords: np.ndarray,
         charge: int,
         mult: int,
@@ -1205,9 +1279,7 @@ class QMMMTheory:
         log_time_since(checkpoint, "calculate_truncPC_gradient_correction")
 
         checkpoint = time.time()
-        self.QMgradient_wo_linkatoms, self.PCgradient = self.truncated_pc_gradient_update(
-            QMgradient_wo_linkatoms, PCgradient
-        )
+        self.QMgradient, self.PCgradient = self.truncated_pc_gradient_update(QMgradient, PCgradient)
         log_time_since(checkpoint, "truncPC_gradient update ")
         log_time_since(full_start, "trunc-full-step pcgrad update")
 
@@ -1642,26 +1714,20 @@ def _linkatom_force_lever(
     return gradQM, gradMM
 
 
-# Simplistic; selected with linkatom_forceproj_method="chain"
 def _linkatom_force_chainrule(
     Qcoord: np.ndarray,
     Mcoord: np.ndarray,
     Lcoord: Sequence[float] | np.ndarray,
     Lgrad: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    QLdistance = openmmqmmm.coords.distance(Qcoord, Lcoord) * openmmqmmm.constants.ANG_TO_BOHR
-    vec = (Mcoord - Qcoord) * openmmqmmm.constants.ANG_TO_BOHR
-    R2 = vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]
-    oneR = 1.0 / math.sqrt(R2)
-    lnk_dis_oneR = QLdistance * oneR
-    vec = vec * oneR
-    dotprod = Lgrad[0] * (-1) * vec[0] + Lgrad[1] * (-1) * vec[1] + Lgrad[2] * (-1) * vec[2]
-    forcemod = np.zeros(3)
-    forcemod[0] = lnk_dis_oneR * (-1 * Lgrad[0] - (dotprod * vec[0]))
-    forcemod[1] = lnk_dis_oneR * (-1 * Lgrad[1] - (dotprod * vec[1]))
-    forcemod[2] = lnk_dis_oneR * (-1 * Lgrad[2] - (dotprod * vec[2]))
-    # subtract from QM1,  add to MM1
-    return -1 * forcemod, forcemod
+    """Differentiate L = Q + d(M-Q)/|M-Q| for a fixed link distance d."""
+    separation = np.asarray(Mcoord) - np.asarray(Qcoord)
+    distance = np.linalg.norm(separation)
+    direction = separation / distance
+    ratio = np.linalg.norm(np.asarray(Lcoord) - Qcoord) / distance
+    # B = d/R (I - uu^T), dL/dM = B, and dL/dQ = I-B.
+    gradMM = ratio * (Lgrad - direction * np.dot(direction, Lgrad))
+    return Lgrad - gradMM, gradMM
 
 
 def compute_decomposed_qm_mm_energy(fragment: Fragment | None = None, theory: QMMMTheory | None = None) -> None:
@@ -1672,10 +1738,18 @@ def compute_decomposed_qm_mm_energy(fragment: Fragment | None = None, theory: QM
         raise InputError("Please provide a QMMMTheory object as theory.")
     if theory.qm_charge is None or theory.qm_mult is None:
         raise InputError("Please define qm_charge and qm_mult attributes in the QMMMtheory object")
-    if theory.mm_theory is None or not all(
-        callable(getattr(theory.mm_theory, method, None)) for method in ("get_lj_epsilons", "update_lj_epsilons")
-    ):
-        raise InputError("QM/MM energy decomposition requires an MM theory with mutable Lennard-Jones parameters")
+    if theory.mm_theory is None or not callable(getattr(theory.mm_theory, "qmmm_lj_energy", None)):
+        raise InputError("QM/MM energy decomposition requires an MM theory supporting isolated Lennard-Jones energies")
+    if theory.embedding != "elstat":
+        raise InputError("QM/MM energy decomposition currently requires electrostatic embedding")
+    if theory.openmm_externalforce:
+        raise InputError("Use a standalone QM/MM theory for energy decomposition, before attaching an MD force")
+    if fragment is None:
+        fragment = theory.fragment
+
+    # Inspect/evaluate cloned LJ forces, including exceptions and CHARMM custom
+    # terms. The live System is never altered, even if a later QM call fails.
+    E_QM_MM_vdw = theory.mm_theory.qmmm_lj_energy(theory.qmatoms, theory._image_periodic_coords(fragment.coords))
 
     result = openmmqmmm.single_point(theory=theory, fragment=fragment)
 
@@ -1683,36 +1757,23 @@ def compute_decomposed_qm_mm_energy(fragment: Fragment | None = None, theory: QM
     E_QM_pol = result.qm_energy
     E_MM_mod = result.mm_energy
 
-    original_epsilons = theory.mm_theory.get_lj_epsilons(theory.qmatoms)
-    try:
-        theory.mm_theory.update_lj_epsilons(theory.qmatoms, [0.0] * len(theory.qmatoms))
-        result_MM_mod2 = openmmqmmm.single_point(theory=theory.mm_theory, fragment=fragment, charge=0, mult=1)
-        E_QM_MM_vdw = E_MM_mod - result_MM_mod2.energy
+    logger.warning(
+        "QM-MM bonded decomposition is not implemented; reporting it as zero, so the MM term still contains "
+        "that contribution"
+    )
+    E_QM_MM_bond = 0.0
+    E_MM_pure = E_MM_mod - E_QM_MM_vdw
 
-        logger.warning(
-            "QM-MM bonded decomposition is not implemented; reporting it as zero, so the MM term still contains "
-            "that contribution"
-        )
-        E_QM_MM_bond = 0.0
-
-        E_MM_pure = result_MM_mod2.energy
-
-        QM_MM_mech = QMMMTheory(
-            fragment=fragment,
-            qm_theory=theory.qm_theory,
-            mm_theory=theory.mm_theory,
-            qmatoms=theory.qmatoms,
-            embedding="mech",
-            qm_charge=theory.qm_charge,
-            qm_mult=theory.qm_mult,
-            unusualboundary=theory.unusualboundary,
-            excludeboundaryatomlist=theory.excludeboundaryatomlist,
-        )
-
-        result_mech = openmmqmmm.single_point(theory=QM_MM_mech, fragment=fragment)
-        E_QM_pure = result_mech.qm_energy
-    finally:
-        theory.mm_theory.update_lj_epsilons(theory.qmatoms, original_epsilons)
+    # Preserve every cap setting and the already established boundary. Calling
+    # QMMMTheory.__init__ again on the shared MM System would strip forces twice.
+    QM_MM_mech = copy.copy(theory)
+    QM_MM_mech.embedding = "mech"
+    QM_MM_mech.pc = False
+    QM_MM_mech.runcalls = 0
+    QM_MM_mech.truncated_pc = False
+    QM_MM_mech.update_qm_region_charges = False
+    result_mech = openmmqmmm.single_point(theory=QM_MM_mech, fragment=fragment)
+    E_QM_pure = result_mech.qm_energy
     E_QM_MM_elstat = E_QM_pol - E_QM_pure
 
     E_coupling = E_QM_MM_elstat + E_QM_MM_vdw + E_QM_MM_bond

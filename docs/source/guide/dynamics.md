@@ -9,12 +9,21 @@ from openmmqmmm import openmm_md
 # Classical MM
 openmm_md(fragment=fragment, theory=mm, timestep=0.002, simulation_time=100)
 
-# QM/MM, with the QM force evaluated every step
+# QM/MM, with QM energies and forces evaluated at the coordinates OpenMM requests
 openmm_md(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
 ```
 
 `timestep` and `simulation_time` are in picoseconds. Give `simulation_steps` instead when a
 step count is the natural unit.
+
+Classical QM/MM and external-QM dynamics use OpenMM's `PythonForce` callback to evaluate
+the QM potential and its gradient at the current coordinates. OpenMM can request evaluations
+for integration, pressure trials, and reporting, so there may be several QM calculations
+per step. Repeated requests at identical coordinates and box vectors reuse cached results.
+
+QM/MM dynamics reject `truncated_pc=True` and `update_qm_region_charges=True`: both make the
+potential depend on earlier evaluations and are incompatible with these callback and cache
+semantics. Use a fixed charge model and the full point-charge field for dynamics.
 
 ## Integrators and temperature
 
@@ -33,11 +42,20 @@ The timestep has to match the constraints on the MM theory. With the default
 with `autoconstraints=None`, expect to drop to around 0.5 fs. The engine warns when it sees
 an unconstrained system.
 
+QM/MM setup removes constraints involving QM atoms; choose the timestep for the resulting
+unconstrained QM bonds as well as the MM region.
+
 ## Pressure
 
 `barostat="MonteCarloBarostat"` runs NPT at `pressure` (bar), applied every
 `barostat_frequency` steps. Selecting a barostat forces `LangevinMiddleIntegrator`, and it
 cannot be combined with `RPMDIntegrator`.
+
+Classical QM/MM NPT is supported: each proposed volume move evaluates the actual QM energy
+at its proposed coordinates and box, so the acceptance test uses the QM/MM potential.
+These trials incur additional QM calculations. Periodic QM/MM uses the finite embedding
+field described in {doc}`qmmm`; NPT support does not turn that field into periodic QM
+electrostatics.
 
 ## Output
 
@@ -53,6 +71,11 @@ cannot be combined with `RPMDIntegrator`.
 : Energy and force files alongside the trajectory. `atomic_units_force_reporter=True` writes
   forces in Hartree/Bohr rather than OpenMM's units.
 
+For classical QM/MM, reported potential energies include the actual QM energy and the
+remaining MM potential, plus any configured restraints or biases. Reported forces are
+evaluated at the saved coordinates. These energy and force outputs can therefore be used
+to check the dynamics of the chosen QM/MM model.
+
 `datafilename=`
 : The step-by-step state report. Left unset, that report goes to the package logger; set it
   and it goes to a file instead.
@@ -63,16 +86,27 @@ cannot be combined with `RPMDIntegrator`.
 
 ## Keeping the solute in the box
 
-Periodic wrapping can leave a solute straddling a box edge:
+Periodic QM/MM automatically reconstructs whole topology molecules and images the embedding
+field around the QM region using the instantaneous box. This happens inside each force
+evaluation, independently of how the trajectory is wrapped for output. The supported image
+convention and its finite-field limitations are described in {doc}`qmmm`.
+
+Fresh classical and RPMD simulations also start from whole molecules so native MM bonded
+forces see contiguous coordinates. Exported RPMD potentials use the same initial images.
+Restarted simulations preserve the coordinate images saved in their state or checkpoint.
+
+The following options control output or pure-MM wrapping:
 
 `enforce_periodic_box=`
 : OpenMM's own wrapping when writing coordinates.
 
 `special_wrapping=` with `wrapping_atoms=`
-: Wrapping driven by a chosen set of atoms rather than by whole molecules.
+: Wrapping driven by a chosen set of atoms for pure-MM runs. QM/MM and external-QM dynamics
+  reject both `special_wrapping=True` and `special_wrapping_updatepos=True`.
 
 `center_on_atoms=` / `solute_indices=`
-: Re-centre the box on a chosen group when writing frames.
+: `center_on_atoms` is not implemented and raises an error when supplied. `solute_indices`
+  selects the solute for the pure-MM dummy-atom restraint below.
 
 `add_centerforce=True`
 : A flat-bottom restraint (`centerforce_atoms`, `centerforce_center`, `centerforce_distance`,
@@ -80,7 +114,8 @@ Periodic wrapping can leave a solute straddling a box edge:
   solute that would otherwise diffuse into the periodic boundary.
 
 `dummyatomrestraint=True`
-: Restrain to a dummy atom instead.
+: Restrain to a dummy atom in pure-MM dynamics. QM/MM and external-QM dynamics reject this
+  option because it changes the particle count seen by the QM callback.
 
 After the run, {func}`~openmmqmmm.mdtraj_image_trajectory` re-images a finished trajectory and
 {func}`~openmmqmmm.mdtraj_rmsf` computes per-atom fluctuations.
@@ -97,6 +132,11 @@ from openmmqmmm import MolecularDynamicsEngine
 engine = MolecularDynamicsEngine(fragment=fragment, theory=qm_mm, timestep=0.001, temperature=300)
 engine.run(simulation_steps=1000)
 ```
+
+A QM/MM theory's OpenMM System carries one QM `PythonForce`. Constructing another engine
+on that same theory, or attaching another exported QM/MM force, raises an error to prevent
+duplicate QM forces. Continue with the existing engine, or construct fresh QM/MM and MM
+theory objects for a separate engine.
 
 `run` takes two hooks that `openmm_md` does not expose:
 

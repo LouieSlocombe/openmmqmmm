@@ -55,7 +55,11 @@ class _RPMDPythonForceProvider:
         self._cache = OrderedDict(self._cache)
         self._lock = threading.RLock()
 
-    def _evaluate(self, coords_angstrom: npt.NDArray[np.float64]) -> tuple[float, npt.ArrayLike]:
+    def _evaluate(
+        self,
+        coords_angstrom: npt.NDArray[np.float64],
+        periodic_box_vectors: npt.NDArray[np.float64] | None = None,
+    ) -> tuple[float, npt.ArrayLike]:
         raise NotImplementedError
 
     def _cache_key(self, state: openmm.State, positions_nm: npt.NDArray[np.float64]) -> tuple[bytes, ...]:
@@ -72,7 +76,7 @@ class _RPMDPythonForceProvider:
         expected_shape = (len(self.elems), 3)
         if positions_nm.shape != expected_shape:
             raise InternalError(
-                f"RPMD external force received positions with shape {positions_nm.shape}; expected {expected_shape}."
+                f"External QM force received positions with shape {positions_nm.shape}; expected {expected_shape}."
             )
 
         key = self._cache_key(state, positions_nm)
@@ -85,21 +89,26 @@ class _RPMDPythonForceProvider:
                 return energy_kj_mol, forces_kj_mol_nm.copy()
 
             coords_angstrom = positions_nm * 10.0
+            box_angstrom = None
+            if self.periodic:
+                box_angstrom = np.asarray(
+                    state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(openmm.unit.angstrom), dtype=np.float64
+                )
             try:
-                energy_hartree, gradient = self._evaluate(coords_angstrom)
+                energy_hartree, gradient = self._evaluate(coords_angstrom, periodic_box_vectors=box_angstrom)
             except Exception as error:
                 raise RuntimeError(
-                    f"RPMD external-force evaluation failed for {len(self.elems)} atoms: {error}"
+                    f"External QM force evaluation failed for {len(self.elems)} atoms: {error}"
                 ) from error
 
             energy_hartree = float(energy_hartree)
             gradient = np.asarray(gradient, dtype=np.float64)
             if gradient.shape != expected_shape:
                 raise InternalError(
-                    f"RPMD external theory returned a gradient with shape {gradient.shape}; expected {expected_shape}."
+                    f"External QM theory returned a gradient with shape {gradient.shape}; expected {expected_shape}."
                 )
             if not np.isfinite(energy_hartree) or not np.all(np.isfinite(gradient)):
-                raise InternalError("RPMD external theory returned a non-finite energy or gradient.")
+                raise InternalError("External QM theory returned a non-finite energy or gradient.")
 
             energy_kj_mol = energy_hartree * openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
             forces_kj_mol_nm = -gradient * openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
@@ -117,21 +126,31 @@ class _RPMDPythonForceProvider:
 
 
 class RPMDQMMMForceProvider(_RPMDPythonForceProvider):
-    """Provide bead-specific QM/MM energies and gradients to ``openmm.PythonForce``."""
+    """Provide instantaneous QM/MM energies and gradients to ``openmm.PythonForce``."""
 
-    def _evaluate(self, coords_angstrom: npt.NDArray[np.float64]) -> tuple[float, npt.ArrayLike]:
+    def _evaluate(
+        self,
+        coords_angstrom: npt.NDArray[np.float64],
+        periodic_box_vectors: npt.NDArray[np.float64] | None = None,
+    ) -> tuple[float, npt.ArrayLike]:
+        box_kwargs = {} if periodic_box_vectors is None else {"periodic_box_vectors": periodic_box_vectors}
         return self.theory.run_openmm_python_force(
             current_coords=coords_angstrom,
             elems=self.elems,
             charge=self.charge,
             mult=self.mult,
+            **box_kwargs,
         )
 
 
 class RPMDExternalQMForceProvider(_RPMDPythonForceProvider):
-    """Provide bead-specific full-QM energies and gradients to ``openmm.PythonForce``."""
+    """Provide instantaneous full-QM energies and gradients to ``openmm.PythonForce``."""
 
-    def _evaluate(self, coords_angstrom: npt.NDArray[np.float64]) -> tuple[float, npt.ArrayLike]:
+    def _evaluate(
+        self,
+        coords_angstrom: npt.NDArray[np.float64],
+        periodic_box_vectors: npt.NDArray[np.float64] | None = None,
+    ) -> tuple[float, npt.ArrayLike]:
         result = self.theory.run(
             current_coords=coords_angstrom,
             elems=self.elems,
@@ -152,11 +171,11 @@ def add_rpmd_python_force(
 ) -> tuple[openmm.PythonForce, int]:
     """Add an isolated-force-group ``PythonForce`` and return it with its group index."""
     if not hasattr(openmm, "PythonForce"):
-        raise MissingDependencyError("QM/MM RPMD requires OpenMM 8.5 or newer with openmm.PythonForce support.")
+        raise MissingDependencyError("External QM dynamics requires OpenMM with openmm.PythonForce support.")
 
     if any(force.getName() == RPMD_PYTHON_FORCE_NAME for force in system.getForces()):
         raise InputError(
-            "This OpenMM System already carries the openmmqmmm bead-specific PythonForce from a previous "
+            "This OpenMM System already carries the openmmqmmm QM PythonForce from a previous "
             "MolecularDynamicsEngine or export_rpmd_potential call. A second one would silently double the "
             "QM force; reuse the existing engine or export, or build a fresh theory object."
         )
@@ -164,12 +183,14 @@ def add_rpmd_python_force(
     used_groups = {force.getForceGroup() for force in system.getForces()}
     force_group = next((group for group in range(31, -1, -1) if group not in used_groups), None)
     if force_group is None:
-        raise InputError("QM/MM RPMD requires a dedicated OpenMM force group, but all 32 groups are already used.")
+        raise InputError(
+            "External QM dynamics requires a dedicated OpenMM force group, but all 32 groups are already used."
+        )
 
     force = openmm.PythonForce(provider)
     force.setName(RPMD_PYTHON_FORCE_NAME)
     force.setForceGroup(force_group)
     force.setUsesPeriodicBoundaryConditions(bool(periodic))
     system.addForce(force)
-    logger.info("Added bead-specific PythonForce in force group %s", force_group)
+    logger.info("Added QM PythonForce in force group %s", force_group)
     return force, force_group

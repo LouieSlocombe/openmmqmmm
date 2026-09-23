@@ -32,7 +32,7 @@ from openmmqmmm.exceptions import (
     InputError,
 )
 from openmmqmmm.mdtraj import mdtraj_image_trajectory, mdtraj_rmsf
-from openmmqmmm.openmm.nqe_export import attach_qmmm_rpmd_force
+from openmmqmmm.openmm.nqe_export import attach_qmmm_python_force
 from openmmqmmm.openmm.rpmd_force import (
     RPMDExternalQMForceProvider,
     add_rpmd_python_force,
@@ -349,14 +349,14 @@ class MolecularDynamicsEngine:
             periodic_cell_dimensions=periodic_cell_dimensions,
         )
 
-        if is_rpmd and self.theory_runtype in {"QMMM", "QM"}:
+        if self.theory_runtype in {"QMMM", "QM"}:
             if special_wrapping or special_wrapping_updatepos:
                 raise InputError(
-                    "RPMD does not support special_wrapping. Use OpenMM periodic wrapping through the "
-                    "PythonForce callback instead."
+                    "PythonForce dynamics does not support special_wrapping. Periodic QM/MM images "
+                    "are prepared from the instantaneous box inside the force callback."
                 )
             if dummyatomrestraint:
-                raise InputError("RPMD does not support dummyatomrestraint.")
+                raise InputError("PythonForce dynamics does not support dummyatomrestraint.")
 
         if integrator in NUCLEAR_QUANTUM_INTEGRATORS:
             self.openmmobject._disable_hydrogen_mass_repartitioning()
@@ -784,10 +784,6 @@ class MolecularDynamicsEngine:
             self.QM_MM_object = theory
             self.openmmobject = theory.mm_theory
             self.theory_runtype = "QMMM"
-            # Making sure QM/MM object will exit before calculating MM part
-            self.QM_MM_object.exit_after_customexternalforce_update = True
-            logger.debug("Turning on externalforce option.")
-            self.QM_MM_object.openmm_externalforce = True
             return
 
         logger.info(
@@ -834,26 +830,24 @@ class MolecularDynamicsEngine:
         self.rpmd_qm_num_copies = int(rpmd_qm_num_copies)
 
     def _attach_qm_force(self, is_rpmd: bool) -> None:
-        """Give OpenMM access to the QM gradient, bead-resolved for RPMD and frozen otherwise."""
+        """Give every OpenMM energy/force evaluation the physical QM potential."""
         if self.theory_runtype not in {"QMMM", "QM"}:
             return
-        if not is_rpmd:
-            logger.info("Creating the classical-MD CustomExternalForce for external QM gradients")
-            self.openmm_externalforceobject = self.openmmobject.add_custom_external_force()
-            return
 
+        num_beads = self.rpmd_num_copies if is_rpmd else 1
         if self.theory_runtype == "QMMM":
             (
                 self.rpmd_force_provider,
                 self.rpmd_python_force,
                 self.rpmd_external_force_group,
-            ) = attach_qmmm_rpmd_force(
+            ) = attach_qmmm_python_force(
                 theory=self.QM_MM_object,
                 elems=self.fragment.elems,
                 charge=self.charge,
                 mult=self.mult,
-                num_beads=self.rpmd_num_copies,
+                num_beads=num_beads,
                 periodic=self.openmmobject.periodic,
+                restore_physical_masses=is_rpmd,
             )
         else:
             self.rpmd_force_provider = RPMDExternalQMForceProvider(
@@ -862,7 +856,7 @@ class MolecularDynamicsEngine:
                 self.charge,
                 self.mult,
                 periodic=self.openmmobject.periodic,
-                cache_size=2 * self.rpmd_num_copies + 4,
+                cache_size=2 * num_beads + 4,
             )
             self.rpmd_python_force, self.rpmd_external_force_group = add_rpmd_python_force(
                 self.openmmobject.system,
@@ -870,7 +864,7 @@ class MolecularDynamicsEngine:
                 periodic=self.openmmobject.periodic,
             )
 
-        if self.rpmd_qm_num_copies < self.rpmd_num_copies:
+        if is_rpmd and self.rpmd_qm_num_copies < self.rpmd_num_copies:
             contractions = dict(getattr(self.openmmobject, "rpmd_contractions", {}))
             contractions[self.rpmd_external_force_group] = self.rpmd_qm_num_copies
             self.openmmobject.set_rpmd_contractions(contractions)
@@ -1067,7 +1061,13 @@ class MolecularDynamicsEngine:
                     self.datafilename, "a", encoding="utf-8"
                 )
             self.set_sim_reporters(self.simulation)
-            self.openmmobject.set_positions(self.positions, self.simulation)
+            positions = self.positions
+            if self.theory_runtype == "QMMM" and self.openmmobject.periodic:
+                # Native bonded forces do not generally apply minimum images.
+                # Start them from the same contiguous molecules as the QM field.
+                box = self.simulation.context.getState().getPeriodicBoxVectors(asNumpy=True)
+                positions = self.QM_MM_object._image_periodic_coords(positions, box.value_in_unit(openmm.unit.angstrom))
+            self.openmmobject.set_positions(positions, self.simulation)
 
         if extra_reporters is None:
             return
@@ -1306,107 +1306,29 @@ class MolecularDynamicsEngine:
         if new_simulation:
             self._write_first_frame()
 
-        if self.theory_runtype == "QMMM":
-            logger.info("QM/MM MD run beginning")
+        if self.theory_runtype in {"QMMM", "QM"}:
             if self._is_rpmd_simulation(self.simulation):
-                self._finish_rpmd_run(simulation_steps, "QM/MM", module_init_time)
+                self._finish_rpmd_run(simulation_steps, self.theory_runtype, module_init_time)
                 return
 
-            # Classical QM/MM uses a frozen-gradient CustomExternalForce updated before every step.
-            for step in range(simulation_steps):
-                checkpoint_begin_step = time.time()
-                checkpoint = time.time()
-                logger.debug("Step: %s", step)
-                if step % self.traj_frequency == 0:
-                    logger.debug("Step: %s", step)
-
-                _, current_coords = self._current_step_coords(checkpoint, boxvectors, mdtrajtopology, wrapping_atoms)
-
-                checkpoint = time.time()
-                self.QM_MM_object.run(
-                    current_coords=current_coords,
-                    elems=self.fragment.elems,
-                    grad=True,
-                    exit_after_customexternalforce_update=True,
-                    charge=self.charge,
-                    mult=self.mult,
-                )
-                log_time_since(checkpoint, "QM/MM run")
-
-                if step % self.restartfile_frequency == 0:
-                    self.write_state_and_chk_files(step)
-
-                # NOTE: Manual per-step info is not possible here because the MM-energy has not been
-                # calculated yet when using the customexternalforceupdate option
-                if step % self.traj_frequency == 0:
-                    logger.info("Writing wrapped coords to trajfile: OpenMMMD_traj_wrapped.xyz (for debugging)")
-                    write_xyzfile(self.fragment.elems, current_coords, "OpenMMMD_traj_wrapped", writemode="a")
-                self._write_special_atoms_frame(step, current_coords)
-
-                # The QM_PC gradient (link-atom projected, from QM_MM object) is provided to OpenMM external force
-                checkpoint = time.time()
-                self.openmmobject.update_custom_external_force(
-                    self.openmm_externalforceobject, self.QM_MM_object.QM_PC_gradient, self.simulation
-                )
-                log_time_since(checkpoint, "update custom external force")
-
-                checkpoint = time.time()
+            # PythonForce supplies the actual energy and force at every integrator,
+            # barostat-trial, and reporter geometry. Native reporters now receive
+            # the physical total potential and forces at their saved positions.
+            for _step in range(simulation_steps):
                 self.simulation.step(1)
-                log_time_since(checkpoint, "openmmobject sim step")
-                log_time_since(checkpoint_begin_step, "Total sim step")
-        elif self.theory_runtype == "QM":
-            logger.info("External QM with OpenMM option")
-            if self._is_rpmd_simulation(self.simulation):
-                self._finish_rpmd_run(simulation_steps, "External-QM", module_init_time)
-                return
-
-            for step in range(simulation_steps):
-                checkpoint_begin_step = time.time()
-                checkpoint = time.time()
-                logger.debug("Step: %s", step)
+                step = self.simulation.currentStep
+                _, current_coords = self._current_step_coords(time.time(), boxvectors, mdtrajtopology, wrapping_atoms)
                 if step % self.traj_frequency == 0:
-                    logger.debug("Step: %s", step)
-
-                current_state, current_coords = self._current_step_coords(
-                    checkpoint, boxvectors, mdtrajtopology, wrapping_atoms
-                )
-
-                checkpoint = time.time()
-                energy, gradient = self.qmtheory.run(
-                    current_coords=current_coords,
-                    elems=self.fragment.elems,
-                    grad=True,
-                    charge=self.charge,
-                    mult=self.mult,
-                )
-                logger.info("Energy: %s", energy)
-                log_time_since(checkpoint, "QM run")
-                self.openmmobject.update_custom_external_force(
-                    self.openmm_externalforceobject, gradient, self.simulation
-                )
-
-                # Calculate energy associated with external force so that we can subtract it later
-                extforce_energy = 3 * np.mean(sum(gradient * current_coords * openmmqmmm.constants.ANG_TO_BOHR))
-                logger.info("extforce_energy: %s", extforce_energy)
-
-                if step % self.traj_frequency == 0:
-                    print_current_step_info(step, current_state, self.openmmobject, qm_energy=energy)
-
-                    if self.energy_file_option is not None:
-                        with open(self.energy_file_option, "a") as f:
-                            f.write(f"{energy}\n")
-
                     if self.trajectory_file_option == "XYZ":
                         write_xyzfile(self.fragment.elems, current_coords, "OpenMMMD_traj", writemode="a")
+                    if self.energy_file_option is not None:
+                        state = self.simulation.context.getState(getEnergy=True)
+                        energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole)
+                        with open(self.energy_file_option, "a") as output:
+                            output.write(f"{energy / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL}\n")
                 self._write_special_atoms_frame(step, current_coords)
-
                 if step % self.restartfile_frequency == 0:
                     self.write_state_and_chk_files(step)
-
-                checkpoint = time.time()
-                self.simulation.step(1)
-                log_time_since(checkpoint, "OpenMM sim step")
-                log_time_since(checkpoint_begin_step, "Total sim step")
         elif self.theory_runtype == "MM":
             logger.info("OpenMM MM dynamics option chosen.")
             if self._is_rpmd_simulation(self.simulation):

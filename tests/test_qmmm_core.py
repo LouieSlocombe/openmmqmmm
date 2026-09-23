@@ -191,6 +191,9 @@ def test_openmm_qmmm_keeps_an_independent_snapshot_of_original_charges():
         def addexceptions(self, _atoms):
             pass
 
+        def delete_exceptions(self, _atoms):
+            pass
+
         def update_charges(self, atom_indices, charges):
             for atom_index, charge in zip(atom_indices, charges, strict=True):
                 self.charges[atom_index] = charge
@@ -423,12 +426,8 @@ class _DecompositionMM:
     def __init__(self):
         self.epsilons = [0.75]
 
-    def get_lj_epsilons(self, atom_indices):
-        return [self.epsilons[index] for index in atom_indices]
-
-    def update_lj_epsilons(self, atom_indices, epsilons):
-        for index, epsilon in zip(atom_indices, epsilons, strict=True):
-            self.epsilons[index] = epsilon
+    def qmmm_lj_energy(self, _atom_indices, _coords):
+        return 0.5
 
 
 class _DecompositionQMMM:
@@ -440,15 +439,22 @@ class _DecompositionQMMM:
         self.qm_mult = 1
         self.unusualboundary = False
         self.excludeboundaryatomlist = []
+        self.embedding = "elstat"
+        self.pc = True
+        self.runcalls = 4
+        self.openmm_externalforce = False
+        self.linkatom_ratio = 0.42
+
+    def _image_periodic_coords(self, coords):
+        return coords
 
 
-def test_energy_decomposition_restores_lj_parameters_on_failure(monkeypatch):
+def test_energy_decomposition_never_mutates_lj_parameters_on_failure(monkeypatch):
     theory = _DecompositionQMMM()
     monkeypatch.setattr(qmmm_module, "QMMMTheory", _DecompositionQMMM)
     calls = iter(
         [
             SimpleNamespace(energy=3.0, qm_energy=1.0, mm_energy=2.0),
-            SimpleNamespace(energy=1.5),
             RuntimeError("QM failure"),
         ]
     )
@@ -462,16 +468,19 @@ def test_energy_decomposition_restores_lj_parameters_on_failure(monkeypatch):
     monkeypatch.setattr(qmmm_module.openmmqmmm, "single_point", fake_single_point)
 
     with pytest.raises(RuntimeError, match="QM failure"):
-        qmmm_module.compute_decomposed_qm_mm_energy(fragment=object(), theory=theory)
+        qmmm_module.compute_decomposed_qm_mm_energy(fragment=SimpleNamespace(coords=np.zeros((1, 3))), theory=theory)
 
     assert theory.mm_theory.epsilons == [0.75]
+    assert theory.embedding == "elstat"
+    assert theory.pc is True
+    assert theory.runcalls == 4
 
 
 def test_energy_decomposition_requires_a_compatible_mm_theory(monkeypatch):
     theory = _DecompositionQMMM(mm_theory=None)
     monkeypatch.setattr(qmmm_module, "QMMMTheory", _DecompositionQMMM)
 
-    with pytest.raises(InputError, match="mutable Lennard-Jones"):
+    with pytest.raises(InputError, match="isolated Lennard-Jones"):
         qmmm_module.compute_decomposed_qm_mm_energy(fragment=object(), theory=theory)
 
 
@@ -481,13 +490,30 @@ def test_energy_decomposition_rejects_negative_residual(monkeypatch):
     calls = iter(
         [
             SimpleNamespace(energy=-100.0, qm_energy=1.0, mm_energy=2.0),
-            SimpleNamespace(energy=1.5),
             SimpleNamespace(qm_energy=0.5),
         ]
     )
     monkeypatch.setattr(qmmm_module.openmmqmmm, "single_point", lambda **_kwargs: next(calls))
 
     with pytest.raises(InternalError, match="residual=-103"):
-        qmmm_module.compute_decomposed_qm_mm_energy(fragment=object(), theory=theory)
+        qmmm_module.compute_decomposed_qm_mm_energy(fragment=SimpleNamespace(coords=np.zeros((1, 3))), theory=theory)
 
     assert theory.mm_theory.epsilons == [0.75]
+
+
+def test_energy_decomposition_preserves_custom_cap_definition(monkeypatch):
+    theory = _DecompositionQMMM()
+    monkeypatch.setattr(qmmm_module, "QMMMTheory", _DecompositionQMMM)
+    evaluated_theories = []
+
+    def fake_single_point(*, theory, **_kwargs):
+        evaluated_theories.append(theory)
+        return SimpleNamespace(energy=3.0, qm_energy=1.0, mm_energy=2.0)
+
+    monkeypatch.setattr(qmmm_module.openmmqmmm, "single_point", fake_single_point)
+    qmmm_module.compute_decomposed_qm_mm_energy(fragment=SimpleNamespace(coords=np.zeros((1, 3))), theory=theory)
+    assert evaluated_theories[0] is theory
+    assert evaluated_theories[1] is not theory
+    assert evaluated_theories[1].linkatom_ratio == 0.42
+    assert evaluated_theories[1].embedding == "mech"
+    assert theory.embedding == "elstat"
