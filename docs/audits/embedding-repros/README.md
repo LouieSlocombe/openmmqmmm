@@ -22,3 +22,9 @@ An absolute script path also works from any working directory. Each script locat
 | [orca_charge_updates.py](orca_charge_updates.py) | Real ORCA mechanical population-charge update interface; catches the expected InputError after QM finishes. |
 
 The OpenMM probes use the Reference platform. The virtual-site probe also requires pytest because it imports the Coulomb test fixture using an absolute path derived from the checkout. The two ORCA probes require a working ORCA installation found through PATH or OPENMMQMMM_ORCADIR.
+
+The newer [periodic imaging benchmark](periodic_imaging_benchmark.py) compares the
+current implementation with a fixed Git baseline and measures complete fresh
+Python QM/MM callbacks using an analytic backend. Its [report](periodic-imaging-performance.md)
+and [raw samples](periodic-imaging-benchmark.json) are separate from the historical
+audit snapshots above; those original reproducers and results remain unchanged.

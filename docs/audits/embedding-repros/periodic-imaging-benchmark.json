@@ -1,0 +1,577 @@
+{
+  "timestamp_utc": "2026-09-25T21:01:14.450022+00:00",
+  "environment": {
+    "python": "3.13.15 | packaged by conda-forge | (main, Sep  2 2026, 22:01:58) [GCC 15.3.0]",
+    "executable": "/home/louie/miniconda3/envs/openmmqmmm-dev/bin/python",
+    "platform": "Linux-7.1.5-070105-generic-x86_64-with-glibc2.43",
+    "cpu": "Intel(R) Core(TM) i7-14700KF",
+    "cpu_affinity": [
+      4
+    ],
+    "numpy": "2.4.6",
+    "ase": "3.29.0",
+    "openmm": "8.6.1",
+    "thread_environment": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "OPENMM_CPU_THREADS": "1"
+    }
+  },
+  "baseline_revision": "d599059eae5d4c7f56acc8758fbe4e1936838daf",
+  "baseline_source_sha256": "24fe5c930f41b67c23fc4591b47c46923d2d7a2dec9a4fc0111d3ed785b0782a",
+  "working_tree_head": "d599059eae5d4c7f56acc8758fbe4e1936838daf",
+  "optimized_source_sha256": "38c96a460de99bf83e3c9bd2b87deefbf8b0a693129dfe5da375424069a00646",
+  "warmups": 3,
+  "repeats": 9,
+  "ordering": "Paired identical frames; baseline/optimized order alternates each iteration.",
+  "callback_scope": "Complete RPMDQMMMForceProvider.__call__ on precreated OpenMM States, fresh cache misses, real electrostatic QMMMTheory, analytic Coulomb QM backend, TIP3P charges. Excludes native OpenMM dispatcher, native MM force evaluation, integration, reporters, setup and State creation.",
+  "cases": [
+    {
+      "atoms": 3001,
+      "cell": "orthorhombic",
+      "max_abs_difference": {
+        "coordinates_angstrom": 0.0,
+        "energy_kj_mol": 0.0,
+        "forces_kj_mol_nm": 0.0
+      },
+      "timings": {
+        "imaging": {
+          "baseline": {
+            "median_ms": 5.947924,
+            "min_ms": 5.909614,
+            "max_ms": 6.212318,
+            "samples_ms": [
+              5.913715,
+              6.212318,
+              5.944155,
+              5.947924,
+              5.909614,
+              5.928144,
+              6.112244,
+              6.02299,
+              6.055278
+            ]
+          },
+          "optimized": {
+            "median_ms": 1.142696,
+            "min_ms": 1.108195,
+            "max_ms": 1.221167,
+            "samples_ms": [
+              1.156417,
+              1.135946,
+              1.142696,
+              1.111237,
+              1.183084,
+              1.110749,
+              1.221167,
+              1.108195,
+              1.164493
+            ]
+          },
+          "median_speedup": 5.205167428607434
+        },
+        "callback": {
+          "baseline": {
+            "median_ms": 6.274601,
+            "min_ms": 6.221514,
+            "max_ms": 6.621027,
+            "samples_ms": [
+              6.239952,
+              6.274601,
+              6.221514,
+              6.270667,
+              6.470421,
+              6.22433,
+              6.621027,
+              6.292938,
+              6.42702
+            ]
+          },
+          "optimized": {
+            "median_ms": 1.521325,
+            "min_ms": 1.473893,
+            "max_ms": 1.738599,
+            "samples_ms": [
+              1.482713,
+              1.528176,
+              1.487949,
+              1.738599,
+              1.517947,
+              1.521325,
+              1.571585,
+              1.473893,
+              1.566414
+            ]
+          },
+          "median_speedup": 4.124431663188338
+        }
+      },
+      "callback_counts": {
+        "baseline": {
+          "evaluations": 12,
+          "cache_hits": 0
+        },
+        "optimized": {
+          "evaluations": 12,
+          "cache_hits": 0
+        }
+      }
+    },
+    {
+      "atoms": 30001,
+      "cell": "orthorhombic",
+      "max_abs_difference": {
+        "coordinates_angstrom": 0.0,
+        "energy_kj_mol": 0.0,
+        "forces_kj_mol_nm": 0.0
+      },
+      "timings": {
+        "imaging": {
+          "baseline": {
+            "median_ms": 59.058552,
+            "min_ms": 58.161091,
+            "max_ms": 60.291631,
+            "samples_ms": [
+              59.058552,
+              60.12717,
+              59.570911,
+              58.436931,
+              58.848897,
+              58.514934,
+              60.291631,
+              60.09556,
+              58.161091
+            ]
+          },
+          "optimized": {
+            "median_ms": 10.875461,
+            "min_ms": 9.967805,
+            "max_ms": 11.313753,
+            "samples_ms": [
+              10.608385,
+              11.172179,
+              9.967805,
+              11.115694,
+              10.509278,
+              10.953015,
+              10.875461,
+              11.313753,
+              10.407207
+            ]
+          },
+          "median_speedup": 5.43044124750206
+        },
+        "callback": {
+          "baseline": {
+            "median_ms": 61.630854,
+            "min_ms": 61.412531,
+            "max_ms": 63.593043,
+            "samples_ms": [
+              62.971143,
+              61.543043,
+              61.584854,
+              62.903836,
+              61.412531,
+              61.421879,
+              63.593043,
+              62.883312,
+              61.630854
+            ]
+          },
+          "optimized": {
+            "median_ms": 14.111023,
+            "min_ms": 13.435976,
+            "max_ms": 14.246576,
+            "samples_ms": [
+              14.112631,
+              14.021448,
+              13.93203,
+              14.246576,
+              13.435976,
+              14.24284,
+              13.785042,
+              14.149995,
+              14.111023
+            ]
+          },
+          "median_speedup": 4.367568106153608
+        }
+      },
+      "callback_counts": {
+        "baseline": {
+          "evaluations": 12,
+          "cache_hits": 0
+        },
+        "optimized": {
+          "evaluations": 12,
+          "cache_hits": 0
+        }
+      }
+    },
+    {
+      "atoms": 99991,
+      "cell": "orthorhombic",
+      "max_abs_difference": {
+        "coordinates_angstrom": 0.0,
+        "energy_kj_mol": 0.0,
+        "forces_kj_mol_nm": 0.0
+      },
+      "timings": {
+        "imaging": {
+          "baseline": {
+            "median_ms": 193.229243,
+            "min_ms": 189.261867,
+            "max_ms": 195.118326,
+            "samples_ms": [
+              189.746352,
+              195.118326,
+              194.907437,
+              193.229243,
+              193.756512,
+              193.388713,
+              190.57298,
+              189.261867,
+              189.837889
+            ]
+          },
+          "optimized": {
+            "median_ms": 32.944256,
+            "min_ms": 32.265722,
+            "max_ms": 34.081303,
+            "samples_ms": [
+              32.265722,
+              32.826982,
+              34.081303,
+              33.27798,
+              33.342397,
+              33.534965,
+              32.944256,
+              32.841877,
+              32.679275
+            ]
+          },
+          "median_speedup": 5.865339408484441
+        },
+        "callback": {
+          "baseline": {
+            "median_ms": 202.245613,
+            "min_ms": 199.731466,
+            "max_ms": 206.579136,
+            "samples_ms": [
+              202.128132,
+              202.375197,
+              202.245613,
+              200.958907,
+              206.579136,
+              204.496503,
+              203.756953,
+              199.731466,
+              200.181471
+            ]
+          },
+          "optimized": {
+            "median_ms": 43.893407,
+            "min_ms": 43.200887,
+            "max_ms": 45.511009,
+            "samples_ms": [
+              43.200887,
+              44.556846,
+              43.893407,
+              44.106633,
+              44.44877,
+              45.511009,
+              43.859398,
+              43.653467,
+              43.730725
+            ]
+          },
+          "median_speedup": 4.607653559451422
+        }
+      },
+      "callback_counts": {
+        "baseline": {
+          "evaluations": 12,
+          "cache_hits": 0
+        },
+        "optimized": {
+          "evaluations": 12,
+          "cache_hits": 0
+        }
+      }
+    },
+    {
+      "atoms": 3001,
+      "cell": "triclinic",
+      "max_abs_difference": {
+        "coordinates_angstrom": 0.0,
+        "energy_kj_mol": 0.0,
+        "forces_kj_mol_nm": 0.0
+      },
+      "timings": {
+        "imaging": {
+          "baseline": {
+            "median_ms": 6.038282,
+            "min_ms": 5.985306,
+            "max_ms": 6.117682,
+            "samples_ms": [
+              6.047212,
+              6.054539,
+              6.066841,
+              6.001791,
+              6.033923,
+              6.001573,
+              6.117682,
+              5.985306,
+              6.038282
+            ]
+          },
+          "optimized": {
+            "median_ms": 1.242681,
+            "min_ms": 1.225924,
+            "max_ms": 1.261256,
+            "samples_ms": [
+              1.226115,
+              1.242681,
+              1.251472,
+              1.225924,
+              1.241406,
+              1.234534,
+              1.250787,
+              1.244154,
+              1.261256
+            ]
+          },
+          "median_speedup": 4.859076464515028
+        },
+        "callback": {
+          "baseline": {
+            "median_ms": 6.394856,
+            "min_ms": 6.316119,
+            "max_ms": 6.476614,
+            "samples_ms": [
+              6.326085,
+              6.429116,
+              6.476614,
+              6.351431,
+              6.394856,
+              6.475034,
+              6.368771,
+              6.440791,
+              6.316119
+            ]
+          },
+          "optimized": {
+            "median_ms": 1.594245,
+            "min_ms": 1.572824,
+            "max_ms": 1.641844,
+            "samples_ms": [
+              1.572824,
+              1.594245,
+              1.615351,
+              1.588984,
+              1.608463,
+              1.629224,
+              1.641844,
+              1.591491,
+              1.592997
+            ]
+          },
+          "median_speedup": 4.01121283115205
+        }
+      },
+      "callback_counts": {
+        "baseline": {
+          "evaluations": 12,
+          "cache_hits": 0
+        },
+        "optimized": {
+          "evaluations": 12,
+          "cache_hits": 0
+        }
+      }
+    },
+    {
+      "atoms": 30001,
+      "cell": "triclinic",
+      "max_abs_difference": {
+        "coordinates_angstrom": 0.0,
+        "energy_kj_mol": 0.0,
+        "forces_kj_mol_nm": 0.0
+      },
+      "timings": {
+        "imaging": {
+          "baseline": {
+            "median_ms": 56.418511,
+            "min_ms": 56.292611,
+            "max_ms": 60.22712,
+            "samples_ms": [
+              56.796465,
+              56.292611,
+              56.808316,
+              56.414952,
+              56.300786,
+              56.418511,
+              56.298452,
+              56.796172,
+              60.22712
+            ]
+          },
+          "optimized": {
+            "median_ms": 9.016762,
+            "min_ms": 8.970344,
+            "max_ms": 9.451029,
+            "samples_ms": [
+              9.039488,
+              9.016762,
+              8.976266,
+              9.023145,
+              8.981381,
+              8.990874,
+              8.970344,
+              9.346373,
+              9.451029
+            ]
+          },
+          "median_speedup": 6.257069999185961
+        },
+        "callback": {
+          "baseline": {
+            "median_ms": 59.523954,
+            "min_ms": 59.209995,
+            "max_ms": 61.126961,
+            "samples_ms": [
+              60.476461,
+              59.257712,
+              59.515688,
+              59.544382,
+              59.474022,
+              59.209995,
+              59.523954,
+              61.126961,
+              60.514684
+            ]
+          },
+          "optimized": {
+            "median_ms": 12.061266,
+            "min_ms": 11.902371,
+            "max_ms": 12.94543,
+            "samples_ms": [
+              12.720536,
+              11.902371,
+              12.061266,
+              11.996183,
+              12.059332,
+              12.135677,
+              12.035654,
+              12.295433,
+              12.94543
+            ]
+          },
+          "median_speedup": 4.935133177561958
+        }
+      },
+      "callback_counts": {
+        "baseline": {
+          "evaluations": 12,
+          "cache_hits": 0
+        },
+        "optimized": {
+          "evaluations": 12,
+          "cache_hits": 0
+        }
+      }
+    },
+    {
+      "atoms": 99991,
+      "cell": "triclinic",
+      "max_abs_difference": {
+        "coordinates_angstrom": 0.0,
+        "energy_kj_mol": 0.0,
+        "forces_kj_mol_nm": 0.0
+      },
+      "timings": {
+        "imaging": {
+          "baseline": {
+            "median_ms": 191.483568,
+            "min_ms": 189.982251,
+            "max_ms": 199.446588,
+            "samples_ms": [
+              192.585283,
+              190.123874,
+              191.483568,
+              190.344244,
+              192.050935,
+              199.446588,
+              191.450873,
+              189.982251,
+              198.771179
+            ]
+          },
+          "optimized": {
+            "median_ms": 33.494817,
+            "min_ms": 32.514406,
+            "max_ms": 33.870803,
+            "samples_ms": [
+              33.048697,
+              33.06426,
+              33.870803,
+              33.494817,
+              33.851526,
+              33.716829,
+              32.996415,
+              32.514406,
+              33.693955
+            ]
+          },
+          "median_speedup": 5.716811887642199
+        },
+        "callback": {
+          "baseline": {
+            "median_ms": 201.197338,
+            "min_ms": 200.027905,
+            "max_ms": 201.863344,
+            "samples_ms": [
+              200.972522,
+              200.027905,
+              200.655812,
+              201.197338,
+              201.106721,
+              201.514816,
+              201.863344,
+              201.199374,
+              201.739803
+            ]
+          },
+          "optimized": {
+            "median_ms": 44.319129,
+            "min_ms": 43.971128,
+            "max_ms": 45.781579,
+            "samples_ms": [
+              44.266724,
+              44.022153,
+              44.428577,
+              44.383179,
+              44.319129,
+              44.62856,
+              44.129267,
+              43.971128,
+              45.781579
+            ]
+          },
+          "median_speedup": 4.5397403455289025
+        }
+      },
+      "callback_counts": {
+        "baseline": {
+          "evaluations": 12,
+          "cache_hits": 0
+        },
+        "optimized": {
+          "evaluations": 12,
+          "cache_hits": 0
+        }
+      }
+    }
+  ]
+}
