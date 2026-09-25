@@ -49,8 +49,9 @@ def test_qm_mm_orca_openmm_meoh_h2o():
         ]
     )
 
-    assert np.isclose(result.energy, ref_energy, atol=2e-6), "Energy is not correct"
-    assert np.allclose(result.gradient, ref_gradient, atol=1e-5), "Gradient is not correct"
+    # Absolute errors: 2e-6 Eh in energy and 1e-5 Eh/Bohr per gradient component.
+    assert np.isclose(result.energy, ref_energy, rtol=0, atol=2e-6), "Energy is not correct"
+    assert np.allclose(result.gradient, ref_gradient, rtol=0, atol=1e-5), "Gradient is not correct"
 
     # Second, displaced geometry moving both the QM region and the MM point-charge field.
     # Its reference must be computed before MolecularDynamicsEngine construction, which
@@ -60,7 +61,8 @@ def test_qm_mm_orca_openmm_meoh_h2o():
     displaced_coords[4] += [-0.03, 0.02, -0.04]
     displaced_fragment = Fragment(elems=H2O_MeOH.elems, coords=displaced_coords, charge=0, mult=1)
     result_displaced = single_point(theory=QMMMobject, fragment=displaced_fragment, charge=0, mult=1, grad=True)
-    assert not np.allclose(result_displaced.gradient, result.gradient, atol=1e-4)
+    # At least one gradient component must change by more than 1e-4 Eh/Bohr.
+    assert not np.allclose(result_displaced.gradient, result.gradient, rtol=0, atol=1e-4)
 
     # The same physical energy and total gradient must be assembled when OpenMM evaluates
     # the QM/MM correction from inside an RPMD bead through PythonForce, bead by bead.
@@ -93,8 +95,11 @@ def test_qm_mm_orca_openmm_meoh_h2o():
             )
             / constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
         )
-        assert rpmd_energy == pytest.approx(reference.energy, abs=2e-6), f"RPMD copy {copy} energy mismatch"
-        assert rpmd_gradient == pytest.approx(reference.gradient, abs=1e-5), f"RPMD copy {copy} gradient mismatch"
+        # After conversion, use the same absolute Eh and Eh/Bohr tolerances as above.
+        assert rpmd_energy == pytest.approx(reference.energy, rel=0, abs=2e-6), f"RPMD copy {copy} energy mismatch"
+        assert rpmd_gradient == pytest.approx(reference.gradient, rel=0, abs=1e-5), (
+            f"RPMD copy {copy} gradient mismatch"
+        )
 
 
 def test_qm_mm_orca_openmm_lysozyme():
@@ -125,6 +130,7 @@ def test_qm_mm_orca_openmm_lysozyme():
 
     result = single_point(theory=qmmmobject, fragment=fragment, grad=True)
 
+    # Smoke checks only: energy in Eh and gradient in Eh/Bohr; no reference tolerance.
     assert result.energy < 0.0, "QM/MM energy should be negative"
     assert np.isfinite(result.energy), "QM/MM energy should be finite"
     assert np.all(np.isfinite(result.gradient)), "QM/MM gradient should be finite"
@@ -169,11 +175,12 @@ def test_qm_mm_mechanical_embedding():
     result = single_point(theory=qmmm, fragment=fragment, charge=0, mult=1, grad=True)
 
     assert qmmm.num_linkatoms == 0, "The QM region is a whole molecule: no bond is cut"
-    assert np.isclose(result.energy, -115.8225732022, atol=2e-6)
+    # Reference: ORCA 6.1.1 / OpenMM 8.4, 12 Aug 2026; absolute error at most 2e-6 Eh.
+    assert np.isclose(result.energy, -115.8225732022, rtol=0, atol=2e-6)
     assert result.gradient.shape == (9, 3)
     # Mechanical embedding leaves out the QM-MM electrostatic coupling, so it must not
-    # reproduce the electrostatic result.
-    assert not np.isclose(result.energy, -115.816207775989, atol=1e-4)
+    # reproduce the electrostatic result: separation must exceed 1e-4 Eh.
+    assert not np.isclose(result.energy, -115.816207775989, rtol=0, atol=1e-4)
 
 
 def test_qm_mm_link_atom_force_projection():
@@ -188,11 +195,12 @@ def test_qm_mm_link_atom_force_projection():
 
     # The projection splits the link atom's force between its two host atoms with opposite
     # signs, so their contributions very nearly cancel. Everything else is small by
-    # comparison, which is what makes this visible in the total gradient.
+    # comparison, which is what makes this visible in the total gradient. Both
+    # projected and residual are in Eh/Bohr; the residual bound is intentionally 1%.
     projected = np.abs(result.gradient[[qm1, mm1]]).max()
     residual = np.abs(result.gradient[qm1] + result.gradient[mm1]).max()
     assert projected > 1.0, "The link atom's force should dominate its two host atoms"
     assert residual < 0.01 * projected, "QM1 and MM1 contributions must be equal and opposite"
 
-    # Atoms with no link atom and no QM role carry ordinary small gradients.
+    # Atoms with no link atom and no QM role have components below 1e-8 Eh/Bohr.
     assert np.abs(result.gradient[[4, 5, 6]]).max() < 1e-8, "Pure MM atoms of the capped group"
