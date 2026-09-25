@@ -26,6 +26,49 @@ truncation corrections depend on evaluation history. Updating population charges
 the shared MM force field and lacks the charge-response derivatives required for consistent
 forces. Use a fixed charge model and the full point-charge field for dynamics.
 
+## Platform selection
+
+The supplied {class}`~openmmqmmm.OpenMMTheory` owns the OpenMM platform and its properties.
+For QM/MM this is `qm_mm.mm_theory`. Configure it when constructing the theory:
+
+```python
+from openmmqmmm import OpenMMTheory, QMMMTheory
+
+mm = OpenMMTheory(
+    xmlfiles=["charmm36.xml", "charmm36/water.xml"],
+    pdbfile="system.pdb",
+    periodic=True,
+    platform="CUDA",
+    properties={"Precision": "mixed"},
+)
+qm_mm = QMMMTheory(
+    qm_theory=qm,
+    mm_theory=mm,
+    fragment=fragment,
+    qmatoms=qmatoms,
+    qm_charge=-1,
+    qm_mult=6,
+)
+openmm_md(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
+```
+
+Omitting `platform` from `openmm_md` (or passing `platform=None`) preserves the supplied
+MM theory's platform and properties. An explicit matching name, such as `platform="CUDA"`
+in this example, is accepted. A conflicting name raises {exc}`~openmmqmmm.InputError`
+before modifying the theory. To select a different platform, construct a new
+`OpenMMTheory(platform=...)` and, for QM/MM, a new `QMMMTheory` using it. To keep the
+existing selection, omit `platform` from the MD call.
+
+For CPU dynamics, set `platform="CPU"` and `numcores` on `OpenMMTheory`; see
+{doc}`theories`. The OpenMM platform controls the MM calculation and integration. ORCA
+runs separately, with its own `ORCATheory.numcores` setting; choosing CUDA for OpenMM does
+not move ORCA calculations to the GPU.
+
+When the supplied theory is a standalone QM theory, the engine creates an OpenMM system
+for integration. Here, `platform=None` defaults to `"CPU"`, and an explicit `platform`
+selects the platform for that new system. These rules also apply to
+{class}`~openmmqmmm.MolecularDynamicsEngine` and {func}`~openmmqmmm.openmm_md_plumed`.
+
 ## Integrators and temperature
 
 `integrator=` selects one of `"LangevinMiddleIntegrator"` (the default),

@@ -103,8 +103,25 @@ with `autoconstraints=None`, `rigidwater=False` and `hydrogenmass=None` for thos
 ### Platform
 
 `platform=` selects the OpenMM platform (`"CPU"`, `"CUDA"`, `"OpenCL"`, `"Reference"`), and
-`numcores=` the thread count for `"CPU"`. In QM/MM the MM side is rarely the bottleneck, so
-the CPU platform is usually the right choice.
+`numcores=` the thread count for `"CPU"`:
+
+```python
+mm = OpenMMTheory(
+    xmlfiles=["charmm36.xml", "charmm36/water.xml"],
+    pdbfile="system.pdb",
+    periodic=True,
+    platform="CPU",
+    numcores=4,
+)
+```
+
+Configure platform properties on this object too, for example
+`platform="CUDA", properties={"Precision": "mixed"}`. MD reuses the MM theory's platform
+and properties when its own `platform` argument is omitted or `None`; an explicit
+conflicting platform raises `InputError`. This includes the MM theory inside a
+`QMMMTheory`. See {doc}`dynamics` for the full selection rules and a CUDA example.
+The OpenMM platform controls MM and integration; ORCA runs separately with its own core
+count configured on `ORCATheory`.
 
 `mm.set_numcores(n)` updates both `mm.numcores` and the CPU `Threads` property used
 by new Contexts. It raises `InputError` if a Context created by `mm.create_simulation()`

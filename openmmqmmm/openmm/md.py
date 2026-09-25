@@ -215,7 +215,7 @@ def openmm_md(
     force_periodic: bool | None = None,
     periodic_cell_dimensions: npt.ArrayLike | None = None,
     anderson_thermostat: bool = False,
-    platform: str = "CPU",
+    platform: str | None = None,
     constraints: Sequence[Sequence[float | int]] | None = None,
     restraints: Sequence[Sequence[float | int]] | None = None,
     enforce_periodic_box: bool = True,
@@ -236,7 +236,14 @@ def openmm_md(
     chkfile: str | os.PathLike[str] | None = None,
     statefile: str | os.PathLike[str] | None = None,
 ) -> None:
-    """Run molecular dynamics of a fragment with OpenMM (also drives QM/MM MD)."""
+    """Run molecular dynamics of a fragment with OpenMM (also drives QM/MM MD).
+
+    An existing OpenMMTheory (or QMMMTheory.mm_theory) owns its platform and
+    properties. Omit platform or pass None to inherit them; an explicit platform
+    must match the theory's platform or InputError is raised. Configure a new
+    OpenMMTheory to change platforms. For a standalone QM theory, platform selects
+    the newly created OpenMM system's platform, defaulting to CPU.
+    """
     engine_kwargs = engine_kwargs_from(locals())
 
     logger.info(main_header("OpenMM MD wrapper function"))
@@ -255,7 +262,13 @@ def openmm_md(
 
 
 class MolecularDynamicsEngine:
-    """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD)."""
+    """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD).
+
+    Platform configuration belongs to the supplied OpenMMTheory or
+    QMMMTheory.mm_theory. platform=None inherits that configuration; an explicit
+    conflicting platform raises InputError. For standalone QM theories, a new
+    OpenMMTheory uses the requested platform, defaulting to CPU.
+    """
 
     def __init__(
         self,
@@ -281,7 +294,7 @@ class MolecularDynamicsEngine:
         force_file_option: str | os.PathLike[str] | None = None,
         atomic_units_force_reporter: bool = False,
         coupling_frequency: float = 1,
-        platform: str = "CPU",
+        platform: str | None = None,
         anderson_thermostat: bool = False,
         hydrogenmass: float | None = 1.5,
         constraints: Sequence[Sequence[float | int]] | None = None,
@@ -759,7 +772,7 @@ class MolecularDynamicsEngine:
         self,
         theory: Any,
         *,
-        platform: str,
+        platform: str | None,
         hydrogenmass: float | None,
         constraints: Sequence[Sequence[float | int]] | None,
         force_periodic: bool | None,
@@ -777,33 +790,44 @@ class MolecularDynamicsEngine:
             logger.debug("This is an OpenMMTheory object")
             self.openmmobject = theory
             self.theory_runtype = "dummy_MM" if self.dummy_mm is True else "MM"
-            return
-
-        if isinstance(theory, openmmqmmm.QMMMTheory):
+            platform_owner = "the supplied OpenMMTheory"
+        elif isinstance(theory, openmmqmmm.QMMMTheory):
             logger.debug("This is an QMMMTheory object")
             self.QM_MM_object = theory
             self.openmmobject = theory.mm_theory
             self.theory_runtype = "QMMM"
+            platform_owner = "QMMMTheory.mm_theory"
+        else:
+            platform = "CPU" if platform is None else platform
+            logger.info(
+                "Unrecognized theory. Will assume to be QM theory and will continue.\n"
+                "QM-program forces will be added as a custom external force to OpenMM.\n"
+                "Now creating OpenMMTheory object on platform: %s",
+                platform,
+            )
+            # Creating dummy OpenMMTheory (basic topology, particle masses, no forces except CMMRemoval)
+            self.openmmobject = OpenMMTheory(
+                fragment=self.fragment,
+                dummysystem=True,
+                platform=platform,
+                hydrogenmass=hydrogenmass,
+                constraints=constraints,
+                periodic=force_periodic,
+                periodic_cell_dimensions=periodic_cell_dimensions,
+            )
+            self.qmtheory = theory
+            self.theory_runtype = "QM"
             return
 
-        logger.info(
-            "Unrecognized theory. Will assume to be QM theory and will continue.\n"
-            "QM-program forces will be added as a custom external force to OpenMM.\n"
-            "Now creating OpenMMTheory object on platform: %s",
-            platform,
-        )
-        # Creating dummy OpenMMTheory (basic topology, particle masses, no forces except CMMRemoval)
-        self.openmmobject = OpenMMTheory(
-            fragment=self.fragment,
-            dummysystem=True,
-            platform=platform,
-            hydrogenmass=hydrogenmass,
-            constraints=constraints,
-            periodic=force_periodic,
-            periodic_cell_dimensions=periodic_cell_dimensions,
-        )
-        self.qmtheory = theory
-        self.theory_runtype = "QM"
+        if platform is not None and platform != self.openmmobject.platform_choice:
+            raise InputError(
+                f"Requested MD platform {platform!r} conflicts with {platform_owner}'s "
+                f"platform {self.openmmobject.platform_choice!r}. The existing OpenMMTheory owns "
+                "platform configuration and MD cannot override it. Omit platform (or pass None) "
+                "to inherit it, or construct a new OpenMMTheory with "
+                f"platform={platform!r} and the appropriate properties, and use it for MD "
+                "(as mm_theory in a new QMMMTheory for QM/MM)."
+            )
 
     def _configure_rpmd_copies(
         self, *, is_rpmd: bool, rpmd_num_copies: int | None, rpmd_qm_num_copies: int | None
