@@ -106,6 +106,18 @@ with `autoconstraints=None`, `rigidwater=False` and `hydrogenmass=None` for thos
 `numcores=` the thread count for `"CPU"`. In QM/MM the MM side is rarely the bottleneck, so
 the CPU platform is usually the right choice.
 
+`mm.set_numcores(n)` updates both `mm.numcores` and the CPU `Threads` property used
+by new Contexts. It raises `InputError` if a Context created by `mm.create_simulation()`
+(including one owned by an MD engine) is still alive with a different thread count.
+Release all such Simulations and any retained Context references before changing the
+count, then create a new Simulation. Existing Contexts are never reconfigured;
+setting the same count again is allowed. Contexts created directly through OpenMM
+are managed by the caller and are outside this check.
+
+`QMMMTheory.set_numcores(n)` applies the same restriction to its MM theory before
+updating the QM or wrapper core count. On non-CPU platforms, the setter updates
+`numcores` without adding the CPU-only `Threads` property.
+
 ### Inspecting the system
 
 `do_energy_decomposition=True` logs the energy of every force group, which is the fastest way

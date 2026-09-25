@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import openmmqmmm.qmmm as qmmm_module
-from openmmqmmm import Fragment, QMMMTheory
+from openmmqmmm import Fragment, OpenMMTheory, QMMMTheory
 from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError, InternalError
 
@@ -90,6 +90,46 @@ def test_no_mm_qmmm_set_numcores_updates_the_wrapper_and_qm_theory():
 
     assert theory.numcores == 4
     assert theory.qm_theory.numcores == 4
+
+
+@pytest.fixture
+def cpu_qmmm():
+    fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [5, 0, 0]], conncalc=False)
+    mm = OpenMMTheory(
+        fragment=fragment,
+        dummysystem=True,
+        platform="CPU",
+        numcores=1,
+        autoconstraints=None,
+        rigidwater=False,
+        hydrogenmass=None,
+    )
+    theory, _fragment = _minimal_qmmm([0], mm_theory=mm)
+    return theory
+
+
+def test_qmmm_set_numcores_updates_effective_mm_cpu_threads(cpu_qmmm):
+    cpu_qmmm.set_numcores(4)
+
+    mm = cpu_qmmm.mm_theory
+    simulation = mm.create_simulation()
+    context = simulation.context
+    assert cpu_qmmm.numcores == cpu_qmmm.qm_theory.numcores == mm.numcores == 4
+    assert mm.properties["Threads"] == "4"
+    assert context.getPlatform().getPropertyValue(context, "Threads") == "4"
+
+
+def test_qmmm_set_numcores_preserves_all_counts_when_mm_rejects_change(cpu_qmmm):
+    mm = cpu_qmmm.mm_theory
+    simulation = mm.create_simulation()
+    context = simulation.context
+
+    with pytest.raises(InputError, match="Context is alive"):
+        cpu_qmmm.set_numcores(4)
+
+    assert cpu_qmmm.numcores == cpu_qmmm.qm_theory.numcores == mm.numcores == 1
+    assert mm.properties["Threads"] == "1"
+    assert context.getPlatform().getPropertyValue(context, "Threads") == "1"
 
 
 def test_updating_qm_region_charges_requires_a_mechanical_mm_theory():

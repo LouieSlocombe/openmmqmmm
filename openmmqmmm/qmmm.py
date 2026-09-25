@@ -619,12 +619,13 @@ class QMMMTheory:
         return newQMgradient, new_full_PC_gradient
 
     def set_numcores(self, numcores: int) -> None:
-        """Set the core count used by both the QM and MM theories."""
+        """Set both core counts, subject to the MM theory's active-Context restrictions."""
         logger.debug("Setting %s cores for the QM and MM theories", numcores)
-        self.numcores = numcores
-        self.qm_theory.set_numcores(numcores)
+        # An active OpenMM Context can reject the change before QM settings change.
         if self.mm_theory is not None:
             self.mm_theory.set_numcores(numcores)
+        self.qm_theory.set_numcores(numcores)
+        self.numcores = numcores
 
     def _delegate_to_qm_theory(self, name: str, description: str) -> Any:
         """Call the QM theory's own accessor of that name, or return None when it has none."""

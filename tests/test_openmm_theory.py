@@ -1,3 +1,4 @@
+import gc
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,79 @@ def _make_theory(**kwargs):
     }
     options.update(kwargs)
     return OpenMMTheory(**options)
+
+
+@pytest.fixture
+def cpu_theory():
+    fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [5, 0, 0]], conncalc=False)
+    return OpenMMTheory(
+        fragment=fragment,
+        dummysystem=True,
+        platform="CPU",
+        numcores=1,
+        properties={"DeterministicForces": "true"},
+        autoconstraints=None,
+        rigidwater=False,
+        hydrogenmass=None,
+    )
+
+
+def test_set_numcores_updates_effective_cpu_threads(cpu_theory):
+    cpu_theory.set_numcores(4)
+
+    simulation = cpu_theory.create_simulation()
+    context = simulation.context
+    assert cpu_theory.numcores == 4
+    assert cpu_theory.properties == {"Threads": "4", "DeterministicForces": "true"}
+    assert context.getPlatform().getPropertyValue(context, "Threads") == "4"
+
+
+@pytest.mark.parametrize("internal", [False, True])
+def test_set_numcores_rejects_changes_with_a_live_cpu_context(cpu_theory, internal):
+    simulation = cpu_theory.create_simulation(internal=internal)
+    if internal:
+        simulation = cpu_theory.simulation
+    context = simulation.context
+
+    cpu_theory.set_numcores(1)
+    with pytest.raises(InputError, match=r"Cannot change CPU Threads.*Context is alive"):
+        cpu_theory.set_numcores(4)
+
+    assert cpu_theory.numcores == 1
+    assert cpu_theory.properties == {"Threads": "1", "DeterministicForces": "true"}
+    assert context.getPlatform().getPropertyValue(context, "Threads") == "1"
+
+
+def test_set_numcores_requires_release_of_every_cpu_context(cpu_theory):
+    simulation = cpu_theory.create_simulation()
+    retained_context = simulation.context
+    other_simulation = cpu_theory.create_simulation()
+    del simulation, other_simulation
+    gc.collect()
+
+    with pytest.raises(InputError, match="Context is alive"):
+        cpu_theory.set_numcores(4)
+
+    del retained_context
+    gc.collect()
+    cpu_theory.set_numcores(4)
+    simulation = cpu_theory.create_simulation()
+    context = simulation.context
+    assert context.getPlatform().getPropertyValue(context, "Threads") == "4"
+
+
+@pytest.mark.parametrize("platform", ["Reference", "CUDA", "OpenCL"])
+def test_set_numcores_preserves_non_cpu_properties(platform):
+    # Platform configuration and the setter do not require GPU hardware.
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    properties = {} if platform == "Reference" else {"Precision": "mixed"}
+    theory._configure_platform(platform, numcores=1, properties=properties.copy())
+
+    theory.set_numcores(4)
+
+    assert theory.numcores == 4
+    assert theory.properties == properties
+    assert "Threads" not in theory.properties
 
 
 def test_run_returns_energy_and_gradient(solvated_fragment):

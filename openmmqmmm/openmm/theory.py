@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+import weakref
 from collections.abc import Mapping, Sequence
 from numbers import Integral
 
@@ -35,6 +36,12 @@ from openmmqmmm.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Contexts belong to this process, not to the theory's serializable configuration.
+# Weak references also cover returned Simulations without extending their lifetime.
+_ACTIVE_CPU_CONTEXTS: weakref.WeakKeyDictionary[OpenMMTheory, weakref.WeakSet[openmm.Context]] = (
+    weakref.WeakKeyDictionary()
+)
 
 # Bonds constrained automatically at system creation, with the log line each choice prints.
 AUTOCONSTRAINTS = {
@@ -890,7 +897,25 @@ class OpenMMTheory:
         return [a, b, c]
 
     def set_numcores(self, numcores: int) -> None:
-        """Set the number of CPU threads OpenMM uses."""
+        """Set the core count and CPU Threads property for future Contexts.
+
+        CPU thread changes raise InputError while a Context created by
+        create_simulation (including MD) is alive. Release those Contexts before
+        changing the count; existing Contexts are never reconfigured. Repeating
+        their current count is allowed. Other platforms only update numcores.
+        """
+        if self.platform_choice == "CPU":
+            threads = str(numcores)
+            if any(
+                context.getPlatform().getPropertyValue(context, "Threads") != threads
+                for context in _ACTIVE_CPU_CONTEXTS.get(self, ())
+            ):
+                raise InputError(
+                    "Cannot change CPU Threads while an OpenMM Context is alive. "
+                    "Release existing Simulations and Contexts before calling set_numcores(); "
+                    "active Contexts cannot be reconfigured."
+                )
+            self.properties["Threads"] = threads
         self.numcores = numcores
 
     def cleanup(self) -> None:
@@ -1437,17 +1462,6 @@ class OpenMMTheory:
 
         self.create_integrator()
 
-        # Create simulation, either as part of OpenMMTheory (not picklable)
-        # or not (used by run method)
-        if internal is True:
-            self.simulation = openmm.app.simulation.Simulation(
-                self.topology,
-                self.system,
-                self.integrator,
-                openmm.Platform.getPlatformByName(self.platform_choice),
-                self.properties,
-            )
-            return None
         simulation = openmm.app.simulation.Simulation(
             self.topology,
             self.system,
@@ -1455,6 +1469,12 @@ class OpenMMTheory:
             openmm.Platform.getPlatformByName(self.platform_choice),
             self.properties,
         )
+        if self.platform_choice == "CPU":
+            _ACTIVE_CPU_CONTEXTS.setdefault(self, weakref.WeakSet()).add(simulation.context)
+        # Store internal simulations on the theory; run() uses a transient one.
+        if internal is True:
+            self.simulation = simulation
+            return None
         log_time_since(timeA, "creating/updating simulation")
         return simulation
 
