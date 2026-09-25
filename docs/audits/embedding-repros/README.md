@@ -28,3 +28,18 @@ current implementation with a fixed Git baseline and measures complete fresh
 Python QM/MM callbacks using an analytic backend. Its [report](periodic-imaging-performance.md)
 and [raw samples](periodic-imaging-benchmark.json) are separate from the historical
 audit snapshots above; those original reproducers and results remain unchanged.
+
+The [finite periodic embedding baseline](finite-periodic-baseline.json) records
+relative energies, QM and MM probe forces, and short NVE runs for an analytic QM
+stand-in using the current QM/MM implementation and OpenMM Reference platform.
+Regenerate it from the repository root with:
+
+```bash
+python examples/periodic_embedding_validation.py --output docs/audits/embedding-repros/finite-periodic-baseline.json
+```
+
+The [validation protocol](../../source/guide/periodic-validation.md) explains the
+box-only and neutral-shell scans, timestep comparison, and how to repeat them with
+a real QM method. The image-switch energy jump is an expected limitation of the
+finite QM charge field; the saved results are a model baseline, not evidence of
+periodic QM electrostatic convergence.

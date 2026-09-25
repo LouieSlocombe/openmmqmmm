@@ -36,3 +36,15 @@ an environment holding both packages —  `build_tools/README.md` has the recipe
 pattern with an analytic QM stand-in instead of ORCA is exercised by
 [tests/test_nqe_interop.py](https://github.com/LouieSlocombe/openmmqmmm/blob/main/tests/test_nqe_interop.py),
 which runs without ORCA. See {doc}`guide/rpmd` and {doc}`guide/nqe_interop`.
+
+## periodic_embedding_validation.py
+
+```bash
+python examples/periodic_embedding_validation.py --output periodic-validation.json
+```
+
+An analytic QM stand-in exercises the finite periodic embedding through OpenMM's
+Reference platform without ORCA. It records cell-size and embedding-extent sensitivity
+of relative energies and forces, plus short NVE trajectories with and without an image
+switch. See {doc}`guide/periodic-validation` for the baseline interpretation and the
+protocol for repeating these checks on a real QM/MM system.

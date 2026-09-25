@@ -91,6 +91,10 @@ introduce discontinuities in the finite QM field. Check cell-size convergence an
 conservation for the intended calculation; image consistency alone does not establish
 periodic electrostatic accuracy. `embedding="pbcmm-elstat"` remains unsupported.
 
+Use the {doc}`periodic-validation` protocol to compare cell sizes, complete-molecule
+embedding extents, image-switch jumps and NVE energy drift. It includes a reproducible
+analytic baseline and a separate protocol for convergence of the intended QM system.
+
 QM–QM nonbonded exclusions remove direct pairs in the primary cell. The configured MM
 periodic image interactions and dispersion-tail corrections remain. Thus an entirely QM
 periodic system can still have MM energy, forces, and pressure contributions: mechanical

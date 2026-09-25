@@ -87,6 +87,7 @@ Where to go next
    guide/fragments
    guide/theories
    guide/qmmm
+   guide/periodic-validation
    guide/system_setup
    guide/jobs
    guide/dynamics
