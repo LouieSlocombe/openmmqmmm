@@ -1,9 +1,11 @@
 import io
 import logging
+import re
 
 import pytest
 
 from openmmqmmm import configure_logging
+from openmmqmmm.exceptions import FileFormatError
 from openmmqmmm.utils import (
     basename,
     clean_number,
@@ -141,6 +143,30 @@ def test_read_intlist_applies_the_offset(tmp_path):
     write_list_to_file([1, 2, 3], str(listfile))
 
     assert read_intlist_from_file(str(listfile), offset=-1) == [0, 1, 2]
+
+
+def test_read_intlist_splits_entries_on_commas_and_whitespace(tmp_path):
+    """Each comma- or whitespace-separated entry is one index, not digits glued to its neighbours."""
+    listfile = tmp_path / "actatoms.txt"
+    listfile.write_text("3,1,2\n10, 11\t12,\n")
+
+    assert read_intlist_from_file(str(listfile)) == [1, 2, 3, 10, 11, 12]
+
+
+def test_read_intlist_keeps_the_sign_of_negative_entries(tmp_path):
+    listfile = tmp_path / "ints.txt"
+    listfile.write_text("-4 2\n")
+
+    assert read_intlist_from_file(str(listfile)) == [-4, 2]
+
+
+@pytest.mark.parametrize("entry", ["10-12", "3.0", "atom5"])
+def test_read_intlist_rejects_entries_that_are_not_integers(tmp_path, entry):
+    listfile = tmp_path / "actatoms.txt"
+    listfile.write_text(f"1 {entry} 2\n")
+
+    with pytest.raises(FileFormatError, match=re.escape(entry)):
+        read_intlist_from_file(str(listfile))
 
 
 def test_writestringtofile(tmp_path):

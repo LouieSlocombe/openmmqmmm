@@ -4,7 +4,7 @@ There are three ways to install `openmmqmmm`, depending on what you need:
 
 | Route | Use when | Script |
 |---|---|---|
-| Conda environment | Normal use. Everything from conda-forge except PLUMED and the editable checkout. | `conda_install.sh` |
+| Conda environment | Normal use. Everything from conda-forge except PLUMED, geomeTRIC and OpenBabel (PyPI), and the editable checkout. | `conda_install.sh` |
 | Sol cluster | Running on Sol. Same split, plus the module loads and SLURM wrappers. | `custom_install_sol.sh` |
 | Source build | You need an unreleased OpenMM. | `custom_install.sh` |
 
@@ -99,18 +99,19 @@ opt into the latest development branch instead of the reviewed default commit.
 ### Into an environment that already exists
 
 Install the dependencies, then run the same two build functions against the active
-environment:
+environment, from this directory:
 
 ```bash
 conda install -c conda-forge "ase>=3.20.1" "numpy>=1.21" "openmm>=8.6,<8.7" \
   cmake make swig cxx-compiler doxygen cython \
   pdbfixer mdtraj parmed rdkit openmmforcefields openff-toolkit multiprocess "rmsd>=1.4"
-pip install .
-source build_plumed.sh && build_plumed "$(mktemp -d)"
+pip install ..
+src_dir="$(mktemp -d)"
+source build_plumed.sh && build_plumed "${src_dir}" && build_py_plumed "${src_dir}"
 ```
 
-`pip install .` adds OpenBabel and geomeTRIC from PyPI. Add forcefill and py-plumed
-the same way `conda_install.sh` does.
+`pip install ..` adds OpenBabel and geomeTRIC from PyPI. Add forcefill the same way
+`conda_install.sh` does.
 Do **not** install conda-forge's `plumed` or `openmm-plumed` packages here — the first
 has no `opes` module and would be overwritten in place by `build_plumed`'s `make install`,
 and the second requires `openmm <8.5`.
@@ -126,8 +127,9 @@ conda activate openmmqmmm
 python -c "import openmm; from openmmml import MLPotential; print(openmm.__version__)"
 ```
 
-The additional environment file pins OpenMM 8.6.1 and OpenMM-ML 1.8. Its Python 3.11
-floor sits below this package's own 3.12 requirement, so the base environment satisfies it.
+The additional environment file pins OpenMM 8.6.1 and OpenMM-ML 1.8. OpenMM-ML's own
+Python 3.11 floor sits below this package's 3.12 requirement, so the base environment
+satisfies it.
 Do not add `--prune`: this file only lists the additional ML requirements. Replace
 `-n openmmqmmm` with your environment's name when using another installation route.
 
@@ -138,7 +140,9 @@ the ASE installation already included in the base environment.
 
 ### One environment for openmmqmmm + openmmnqe
 
-The QM/MM-through-openmmnqe workflows (see the main README) need both packages importable
+The QM/MM-through-openmmnqe workflows (see
+[Working with openmmnqe](https://openmmqmmm.readthedocs.io/en/latest/guide/nqe_interop.html))
+need both packages importable
 from one interpreter. The `openmmnqe` environment is the superset — it already carries
 OpenMM, openmm-ml, OpenMM-PLUMED, and the shared editable checkouts. Before adding this
 package, make sure that environment uses OpenMM 8.6, and rebuild OpenMM-PLUMED against
@@ -181,6 +185,7 @@ Or run it directly from an interactive session:
 
 ```bash
 interactive -t 60 -p htc -c 12 --mem=128G
+./custom_install_sol.sh
 ```
 
 Once installed, `sub_sol_run.sh` runs a single calculation script inside that
@@ -219,11 +224,14 @@ listed.
 [ORCA](https://www.faccts.de/orca/) is licensed separately (free for academic use) and has
 to be installed by hand — no route above installs it. It is required for `ORCATheory` and
 QM/MM, but not for the pure-MM OpenMM functionality. Setting `OPENMMQMMM_ORCADIR` to the
-installation directory is enough; [Configuring ORCA](../README.md#configuring-orca) in the
-main README has the full search order and the OpenMPI note for parallel runs.
+installation directory is enough;
+[Configuring ORCA](https://openmmqmmm.readthedocs.io/en/latest/install.html#configuring-orca)
+in the installation guide has the full search order and the OpenMPI note for parallel runs.
 
 ## Next steps
 
-Runnable scripts live in `examples/`: `gasphase_hf.py` (a gas-phase ORCA calculation) and
-`qmmm_optimization.py` (a QM/MM geometry optimization). The main [README](../README.md)
-covers the API, ligand force fields and the QM/MM examples.
+Runnable scripts live in `examples/`, starting with `gasphase_hf.py` (a gas-phase ORCA
+calculation) and `qmmm_optimization.py` (a QM/MM geometry optimization); the
+[examples page](https://openmmqmmm.readthedocs.io/en/latest/examples.html) lists them all.
+The [documentation](https://openmmqmmm.readthedocs.io) covers the API, ligand force fields and
+the QM/MM workflows.

@@ -43,7 +43,7 @@ ROT_CONSTANT_GHZ_AMU_ANG2 = _sc.h / (8 * math.pi**2 * _sc.u * 1e-20) / 1e9
 #: Sackur-Tetrode prefactor for q_trans = PREFACTOR * T^2.5 * M^1.5 / p, with M in amu and p in atm.
 TRANS_PARTITION_PREFACTOR = ((2 * math.pi * _sc.u * _sc.k / _sc.h**2) ** 1.5) * _sc.k / _sc.atm
 
-#: N_A pi e^2 / (3 * 4 pi eps_0 * c^2 * u), in km/mol per squared atomic-unit dipole derivative.
+#: N_A pi e^2 / (3 * 4 pi eps_0 * c^2 * u), in km/mol per (dmu/dQ)^2 in e^2/amu (dipole in e*Bohr, Q in Bohr*sqrt(amu)).
 IR_INTENSITY_AU_TO_KM_PER_MOL = (
     _sc.N_A * math.pi * _sc.e**2 / (3 * 4 * math.pi * _sc.epsilon_0 * _sc.c**2 * _sc.u) * 1e-3
 )

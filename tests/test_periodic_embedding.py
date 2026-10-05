@@ -191,7 +191,7 @@ def test_component_center_reduction_preserves_bfs_mm_and_sorted_qm_order(qm_frag
     geometry = PeriodicQMGeometry(10, [(1, child) for child in order[1:]], [0, *order] if qm_fragment else [0])
     actual = geometry.image(coords, box)
     np.testing.assert_allclose(actual, _legacy_image(geometry, coords, box), rtol=0, atol=1e-12)
-    # The nine-member sum is exactly 5 in sorted QM order but one ulp above
+    # The nine-member mean is exactly 5 in sorted QM order but one ulp above
     # 5 in the MM component's BFS order: reordering changes the entire image.
     expected_shift = 0 if qm_fragment else -10
     np.testing.assert_allclose(actual[1:, 0], coords[1:, 0] + expected_shift, rtol=0, atol=1e-12)

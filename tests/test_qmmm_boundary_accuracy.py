@@ -6,7 +6,7 @@ import pytest
 from openmmqmmm import Fragment, QMMMTheory
 from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError
-from openmmqmmm.qmmm import _linkatom_force_adv, _linkatom_force_chainrule
+from openmmqmmm.qmmm import _linkatom_force_chainrule
 
 
 class _BoundaryMM:
@@ -98,8 +98,7 @@ def test_ratio_placement_uses_exact_derivative_with_default_projection():
     assert gradient == pytest.approx(_finite_difference(theory, fragment), abs=2.0e-9)
 
 
-@pytest.mark.parametrize("projection", [_linkatom_force_adv, _linkatom_force_chainrule])
-def test_fixed_distance_projection_obeys_chain_rule_and_conserves_cap_force(projection):
+def test_fixed_distance_projection_obeys_chain_rule_and_conserves_cap_force():
     qm_coords = np.array([0.2, -0.4, 0.3])
     mm_coords = np.array([1.5, 0.1, 0.7])
     cap_gradient = np.array([0.4, -0.7, 0.9])
@@ -107,7 +106,9 @@ def test_fixed_distance_projection_obeys_chain_rule_and_conserves_cap_force(proj
     def cap_position(qm, mm):
         return qm + 1.09 * (mm - qm) / np.linalg.norm(mm - qm)
 
-    qm_gradient, mm_gradient = projection(qm_coords, mm_coords, cap_position(qm_coords, mm_coords), cap_gradient)
+    qm_gradient, mm_gradient = _linkatom_force_chainrule(
+        qm_coords, mm_coords, cap_position(qm_coords, mm_coords), cap_gradient
+    )
     numerical = np.zeros((2, 3))
     step = 1.0e-5
     for atom in range(2):

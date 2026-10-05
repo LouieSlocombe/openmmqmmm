@@ -22,8 +22,9 @@ mm, fragment = openmm_modeller(
 )
 ```
 
-`forcefield=` takes a name — `"Amber14"`, `"Amber99sb"`, `"Amber99sb-ildn"`, `"Amber96"`,
-`"Amber03"`, `"Amber10"`, `"CHARMM36"`, `"CHARMM2013"`, `"Amoeba2013"` or `"Amoeba2009"` —
+`forcefield=` takes a name — `"Amber14"`, `"Amber99"`, `"Amber99sb"`, `"Amber99sb-ildn"`,
+`"Amber96"`, `"Amber03"`, `"Amber10"`, `"CHARMM36"`, `"CHARMM2013"`, `"Amoeba2013"` or
+`"Amoeba2009"` —
 and maps it to the OpenMM XML that ships with OpenMM. `xmlfile=` names one directly instead,
 `extraxmlfile=` adds one on top (this is where a ligand force field goes), and
 `forcefield_object=` takes an OpenMM `ForceField` you built yourself.

@@ -11,7 +11,7 @@ from scipy.spatial.distance import cdist
 from scipy.special import erfinv
 
 from openmmqmmm.elements import cm5_dz, cm5_radii
-from openmmqmmm.exceptions import ExternalProgramError, InternalError
+from openmmqmmm.exceptions import ExternalProgramError, InputError, InternalError
 
 logger = logging.getLogger(__name__)
 
@@ -147,5 +147,5 @@ def get_ec_entropy(occ: np.ndarray, sigma: float, method: str = "fermi") -> np.f
     elif method == "linear":
         fc = -f + np.sqrt(2) * f ** (3.0 / 2.0) * 2.0 / 3.0
     else:
-        raise ValueError("Not support", method)
+        raise InputError(f"Unknown smearing method {method!r}. Expected one of: fermi, gaussian, linear.")
     return 2.0 * sigma * fc.sum()

@@ -28,5 +28,6 @@ use Hartree and Hartree/Bohr.
   does not carry them, pass `charge=` and `mult=` to the calculator instead.
 
 Use a separate theory instance, process and calculation directory for every concurrent ASE
-calculation. A theory object owns its scratch directory, and two calculations sharing one will
-overwrite each other's files.
+calculation. The theory writes fixed-name input and output files into the calculator's
+`directory` and keeps state between runs, so two calculations sharing either will overwrite
+each other's files.

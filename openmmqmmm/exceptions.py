@@ -14,7 +14,7 @@ class MissingDependencyError(OpenMMQMMMError, ImportError):
 
 
 class ExternalProgramError(OpenMMQMMMError, RuntimeError):
-    """An external program (ORCA, OpenMPI) is missing, broken, or failed."""
+    """An external program (ORCA, OpenMPI, postg) is missing, broken, or failed."""
 
 
 class FileFormatError(OpenMMQMMMError, ValueError):

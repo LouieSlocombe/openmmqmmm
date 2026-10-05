@@ -383,3 +383,116 @@ def test_single_point_through_the_job_function(solvated_fragment):
 
     assert result.energy is not None
     assert np.shape(result.gradient) == (solvated_fragment.numatoms, 3)
+
+
+def _dummy_theory(**kwargs):
+    fragment = Fragment(elems=["He"] * 3, coords=[[0, 0, 0], [3, 0, 0], [0, 4, 0]], conncalc=False)
+    options = {
+        "fragment": fragment,
+        "dummysystem": True,
+        "platform": "Reference",
+        "autoconstraints": None,
+        "rigidwater": False,
+        "hydrogenmass": None,
+    }
+    options.update(kwargs)
+    return OpenMMTheory(**options)
+
+
+def test_fully_specified_bondconstraints_are_added_to_the_system():
+    import openmm
+
+    theory = _dummy_theory(bondconstraints=[[0, 1, 1.2], [0, 2, 3.5]])
+
+    assert theory.system.getNumConstraints() == 2
+    i, j, distance = theory.system.getConstraintParameters(1)
+    assert (i, j) == (0, 2)
+    assert distance.value_in_unit(openmm.unit.angstrom) == pytest.approx(3.5)
+
+
+@pytest.mark.parametrize("constraint", [[0], [0, 1, 1.2, 5.0]])
+def test_bondconstraints_of_unsupported_length_raise(constraint):
+    with pytest.raises(InputError, match="expected 2"):
+        _dummy_theory(bondconstraints=[constraint])
+
+
+def test_run_refuses_a_constrained_theory_unless_force_run_is_set():
+    theory = _dummy_theory(bondconstraints=[[0, 1, 3.0]])
+    coords = np.array([[0.0, 0, 0], [3, 0, 0], [0, 4, 0]])
+
+    with pytest.raises(InputError, match=r"theory\.force_run = True"):
+        theory.run(current_coords=coords)
+
+    theory.force_run = True
+    assert theory.run(current_coords=coords) == pytest.approx(0.0, abs=1e-12)
+
+
+@pytest.mark.parametrize("distance", [0.5, 3.0])
+def test_nonperiodic_centerforce_is_flat_inside_r0_and_harmonic_beyond(distance):
+    from openmmqmmm.constants import HARTREE_TO_KCAL_PER_MOL
+
+    fragment = Fragment(elems=["He"], coords=[[0, 0, 0]], conncalc=False)
+    theory = _dummy_theory(fragment=fragment)
+    center = np.array([1.0, -2.0, 0.5])
+    k, r0 = 2.0, 1.0
+    theory.add_centerforce(center_coords=center, atomindices=[0], forceconstant=k, distance=r0)
+
+    position = center + distance * np.array([2.0, -1.0, 2.0]) / 3.0
+    energy_kcal = theory.run(current_coords=position[None, :]) * HARTREE_TO_KCAL_PER_MOL
+
+    assert energy_kcal == pytest.approx(0.5 * k * max(0.0, distance - r0) ** 2, abs=1e-9)
+
+
+def test_drude_langevin_integrator_receives_each_argument_in_place():
+    import openmm
+
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.set_simulation_parameters(
+        integrator="DrudeLangevinIntegrator", timestep=0.002, coupling_frequency=5, temperature=310
+    )
+
+    theory.create_integrator()
+
+    integrator = theory.integrator
+    assert integrator.getStepSize().value_in_unit(openmm.unit.picoseconds) == pytest.approx(0.002)
+    assert integrator.getTemperature().value_in_unit(openmm.unit.kelvin) == pytest.approx(310)
+    assert integrator.getFriction().value_in_unit(openmm.unit.picosecond**-1) == pytest.approx(5)
+    assert integrator.getDrudeTemperature().value_in_unit(openmm.unit.kelvin) == pytest.approx(1)
+    assert integrator.getDrudeFriction().value_in_unit(openmm.unit.picosecond**-1) == pytest.approx(20)
+
+
+def test_charmm_nonbonded_xml_closes_each_force_once(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    from openmmqmmm.openmm import write_xmlfile_nonbonded
+
+    filename = write_xmlfile_nonbonded(
+        resnames=["MOL"],
+        atomnames_per_res=[["C1"]],
+        atomtypes_per_res=[["CT"]],
+        elements_per_res=[["C"]],
+        masses_per_res=[[12.011]],
+        charges_per_res=[[0.1]],
+        sigmas_per_res=[[0.3]],
+        epsilons_per_res=[[0.2]],
+        filename=tmp_path / "ff.xml",
+        charmm=True,
+    )
+
+    root = ET.parse(filename).getroot()
+    assert [child.tag for child in root] == ["AtomTypes", "Residues", "NonbondedForce", "LennardJonesForce"]
+    assert root.find("LennardJonesForce/Atom").get("epsilon") == "0.2"
+
+
+def test_unfreeze_atoms_restores_the_masses_held_just_before_freezing():
+    import openmm
+
+    theory = _dummy_theory(changed_masses={1: 7.0})
+    theory.modify_masses(changed_masses={0: 9.0})
+
+    theory.freeze_atoms(frozen_atoms=[0])
+    theory.freeze_atoms(frozen_atoms=[0])
+    theory.unfreeze_atoms()
+
+    masses = [theory.system.getParticleMass(i).value_in_unit(openmm.unit.dalton) for i in range(3)]
+    assert masses == pytest.approx([9.0, 7.0, 4.002602], abs=1e-4)

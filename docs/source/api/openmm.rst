@@ -10,7 +10,7 @@ System preparation
 ------------------
 
 ``openmm_modeller`` is the usual entry point: it repairs a PDB file, adds hydrogens,
-solvates, and writes out a system ready for ``OpenMMTheory``.
+solvates, and returns an ``OpenMMTheory`` and a ``Fragment`` for the result.
 
 .. currentmodule:: openmmqmmm
 
@@ -93,7 +93,7 @@ Lower-level helpers
 -------------------
 
 Exported from ``openmmqmmm.openmm`` only, not from the package root: the alternate-location
-report, the nonbonded-parameter dump and the system-size summary.
+report, the nonbonded force-field XML writer and the system-size summary.
 
 .. currentmodule:: openmmqmmm.openmm
 

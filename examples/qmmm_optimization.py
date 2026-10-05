@@ -18,10 +18,13 @@ if __name__ == "__main__":
     fragment = Fragment(pdbfile=pdbfile)
 
     qm_orca = ORCATheory(orcasimpleinput="! r2SCAN-3c tightscf", numcores=8)
+    # OpenMMTheory.run refuses automatic constraints, so optimizations need them off.
     mm_openmm = OpenMMTheory(
         xmlfiles=["charmm36.xml", "charmm36/water.xml"],
         pdbfile=pdbfile,
         periodic=True,
+        autoconstraints=None,
+        rigidwater=False,
     )
 
     # Atoms treated quantum-mechanically. Everything else is MM point charges.

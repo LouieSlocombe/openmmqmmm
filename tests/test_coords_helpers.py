@@ -1,24 +1,33 @@
+import logging
+
 import numpy as np
 import pytest
 
+import openmmqmmm
 from openmmqmmm import (
     Fragment,
+    QMMMTheory,
     angle_between_atoms,
     calculate_rmsd,
     dihedral_between_atoms,
     distance_between_atoms,
+    expand_qm_pc_region,
     expand_qm_region,
+    flexible_align,
+    insert_solute_into_solvent,
     read_xyzfile,
     write_xyzfile,
 )
 from openmmqmmm.coords import (
     _build_connectivity,
+    _combine_and_place_fragments,
     angle,
     dihedral,
     distance,
     eldict_covrad,
     elems_to_formula,
     get_centroid,
+    list_of_masses,
     threshold_conn,
     total_mass,
     total_nuclear_charge,
@@ -176,7 +185,7 @@ def test_expand_qm_region_uses_initial_atom_membership_and_retains_the_seed():
     assert expand_qm_region(fragment=fragment, initial_atoms=[4], radius=1.0) == [0, 1, 4]
 
 
-# The package has two connectivity implementations: calc_conn_py / get_connected_atoms_np
+# The package has two connectivity implementations: _calc_conn_py / _get_connected_atoms_np
 # (used by Fragment.calc_connectivity) and _build_connectivity (used by the internal
 # coordinate table). They read their covalent radii from the same table now, but used to
 # read from two copies of it, and only one copy carried the overrides that stop ions and
@@ -195,7 +204,8 @@ def _neighbours_via_calc_conn(coords, elems):
 
 def test_ions_do_not_bond_in_either_connectivity_path():
     # Na+ at the origin with three oxygens at 2.4 A -- a typical first solvation shell,
-    # well inside the sum of the unmodified Alvarez radii for Na (1.66) and O (0.66).
+    # inside the 2.72 A threshold the unmodified Alvarez radii for Na (1.66) and O (0.66)
+    # give with the 0.4 A tolerance.
     coords = np.array([[0.0, 0.0, 0.0], [2.4, 0.0, 0.0], [0.0, 2.4, 0.0], [0.0, 0.0, 2.4]])
     elems = ["Na", "O", "O", "O"]
 
@@ -216,7 +226,7 @@ def test_both_paths_use_the_same_covalent_radii():
     assert _build_connectivity(two_sodiums, ["Na", "Na"]) == [set(), set()]
     assert _neighbours_via_calc_conn(two_sodiums, ["Na", "Na"]) == [set(), set()]
 
-    # And the lanthanides, which the second table omitted entirely, are present
+    # And the lanthanides and heavy elements the second table omitted are present
     for symbol in ("Gd", "Eu", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "U", "Po", "At", "Rn"):
         assert symbol in eldict_covrad
 
@@ -228,3 +238,82 @@ def test_both_connectivity_paths_agree_on_a_normal_molecule():
 
     assert _build_connectivity(coords, elems) == _neighbours_via_calc_conn(coords, elems)
     assert _build_connectivity(coords, elems) == [{1, 2}, {0}, {0}]
+
+
+class _PCGradientTheory(QMMMTheory):
+    def __init__(self, qmatoms, mmatoms, pcgradient):
+        self.qmatoms = qmatoms
+        self.mmatoms = mmatoms
+        self.PCgradient = pcgradient
+
+
+def test_expand_qm_pc_region_maps_gradient_rows_through_mmatoms(tmp_path, monkeypatch):
+    # Two H2 molecules, the second one QM. Row 0 is MM atom 0; the last row is a charge with
+    # no atom behind it (a dipole or virtual-site charge).
+    fragment = Fragment(coords=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.7], [5.0, 0.0, 0.0], [5.0, 0.0, 0.7]], elems=["H"] * 4)
+    theory = _PCGradientTheory(
+        qmatoms=[2, 3],
+        mmatoms=np.array([0, 1]),
+        pcgradient=np.array([[1e-2, 0.0, 0.0], [0.0, 0.0, 0.0], [1e-2, 0.0, 0.0]]),
+    )
+    monkeypatch.setattr(openmmqmmm, "single_point", lambda **_kwargs: None)
+    monkeypatch.chdir(tmp_path)
+
+    assert expand_qm_pc_region(theory=theory, fragment=fragment).tolist() == [0, 1, 2, 3]
+
+
+def test_flexible_align_translate_only_superimposes_centroids_without_rotating():
+    a_coords = np.array([[5.0, 0.0, 0.0], [6.5, 0.0, 0.0], [5.0, 1.0, 0.0], [5.0, 0.0, 0.5]])
+    quarter_turn = np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    b_coords = a_coords @ quarter_turn + np.array([2.0, 3.0, 4.0])
+    fragment_a = Fragment(coords=a_coords, elems=["C"] * 4)
+    fragment_b = Fragment(coords=b_coords, elems=["C"] * 4)
+
+    moved = flexible_align(fragment_a, fragment_b, translate_only=True).coords
+
+    shift = b_coords.mean(axis=0) - a_coords.mean(axis=0)
+    assert moved - a_coords == pytest.approx(np.tile(shift, (4, 1)))
+
+
+def test_list_of_masses_summarises_dummy_atoms_in_one_warning(caplog):
+    with caplog.at_level(logging.WARNING, logger="openmmqmmm.coords"):
+        masses = list_of_masses(["O", "H", "H", "M"] * 3)
+
+    assert [masses[i] for i in (3, 7, 11)] == [0.0, 0.0, 0.0]
+    assert masses[0] == pytest.approx(16.0, abs=0.01)
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "3, 7, 11" in warnings[0].getMessage()
+
+
+def test_calculate_rmsd_rejects_subset_together_with_heavyatomsonly():
+    fragment = Fragment(coords=UNIT_SQUARE, elems=["C", "C", "C", "H"])
+
+    with pytest.raises(InputError, match="heavyatomsonly"):
+        calculate_rmsd(fragment, fragment, subset=[0, 1, 2], heavyatomsonly=True)
+
+
+def test_combine_and_place_fragments_tries_each_displacement_from_the_original_position():
+    # The chain still touches its copy 2 A up, but not 4 A up.
+    chain = np.array([[0.0, 0.0, 0.7 * k] for k in range(4)])
+    ref = Fragment(coords=chain.copy(), elems=["H"] * 4)
+    mover = Fragment(coords=chain.copy(), elems=["H"] * 4)
+
+    combined = _combine_and_place_fragments(ref_frag=ref, trans_frag=mover)
+
+    assert combined.coords[4:] == pytest.approx(chain + np.array([0.0, 0.0, 4.0]))
+    assert mover.coords == pytest.approx(chain)
+
+
+def test_insert_solute_into_solvent_leaves_the_solute_unchanged(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    solute_coords = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.7]])
+    solute = Fragment(coords=solute_coords.copy(), elems=["H", "H"])
+    solvent = Fragment(
+        coords=[[10.0, 10.0, 10.0], [10.0, 10.0, 10.7], [20.0, 20.0, 20.0], [20.0, 20.0, 20.7]], elems=["H"] * 4
+    )
+
+    solution = insert_solute_into_solvent(solute=solute, solvent=solvent)
+
+    assert solute.coords == pytest.approx(solute_coords)
+    assert solution.coords[:2] == pytest.approx(solute_coords + np.array([15.0, 15.0, 15.0]))

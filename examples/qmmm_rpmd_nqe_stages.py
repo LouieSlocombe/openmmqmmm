@@ -60,7 +60,7 @@ if __name__ == "__main__":
         n_2=500,
         n_report=50,
     )
-    # barostat_freq=None: a barostat cannot be combined with QM/MM RPMD.
+    # openmmnqe's production stage adds a barostat by default (barostat_freq=50); None keeps it NVT.
     openmmnqe.run_openmm_rpmd_prod(
         export.modeller,
         prepared,

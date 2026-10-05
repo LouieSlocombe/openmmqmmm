@@ -11,7 +11,7 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  # Whitespace hygiene for the files ruff never sees (YAML, TOML, Markdown).
+  # Whitespace hygiene for what ruff does not format (YAML, TOML, Markdown prose).
   # The test data directories are excluded because the parser tests compare against
   # them byte-for-byte, and real ORCA output carries trailing whitespace.
   - repo: https://github.com/pre-commit/pre-commit-hooks

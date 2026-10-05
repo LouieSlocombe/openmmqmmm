@@ -36,12 +36,12 @@ def _archive_theory_output(theory: Any, calc_label: str) -> None:
 
 
 def _fragment_calc_label(fragment: Fragment) -> str:
-    """Per-fragment name for the archived output of a multi-fragment job."""
+    """Return the per-fragment name for the archived output of a multi-fragment job."""
     return f"Frag_{fragment.formula}_{fragment.charge}_{fragment.mult}_"
 
 
 def _common_state(resolved_states: Sequence[tuple[int | None, int | None]]) -> tuple[int | None, int | None]:
-    """The single (charge, mult) shared by every job, or (None, None) when they differ."""
+    """Return the (charge, mult) shared by every job, or (None, None) when they differ."""
     first = resolved_states[0]
     return first if all(state == first for state in resolved_states) else (None, None)
 
@@ -175,7 +175,7 @@ def single_point_theories(
 
 
 def _log_table_header(width: int, title: str, columns: str) -> None:
-    """Banner and column header shared by the result tables."""
+    """Log the banner and column header shared by the result tables."""
     logger.info("%s", "=" * width)
     logger.info("%s", title)
     logger.info("%s", "=" * width)
@@ -213,8 +213,6 @@ def _log_fragments_table(
         logger.info(f"{frag.formula:15} {label:<25} {frag.charge:>7} {frag.mult:>7} {e:>30.10f}\n")
 
 
-# Assuming fragments have charge,mult info defined.
-# If stoichiometry provided then print reaction energy
 def single_point_fragments(
     theory: Any | None = None,
     fragments: Sequence[Fragment] | None = None,
@@ -294,7 +292,6 @@ def single_point_fragments(
     return result
 
 
-# Assuming fragments have charge,mult info defined.
 def single_point_fragments_and_theories(
     theories: Sequence[Any] | None = None,
     fragments: Sequence[Fragment] | None = None,
@@ -344,7 +341,6 @@ def single_point_fragments_and_theories(
     return result
 
 
-# Assuming fragments have charge,mult info defined.
 def single_point_reaction(
     theory: Any | None = None,
     reaction: Reaction | None = None,

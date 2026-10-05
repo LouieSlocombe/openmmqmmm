@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from openmmqmmm import orca
-from openmmqmmm.exceptions import FileFormatError
+from openmmqmmm.exceptions import InputError
 
 # Reference values are the ones ORCA itself printed in these outputs.
 ENGRAD_ENERGY = -75.960983986705
@@ -167,9 +167,9 @@ def test_successful_output_fixtures_have_no_fatal_errors(orca_outputs, caplog):
         assert not caplog.records, f"Successful fixture {outfile.name} was classified as a fatal ORCA error"
 
 
-# The open-shell fixture (water cation, UHF/def2-SVP) carries all four charge tables the
-# parsers know how to read plus the "... AND SPIN POPULATIONS" variants, so the table
-# scanner behind grab_orca_atom_charges is covered for every model it claims to support.
+# The open-shell fixture (water cation, UHF/def2-SVP) carries the Mulliken, Loewdin, CHELPG
+# and Hirshfeld charge tables plus the "... AND SPIN POPULATIONS" variants, so the table
+# scanner behind grab_orca_atom_charges is covered for every model except NPA and NBO.
 CATION_CHARGES = {
     "Mulliken": [0.381621, 0.309190, 0.309190],
     "Loewdin": [0.608679, 0.195660, 0.195660],
@@ -204,7 +204,7 @@ def test_chargemodel_name_is_case_insensitive(cation_output, chargemodel):
 
 
 def test_grab_atom_charges_rejects_unknown_model(cation_output):
-    with pytest.raises(FileFormatError):
+    with pytest.raises(InputError):
         orca.grab_orca_atom_charges("NotAChargeModel", cation_output)
 
 
@@ -225,7 +225,7 @@ def test_charge_tables_are_not_confused_with_spin_tables(cation_output):
 
 
 def test_grab_spin_populations_rejects_unknown_model(cation_output):
-    with pytest.raises(FileFormatError):
+    with pytest.raises(InputError):
         orca.grab_orca_spin_populations("NotAChargeModel", cation_output)
 
 

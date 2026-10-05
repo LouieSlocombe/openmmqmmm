@@ -55,11 +55,11 @@ from .freq import (
     write_hessian,
 )
 
-# geomeTRIC interface
+# geomeTRIC and mdtraj interfaces
 from .geometric import GeometricOptimizer, optimize_geometry
 from .mdtraj import mdtraj_image_trajectory, mdtraj_rmsf
 
-# Numerical gradient
+# Numerical gradient and OpenMM
 from .numgrad import NumGrad
 from .openmm import (
     MolecularDynamicsEngine,
@@ -84,7 +84,7 @@ from .orca import ORCATheory, orca_external_optimizer
 # Parallel
 from .parallel import job_parallel
 
-# QM/MM
+# QM/MM and results
 from .qmmm import QMMMTheory, compute_decomposed_qm_mm_energy, define_active_region, read_charges_from_psf
 from .results import Results, read_results_from_file
 

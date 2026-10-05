@@ -49,13 +49,14 @@ def _verify_openmpi() -> None:
     logger.info("Testing that mpirun is executable...")
     p = sp.Popen(["mpirun", "-V"], stdout=sp.PIPE)
     out, _err = p.communicate()
-    mpiversion = out.decode()  # Now taking whole string
+    mpiversion = out.decode()
     logger.info("yes")
     logger.info("OpenMPI version (mpirun -V): %s", mpiversion)
 
 
 def _import_pool(version: ParallelBackend = "multiprocessing") -> type[Any]:
-    # NOTE: Python 3.8 and higher use spawn in MacOS (openmmqmmm import problems). Unix/Linux uses fork
+    # No start method is pinned: multiprocessing defaults to spawn on macOS, and on Linux to fork up to Python 3.13
+    # and forkserver from 3.14. Non-fork workers re-import __main__ and inherit no logging handlers.
     if version == "multiprocessing":
         logger.info("Using version: multiprocessing")
         from multiprocessing.pool import Pool
@@ -70,15 +71,6 @@ def _import_pool(version: ParallelBackend = "multiprocessing") -> type[Any]:
     else:
         raise InputError(f"Unknown parallel backend {version!r}; expected 'multiprocessing' or 'multiprocess'")
     return Pool
-
-
-# Used for standalone SP calculations and NumFreq
-# Can also be used for optimization and relaxed scans by providing Opt keyword or optimizer object
-
-# mofilesdir. Directory containing MO-files (GBW files for ORCA). Usef for multiple fragment option
-# NOTE: Experimental copytheory option
-# NOTE: Can now either use built-in multiprocessing library or more reliable fork multiprocess.
-# The latter uses dill serialization and should be more reliable
 
 
 def _resolve_theory_parallelization(theory: Any, numcores: int, allow_theory_parallelization: bool) -> None:
@@ -224,6 +216,7 @@ def _assemble_parallel_results(completed: Sequence[Any], *, grad: bool) -> Resul
     return final_result
 
 
+# NOTE: Experimental copytheory option
 def job_parallel(
     *,
     fragments: Sequence[Fragment] | None = None,
@@ -295,8 +288,7 @@ def job_parallel(
         )
     else:
         # One molecular system and multiple theories: theory labels are the only keys that
-        # distinguish the results. The previous fragment-label key silently overwrote every
-        # result except the last one.
+        # distinguish the results.
         common_job = {"fragment": fragment_jobs[0]} if fragment_jobs else {"fragmentfile": fragmentfile_jobs[0]}
         jobs.extend({"theory": theory, "label": getattr(theory, "label", None), **common_job} for theory in theory_jobs)
     _validate_unique_job_labels(jobs)
@@ -309,7 +301,6 @@ def job_parallel(
             logger.debug("Creating one")
             from openmmqmmm.geometric import GeometricOptimizer
 
-            # No options easily provided. Unclear if this is a good idea
             optimizer = GeometricOptimizer()
     else:
         logger.info("Job_parallel: No Opt. This is a Singlepoint_parallel job")
@@ -322,7 +313,7 @@ def job_parallel(
             "platform='CPU'; use 'Reference', 'OpenCL', or 'CUDA' if possible"
         )
     logger.info("Number of theories: %s", len(theory_jobs))
-    logger.debug("Running single-point calculations in parallel")
+    logger.debug("Running %s in parallel", "optimizations" if optimizer is not None else "single-point calculations")
     logger.info("Mofilesdir: %s", mofilesdir)
     logger.warning("Output from Job_parallel will be erratic due to simultaneous output from multiple workers")
     logger.info("Number of fragments: %s", len(fragment_jobs))
@@ -378,9 +369,7 @@ def _worker_directory_label(label: Label, fragmentfile: StrPath | None) -> str:
         raw_label = str(label)
         digest_source = f"{type(label).__module__}.{type(label).__qualname__}:{label!r}"
 
-    # Dots were historically rendered as underscores. Replace all remaining path or
-    # shell punctuation as well, and add a digest whenever the transformation could
-    # otherwise make two distinct labels share a worker directory.
+    # Add a digest whenever sanitizing could make two distinct labels share a worker directory.
     normalized_label = raw_label.replace(".", "_")
     safe_label = _UNSAFE_WORKER_LABEL.sub("_", normalized_label).strip("_") or "job"
     # Non-string labels can render exactly like strings (1 versus "1", Path("a")
@@ -396,7 +385,6 @@ def _worker_directory_label(label: Label, fragmentfile: StrPath | None) -> str:
     return safe_label
 
 
-# NOTE: Version intended for apply_async
 def worker_par(
     *,
     fragment: Fragment | None = None,
@@ -404,8 +392,6 @@ def worker_par(
     theory: Any | None = None,
     label: Label | None = None,
     mofilesdir: str | None = None,
-    charge: int | None = None,
-    mult: int | None = None,
     grad: bool = False,
     copytheory: bool = False,
     optimizer: GeometricOptimizer | None = None,
@@ -429,9 +415,8 @@ def worker_par(
         raise InputError("Worker_par requires either a fragment or a fragmentfile")
     if theory is None:
         raise InputError("Worker_par requires a theory")
-    charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Worker_par", theory=theory)
+    charge, mult = check_charge_mult(None, None, theory.theorytype, fragment, "Worker_par", theory=theory)
 
-    # Making label flexible. Can be tuple but inputfilename is converted to string below
     logger.info(f"label: {label} (type {type(label)})")
     if label is None:
         raise InputError(
@@ -439,8 +424,6 @@ def worker_par(
         )
     moreadfile_path = None
     if isinstance(label, tuple):
-        # RC1_0.9-RC2_170.0.xyz
-        # orca_RC1_0.9RC2_170.0.gbw
         if mofilesdir is not None:
             logger.info("Mofilesdir option.")
             if len(label) == 2:
@@ -475,11 +458,9 @@ def worker_par(
     parent_dir = os.getcwd()
     os.chdir(worker_dirname)
     try:
-        logger.info(
-            f"Doing single-point Energy job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
-        )
+        job_kind = "optimization" if optimizer is not None else "single-point energy"
+        logger.info(f"Doing {job_kind} job on fragment. Formula: {fragment.prettyformula} Label: {fragment.label}")
 
-        # Create property dict containing some results except energy and gradient
         properties = {}
         if optimizer is not None:
             optimizer_new = copy.copy(optimizer)
@@ -511,7 +492,6 @@ def worker_par(
     finally:
         os.chdir(parent_dir)
 
-    # Return label and energy or label, energy and gradient. Also worker_dirname
     if grad:
         return (label, energy, gradient, worker_dirname, properties)
     return (label, energy, worker_dirname, properties)

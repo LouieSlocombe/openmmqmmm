@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from openmmqmmm import Fragment, ZeroTheory, optimize_geometry
@@ -158,7 +159,7 @@ def test_geometric_dummy():
     assert "Step " in Path("geometric_OPTtraj.log").read_text()
 
 
-# The constraints.txt format is geomeTRIC's, not ours: a $freeze or $set section header
+# The constraints-file format is geomeTRIC's, not ours: a $freeze or $set section header
 # followed by one constraint per line, atom indices 1-based. Nothing downstream validates
 # it, so a malformed file means a silently unconstrained optimization.
 
@@ -174,15 +175,14 @@ def test_no_constraints_writes_no_file(optimizer, tmp_path, monkeypatch):
     optimizer.write_constraintsfile([], Constraints(), constrainvalue=False)
 
     assert optimizer.constraintsfile is None
-    assert not (tmp_path / "constraints.txt").exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_frozen_atoms_are_written_one_based(optimizer, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     optimizer.write_constraintsfile([0, 3], Constraints(), constrainvalue=False)
 
-    assert optimizer.constraintsfile == "constraints.txt"
-    assert (tmp_path / "constraints.txt").read_text() == "$freeze\nxyz 1\nxyz 4\n"
+    assert Path(optimizer.constraintsfile).read_text() == "$freeze\nxyz 1\nxyz 4\n"
 
 
 def test_internal_coordinates_without_values_are_frozen(optimizer, tmp_path, monkeypatch):
@@ -190,7 +190,7 @@ def test_internal_coordinates_without_values_are_frozen(optimizer, tmp_path, mon
     constraints = Constraints(bond=[[0, 1]], angle=[[0, 1, 2]], dihedral=[[0, 1, 2, 3]])
     optimizer.write_constraintsfile([], constraints, constrainvalue=False)
 
-    assert (tmp_path / "constraints.txt").read_text() == (
+    assert Path(optimizer.constraintsfile).read_text() == (
         "$freeze\ndistance 1 2\n$freeze\nangle 1 2 3\n$freeze\ndihedral 1 2 3 4\n"
     )
 
@@ -201,7 +201,7 @@ def test_internal_coordinates_with_values_are_set(optimizer, tmp_path, monkeypat
     constraints = Constraints(bond=[[0, 1, 1.5]], angle=[[0, 1, 2, 104.5]], dihedral=[[0, 1, 2, 3, 180.0]])
     optimizer.write_constraintsfile([], constraints, constrainvalue=True)
 
-    assert (tmp_path / "constraints.txt").read_text() == (
+    assert Path(optimizer.constraintsfile).read_text() == (
         "$set\ndistance 1 2 1.5\n$set\nangle 1 2 3 104.5\n$set\ndihedral 1 2 3 4 180.0\n"
     )
 
@@ -212,7 +212,7 @@ def test_cartesian_freezes_never_take_a_value(optimizer, tmp_path, monkeypatch):
     constraints = Constraints(x=[0], y=[1], z=[2], xy=[3], xz=[4], yz=[5])
     optimizer.write_constraintsfile([], constraints, constrainvalue=True)
 
-    assert (tmp_path / "constraints.txt").read_text() == (
+    assert Path(optimizer.constraintsfile).read_text() == (
         "$freeze\nx 1\n$freeze\ny 2\n$freeze\nz 3\n$freeze\nxy 4\n$freeze\nxz 5\n$freeze\nyz 6\n"
     )
 
@@ -220,11 +220,11 @@ def test_cartesian_freezes_never_take_a_value(optimizer, tmp_path, monkeypatch):
 def test_a_stale_constraints_file_is_replaced(optimizer, tmp_path, monkeypatch):
     """A file left by a previous run must not be appended to."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "constraints.txt").write_text("$freeze\nxyz 99\n")
+    optimizer.write_constraintsfile([98], Constraints(), constrainvalue=False)
 
     optimizer.write_constraintsfile([0], Constraints(), constrainvalue=False)
 
-    assert "99" not in (tmp_path / "constraints.txt").read_text()
+    assert "99" not in Path(optimizer.constraintsfile).read_text()
 
 
 def test_define_constraints_accepts_both_dihedral_spellings():
@@ -234,6 +234,100 @@ def test_define_constraints_accepts_both_dihedral_spellings():
     assert optimizer.define_constraints({"dihedral": [[0, 1, 2, 3]]}).dihedral == [[0, 1, 2, 3]]
     assert optimizer.define_constraints({"torsion": [[0, 1, 2, 3]]}).dihedral == [[0, 1, 2, 3]]
     assert optimizer.define_constraints(None).dihedral is None
+
+
+class _StoppedAtGeometricError(Exception):
+    pass
+
+
+@pytest.fixture
+def handed_to_geometric(monkeypatch):
+    """Stub geomeTRIC's optimizer to record its arguments, plus the constraints file text, and stop."""
+    import geometric.optimize
+
+    handed = []
+
+    def record(**kwargs):
+        constraints = kwargs["constraints"]
+        handed.append({**kwargs, "constraints_text": None if constraints is None else Path(constraints).read_text()})
+        raise _StoppedAtGeometricError
+
+    monkeypatch.setattr(geometric.optimize, "run_optimizer", record)
+    return handed
+
+
+def _six_atom_chain():
+    return Fragment(elems=["C"] * 6, coords=[[1.5 * i, 0.0, 0.0] for i in range(6)], charge=0, mult=1)
+
+
+def test_optimizer_takes_charge_and_mult_only_at_run_time():
+    with pytest.raises(TypeError, match="charge"):
+        GeometricOptimizer(charge=1, mult=2)
+
+
+def test_active_region_constraints_are_numbered_by_the_sorted_active_atoms(handed_to_geometric):
+    """Atom i for geomeTRIC is sorted(actatoms)[i], written 1-based; the caller's inputs stay untouched."""
+    actatoms = [5, 2, 3, 4]
+    constraints = {"bond": [[2, 5]], "xyz": [4]}
+    with pytest.raises(_StoppedAtGeometricError):
+        optimize_geometry(
+            theory=ZeroTheory(), fragment=_six_atom_chain(), actatoms=actatoms, frozenatoms=[3], constraints=constraints
+        )
+
+    assert handed_to_geometric[0]["constraints_text"] == "$freeze\nxyz 2\nxyz 3\n$freeze\ndistance 1 4\n"
+    assert actatoms == [5, 2, 3, 4]
+    assert constraints == {"bond": [[2, 5]], "xyz": [4]}
+
+
+def test_rerunning_an_optimizer_renumbers_its_constraints_once(handed_to_geometric):
+    optimizer = GeometricOptimizer(actatoms=[5, 2, 3, 4])
+    constraints = {"bond": [[2, 5]], "xyz": [4]}
+    for _ in range(2):
+        with pytest.raises(_StoppedAtGeometricError):
+            optimizer.run(theory=ZeroTheory(), fragment=_six_atom_chain(), constraints=constraints)
+
+    assert [h["constraints_text"] for h in handed_to_geometric] == ["$freeze\nxyz 3\n$freeze\ndistance 1 4\n"] * 2
+
+
+def test_a_user_constraints_file_named_constraints_txt_reaches_geometric(handed_to_geometric):
+    Path("constraints.txt").write_text("$freeze\nxyz 1\n")
+    with pytest.raises(_StoppedAtGeometricError):
+        optimize_geometry(theory=ZeroTheory(), fragment=_six_atom_chain(), constraintsinputfile="constraints.txt")
+
+    assert handed_to_geometric[0]["constraints"] == "constraints.txt"
+    assert handed_to_geometric[0]["constraints_text"] == "$freeze\nxyz 1\n"
+
+
+def test_a_constraints_input_file_cannot_be_combined_with_generated_constraints(handed_to_geometric):
+    Path("user_constraints.txt").write_text("$freeze\nxyz 1\n")
+    with pytest.raises(InputError, match="constraintsinputfile"):
+        optimize_geometry(
+            theory=ZeroTheory(),
+            fragment=_six_atom_chain(),
+            constraintsinputfile="user_constraints.txt",
+            frozenatoms=[2],
+        )
+
+
+@pytest.mark.parametrize("hessian", ["never", "first", "each", "last", "first+last"])
+def test_geometric_hessian_keywords_are_passed_through(handed_to_geometric, hessian):
+    with pytest.raises(_StoppedAtGeometricError):
+        optimize_geometry(theory=ZeroTheory(), fragment=_six_atom_chain(), hessian=hessian)
+
+    assert handed_to_geometric[0]["hessian"] == hessian
+
+
+def test_a_file_plus_last_hessian_is_shape_checked_and_passed_through(handed_to_geometric):
+    np.savetxt("hessian.txt", np.eye(18))
+    with pytest.raises(_StoppedAtGeometricError):
+        optimize_geometry(theory=ZeroTheory(), fragment=_six_atom_chain(), hessian="file+last:hessian.txt")
+
+    assert handed_to_geometric[0]["hessian"] == "file+last:hessian.txt"
+
+
+def test_hessian_stop_is_rejected_because_geometric_returns_no_geometry():
+    with pytest.raises(InputError, match="stop"):
+        optimize_geometry(theory=ZeroTheory(), fragment=_six_atom_chain(), hessian="stop")
 
 
 def test_convergence_presets_are_complete():

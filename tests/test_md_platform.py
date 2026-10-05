@@ -4,7 +4,7 @@ import openmm
 import pytest
 from conftest import _AnalyticQM
 
-from openmmqmmm import Fragment, MolecularDynamicsEngine, OpenMMTheory, QMMMTheory, openmm_md
+from openmmqmmm import Fragment, MolecularDynamicsEngine, OpenMMTheory, QMMMTheory, gentle_warmup_md, openmm_md
 from openmmqmmm.exceptions import InputError
 
 
@@ -120,3 +120,54 @@ def test_standalone_qm_platform_default_and_explicit_request(entry_point, option
 
     assert context_platforms
     assert all(name == expected for name, _ in context_platforms)
+
+
+def test_simulation_time_runs_the_nearest_whole_number_of_steps():
+    """0.7 / 0.001 is 699.999..., which int() would truncate to 699 steps."""
+    fragment, theory, _mm = _make_theory("mm")
+    engine = MolecularDynamicsEngine(fragment=fragment, theory=theory, timestep=0.001)
+    try:
+        engine.run(simulation_time=0.7)
+        assert engine.simulation.currentStep == 700
+    finally:
+        engine.close()
+
+
+def test_gentle_warmup_md_rejects_a_traj_frequencies_list_of_another_length():
+    """zip() would otherwise drop every stage beyond the default three traj_frequencies."""
+    fragment, theory, _mm = _make_theory("mm")
+
+    with pytest.raises(InputError, match="traj_frequencies"):
+        gentle_warmup_md(
+            theory=theory,
+            fragment=fragment,
+            time_steps=[0.0005] * 4,
+            steps=[1] * 4,
+            temperatures=[1, 10, 100, 300],
+            check_gradient_first=False,
+            initial_opt=False,
+            use_mdtraj=False,
+        )
+
+
+def test_dummy_atom_restraint_leaves_the_fragment_one_row_per_atom():
+    """The restraint's dummy particle exists only in the OpenMM system, never in the fragment."""
+    fragment, theory, _mm = _make_theory("mm")
+    engine = MolecularDynamicsEngine(
+        fragment=fragment, theory=theory, timestep=0.001, dummyatomrestraint=True, solute_indices=[0, 1]
+    )
+    try:
+        engine.run(simulation_steps=1)
+        engine.finalize_simulation()
+    finally:
+        engine.close()
+
+    assert len(fragment.coords) == len(fragment.elems)
+
+
+def test_centerforce_without_atoms_requires_them_outside_qmmm():
+    """Only a QM/MM theory has QM atoms to fall back on."""
+    fragment, theory, _mm = _make_theory("mm")
+
+    with pytest.raises(InputError, match="centerforce_atoms"):
+        MolecularDynamicsEngine(fragment=fragment, theory=theory, timestep=0.001, add_centerforce=True)

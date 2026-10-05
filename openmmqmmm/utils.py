@@ -206,12 +206,15 @@ def read_intlist_from_file(filename: str | PathLike[str], offset: int = 0) -> li
     try:
         with open(filename) as f:
             for line in f:
-                for word in line.split():
-                    digits = "".join(i for i in word if i.isdigit())
-                    if isint(digits):
-                        intlist.append(int(digits) + offset)
+                for word in line.replace(",", " ").split():
+                    if not isint(word):
+                        raise FileFormatError(
+                            f"Entry {word!r} in '{filename}' is not an integer; expected integers separated by "
+                            "commas or whitespace"
+                        )
+                    intlist.append(int(word) + offset)
     except FileNotFoundError:
-        raise FileFormatError(f"File '{filename}' does not exists!") from None
+        raise FileFormatError(f"File '{filename}' does not exist.") from None
     intlist.sort()
     return intlist
 

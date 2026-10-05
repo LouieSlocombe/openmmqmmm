@@ -9,7 +9,14 @@ from openmmqmmm import Fragment, OpenMMTheory, ORCATheory, QMMMTheory
 fragment = Fragment(pdbfile="system.pdb")
 
 qm = ORCATheory(orcasimpleinput="! r2SCAN-3c tightscf", numcores=8)
-mm = OpenMMTheory(xmlfiles=["charmm36.xml", "charmm36/water.xml"], pdbfile="system.pdb", periodic=True)
+# Single points and optimizations need an MM theory without automatic constraints.
+mm = OpenMMTheory(
+    xmlfiles=["charmm36.xml", "charmm36/water.xml"],
+    pdbfile="system.pdb",
+    periodic=True,
+    autoconstraints=None,
+    rigidwater=False,
+)
 
 qm_mm = QMMMTheory(
     qm_theory=qm,
@@ -41,8 +48,8 @@ active = define_active_region(fragment=fragment, mmtheory=mm, radius=10, origina
 qmatoms = expand_qm_region(fragment=fragment, initial_atoms=[93, 94, 95], radius=4)
 ```
 
-{func}`~openmmqmmm.expand_qm_pc_region` is the diagnostic counterpart: it reports which point
-charges actually matter, by the size of their contribution.
+{func}`~openmmqmmm.expand_qm_pc_region` grows the region by a different criterion: it runs a
+QM/MM gradient and adds every molecule whose point-charge gradient exceeds `thresh`.
 
 ## Embedding
 
@@ -224,7 +231,7 @@ from openmmqmmm import numerical_frequencies, openmm_md, optimize_geometry, sing
 single_point(theory=qm_mm, fragment=fragment)
 optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
 numerical_frequencies(theory=qm_mm, fragment=fragment, hessatoms=qmatoms)
-openmm_md(theory=qm_mm, fragment=fragment, timestep=0.001, simulation_time=2)
+openmm_md(theory=qm_mm, fragment=fragment, timestep=0.0005, simulation_time=2)
 ```
 
 For QM/MM MD see {doc}`dynamics`; for ring-polymer QM/MM MD see {doc}`rpmd`.

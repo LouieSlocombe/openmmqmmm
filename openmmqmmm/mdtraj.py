@@ -6,6 +6,7 @@ from collections.abc import Sequence
 import mdtraj
 import numpy as np
 
+from openmmqmmm.exceptions import InputError
 from openmmqmmm.utils import basename
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def mdtraj_rmsf(
     return large_rmsf_indices
 
 
-# anchor_molecules. Use if automatic guess fails
+# Pass solute_anchor=True if mdtraj's automatic anchor-molecule guess fails.
 def mdtraj_image_trajectory(
     trajectory: str,
     pdbtopology: str,
@@ -55,6 +56,8 @@ def mdtraj_image_trajectory(
     solute_anchor: bool | None = None,
 ) -> np.ndarray:
     """Re-image a periodic trajectory so molecules stay whole, returning the last frame's coordinates."""
+    if traj_format not in ("DCD", "PDB"):
+        raise InputError(f"Unknown traj_format {traj_format!r}; expected 'DCD' or 'PDB'")
     traj_basename = basename(trajectory)
     pdb_basename = basename(pdbtopology)
 
@@ -63,15 +66,13 @@ def mdtraj_image_trajectory(
 
     numframes = len(traj._time)
     logger.info(f"Found {numframes} frames in trajectory.")
-    logger.info("PBC information in trajectory:")
-    # If PBC information is missing from traj file (OpenMM: Charmmfiles, Amberfiles option etc) then provide this info
+    # For trajectories written without unit-cell information.
     if unitcell_lengths is not None:
         logger.info("unitcell_lengths info provided by user.")
         unitcell_lengths_nm = [i / 10 for i in unitcell_lengths]
         traj.unitcell_lengths = np.array(unitcell_lengths_nm * numframes).reshape(numframes, 3)
         traj.unitcell_angles = np.array(unitcell_angles * numframes).reshape(numframes, 3)
 
-    # Also load the pdbfile as a trajectory-snapshot (in addition to being topology)
     pdbsnap = mdtraj.load(pdbtopology, top=pdbtopology)
     # NOTE: not sure how well this works but it's something
     if solute_anchor is True:
@@ -82,14 +83,9 @@ def mdtraj_image_trajectory(
     else:
         imaged = traj.image_molecules()
         pdbsnap_imaged = pdbsnap.image_molecules()
-    if traj_format == "DCD":
-        imaged.save(traj_basename + "_imaged.dcd")
-        logger.info("Saved reimaged trajectory: %s", traj_basename + "_imaged.dcd")
-    elif traj_format == "PDB":
-        imaged.save(traj_basename + "_imaged.pdb")
-        logger.info("Saved reimaged trajectory: %s", traj_basename + "_imaged.pdb")
-    else:
-        logger.info("Unknown trajectory format.")
+    imaged_filename = f"{traj_basename}_imaged.{traj_format.lower()}"
+    imaged.save(imaged_filename)
+    logger.info("Saved reimaged trajectory: %s", imaged_filename)
     pdbsnap_imaged.save(pdb_basename + "_imaged.pdb")
     logger.info("Saved reimaged PDB-file: %s", pdb_basename + "_imaged.pdb")
     # Last frame coordinates as Angstrom

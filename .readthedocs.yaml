@@ -21,8 +21,9 @@ python:
     # dependency resolves from PyPI on linux-x86_64 -- openmm 8.6.1 and pdbfixer
     # included -- so this needs none of the conda machinery build_tools/ sets up.
     #
-    # Absent on purpose: PLUMED, openmm-plumed and forcefill. All three are
-    # imported inside the functions that need them, so autodoc never loads them.
+    # Absent on purpose: PLUMED, openmm-plumed and forcefill. openmm-plumed and
+    # forcefill are imported inside the functions that need them, and PLUMED is
+    # loaded only through openmm-plumed, so autodoc never loads any of them.
     - method: pip
       path: .
       extra_requirements:

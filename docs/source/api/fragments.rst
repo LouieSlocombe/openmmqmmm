@@ -25,8 +25,9 @@ Classes
 Reading and writing coordinates
 -------------------------------
 
-``read_*`` return element/coordinate pairs rather than fragments; pass them to
-``Fragment(elems=..., coords=...)`` when a fragment is what you want.
+``read_xyzfile``, ``read_ambercoordinates`` and ``read_gromacsfile`` return elements and
+coordinates rather than fragments (``read_xyzfiles`` returns one ``Fragment`` per file);
+pass them to ``Fragment(elems=..., coords=...)`` when a fragment is what you want.
 
 .. currentmodule:: openmmqmmm
 

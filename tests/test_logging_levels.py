@@ -11,8 +11,8 @@ from openmmqmmm.qmmm import QMMMTheory
 # Located through the import rather than by walking up from this file: the tests live
 # outside the package, so they are no longer at a fixed depth below it.
 PACKAGE_DIR = pathlib.Path(openmmqmmm.__file__).resolve().parent
-# rglob, not glob: the openmm interface is a subpackage and its submodules carry most of
-# the logging in the project.
+# rglob, not glob: the openmm interface is a subpackage and its submodules carry a large
+# share of the logging in the project.
 MODULES = sorted(PACKAGE_DIR.rglob("*.py"))
 
 # Bare markers left over from interactive debugging.

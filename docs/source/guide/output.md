@@ -36,7 +36,9 @@ OPENMMQMMM_LOGLEVEL=DEBUG python run.py
   ```python
   import logging
 
-  openmmqmmm.configure_logging()
+  openmmqmmm.configure_logging(level="DEBUG")
+  logging.getLogger("openmmqmmm").setLevel(logging.INFO)
+  logging.getLogger("geometric").setLevel(logging.INFO)
   logging.getLogger("openmmqmmm.timings").setLevel(logging.DEBUG)
   ```
 

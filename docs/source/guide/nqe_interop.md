@@ -23,9 +23,11 @@ openmmnqe.run_openmm_rpmd_prod(
 
 Four things to get right:
 
-Always pass `barostat_freq=None`
-: openmmnqe's RPMD and adQTB production stages add a barostat by default, and it refuses one
-  on a System carrying a `PythonForce`.
+Pass `barostat_freq=None` unless NPT is intended
+: openmmnqe's RPMD and adQTB production stages add a barostat by default
+  (`barostat_freq=50`). openmmnqe raises `ValueError` for it on a nonperiodic System; on a
+  periodic one it only warns that the `PythonForce`'s atoms are scaled individually rather
+  than as molecules.
 
 One export per System-mutating stage
 : Build a fresh export for each stage that changes the System — barostat, PLUMED bias,

@@ -8,8 +8,9 @@ pytest
 
 from a checkout, which takes about five minutes. The fragment, OpenMM and optimizer tests run
 without ORCA, and so do the ORCA input-writing and output-parsing tests — those use a fake
-ORCA installation and committed reference output. The four end-to-end QM/MM tests skip
-automatically when no ORCA installation is found; set `OPENMMQMMM_ORCADIR` to run them too.
+ORCA installation and committed reference output. The end-to-end QM/MM tests that need ORCA
+skip automatically when no ORCA installation is found; set `OPENMMQMMM_ORCADIR` to run them
+too.
 
 Tests run in isolated temporary directories, so no output files are left behind. The test
 data (~2.5 MB) lives in the repository and is not shipped in wheels, so run the suite from a

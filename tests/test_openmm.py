@@ -253,6 +253,42 @@ def test_openmm_md_plumed_passes_the_run_temperature(tmp_path, monkeypatch):
     assert forces[0].temperature == 350, "The run temperature has to reach PLUMED, or kT is undefined there"
 
 
+def test_openmm_md_plumed_applies_each_restraint_once(tmp_path, monkeypatch):
+    """A restraint added a second time doubles its force constant."""
+    import openmm
+
+    class _InertPlumedForce(openmm.CustomExternalForce):
+        def __init__(self, script):
+            super().__init__("0")
+
+        def setTemperature(self, temperature):  # noqa: N802
+            pass
+
+    monkeypatch.setitem(sys.modules, "openmmplumed", SimpleNamespace(PlumedForce=_InertPlumedForce))
+    monkeypatch.chdir(tmp_path)
+    fragment, theory = _write_plumed_test_system()
+    restrained_pair = {0, 3}
+
+    openmm_md_plumed(
+        fragment=fragment,
+        theory=theory,
+        timestep=0.0005,
+        simulation_steps=1,
+        traj_frequency=1,
+        restraints=[[0, 3, 2.5, 10.0]],
+        plumed_input_string="d1: DISTANCE ATOMS=1,4\n",
+    )
+
+    restraint_terms = [
+        type(force).__name__
+        for force in theory.system.getForces()
+        if isinstance(force, openmm.HarmonicBondForce | openmm.CustomBondForce)
+        for i in range(force.getNumBonds())
+        if set(force.getBondParameters(i)[:2]) == restrained_pair
+    ]
+    assert len(restraint_terms) == 1, f"The restraint was applied {len(restraint_terms)} times: {restraint_terms}"
+
+
 def _plumed_has_opes():
     """conda-forge's PLUMED build omits opes; only a source build (see build_tools/) has it."""
     plumed = shutil.which("plumed")
@@ -1149,26 +1185,6 @@ def test_logger_writer_emits_complete_nonblank_lines(caplog):
         writer.write(" line\nsecond line\n\n")
 
     assert [record.getMessage() for record in caplog.records] == ["partial line", "second line"]
-
-
-def test_current_step_reports_openmm_potential_energy_in_hartree(caplog):
-    import logging
-
-    import openmm.unit
-
-    import openmmqmmm.constants
-    from openmmqmmm.openmm.md import print_current_step_info
-
-    state = SimpleNamespace(
-        getKineticEnergy=lambda: openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL * openmm.unit.kilojoules_per_mole,
-        getPotentialEnergy=lambda: 2 * openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL * openmm.unit.kilojoules_per_mole,
-        getTime=lambda: 1 * openmm.unit.picosecond,
-    )
-
-    with caplog.at_level(logging.INFO, logger="openmmqmmm.openmm.md"):
-        print_current_step_info(3, state, SimpleNamespace(dof=3))
-
-    assert "Potential energy (dummy): 2.0 Eh" in caplog.text
 
 
 def test_rpmd_run_finalization_writes_only_bead_complete_restart():

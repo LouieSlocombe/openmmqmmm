@@ -1,9 +1,13 @@
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+import openmm.app
+import openmm.unit
 import pytest
 
 from openmmqmmm import Fragment
+from openmmqmmm.constants import BOHR_TO_ANG
 from openmmqmmm.coords import write_pdbfile
 from openmmqmmm.exceptions import InputError
 
@@ -185,3 +189,114 @@ def test_write_pdbfile_rejects_element_coordinate_mismatch(tmp_path):
 
     with pytest.raises(InputError, match="elements=1"):
         write_pdbfile(fragment, outputname=str(tmp_path / "bad"))
+
+
+# 1.2 A apart: bonded under tol=0.9 (threshold 1.52 A) or scale=2.0 (1.34 A), not under the defaults (0.72 A).
+STRETCHED_H2 = [[0.0, 0.0, 0.0], [0.0, 0.0, 1.2]]
+WATER_COORDS = [[0.0, 0.0, 0.0], [0.96, 0.0, 0.0], [-0.24, 0.93, 0.0]]
+
+
+@pytest.mark.parametrize("kwargs", [{"tol": 0.9}, {"scale": 2.0}])
+def test_calc_connectivity_defaults_scale_and_tol_independently(kwargs):
+    fragment = Fragment(coords=STRETCHED_H2, elems=["H", "H"])
+
+    fragment.calc_connectivity(**kwargs)
+
+    assert fragment.connectivity == [[0, 1]]
+
+
+def test_fragment_conncalc_honours_tol_given_without_scale():
+    assert Fragment(coords=STRETCHED_H2, elems=["H", "H"], conncalc=True, tol=0.9).connectivity == [[0, 1]]
+    assert Fragment(coords=STRETCHED_H2, elems=["H", "H"], conncalc=True).connectivity == [[0], [1]]
+
+
+def test_define_topology_adds_each_bond_once():
+    water = Fragment(coords=WATER_COORDS, elems=["O", "H", "H"])
+
+    assert water.define_topology().getNumBonds() == 2
+
+
+def test_write_pdbfile_openmm_lists_each_conect_partner_once(tmp_path):
+    water = Fragment(coords=WATER_COORDS, elems=["O", "H", "H"])
+
+    path = water.write_pdbfile_openmm(filename=str(tmp_path / "water"), calc_connectivity=True)
+
+    assert water.pdb_topology.getNumBonds() == 2
+    partners = defaultdict(list)
+    for line in Path(path).read_text().splitlines():
+        if line.startswith("CONECT"):
+            atom, *bonded = line.split()[1:]
+            partners[atom] += bonded
+    assert {atom: sorted(bonded) for atom, bonded in partners.items()} == {"1": ["2", "3"], "2": ["1"], "3": ["1"]}
+
+
+def test_write_pdbfile_round_trips_more_than_999_atoms_through_openmm(tmp_path):
+    # Element-derived names overflow the 4-column field at serial 100 (Cl) and 1000 (C, N, O).
+    elems = ["C"] * 1002
+    elems[150] = "Cl"
+    elems[1000] = "N"
+    elems[1001] = "O"
+    coords = 1.5 * np.array([[i % 10, (i // 10) % 10, i // 100] for i in range(len(elems))], dtype=float)
+    fragment = Fragment(coords=coords, elems=elems)
+
+    pdb = openmm.app.PDBFile(write_pdbfile(fragment, outputname=str(tmp_path / "large")))
+
+    assert [atom.element.symbol for atom in pdb.topology.atoms()] == elems
+    assert pdb.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom) == pytest.approx(coords, abs=1e-3)
+
+
+def test_write_pdbfile_writes_segment_ids_in_columns_73_to_76(tmp_path):
+    fragment = Fragment(coords=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], elems=["H", "F"])
+
+    path = write_pdbfile(fragment, outputname=str(tmp_path / "seg"), segmentlabels=["SEGA", "SEGB"])
+
+    atom_lines = [line for line in Path(path).read_text().splitlines() if line.startswith("ATOM")]
+    assert [line[72:76] for line in atom_lines] == ["SEGA", "SEGB"]
+    assert [line[76:78] for line in atom_lines] == [" H", " F"]
+
+
+def test_read_chemshellfile_keeps_dots_in_directory_names(tmp_path):
+    directory = tmp_path / "run.v2"
+    directory.mkdir()
+    path = directory / "frag.c"
+    path.write_text("block = coordinates records 2\nH 0.0 0.0 0.0\nH 0.0 0.0 1.4\nblock = connectivity records 0\n")
+
+    fragment = Fragment(chemshellfile=str(path))
+
+    assert fragment.elems == ["H", "H"]
+    assert fragment.coords[1, 2] == pytest.approx(1.4 * BOHR_TO_ANG)
+
+
+def test_read_pdbxfile_names_elementless_virtual_sites_m(tmp_path):
+    topology = openmm.app.Topology()
+    residue = topology.addResidue("HOH", topology.addChain())
+    hydrogen = openmm.app.element.hydrogen
+    for name, element in [("O", openmm.app.element.oxygen), ("H1", hydrogen), ("H2", hydrogen), ("MW", None)]:
+        topology.addAtom(name, element, residue)
+    positions = openmm.unit.Quantity(
+        np.array([[0.0, 0.0, 0.0], [0.0957, 0.0, 0.0], [-0.024, 0.0927, 0.0], [0.003, 0.002, 0.0]]),
+        openmm.unit.nanometer,
+    )
+    path = tmp_path / "tip4p.cif"
+    with open(path, "w") as handle:
+        openmm.app.PDBxFile.writeFile(topology, positions, handle)
+
+    assert Fragment(pdbxfile=str(path)).elems == ["O", "H", "H", "M"]
+
+
+@pytest.mark.parametrize(
+    ("flags", "header"),
+    [
+        ({"write_chargemult": True, "write_energy": True}, "0 1 -1.5"),
+        ({"write_chargemult": True, "write_energy": False}, "0 1"),
+        ({"write_chargemult": False, "write_energy": True}, "-1.5"),
+        ({"write_chargemult": False, "write_energy": False}, "title"),
+    ],
+)
+def test_fragment_write_xyzfile_header_carries_each_requested_field(tmp_path, flags, header):
+    fragment = Fragment(coords=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.9]], elems=["H", "F"], charge=0, mult=1)
+    fragment.set_energy(-1.5)
+
+    path = fragment.write_xyzfile(xyzfilename=str(tmp_path / "hf.xyz"), **flags)
+
+    assert Path(path).read_text().splitlines()[1] == header

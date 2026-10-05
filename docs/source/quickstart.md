@@ -57,8 +57,9 @@ frequencies = numerical_frequencies(theory=orca, fragment=hf)
 print(f"Frequencies (cm-1):  {frequencies.frequencies}")
 ```
 
-Every job function takes `theory=` and `fragment=`, returns a {class}`~openmmqmmm.Results`
-object, and writes that object to a JSON file next to your script —
+Each of these job functions takes `theory=` and `fragment=`, returns a
+{class}`~openmmqmmm.Results` object, and writes that object to a JSON file in the working
+directory —
 `results_singlepoint.json`, `results_optimizer.json`, `results_numfreq.json`. Energies are
 in Hartree, gradients in Hartree/Bohr, frequencies in cm⁻¹. See {doc}`guide/jobs`.
 

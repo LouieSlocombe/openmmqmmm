@@ -20,7 +20,7 @@ dependencies:
   - openmm >=8.6,<8.7
   # PLUMED itself is absent on purpose: build_plumed.sh compiles it into the same
   # prefix, so a conda-forge copy would be silently overwritten by `make install`,
-  # and that build omits the opes module openmm_md_plumed needs. These are the
+  # and that build omits the opes module OPES biases in openmm_md_plumed need. These are the
   # source-build prerequisites for it and for the openmm-plumed plugin.
   - cmake
   - make
@@ -40,8 +40,8 @@ dependencies:
   # forcefill itself is on neither index, so conda_install.sh clones it next to this
   # repository and installs it editable (see editable_repos.sh). Creating this environment
   # on its own leaves it out; CI installs it straight from GitHub, having no checkout.
-  # openff-toolkit pulls ambertools (antechamber for the GAFF backend), which pulls
-  # pytorch + CUDA (several GB).
+  # openmmforcefields pulls ambertools (antechamber for the GAFF backend); openff-toolkit
+  # pulls openff-nagl, which pulls pytorch + CUDA (several GB).
   - openmmforcefields
   - openff-toolkit
   - rdkit

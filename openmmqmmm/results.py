@@ -106,7 +106,6 @@ class Results:
     gradients: list[np.ndarray] | None = None
     energies_dict: dict[Any, float] | None = None
     gradients_dict: dict[Any, np.ndarray] | None = None
-    # Name of worker directories that could be accessed later
     worker_dirnames: dict[Any, str] | None = None
     charge: int | None = None
     mult: int | None = None
@@ -175,8 +174,8 @@ class Results:
 
 
 # Taken from the annotations, so an ndarray field added to Results is restored without a
-# second list to keep in step. The dict-valued ndarray fields are not distinguishable from
-# the plain dict fields by annotation, so those stay explicit.
+# second list to keep in step. The ndarray-valued mappings stay explicit: the displacement
+# dictionaries are annotated dict[Any, Any], like the plain dict fields.
 _ARRAY_FIELDS = frozenset(f.name for f in fields(Results) if f.type == "np.ndarray | None")
 _ARRAY_MAPPING_FIELDS = frozenset(
     {"displacement_dipole_dictionary", "displacement_polarizability_dictionary", "gradients_dict"}

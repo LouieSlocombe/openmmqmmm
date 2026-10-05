@@ -1,8 +1,8 @@
 Job functions
 =============
 
-Each job function takes a theory and a fragment, runs a calculation, returns a
-:class:`~openmmqmmm.Results` object and writes it to a ``results_*.json`` file.
+The job functions take a theory and a fragment, run a calculation and return a
+:class:`~openmmqmmm.Results` object; most also write it to a ``results_*.json`` file.
 
 See :doc:`../guide/jobs` for what the results contain and how the files are named.
 

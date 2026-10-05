@@ -32,7 +32,7 @@ class NativeVirtualSites:
 
     The auxiliary Reference context contains only native sites and a linear force
     on those sites. It never evaluates the live MM system or its PythonForce.
-    Only serialized system metadata survives copying/pickling a QM/MM theory.
+    Only serialized system metadata survives deep-copying/pickling a QM/MM theory.
     """
 
     def __init__(self, system: openmm.System) -> None:
@@ -110,7 +110,6 @@ class NativeVirtualSites:
             .value_in_unit(unit.kilojoule_per_mole / unit.nanometer)
         )
         projected = np.asarray(gradient).copy()
-        projected[self.indices] = 0
         projected += redistributed
         # OpenMM retains raw site forces as well as adding them to the hosts.
         projected[self.indices] = 0

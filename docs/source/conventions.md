@@ -11,7 +11,7 @@ Job functions are snake_case ({func}`~openmmqmmm.single_point`,
 `num_grad=`).
 
 Where a name comes from an external protocol it keeps that protocol's spelling instead —
-OpenMM's `enforcePeriodicBox` and `biasFactor`, geomeTRIC's `logIni`. Those are call-site
+OpenMM's `enforcePeriodicBox` and `membraneCenterZ`, geomeTRIC's `logIni`. Those are call-site
 compatibility, not style.
 
 ## Files a run leaves behind
@@ -29,8 +29,9 @@ compatibility, not style.
 ## Units
 
 Hartree for energies, Hartree/Bohr for gradients, Angstrom for coordinates, cm⁻¹ for
-frequencies, kelvin for temperature, bar for pressure, picoseconds for MD time. The two
-exceptions are both deliberate: {class}`~openmmqmmm.OpenMMQMMMCalculator` speaks eV and eV/Å
+frequencies, kelvin for temperature, bar for MD pressure (atm for the thermochemistry
+`pressure` of the frequency functions), picoseconds for MD time. The two other exceptions
+are both deliberate: {class}`~openmmqmmm.OpenMMQMMMCalculator` speaks eV and eV/Å
 because ASE does, and PLUMED input is in PLUMED's own units.
 
 ## Importing

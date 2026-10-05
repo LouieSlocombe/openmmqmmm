@@ -266,7 +266,7 @@ def _nve(case: str, timestep_fs: float, duration_fs: float = 12.0) -> dict[str, 
 
 def run_validation() -> dict[str, Any]:
     """Return reproducible JSON data without leaving package scratch files behind."""
-    # Some package setup paths print; stdout remains valid JSON for the CLI.
+    # stdout must stay valid JSON for the CLI.
     with (
         TemporaryDirectory(prefix="finite-periodic-validation-") as scratch,
         contextlib.chdir(scratch),

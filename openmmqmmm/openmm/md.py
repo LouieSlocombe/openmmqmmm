@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 RPMD_RESTART_FILENAME = "OpenMM_MD_rpmd_restart.npz"
 RPMD_FINAL_RESTART_FILENAME = "OpenMM_MD_final_rpmd_restart.npz"
+_TRAJECTORY_EXTENSIONS = {"PDB": "pdb", "DCD": "dcd", "NetCDFReporter": "nc", "HDF5Reporter": "lh5"}
 RPMD_RESTART_FORMAT_VERSION = 1
 
 
@@ -144,9 +145,7 @@ def engine_kwargs_from(caller_locals: Mapping[str, Any], **overrides: Any) -> di
 
 
 def engine_kwargs_checked(md_options: Mapping[str, Any], **overrides: Any) -> dict[str, Any]:
-    """Engine kwargs from an explicit **kwargs dict, rejecting names the engine does not take."""
-    # A wrapper that forwards **kwargs cannot let Python reject a mistyped option for it,
-    # so the check that TypeError used to provide happens here instead.
+    """Return engine kwargs from an explicit **kwargs dict, rejecting names the engine does not take."""
     unknown = sorted(set(md_options) - _engine_parameters())
     if unknown:
         raise InputError(f"Unknown molecular-dynamics option(s): {', '.join(unknown)}")
@@ -212,7 +211,7 @@ def openmm_md(
     charge: int | None = None,
     mult: int | None = None,
     hydrogenmass: float | None = 1.5,
-    force_periodic: bool | None = None,
+    force_periodic: bool | None = False,
     periodic_cell_dimensions: npt.ArrayLike | None = None,
     anderson_thermostat: bool = False,
     platform: str | None = None,
@@ -226,7 +225,6 @@ def openmm_md(
     center_on_atoms: Sequence[int] | None = None,
     solute_indices: Sequence[int] | None = None,
     datafilename: str | os.PathLike[str] | None = None,
-    dummy_mm: bool = False,
     add_centerforce: bool = False,
     centerforce_atoms: Sequence[int] | None = None,
     centerforce_constant: float = 1.0,
@@ -236,14 +234,7 @@ def openmm_md(
     chkfile: str | os.PathLike[str] | None = None,
     statefile: str | os.PathLike[str] | None = None,
 ) -> None:
-    """Run molecular dynamics of a fragment with OpenMM (also drives QM/MM MD).
-
-    An existing OpenMMTheory (or QMMMTheory.mm_theory) owns its platform and
-    properties. Omit platform or pass None to inherit them; an explicit platform
-    must match the theory's platform or InputError is raised. Configure a new
-    OpenMMTheory to change platforms. For a standalone QM theory, platform selects
-    the newly created OpenMM system's platform, defaulting to CPU.
-    """
+    """Run molecular dynamics of a fragment with OpenMM (also drives QM/MM MD)."""
     engine_kwargs = engine_kwargs_from(locals())
 
     logger.info(main_header("OpenMM MD wrapper function"))
@@ -254,7 +245,10 @@ def openmm_md(
         elif simulation_time is not None:
             md.run(simulation_time=simulation_time)
         else:
-            raise InputError("Either simulation_steps or simulation_time need to be defined (not both).")
+            raise InputError(
+                "Either simulation_steps or simulation_time needs to be defined (simulation_steps takes precedence "
+                "when both are)."
+            )
 
         md.finalize_simulation()
     finally:
@@ -262,13 +256,7 @@ def openmm_md(
 
 
 class MolecularDynamicsEngine:
-    """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD).
-
-    Platform configuration belongs to the supplied OpenMMTheory or
-    QMMMTheory.mm_theory. platform=None inherits that configuration; an explicit
-    conflicting platform raises InputError. For standalone QM theories, a new
-    OpenMMTheory uses the requested platform, defaulting to CPU.
-    """
+    """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD)."""
 
     def __init__(
         self,
@@ -309,7 +297,6 @@ class MolecularDynamicsEngine:
         center_on_atoms: Sequence[int] | None = None,
         solute_indices: Sequence[int] | None = None,
         datafilename: str | os.PathLike[str] | None = None,
-        dummy_mm: bool = False,
         add_centerforce: bool = False,
         centerforce_atoms: Sequence[int] | None = None,
         centerforce_constant: float = 1.0,
@@ -324,7 +311,7 @@ class MolecularDynamicsEngine:
         logger.info(main_header("OpenMM Molecular Dynamics Initialization"))
 
         if fragment is None:
-            raise InputError("No fragment object. Exiting.")
+            raise InputError("No fragment object.")
         self.fragment = fragment
 
         is_rpmd = integrator == "RPMDIntegrator"
@@ -338,7 +325,6 @@ class MolecularDynamicsEngine:
             charge, mult, theory.theorytype, fragment, "OpenMM_MD", theory=theory
         )
 
-        # Trajectory filename. Used for trajs in DCD, PDB etc. format, also single PDB snapshots
         self.trajfilename = trajfilename
 
         self.specialatoms = specialatoms
@@ -348,8 +334,6 @@ class MolecularDynamicsEngine:
             os.remove("wrapped_special_traj.xyz")
         if os.path.exists("OpenMMMD_traj_wrapped.xyz"):
             os.remove("OpenMMMD_traj_wrapped.xyz")
-
-        self.dummy_mm = dummy_mm
 
         self.theory_runtype = None
 
@@ -398,21 +382,17 @@ class MolecularDynamicsEngine:
         self.restartfile_frequency = restartfile_frequency
         self.barostat_frequency = barostat_frequency
         self.trajectory_file_option = trajectory_file_option
-        self.force_file_option = force_file_option  # Gradients/forces as a file
-        self.energy_file_option = energy_file_option  # Energies as a file
-        self.atomic_units_force_reporter = atomic_units_force_reporter  # Forces in atomic units
+        self.force_file_option = force_file_option
+        self.energy_file_option = energy_file_option
+        self.atomic_units_force_reporter = atomic_units_force_reporter
         if self.openmmobject.periodic is True:
-            # Generally we want True except sometimes we do our own wrapping
             self.enforce_periodic_box = enforce_periodic_box
         else:
             logger.info("System is non-periodic. Setting enforcePeriodicBox to False")
-            # Non-periodic. Setting enforcePeriodicBox to False (otherwise nonsense)
             self.enforce_periodic_box = False
 
         self.special_wrapping = special_wrapping
-        self.special_wrapping_updatepos = (
-            special_wrapping_updatepos  # Testing: update positions in simulation object after wrapping
-        )
+        self.special_wrapping_updatepos = special_wrapping_updatepos
         self.wrapping_atoms = wrapping_atoms
 
         self._log_system_parameters(
@@ -440,8 +420,6 @@ class MolecularDynamicsEngine:
 
         self._set_initial_positions(dummyatomrestraint=dummyatomrestraint, solute_indices=solute_indices)
 
-        # https://github.com/openmm/openmm/issues/1854 -- the translation was computed and then
-        # discarded, so the option has never done anything. Fail rather than silently ignore it.
         if center_on_atoms is not None:
             raise InputError("center_on_atoms is accepted but not implemented. Remove it from the call.")
 
@@ -630,7 +608,6 @@ class MolecularDynamicsEngine:
             self.rpmd_force_provider.clear_cache()
         logger.info("Restored all %s RPMD copies from %s", expected_copies, filename)
 
-    # Set sim reporters. Needs to be done after simulation is created and not modified anymore
     def _remove_simulation_reporters(self) -> None:
         """Detach reporters owned by this engine while preserving caller reporters."""
         owned_reporters = self._simulation_reporters
@@ -703,8 +680,7 @@ class MolecularDynamicsEngine:
                 ),
             )
         elif self.trajectory_file_option == "DCD":
-            # Note: using append keyword here if restarting
-            # Check first if file exists for restart (OpenMM errors otherwise)
+            # DCDReporter(append=True) fails on a missing file
             if restart is True and os.path.isfile(f"{self.trajfilename}.dcd") is False:
                 logger.warning("Restart option was active but trajectory file not existing. Will create new file")
                 restart = False
@@ -789,7 +765,7 @@ class MolecularDynamicsEngine:
         if isinstance(theory, OpenMMTheory):
             logger.debug("This is an OpenMMTheory object")
             self.openmmobject = theory
-            self.theory_runtype = "dummy_MM" if self.dummy_mm is True else "MM"
+            self.theory_runtype = "MM"
             platform_owner = "the supplied OpenMMTheory"
         elif isinstance(theory, openmmqmmm.QMMMTheory):
             logger.debug("This is an QMMMTheory object")
@@ -805,7 +781,7 @@ class MolecularDynamicsEngine:
                 "Now creating OpenMMTheory object on platform: %s",
                 platform,
             )
-            # Creating dummy OpenMMTheory (basic topology, particle masses, no forces except CMMRemoval)
+            # Dummy system: topology and masses, a zero-parameter NonbondedForce and a CMMotionRemover
             self.openmmobject = OpenMMTheory(
                 fragment=self.fragment,
                 dummysystem=True,
@@ -952,7 +928,6 @@ class MolecularDynamicsEngine:
     def _set_initial_positions(self, *, dummyatomrestraint: bool, solute_indices: Sequence[int] | None) -> None:
         """Take the starting positions from the fragment, adding the restraint dummy atom if asked."""
         logger.debug("Defining atom positions from fragment")
-        # self.positions rather than the fragment's, because a dummy atom may be appended below
         self.positions = self.fragment.coords
         if dummyatomrestraint is not True:
             return
@@ -999,8 +974,6 @@ class MolecularDynamicsEngine:
                     logger.debug("Removing old force: %s", forcename)
                     self.openmmobject.system.removeForce(index)
 
-        # Integrators: LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VerletIntegrator,
-        # BrownianIntegrator, VariableLangevinIntegrator, VariableVerletIntegrator
         self.openmmobject.set_simulation_parameters(
             timestep=self.timestep,
             temperature=self.temperature,
@@ -1018,7 +991,6 @@ class MolecularDynamicsEngine:
         # The reporter writes its header on every open, so a stale file would accumulate several
         with contextlib.suppress(FileNotFoundError):
             os.remove(datafilename)
-        # An open file object, not a name: a name does not survive stepping the simulation one step at a time
         self.dataoutputoption = open(datafilename, "a", encoding="utf-8")  # noqa: SIM115 - owned until close()
         logger.info("Will write data to file: %s", datafilename)
 
@@ -1033,6 +1005,8 @@ class MolecularDynamicsEngine:
         """Add the flat-bottom force that keeps the solute near a chosen centre."""
         logger.info("Centerforce option active")
         if centerforce_atoms is None:
+            if self.QM_MM_object is None:
+                raise InputError("add_centerforce requires centerforce_atoms unless the theory is QM/MM.")
             centerforce_atoms = self.QM_MM_object.qmatoms
             logger.info("centerforce_atoms unset. Using QM atoms: %s", centerforce_atoms)
         if centerforce_center is None:
@@ -1139,11 +1113,10 @@ class MolecularDynamicsEngine:
         logger.info("Periodic Boundary Conditions used.")
         if self.enforce_periodic_box is True:
             logger.info("EnforcePeriodic Box is True. Wrapping enforced by OpenMM.")
-            logger.warning("In case of problematic wrapping for e.g. QM/MM, try enabling special_wrapping=True")
         if self.special_wrapping is not True:
             return None, None, None
 
-        logger.info("special_wrapping is True. Wrapping will be handled in each step by mdtraj library")
+        logger.info("special_wrapping is True. Preparing box vectors, topology and anchor atoms for mdtraj imaging")
         boxvectors = self._get_simulation_state().getPeriodicBoxVectors(asNumpy=True)
         mdtrajtopology = mdtraj.Topology.from_openmm(self.openmmobject.topology)
 
@@ -1159,7 +1132,7 @@ class MolecularDynamicsEngine:
             logger.info("Theory_runtype is MM. No anchor atoms needed")
             wrapping_atoms = None
         else:
-            raise InputError(f"Theory_runtype is {self.theory_runtype} but no wrapping_atoms have been set.\nExiting")
+            raise InputError(f"theory_runtype is {self.theory_runtype} but no wrapping_atoms have been set.")
         logger.info("wrapping_atoms have been set to: %s", wrapping_atoms)
         return boxvectors, mdtrajtopology, wrapping_atoms
 
@@ -1265,7 +1238,7 @@ class MolecularDynamicsEngine:
         if simulation_steps is None and simulation_time is None:
             raise InputError("Either simulation_steps or simulation_time needs to be set.")
         if simulation_time is not None:
-            simulation_steps = int(simulation_time / self.timestep)
+            simulation_steps = round(simulation_time / self.timestep)
         if simulation_steps is not None:
             simulation_time = simulation_steps * self.timestep
 
@@ -1282,8 +1255,8 @@ class MolecularDynamicsEngine:
             logger.info("Plumed active. Adding Plumedforce to system")
             logger.info("plumedinput: %s", plumedinput)
             plumed_force = openmmplumed.PlumedForce(plumedinput)
-            # The plugin defaults to -1 K, which it reports to PLUMED as "undefined". Every
-            # quantity PLUMED derives from kT then breaks: OPES_METAD's default
+            # The plugin defaults to -1 K, which it treats as undefined and never passes to
+            # PLUMED. Every quantity PLUMED derives from kT then breaks: OPES_METAD's default
             # BIASFACTOR=BARRIER/kT becomes infinite and aborts, and reweighting goes wrong
             # silently.
             plumed_force.setTemperature(self.temperature)
@@ -1336,7 +1309,7 @@ class MolecularDynamicsEngine:
                 return
 
             # PythonForce supplies the actual energy and force at every integrator,
-            # barostat-trial, and reporter geometry. Native reporters now receive
+            # barostat-trial, and reporter geometry. Native reporters therefore receive
             # the physical total potential and forces at their saved positions.
             for _step in range(simulation_steps):
                 self.simulation.step(1)
@@ -1361,8 +1334,8 @@ class MolecularDynamicsEngine:
                 self.simulation.step(simulation_steps)
         else:
             raise InputError(
-                f"Error: Unrecognized Theory runtype ({self.theory_runtype}) for MD. This might mean that this theory "
-                f"object is not yet supported for running MD. Exiting."
+                f"Unrecognized theory runtype ({self.theory_runtype}) for MD. This might mean that this theory "
+                f"object is not yet supported for running MD."
             )
 
         logger.info(small_header("OpenMM MD simulation finished!"))
@@ -1383,7 +1356,7 @@ class MolecularDynamicsEngine:
         rpmd_reporters.clear()
 
     def finalize_simulation(self) -> None:
-        """Write the final structure and trajectory files and log the timing summary."""
+        """Write the final-frame structure and restart files, update the fragment coordinates, then close outputs."""
         try:
             self._finalize_simulation()
         finally:
@@ -1406,12 +1379,10 @@ class MolecularDynamicsEngine:
             logger.info("A:  %s", a)
             logger.info("B:  %s", b)
             logger.info("C:  %s", c)
-            logger.info("a 0 %s", a[0])
             logger.debug("Updating PBC vectors in simulation.context, OpenMM system and OpenMM topology")
             self.simulation.context.setPeriodicBoxVectors(a, b, c)
-            # System. Necessary
             self.openmmobject.system.setDefaultPeriodicBoxVectors(a, b, c)
-            # Topology (for header in PDB-files). Necessary
+            # PDBFile.writeHeader takes CRYST1 from the topology
             self.openmmobject.topology.setPeriodicBoxVectors(self.state.getPeriodicBoxVectors())
 
         pdb_filename = self.trajfilename + "_lastframe.pdb"
@@ -1422,7 +1393,6 @@ class MolecularDynamicsEngine:
                 self.openmmobject.topology, self.state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom), f
             )
             openmm.app.pdbfile.PDBFile.writeFooter(self.openmmobject.topology, f)
-        logger.info(f"Trajectory : {self.trajfilename}.{self.trajectory_file_option}")
         pdbx_filename = self.trajfilename + "_lastframe.cif"
         logger.info("Writing final frame to disk as PDBx/mmCIF-file: %s", pdbx_filename)
         with open(pdbx_filename, "w") as f:
@@ -1430,13 +1400,13 @@ class MolecularDynamicsEngine:
             openmm.app.pdbxfile.PDBxFile.writeModel(
                 self.openmmobject.topology, self.state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom), f
             )
-        logger.info(f"Trajectory : {self.trajfilename}.{self.trajectory_file_option}")
+        if self.trajectory_file_option in _TRAJECTORY_EXTENSIONS:
+            logger.info("Trajectory: %s.%s", self.trajfilename, _TRAJECTORY_EXTENSIONS[self.trajectory_file_option])
 
         if self._is_rpmd_simulation(self.simulation):
             logger.info("Saving all RPMD copies to %s", RPMD_FINAL_RESTART_FILENAME)
             self._save_rpmd_restart(RPMD_FINAL_RESTART_FILENAME)
         else:
-            # Can be used to restart using statefile option
             logger.info(
                 "Saving a statefile and checkpointfile of the final frame of the simulation: "
                 "OpenMM_MD_final_state.xml and OpenMM_MD_final_checkpoint.chk"
@@ -1450,7 +1420,7 @@ class MolecularDynamicsEngine:
 
         newcoords = self.state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom)
         logger.debug("Updating coordinates in fragment.")
-        self.fragment.coords = newcoords
+        self.fragment.coords = newcoords[: self.fragment.numatoms]
         # Updating positions array also in case we call run again
         self.positions = newcoords
 
@@ -1478,8 +1448,7 @@ def openmm_box_equilibration(
     barostat_frequency: int = 25,
 ) -> tuple[openmm.Vec3, openmm.Vec3, openmm.Vec3]:
     """Run NPT simulations in cycles until box volume and density stop changing."""
-    # Captured before any local is bound, so this is the caller's arguments and nothing
-    # else. The integrator and barostat are fixed by what this function does: NPT cycles.
+    # Captured before any local is bound, so this is the caller's arguments and nothing else.
     engine_kwargs = engine_kwargs_from(locals(), integrator="LangevinMiddleIntegrator", barostat="MonteCarloBarostat")
 
     logger.info(main_header("Periodic Box Size Equilibration"))
@@ -1490,7 +1459,7 @@ def openmm_box_equilibration(
 
     if numsteps_per_npt < traj_frequency:
         raise InputError(
-            "Parameter 'numpsteps_per_NPT' must be greater than 'traj_frequency', otherwise no data will be written "
+            "Parameter 'numsteps_per_npt' must be at least 'traj_frequency', otherwise no data will be written "
             "during the equilibration!"
         )
 
@@ -1565,8 +1534,9 @@ def openmm_box_equilibration(
 
         md.finalize_simulation()
 
-        logger.info(f"Final PDB file: {trajfilename}.pdb")
-        logger.info(f"NPT trajectory: {trajfilename}.{trajectory_file_option.lower()}")
+        logger.info(f"Final PDB file: {trajfilename}_lastframe.pdb")
+        if trajectory_file_option in _TRAJECTORY_EXTENSIONS:
+            logger.info(f"NPT trajectory: {trajfilename}.{_TRAJECTORY_EXTENSIONS[trajectory_file_option]}")
 
         if use_mdtraj is True:
             try:
@@ -1579,40 +1549,6 @@ def openmm_box_equilibration(
         return md.state.getPeriodicBoxVectors()
     finally:
         md.close()
-
-
-def print_current_step_info(
-    step: int, state: openmm.State, openmmobject: OpenMMTheory, qm_energy: float | None = None
-) -> None:
-    """Log the energy and temperature summary for one molecular-dynamics step."""
-    kinetic_energy = state.getKineticEnergy()
-    kinetic_energy_eh = (
-        kinetic_energy.value_in_unit(openmm.unit.kilojoules_per_mole) / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
-    )
-
-    # Potential energy from the theory level instead
-    if qm_energy is not None:
-        dummy_warning = "(correct)"
-        pot_energy = qm_energy
-    else:
-        dummy_warning = "(dummy)"
-        pot_energy = (
-            state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole)
-            / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
-        )
-
-    temp = (2 * kinetic_energy / (openmmobject.dof * openmm.unit.MOLAR_GAS_CONSTANT_R)).value_in_unit(
-        openmm.unit.kelvin
-    )
-
-    logger.info("%s", "=" * 50)
-    logger.info(f"SIMULATION STATUS (STEP {step})")
-    logger.info("%s", "_" * 50)
-    logger.info(f"Time: {state.getTime()}")
-    logger.info(f"Potential energy {dummy_warning}: {pot_energy} Eh")
-    logger.info(f"Kinetic energy: {kinetic_energy_eh} Eh")
-    logger.info(f"Temperature: {temp}")
-    logger.info("%s", "=" * 50)
 
 
 def gentle_warmup_md(
@@ -1646,8 +1582,12 @@ def gentle_warmup_md(
     if theory is None or fragment is None:
         raise InputError("Gentle_warm_up_MD requires theory (OpenMM object) and fragment")
 
-    if len(time_steps) != len(steps) or len(time_steps) != len(temperatures):
-        raise InputError("Error: Lists time_steps, steps and temperatures all need to be the same length. Exiting")
+    stage_lengths = [len(time_steps), len(steps), len(temperatures), len(traj_frequencies)]
+    if len(set(stage_lengths)) != 1:
+        raise InputError(
+            "Lists time_steps, steps, temperatures and traj_frequencies all need to be the same length "
+            f"(got {', '.join(map(str, stage_lengths))})."
+        )
 
     if check_gradient_first is True:
         logger.info("check_gradient_first is True")
@@ -1674,13 +1614,12 @@ def gentle_warmup_md(
             logger.debug("Will go on to do MD")
 
     logger.info(f"\n{len(steps)} MD-runs have been defined")
-    for num, (ts, step, temp) in enumerate(zip(time_steps, steps, temperatures, strict=False)):
+    for num, (ts, step, temp) in enumerate(zip(time_steps, steps, temperatures, strict=True)):
         logger.info(f"MD-step {num} Number of simulation steps: {step} with timestep: {ts} and temperature: {temp} K")
 
     for num, (ts, step, temp, traj_frequency) in enumerate(
-        zip(time_steps, steps, temperatures, traj_frequencies, strict=False)
+        zip(time_steps, steps, temperatures, traj_frequencies, strict=True)
     ):
-        # Name of PDB and DCD filename: i.e. warmup_MD_cycle1.pdb and warmup_MD_cycle1.dcd
         MDcyclename = trajfilename + f"_cycle{num}"
         logger.info(
             f"\n\nNow running MD-run {num}. Number of steps: {step} with timestep:{ts} and temperature: {temp} K"
@@ -1700,7 +1639,7 @@ def gentle_warmup_md(
         )
 
         if use_mdtraj is True:
-            logger.debug("Trying to load mdtraj for basic analysis of trajectory")
+            logger.debug("Analysing the trajectory with mdtraj")
             try:
                 logger.info("Imaging trajectory")
                 mdtraj_image_trajectory(f"{MDcyclename}.dcd", f"{MDcyclename}_lastframe.pdb")
@@ -1728,7 +1667,6 @@ def diff_wrap_box_coords(
     """Image periodic coordinates around a chosen anchor molecule with MDTraj."""
     traj = mdtraj.Trajectory(coords_nm, mdtrajtopology)
     traj.unitcell_vectors = np.array(boxvectors).reshape(1, 3, 3)
-    # Anchoratoms (usually QM-region or similar)
     anchors = [{traj.topology.atom(i) for i in anchoratoms}]
     imaged = traj.image_molecules(anchor_molecules=anchors)
     return imaged._xyz[0] * 10.0

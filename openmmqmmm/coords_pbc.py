@@ -41,8 +41,6 @@ def cell_vectors_to_params(vectors: np.ndarray) -> list[float]:
     b = np.linalg.norm(vb)
     c = np.linalg.norm(vc)
 
-    # Calculate angles using the dot product formula:
-    # cos(theta) = (v1 . v2) / (|v1| * |v2|)
     alpha_rad = np.arccos(np.dot(vb, vc) / (b * c))
     beta_rad = np.arccos(np.dot(va, vc) / (a * c))
     gamma_rad = np.arccos(np.dot(va, vb) / (a * b))
@@ -74,7 +72,7 @@ def write_poscar_file(
     filename: str | os.PathLike[str] = "POSCAR",
 ) -> str | os.PathLike[str]:
     if cellvectors is None and celldimensions is None:
-        raise InputError("Error: Either cellvectors or celldimensions should be provided")
+        raise InputError("Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
         cellvectors = cell_params_to_vectors(celldimensions)
 
@@ -92,7 +90,7 @@ def write_poscar_file(
         f.write(f"{cellvectors[2, 0]:.4f} {cellvectors[2, 1]:.4f} {cellvectors[2, 2]:.4f}" + "\n")
         f.write(f"{'  '.join(unique_elements)}\n")
         f.write(f"{'  '.join(map(str, counts))}\n")
-        f.write("Cartesian" + "\n")  # coord system
+        f.write("Cartesian" + "\n")
         for target_el in unique_elements:
             for el, c in zip(elems, coords, strict=False):
                 if el == target_el:
@@ -109,7 +107,7 @@ def write_xsf_file(
     filename: str | os.PathLike[str] = "structure.xsf",
 ) -> str | os.PathLike[str]:
     if cellvectors is None and celldimensions is None:
-        raise InputError("Error: Either cellvectors or celldimensions should be provided")
+        raise InputError("Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
         cellvectors = cell_params_to_vectors(celldimensions)
 
@@ -124,8 +122,7 @@ def write_xsf_file(
         f.write("PRIMCOORD\n")
         f.write(f"{len(elems)} 1\n")
 
-        # XSF supports either Atomic Number or Element Symbol.
-        # Using Element Symbol is more human-readable and works perfectly in VMD.
+        # XSF accepts element symbols as well as atomic numbers.
         f.writelines(f"{el}  {c[0]:.10f}  {c[1]:.10f}  {c[2]:.10f}\n" for el, c in zip(elems, coords, strict=False))
 
     logger.info(f"Wrote XSF file: {filename}")
@@ -140,7 +137,7 @@ def write_cif_file(
     filename: str | os.PathLike[str] = "structure.cif",
 ) -> str | os.PathLike[str]:
     if cellvectors is None and celldimensions is None:
-        raise InputError("Error: Either cellvectors or celldimensions should be provided")
+        raise InputError("Either cellvectors or celldimensions should be provided")
     if celldimensions is not None:
         cellvectors = cell_params_to_vectors(celldimensions)
     elif cellvectors is not None:
@@ -148,7 +145,6 @@ def write_cif_file(
 
     frac_coords = cart_coords_to_fract(coords, cellvectors)
 
-    # celldimensions should be [a, b, c, alpha, beta, gamma]
     a, b, c, alpha, beta, gamma = celldimensions
 
     with open(filename, "w") as f:
@@ -160,7 +156,6 @@ def write_cif_file(
         f.write(f"_cell_angle_beta  {beta:.6f}\n")
         f.write(f"_cell_angle_gamma {gamma:.6f}\n\n")
 
-        # We use P1 symmetry (no symmetry) so every atom is listed explicitly
         f.write("_symmetry_space_group_name_H-M 'P 1'\n")
         f.write("_symmetry_Int_Tables_number 1\n\n")
 
@@ -172,7 +167,7 @@ def write_cif_file(
         f.write("_atom_site_fract_z\n")
 
         for i, (el, c) in enumerate(zip(elems, frac_coords, strict=False)):
-            # We add an index to the label (e.g., Na1, Na2) to keep them unique
+            # CIF atom-site labels must be unique.
             f.write(f"{el}{i + 1}  {el}  {c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
 
     logger.info(f"Wrote CIF file: {filename}")
@@ -182,30 +177,22 @@ def write_cif_file(
 def align_to_standard_orientation(
     fragment_coords: np.ndarray, cell_vectors: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    # 1. Transpose cell_vectors because QR works on columns
+    # QR factorizes columns, so work with the cell vectors as columns.
     H = cell_vectors.T
 
-    # 2. QR Decomposition
-    # H = Q * R  -> R is the upper triangular matrix we want
+    # R is upper triangular, so R.T is the standard (lower-triangular) cell.
     Q, R = np.linalg.qr(H)
 
-    # 3. Handle 'Flip' cases
-    # QR can sometimes return negative diagonal elements.
-    # We want lengths (a_x, b_y, c_z) to be positive.
+    # QR may return negative diagonals; flip signs so a_x, b_y and c_z are positive.
     d = np.sign(np.diag(R))
-    # If a diagonal is 0, we treat it as positive
     d[d == 0] = 1
 
-    # Correct Q and R so diagonals of R are positive
     Q = Q * d
     R = (R.T * d).T
 
-    # 4. New Cell Vectors (R transposed back to rows)
     new_cell_vectors = R.T
 
-    # 5. New Atomic Coordinates
-    # We rotate the atoms using the same rotation matrix Q
-    # Since H_new = Q.T @ H_old, we use Q.T for the atoms
+    # R = Q.T @ H, so row-vector coordinates rotate as coords @ Q.
     new_coords = np.dot(fragment_coords, Q)
 
     return new_coords, new_cell_vectors

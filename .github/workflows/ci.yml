@@ -51,9 +51,8 @@ jobs:
       # GitHub instead.
       - run: pip install --no-deps "forcefill @ git+https://github.com/LouieSlocombe/forcefill.git@bff20e2498474b3b3aa965b090fa722f762a49ae"
       - run: python -c "import openmmqmmm"
-      # The no-ORCA number is 53% (57% with ORCA); the floor sits well below it so
-      # coverage-neutral PRs pass. The four end-to-end QM/MM tests skip here since no
-      # orca binary exists in CI.
+      # The floor sits well below measured coverage so coverage-neutral PRs pass. The
+      # tests that run real ORCA skip here since no orca binary exists in CI.
       - name: Run tests with coverage
         run: pytest --cov --cov-report=term --cov-report=xml --cov-fail-under=35
       - uses: actions/upload-artifact@v4

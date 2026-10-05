@@ -23,11 +23,11 @@ from openmmqmmm.freq import (
 )
 
 HARTREE_TO_KJ_PER_MOL = 2625.4996394799
-# 0.5 * h * c in Hartree per cm**-1, the harmonic zero-point energy per unit wavenumber
+# h * c in Hartree per cm**-1, not halved despite the name; callers apply the 0.5
 HALF_HC = 4.5563352812122295e-06
 
 WATER_COORDS = "O 0.0 0.0 0.1173\nH 0.0 0.7572 -0.4692\nH 0.0 -0.7572 -0.4692\n"
-# ORCA HF/def2-SVP harmonic frequencies for the geometry above. thermochemcalc takes
+# ORCA HF/def2-SVP harmonic frequencies for the geometry above. calc_thermochemistry takes
 # the full 3N list, translations and rotations included.
 WATER_FREQUENCIES = [0.0] * 6 + [1790.72, 4113.36, 4212.31]
 
@@ -89,6 +89,21 @@ def test_symmetry_number_lowers_rotational_entropy(water):
     )
 
 
+@pytest.mark.parametrize("sigma", [2, 3])
+def test_symmetry_number_lowers_the_rotational_entropy_of_a_linear_molecule(sigma):
+    """q_rot = T / (sigma * theta_rot) for a linear rotor, so S_rot drops by exactly R*ln(sigma)."""
+    co2 = Fragment(coordsstring="C 0.0 0.0 0.0\nO 0.0 0.0 1.16\nO 0.0 0.0 -1.16\n", charge=0, mult=1)
+    frequencies = [0.0] * 5 + [667.0, 667.0, 1333.0, 2349.0]
+    default = calc_thermochemistry(vfreq=frequencies, atoms=[0, 1, 2], fragment=co2, multiplicity=1)
+    symmetric = calc_thermochemistry(
+        vfreq=frequencies, atoms=[0, 1, 2], fragment=co2, multiplicity=1, symmetry_number=sigma
+    )
+
+    assert default["TS_rot"] - symmetric["TS_rot"] == pytest.approx(
+        constants.GAS_CONSTANT_HARTREE_PER_K * 298.15 * math.log(sigma), rel=1e-9
+    )
+
+
 def test_thermal_vibrational_energy_reaches_the_classical_limit(water):
     """As h*nu/kT -> 0 each mode must approach the classical RT of energy."""
     gas_constant_hartree_per_kelvin = 3.166811563e-6
@@ -140,6 +155,31 @@ def test_rotational_constants_of_water(water):
     assert constants[0] == pytest.approx(27.88, rel=0.05)
     assert constants[1] == pytest.approx(14.51, rel=0.05)
     assert constants[2] == pytest.approx(9.29, rel=0.05)
+
+
+def test_dummy_atoms_carry_no_mass_in_the_rotational_analysis(water):
+    """list_of_masses gives a Z=0 dummy atom mass 0, so it must move neither the centre of mass nor the moments."""
+    with_dummy = Fragment(coordsstring=WATER_COORDS + "M 0.0 0.0 2.0\n", charge=0, mult=1)
+
+    assert sorted(calc_rotational_constants(with_dummy)) == pytest.approx(
+        sorted(calc_rotational_constants(water)), rel=1e-12
+    )
+
+
+def test_linear_molecule_off_the_cartesian_axes_has_two_finite_rotational_constants():
+    """Off-axis, the zero moment of CO2 is roundoff rather than exactly 0.0 and must still be dropped."""
+    axis = np.array([1.0, 1.0, 1.0]) / math.sqrt(3)
+    off_axis = Fragment(elems=["C", "O", "O"], coords=np.outer([0.0, 1.16, -1.16], axis).tolist(), charge=0, mult=1)
+    on_axis = Fragment(coordsstring="C 0.0 0.0 0.0\nO 0.0 0.0 1.16\nO 0.0 0.0 -1.16\n", charge=0, mult=1)
+    frequencies = [0.0] * 5 + [667.0, 667.0, 1333.0, 2349.0]
+
+    assert calc_rotational_constants(off_axis) == pytest.approx(calc_rotational_constants(on_axis), rel=1e-9)
+    assert calc_thermochemistry(vfreq=frequencies, atoms=[0, 1, 2], fragment=off_axis, multiplicity=1)[
+        "TS_rot"
+    ] == pytest.approx(
+        calc_thermochemistry(vfreq=frequencies, atoms=[0, 1, 2], fragment=on_axis, multiplicity=1)["TS_rot"],
+        rel=1e-9,
+    )
 
 
 def test_detect_linear():
@@ -241,6 +281,46 @@ def test_model_hessian_does_not_mutate_the_callers_fragment(monkeypatch):
     assert (fragment.charge, fragment.mult) == (-1, 2), "The supplied Hessian charge must not overwrite the fragment"
 
 
+@pytest.mark.parametrize(
+    ("spelling", "rest_diagonal"),
+    [(None, 0.0), ("zero", 0.0), ("ZERO", 0.0), ("unit", 1.0), ("Unit", 1.0), ("identity", 1.0), ("IDENTITY", 1.0)],
+)
+def test_rest_hessian_spelling_ignores_case(spelling, rest_diagonal):
+    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
+
+    full = approximate_full_hessian_from_smaller(fragment, np.eye(9), [0, 1, 2], rest_hessian=spelling)
+
+    assert full[9:, 9:] == pytest.approx(rest_diagonal * np.eye(3))
+
+
+@pytest.mark.parametrize("spelling", ["Almloef", "almloef", "LINDH", "schlegel", "Swart"])
+def test_model_rest_hessian_spelling_ignores_case(monkeypatch, spelling):
+    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
+    seen = {}
+
+    def fake_model_hessian(subfragment, model="Almloef", *, charge=None, mult=None):
+        seen["model"] = model
+        return np.zeros((12, 12))
+
+    monkeypatch.setattr(openmmqmmm.freq, "_calc_model_hessian_orca", fake_model_hessian)
+
+    approximate_full_hessian_from_smaller(fragment, np.eye(9), [0, 1, 2], rest_hessian=spelling)
+
+    assert seen["model"] in {"Almloef", "Lindh", "Schlegel", "Swart"}, "ORCA gets the canonical inhess keyword"
+    assert seen["model"].lower() == spelling.lower()
+
+
+@pytest.mark.parametrize("spelling", ["bogus", "Almlof", "ones"])
+def test_unrecognised_rest_hessian_is_rejected_not_read_as_zero(spelling):
+    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
+
+    with pytest.raises(InputError, match=f"Unknown rest_hessian '{spelling}'") as excinfo:
+        approximate_full_hessian_from_smaller(fragment, np.eye(9), [0, 1, 2], rest_hessian=spelling)
+
+    for option in ("zero", "unit", "identity", "Almloef", "Lindh", "Schlegel", "Swart"):
+        assert option in str(excinfo.value)
+
+
 def test_analytic_frequencies_rejects_a_theory_without_an_analytic_hessian():
     """QMMMTheory and the wrapper theories never define analytic_hessian at all."""
     fragment = Fragment(coordsstring=WATER_COORDS, charge=0, mult=1)
@@ -306,7 +386,7 @@ def test_truhlar_entropy_decreases_as_the_cutoff_rises():
 
 
 def test_truhlar_default_cutoff_is_the_published_one():
-    """Riberio et al. use 100 cm-1; the default must not drift away from the citation."""
+    """Ribeiro et al. use 100 cm-1; the default must not drift away from the citation."""
     assert inspect.signature(s_vib_qrrho_truhlar).parameters["lowfreq_thresh"].default == 100
 
 
@@ -327,7 +407,7 @@ def test_grimme_cutoff_changes_the_interpolation():
 
 
 # The two entry points must agree on which quasi-RRHO scheme runs. numerical_frequencies
-# forwarded qrrho_method to thermochemcalc and analytic_frequencies did not, so
+# forwarded qrrho_method to calc_thermochemistry and analytic_frequencies did not, so
 # analytic_frequencies(qrrho_method="Truhlar") silently produced Grimme numbers.
 
 
@@ -357,7 +437,7 @@ def soft_mode_theory(water):
 
 
 def test_analytic_frequencies_forwards_the_qrrho_method(water, soft_mode_theory):
-    """qrrho_method must reach thermochemcalc, not be dropped on the way."""
+    """qrrho_method must reach calc_thermochemistry, not be dropped on the way."""
     grimme = analytic_frequencies(
         fragment=water, theory=soft_mode_theory, charge=0, mult=1, qrrho_method="Grimme"
     ).thermochemistry
@@ -367,7 +447,7 @@ def test_analytic_frequencies_forwards_the_qrrho_method(water, soft_mode_theory)
 
     assert grimme["TS_vib"] != pytest.approx(truhlar["TS_vib"]), (
         "Truhlar and Grimme must give different vibrational entropies for a sub-cut-off mode; "
-        "equal values mean qrrho_method never reached thermochemcalc"
+        "equal values mean qrrho_method never reached calc_thermochemistry"
     )
 
 
@@ -536,6 +616,82 @@ def test_hessatom_order_keeps_metadata_and_masses_aligned(tmp_path, monkeypatch,
     assert result.freq_masses == expected_masses
     assert result.freq_elems == ["H", "O"]
     assert result.freq_coords == pytest.approx(np.asarray(HARMONIC_COORDS)[[2, 0]])
+
+
+class _LinearResponseTheory:
+    """E = 1/2 x.H.x, mu = x.D and alpha = sum_i x_i P_i for the bohr displacement x: every difference is exact."""
+
+    theorytype = "QM"
+    numcores = 1
+
+    def __init__(self, reference_coords, hessian, dipole_derivs, polarizability_derivs):
+        self.reference = np.ravel(np.asarray(reference_coords, float)) * ANG_TO_BOHR
+        self.hessian = hessian
+        self.dipole_derivs = dipole_derivs
+        self.polarizability_derivs = polarizability_derivs
+        self.displacement = np.zeros_like(self.reference)
+
+    def run(self, current_coords=None, elems=None, grad=False, charge=None, mult=None, **kwargs):
+        self.displacement = np.ravel(np.asarray(current_coords, float)) * ANG_TO_BOHR - self.reference
+        gradient = self.hessian @ self.displacement
+        return 0.5 * float(self.displacement @ gradient), gradient.reshape(-1, 3)
+
+    def get_dipole_moment(self):
+        return self.displacement @ self.dipole_derivs
+
+    def get_polarizability_tensor(self):
+        return np.tensordot(self.displacement, self.polarizability_derivs, axes=1)
+
+
+@pytest.fixture
+def unprojected_saddle_point():
+    """An unprojected 3-atom Hessian with one mode far below -100 cm-1, so its modes get reordered."""
+    rng = np.random.default_rng(7)
+    rotation, _ = np.linalg.qr(rng.standard_normal((9, 9)))
+    hessian = rotation @ np.diag([-0.8, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]) @ rotation.T
+    dipole_derivs = rng.standard_normal((9, 3))
+    polarizability_derivs = rng.standard_normal((9, 3, 3))
+    polarizability_derivs = polarizability_derivs + polarizability_derivs.transpose(0, 2, 1)
+    fragment = Fragment(elems=["O", "H", "H"], coords=HARMONIC_COORDS, charge=0, mult=1)
+
+    result = numerical_frequencies(
+        fragment=fragment,
+        theory=_LinearResponseTheory(HARMONIC_COORDS, hessian, dipole_derivs, polarizability_derivs),
+        charge=0,
+        mult=1,
+        force_projection=False,
+        Raman=True,
+        qrrho=False,
+    )
+    assert min(result.frequencies) < -100, "Without a saddle-point mode the mode order is the identity"
+
+    masses = np.repeat(fragment.list_of_masses, 3)
+    _eigenvalues, eigenvectors = np.linalg.eigh(hessian / np.sqrt(np.outer(masses, masses)))
+    cartesian_modes = eigenvectors / np.sqrt(masses)[:, None]
+    return result, cartesian_modes, dipole_derivs, polarizability_derivs
+
+
+def test_ir_intensities_at_a_saddle_point_match_a_per_mode_reference(unprojected_saddle_point):
+    """Dipole derivatives are indexed by Cartesian coordinate, so the mode reordering must not touch them."""
+    result, cartesian_modes, dipole_derivs, _polarizability_derivs = unprojected_saddle_point
+    dmu_dq = cartesian_modes.T @ dipole_derivs
+    expected = constants.IR_INTENSITY_AU_TO_KM_PER_MOL * np.sum(dmu_dq**2, axis=1)
+
+    assert result.ir_intensities[np.argsort(result.frequencies)] == pytest.approx(expected, rel=1e-6)
+    assert result.freq_dipole_derivs == pytest.approx(dipole_derivs, rel=1e-6)
+
+
+def test_raman_activities_at_a_saddle_point_match_a_per_mode_reference(unprojected_saddle_point):
+    """Polarizability derivatives are indexed by Cartesian coordinate, so the mode reordering must not touch them."""
+    result, cartesian_modes, _dipole_derivs, polarizability_derivs = unprojected_saddle_point
+    dalpha_dq = np.einsum("ik,iab->kab", cartesian_modes, polarizability_derivs)
+    trace = np.trace(dalpha_dq, axis1=1, axis2=2)
+    mean_squared = (trace / 3) ** 2
+    anisotropy_squared = (3 * np.sum(dalpha_dq**2, axis=(1, 2)) - trace**2) / 2
+    expected = (45 * mean_squared + 7 * anisotropy_squared) * constants.BOHR_TO_ANG**4
+
+    assert result.raman_activities[np.argsort(result.frequencies)] == pytest.approx(expected, rel=1e-6)
+    assert np.asarray(result.freq_polarizability_derivs) == pytest.approx(polarizability_derivs, rel=1e-6)
 
 
 def test_numfreq_restores_cwd_when_a_displacement_fails(water):

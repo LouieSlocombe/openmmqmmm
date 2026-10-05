@@ -12,9 +12,11 @@ Exporting configures the theory for external-force MD, the same state
 geometry optimization on the same theory object would skip the MM part
 afterwards, so build a fresh theory for those. Build a fresh export per
 driver stage that mutates the System (a barostat, PLUMED bias, or
-deuteration), and pass ``barostat_freq=None`` to openmmnqe's RPMD and adQTB
-production stages: their defaults add a barostat, which openmmnqe refuses on
-a System carrying a ``PythonForce``. openmmnqe's ``run_openmm_rpmd_contracted``
+deuteration). openmmnqe's RPMD and adQTB production stages add a barostat by
+default (``barostat_freq=50``): openmmnqe raises ``ValueError`` for it on a
+nonperiodic System, and on a periodic one only warns that the ``PythonForce``'s
+atoms are scaled individually rather than as molecules, so pass
+``barostat_freq=None`` unless NPT is intended. openmmnqe's ``run_openmm_rpmd_contracted``
 leaves the PythonForce in its own group, so the QM force is evaluated on
 every bead; contract the QM force through ``MolecularDynamicsEngine``'s
 ``rpmd_qm_num_copies`` instead.
@@ -64,7 +66,7 @@ def modeller_from_topology(*, topology: openmm.app.Topology, coords_angstrom: np
         )
     if not np.all(np.isfinite(coords)):
         raise InputError("coords_angstrom must be finite.")
-    positions = openmm.unit.Quantity(coords * 0.1, openmm.unit.nanometer)  # Å -> nm
+    positions = openmm.unit.Quantity(coords * 0.1, openmm.unit.nanometer)
     return openmm.app.Modeller(topology, positions)
 
 
@@ -110,7 +112,8 @@ def attach_qmmm_python_force(
         theory.mm_theory._disable_hydrogen_mass_repartitioning()
 
     if cache_size is None:
-        # RPMDIntegrator evaluates the potential twice per step at every bead.
+        # Two rounds of bead geometries: RPMDIntegrator evaluates every bead twice on a step that
+        # starts without valid forces (e.g. the first) and once on other steps.
         cache_size = 2 * num_beads + 4
 
     provider = RPMDQMMMForceProvider(
@@ -128,29 +131,6 @@ def attach_qmmm_python_force(
     theory.exit_after_customexternalforce_update = True
     theory.openmm_externalforce = True
     return provider, python_force, force_group
-
-
-def attach_qmmm_rpmd_force(
-    *,
-    theory: QMMMTheory,
-    elems: Sequence[str],
-    charge: int,
-    mult: int,
-    num_beads: int,
-    periodic: bool,
-    cache_size: int | None = None,
-) -> tuple[RPMDQMMMForceProvider, openmm.PythonForce, int]:
-    """Attach the QM/MM callback and restore the physical nuclear masses for NQE."""
-    return attach_qmmm_python_force(
-        theory=theory,
-        elems=elems,
-        charge=charge,
-        mult=mult,
-        num_beads=num_beads,
-        periodic=periodic,
-        cache_size=cache_size,
-        restore_physical_masses=True,
-    )
 
 
 def export_rpmd_potential(
@@ -189,7 +169,7 @@ def export_rpmd_potential(
     if theory.mm_theory.periodic:
         coords = theory._image_periodic_coords(coords)
     modeller = modeller_from_topology(topology=theory.mm_theory.topology, coords_angstrom=coords)
-    provider, python_force, force_group = attach_qmmm_rpmd_force(
+    provider, python_force, force_group = attach_qmmm_python_force(
         theory=theory,
         elems=fragment.elems,
         charge=charge,
@@ -197,6 +177,7 @@ def export_rpmd_potential(
         num_beads=num_beads,
         periodic=theory.mm_theory.periodic,
         cache_size=cache_size,
+        restore_physical_masses=True,
     )
     logger.info("Exported QM/MM potential for %s RPMD beads in force group %s", num_beads, force_group)
     return RPMDPotentialExport(

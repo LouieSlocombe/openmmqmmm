@@ -19,7 +19,6 @@ import openmmqmmm.parallel
 from openmmqmmm.coords import Fragment, _print_internal_coordinate_table, check_charge_mult
 from openmmqmmm.exceptions import (
     ExternalProgramError,
-    FileFormatError,
     InputError,
 )
 from openmmqmmm.utils import (
@@ -64,7 +63,6 @@ class ORCATheory:
         hs_mult: int | None = None,
         atomstoflip: Sequence[int] | None = None,
         numcores: int = 1,
-        nprocs: int | None = None,
         label: str | None = "ORCA",
         moreadfile: StrPath | None = None,
         moreadfile_always: bool = False,
@@ -112,17 +110,13 @@ class ORCATheory:
 
         if " OPT" in orcasimpleinput.upper() or " FREQ" in orcasimpleinput.upper():
             raise InputError(
-                f"Error. orcasimpleinput variable can not contain ORCA job-directives like: Opt, Freq, "
+                f"orcasimpleinput variable cannot contain ORCA job-directives like: Opt, Freq, "
                 f"Numfreq\nString: {orcasimpleinput.upper()}\norcasimpleinput should only contain information on "
                 f"electronic-structure method (e.g. functional), basis set, grid, SCF convergence etc."
             )
         if "!" not in orcasimpleinput:
-            raise InputError(
-                "Error. orcasimpleinput should contain at least a '!' with method and basis set information"
-            )
+            raise InputError("orcasimpleinput should contain at least a '!' with method and basis set information")
 
-        # Whether to check ORCA outputfile for errors and warnings or not
-        # Generally recommended. Could be disabled to speed up I/O a tiny bit
         self.check_for_errors = check_for_errors
         self.check_for_warnings = check_for_warnings
 
@@ -130,7 +124,7 @@ class ORCATheory:
 
         self.keep_each_run_output = keep_each_run_output
         if save_output_with_label is True and label is None:
-            raise InputError("Error: save_output_with_label option requires a label keyword also")
+            raise InputError("save_output_with_label option requires a label keyword also")
         self.save_output_with_label = save_output_with_label
 
         self.print_population_analysis = print_population_analysis
@@ -144,19 +138,13 @@ class ORCATheory:
         self.moreadfile = moreadfile
         self.moreadfile_always = moreadfile_always
         self.autostart = autostart
-        # Each ORCA calculation will save path to last GBW-file used in case we have switched directories
-        # and we want to use last one
-        self.path_to_last_gbwfile_used = None  # default None
+        self.path_to_last_gbwfile_used = None
 
         self.tddft = tddft
         self.tddft_roots = tddft_roots
         self.follow_root = follow_root
 
-        # NOTE: nprocs is deprecated but kept on for a bit
-        if nprocs is None:
-            self.numcores = numcores
-        else:
-            self.numcores = nprocs
+        self.numcores = numcores
 
         # Property block. Added after coordinates unless None
         self.propertyblock = propertyblock
@@ -179,9 +167,7 @@ class ORCATheory:
         self.brokensym = brokensym
         self.hs_mult = hs_mult
         if isinstance(atomstoflip, int):
-            raise InputError(
-                "Error: atomstoflip should be list of integers (e.g. [0] or [2,3,5]), not a single integer."
-            )
+            raise InputError("atomstoflip should be list of integers (e.g. [0] or [2,3,5]), not a single integer.")
         if self.brokensym is True and "UKS" not in self.orcasimpleinput and "UHF" not in self.orcasimpleinput:
             logger.warning("UKS/UHF keyword not present in orcasimpleinput for BS job. Adding.")
             self.orcasimpleinput = self.orcasimpleinput + " UKS"
@@ -194,7 +180,7 @@ class ORCATheory:
         self.delta_scf_confline = delta_scf_confline
         self.delta_scf_turn_off_automatically = delta_scf_turn_off_automatically
         if self.delta_scf is True and self.delta_scf_confline is None:
-            raise InputError("Error: DELTASCF is True but no deltaSCF_confline provided. Exiting")
+            raise InputError("DELTASCF is True but no deltaSCF_confline provided.")
         if self.delta_scf is True:
             logger.info("DeltaSCF True, turning on population analysis printing")
             self.print_population_analysis = True
@@ -209,10 +195,10 @@ class ORCATheory:
         else:
             self.extrabasisatoms = []
             self.extrabasis = ""
-        # Within ORCA inputfile, define a basis set for each and every atom. Requires a dictionary with element as key
-        # and basis set as value
+        # Keyed by (element, index in the ORCA coordinate block); each entry's lines are written
+        # verbatim after that atom's coordinates
         self.atom_specific_basis_dict = atom_specific_basis_dict
-        self.ecp_dict = ecp_dict  # ECP dict that usually goes with atom_specific dict
+        self.ecp_dict = ecp_dict
 
         # Used in the case of counterpoise calculations
         self.ghostatoms = []  # Adds ":" in front of element in coordinate block. Have basis functions and grid points
@@ -220,8 +206,7 @@ class ORCATheory:
 
         self.fragment_indices = fragment_indices
 
-        # self.qmatoms need to be set for Flipspin to work for QM/MM job.
-        # Overwritten by QMMMtheory, used in Flip-spin
+        # Set by QMMMTheory to its QM-region atom indices
         self.qmatoms = []
 
         self.keep_last_output = True
@@ -252,7 +237,7 @@ class ORCATheory:
         list_files.append(self.filename + ".ges")
         list_files.append(self.filename + ".prop")
         list_files.append(self.filename + ".uco")
-        list_files.append(self.filename + "_property.txt")
+        list_files.append(self.filename + ".property.txt")
         list_files.append(self.filename + ".inp")
         list_files.append(self.filename + ".engrad")
         list_files.append(self.filename + ".cis")
@@ -265,13 +250,9 @@ class ORCATheory:
             with contextlib.suppress(FileNotFoundError):
                 os.remove(tmpfile)
 
-    # Do an ORCA-optimization instead of geomeTRIC optimization. Useful for gas-phase chemistry when ORCA-optimizer is
-    # better than geomeTRIC
     def opt(
         self,
         fragment: Fragment | None = None,
-        grad: bool | None = None,
-        hessian: bool | None = None,
         numcores: int | None = None,
         charge: int | None = None,
         mult: int | None = None,
@@ -279,7 +260,6 @@ class ORCATheory:
         """Optimize the geometry with ORCA's own optimizer rather than geomeTRIC."""
         module_init_time = time.time()
         logger.info("------------RUNNING INTERNAL ORCA OPTIMIZATION-------------")
-        # Coords provided to run or else taken from initialization.
 
         if fragment is None:
             raise InputError("No fragment provided to Opt.")
@@ -287,10 +267,10 @@ class ORCATheory:
 
         current_coords = fragment.coords
         elems = fragment.elems
-        charge, mult = check_charge_mult(charge, mult, self.theorytype, fragment, "ORCATheory.Opt", theory=self)
+        charge, mult = check_charge_mult(charge, mult, self.theorytype, fragment, "ORCATheory.opt", theory=self)
 
         if charge is None or mult is None:
-            raise InputError("Error. charge and mult has not been defined for ORCATheory.Opt method")
+            raise InputError("charge and mult have not been defined for ORCATheory.opt")
 
         if numcores is None:
             numcores = self.numcores
@@ -384,16 +364,12 @@ class ORCATheory:
         else:
             self.gbwfile = self.filename + ".gbw"
 
-        # Now that we have possibly run a BS-DFT calculation, turning Brokensym off for future calcs (opt, restart,
-        # etc.)
-        # using this theory object
         if self.brokensym is True:
             logger.info(
                 "ORCA Flipspin calculation done. Now turning off brokensym in ORCA object for possible future "
                 "calculations"
             )
             self.brokensym = False
-        # Turning off deltaSCF for future calcs
         if self.delta_scf is True:
             logger.info("DeltaSCF calculation done.")
             if self.delta_scf_turn_off_automatically is True:
@@ -401,7 +377,8 @@ class ORCATheory:
                     "deltaSCF_turn_off_automatically option is True. Turning off DELTASCF for future calculations."
                 )
                 self.delta_scf = False
-                # Without these a later ground-state calculation can fall back to the excited solution
+                # Without these, later calculations starting from the excited-state orbitals can fall back
+                # to the ground state
                 for keyword in ("nososcf", "nodamp", "nolshift"):
                     if keyword not in self.orcasimpleinput:
                         logger.debug("Adding %s to orcasimpleinput", keyword.upper())
@@ -409,8 +386,7 @@ class ORCATheory:
             else:
                 logger.info("deltaSCF_turn_off_automatically option is False. Will keep DeltaSCF settings")
 
-        # Now that we have possibly run a ORCA job with moreadfile we now turn the moreadfile option off
-        #  as we probably want to use the orbitals we created
+        # Later runs should start from the orbitals this run produced
         if self.moreadfile is not None:
             logger.debug("First ORCATheory calculation finished.")
             if not self.moreadfile_always:
@@ -432,15 +408,14 @@ class ORCATheory:
         if self.keep_last_output is True:
             shutil.copy(self.filename + ".out", self.filename + "_last.out")
 
-        # Save path to last GBW-file (used if the run changes directories, e.g. goes from NumFreq)
+        # Lets a later run in another directory (e.g. numerical_frequencies' workspace) start from these orbitals
         self.path_to_last_gbwfile_used = f"{os.getcwd()}/{self.filename}.gbw"
 
     def get_atomic_charges(self) -> list[float]:
         """Read Mulliken charges from the current calculation's ORCA output.
 
-        Values follow the QM input atom order and include any link atoms.
-        Population logging does not need to be enabled. Read the output on
-        every call so an earlier geometry's cached properties cannot be reused.
+        Values follow the QM input atom order and include any link atoms. The output is
+        re-read on every call because self.properties may hold an earlier geometry's charges.
         """
         try:
             charges = grab_orca_atom_charges("Mulliken", self.filename + ".out")
@@ -512,7 +487,6 @@ class ORCATheory:
             self.properties["NMF_Ec"] = Ec
             self.energy = self.energy + Ec
 
-        # ICE-CI
         try:
             E_PT2_rest = float(pygrep("'rest' energy", self.filename + ".out")[-1])
             num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = _grab_ice_wf_cfg_ci_size(self.filename + ".out")
@@ -554,12 +528,11 @@ class ORCATheory:
         logger.info("Object-label: %s", self.label)
         logger.info("Run-label: %s", label)
         if current_coords is None:
-            raise InputError("Error:no current_coords")
+            raise InputError("No current_coords provided")
 
         if charge is None or mult is None:
-            raise InputError("Error. charge and mult has not been defined for ORCATheory.run method")
+            raise InputError("charge and mult have not been defined for ORCATheory.run")
 
-        # What elemlist to use. If qm_elems provided then QM/MM job, otherwise use elems list
         if qm_elems is None:
             if elems is None:
                 raise InputError("No elems provided")
@@ -578,9 +551,7 @@ class ORCATheory:
             try:
                 qmatomstoflip = [self.qmatoms.index(i) for i in self.atomstoflip]
             except ValueError:
-                raise InputError(
-                    f"Atoms to flip: {self.atomstoflip}\nError: Atoms to flip are not all in QM-region"
-                ) from None
+                raise InputError(f"Atoms to flip: {self.atomstoflip}\nAtoms to flip are not all in QM-region") from None
         else:
             qmatomstoflip = self.atomstoflip
             qmatoms_extrabasis = self.extrabasisatoms
@@ -607,9 +578,9 @@ class ORCATheory:
             logger.info(f"Brokensymmetry SpinFlipping on! HSmult: {self.hs_mult}.")
 
             if self.hs_mult is None:
-                raise InputError("Error:HSmult keyword in ORCATheory has not been set. This is required. Exiting.")
+                raise InputError("HSmult keyword in ORCATheory has not been set. This is required.")
             if len(qmatomstoflip) == 0:
-                raise InputError("Error: atomstoflip keyword needs to be set. This is required. Exiting.")
+                raise InputError("atomstoflip keyword needs to be set. This is required.")
 
             for flipatom, qmflipatom in zip(self.atomstoflip, qmatomstoflip, strict=False):
                 logger.info(f"Flipping atom: {flipatom} QMregionindex: {qmflipatom} Element: {qm_elems[qmflipatom]}")
@@ -720,7 +691,6 @@ class ORCATheory:
 
         self.grad = np.zeros((len(qm_elems), 3))
 
-        # XDM option: WFX file should have been created.
         if self.xdm:
             dispE, dispgrad = openmmqmmm.elstructure.xdm_run(
                 wfxfile=self.filename + ".wfx", a1=self.xdm_a1, a2=self.xdm_a2, functional=self.xdm_func
@@ -745,7 +715,7 @@ class ORCATheory:
                     logger.info(
                         "%s", "Time calculating QM-Pointcharge gradient: {} seconds".format(orca_timings["pc_gradient"])
                     )
-                # Grab pointcharge gradient. i.e. gradient on MM atoms from QM-MM elstat interaction.
+                # Gradient on the MM point charges from the QM-MM electrostatic interaction
                 self.pcgrad = grab_orca_pc_gradient(pcgradfile)
                 logger.info("------------ENDING ORCA-INTERFACE-------------")
                 log_time_since(module_init_time, "ORCA run")
@@ -793,7 +763,7 @@ end"""
                 return
             logger.info(f"File does not exist in current directory: {os.getcwd()}")
             if os.path.isabs(self.moreadfile) is True:
-                raise FileFormatError("Error: Absolute path provided but file does not exists. Exiting")
+                raise InputError(f"moreadfile {self.moreadfile} is an absolute path that does not exist.")
             logger.debug("Checking if file exists in parentdir instead:")
             if os.path.isfile(f"../{self.moreadfile}") is True:
                 logger.info("Yes. Copying file to current dir")
@@ -905,9 +875,6 @@ def _run_orca_sp_parallel(
         with open(inpfile):
             insert_line_into_file(inpfile, "!", palstring, once=True)
     basename = inpfile.replace(".inp", "")
-
-    # LD_LIBRARY_PATH enforce: https://orcaforum.kofo.mpg.de/viewtopic.php?f=11&t=10118
-    # "-x LD_LIBRARY_PATH -x PATH"
 
     with open(basename + ".out", "w") as ofile:
         try:
@@ -1040,7 +1007,7 @@ def grab_orca_final_energy(file: StrPath, errors: str | None = "ignore") -> floa
             if "FINAL SINGLE POINT ENERGY" in line:
                 if "Wavefunction not fully converged!" in line:
                     raise ExternalProgramError("ORCA WF not fully converged!\nNot using energy. Modify ORCA settings")
-                # Changing: sometimes ORCA adds info to the right of energy
+                # Index from the left: ORCA sometimes adds info to the right of the energy
                 Energy = float(line.split()[5]) if "(MM)" in line else float(line.split()[4])
     if Energy is None:
         logger.error("Found no energy in file: %s", file)
@@ -1185,32 +1152,28 @@ def _grab_polarizability_tensor(outfile: StrPath) -> tuple[np.ndarray, list[floa
 
 def _grab_tddft_transition_energies(file: StrPath) -> list[float]:
     tddftstates = []
-    tddft = True
-    _grab_tddft_transition_energies = False
-    if tddft:
-        with open(file) as f:
-            for line in f:
-                if _grab_tddft_transition_energies and "STATE" in line:
-                    if "eV" in line:
-                        tddftstates.append(float(line.split()[5]))
-                    _grab_tddft_transition_energies = True
-                if "the weight of the individual excitations" in line:
-                    _grab_tddft_transition_energies = True
+    grab = False
+    with open(file) as f:
+        for line in f:
+            if grab and "STATE" in line and "eV" in line:
+                tddftstates.append(float(line.split()[5]))
+            if "the weight of the individual excitations" in line:
+                grab = True
     return tddftstates
 
 
 def _grab_tddft_intensities(file: StrPath) -> list[float]:
     intensities = []
-    _grab_tddft_transition_energies = False
+    grab = False
     with open(file) as f:
         for line in f:
-            if _grab_tddft_transition_energies:
+            if grab:
                 if "->" in line:
                     intensities.append(float(line.split()[-5]))
                 if len(line.split()) == 0:
-                    _grab_tddft_transition_energies = False
+                    grab = False
             if "fosc(D2)" in line:
-                _grab_tddft_transition_energies = True
+                grab = True
     return intensities
 
 
@@ -1250,7 +1213,6 @@ def write_orca_hessfile(
             chunks = chunks + 1
         for chunk in range(chunks):
             if chunk == chunks - 1:
-                # If last chunk and cleft is exactly 0 then all 5 columns should be done
                 if left == 0:
                     left = 5
                 for temp in range(index, index + left):
@@ -1275,7 +1237,6 @@ def write_orca_hessfile(
         orcahessfile.write("$atoms\n")
         orcahessfile.write(str(len(elems)) + "\n")
 
-        # Either full system lists were passed or partial-system lists
         orcahessfile.writelines(
             " "
             + el
@@ -1409,18 +1370,16 @@ def _create_orca_input(
         for i, (el, c) in enumerate(zip(elems, coords, strict=False)):
             if i in extrabasisatoms:
                 orcafile.write(f'{el} {c[0]} {c[1]} {c[2]} newgto "{extrabasis}" end\n')
-            # Atom-specific basis-dict option (new basis set definition for each atom)
             elif atom_specific_basis_dict is not None:
                 logger.info("Writing atom-specific basis for atom: %s", i)
                 orcafile.write(f"{el} {c[0]} {c[1]} {c[2]} \n")
                 orcafile.writelines(str(bline) for bline in atom_specific_basis_dict[(el, i)])
-            # Setting atom to be a ghost atom
             elif i in ghostatoms:
                 orcafile.write("{}{} {} {} {} \n".format(el, ":", c[0], c[1], c[2]))
             elif i in dummyatoms:
                 orcafile.write("{} {} {} {} \n".format("DA", c[0], c[1], c[2]))
-            # Adding fragment specification. Atoms belonging to no fragment (link
-            # atoms, most commonly) are written without a fragment tag.
+            # Atoms belonging to no fragment (link atoms, most commonly) are written
+            # without a fragment tag.
             elif fragment_indices is not None:
                 fragmentindex = search_list_of_lists_for_index(i, fragment_indices)
                 if fragmentindex is not None:
@@ -1432,7 +1391,6 @@ def _create_orca_input(
         orcafile.write("*\n")
         if propertyblock is not None:
             orcafile.write(propertyblock)
-        # For ROHF job, add newjob and switch to UHF noiter
         if rohf_uhf_swap:
             newjobline = f"""\n$new_job
 {orcasimpleinput.replace("ROHF", "UHF noiter ")}
@@ -1482,11 +1440,7 @@ def _create_orca_pcfile(name: str, coords: Coordinates, listofcharges: Sequence[
 
 
 # ORCA prints every population analysis as a table: a heading, a rule, one row per atom,
-# then a terminator. The models differ only in the heading, the column the number sits in,
-# and how the table ends -- so they are described here rather than written out nine times.
-#
-# column is the index into the row's whitespace-separated fields.
-# stop is checked before the row is parsed; a row is skipped when it holds no data.
+# then a terminator.
 _CHARGE_TABLES = {
     "NPA": {
         "start": "Atom No    Charge        Core      Valence    Rydberg      Total",
@@ -1588,7 +1542,7 @@ def _trim_to_broken_symmetry_solution(values: list[float], outputfile: StrPath, 
 def grab_orca_spin_populations(chargemodel: str, outputfile: StrPath) -> list[float]:
     spec = _SPIN_POPULATION_TABLES.get(chargemodel.upper())
     if spec is None:
-        raise FileFormatError(
+        raise InputError(
             f"Unknown chargemodel '{chargemodel}' for spin populations. "
             f"Expected one of: {', '.join(sorted(_SPIN_POPULATION_TABLES))}."
         )
@@ -1600,9 +1554,7 @@ def grab_orca_atom_charges(chargemodel: str, outputfile: StrPath) -> list[float]
     model = chargemodel.upper()
     spec = _CHARGE_TABLES.get(model)
     if spec is None:
-        raise FileFormatError(
-            f"Unknown chargemodel '{chargemodel}'. Expected one of: {', '.join(sorted(_CHARGE_TABLES))}."
-        )
+        raise InputError(f"Unknown chargemodel '{chargemodel}'. Expected one of: {', '.join(sorted(_CHARGE_TABLES))}.")
     if model in ("NPA", "NBO"):
         logger.warning("NPA/NBO charge-option in ORCA requires setting environment variable NBOEXE:")
         logger.info("e.g. export NBOEXE=/path/to/nbo7.exe")
@@ -1639,10 +1591,6 @@ def _grab_orca_cartesian_coordinates(outputfile: StrPath) -> tuple[list[str], li
                 coords = []
                 grabbing = True
     return elems, coords
-
-
-# Reading stability analysis from output. Returns true if stab-analysis good, otherwise falsee
-# If no stability analysis present in output, then also return true
 
 
 def _grab_scf_fod_occupations(filename: StrPath) -> list[float]:
@@ -1741,22 +1689,13 @@ def orca_external_optimizer(
     actatoms: Sequence[int] | None = None,
 ) -> float:
     """Optimize a geometry using ORCA's optimizer while openmmqmmm provides energies+gradients."""
-    logger.info(main_header("ORCA_External_Optimizer"))
+    logger.info(main_header("orca_external_optimizer"))
     if fragment is None or theory is None:
-        raise InputError("ORCA_External_Optimizer requires fragment and theory keywords")
+        raise InputError("orca_external_optimizer requires fragment and theory keywords")
 
-    if charge is None or mult is None:
-        logger.warning("Charge/mult was not provided to ORCA_External_Optimizer")
-        if fragment.charge is not None and fragment.mult is not None:
-            logger.warning(
-                f"Fragment contains charge/mult information: Charge: {fragment.charge} Mult: {fragment.mult} Using "
-                f"this instead"
-            )
-            logger.warning("Make sure this is what you want!")
-            charge = fragment.charge
-            mult = fragment.mult
-        else:
-            raise InputError("No charge/mult information present in fragment either. Exiting.")
+    charge, mult = check_charge_mult(
+        charge, mult, theory.theorytype, fragment, "orca_external_optimizer", theory=theory
+    )
 
     orcadir = find_orca(orcadir)
     # Prepend orcadir to PATH so ORCA's helper binaries resolve to this installation
@@ -1769,9 +1708,8 @@ def orca_external_optimizer(
     with open(theoryfilename, "wb") as theoryfh:
         pickle.dump(theory, theoryfh)
 
-    # Write otool_script once in location that ORCA will launch. This is an energy+gradient calculator script
-    # ORCA will call : otool_external test_EXT.extinp.tmp
-    # The tool writes basename_Ext.engrad which ORCA reads
+    # ORCA calls the script as `otool_external ORCAEXTERNAL_EXT.extinp.tmp` and reads back the
+    # ORCAEXTERNAL_EXT.engrad it writes
     basename = "ORCAEXTERNAL"
     scriptlocation = "."
     # ORCA >= 6 locates the external tool via EXTOPTEXE (it does not search PATH)
@@ -1783,7 +1721,6 @@ def orca_external_optimizer(
     xyzfile = "orca_external.xyz"
     fragment.write_xyzfile(xyzfile)
 
-    # Active atoms become inverted constraints
     constraintsblock = ""
     if actatoms is not None:
         logger.info("Activeatoms list was provided. This means that we need to provide constraints to ORCA")
@@ -1802,7 +1739,10 @@ end
         o.write("%method\n")
         o.write('ProgExt "otool_external"\n')
         o.write("end\n")
-        o.write(f"*xyzfile {charge} {mult} {xyzfile}\n")
+        # ORCA requires integers here even for an MM theory; ExtOpt only passes them to otool_external, which
+        # uses the charge/mult baked into it
+        xyz_charge, xyz_mult = (0, 1) if charge is None else (charge, mult)
+        o.write(f"*xyzfile {xyz_charge} {xyz_mult} {xyzfile}\n")
 
     if "GOAT" in orca_jobkeyword.upper():
         logger.info("GOAT keyword found. ")
@@ -1825,7 +1765,3 @@ end
     logger.info("Final energy from external ORCA job: %s", energy)
 
     return energy
-
-
-# Convenient when ORCA natural orbital printing is buggy
-# NOTE: Not fully tested

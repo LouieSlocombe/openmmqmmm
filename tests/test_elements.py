@@ -81,7 +81,7 @@ def test_atomtypes_map_to_known_elements():
     assert len(atomtypes_dict) == 249
     for atomtype, symbol in atomtypes_dict.items():
         assert symbol.lower() in element_dict_atname, f"atom type {atomtype} maps to unknown element {symbol}"
-    # The M-site atom type, which the PDB/GROMACS readers rely on
+    # The M-site atom type, which the GROMACS reader relies on
     assert atomtypes_dict["MW"] == "M"
 
 

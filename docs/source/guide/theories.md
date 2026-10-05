@@ -74,7 +74,8 @@ OpenMMTheory(xmlsystemfile="system.xml", pdbfile="system.pdb")
 
 `periodic=True` turns on periodic boundary conditions and, with it,
 `nonbonded_method_pbc` (`"PME"` by default), `periodic_nonbonded_cutoff` (in Angstrom),
-`switching_function_distance`, `dispersion_correction` and `ewalderrortolerance`. The box
+`switching_function_distance` (applied to CHARMM files only), `dispersion_correction` and
+`ewalderrortolerance`. The box
 comes from the input files where they carry one; `periodic_cell_dimensions` or
 `periodic_cell_vectors` override that.
 
@@ -87,8 +88,13 @@ For a non-periodic system the corresponding knobs are `nonbonded_method_no_pbc` 
 Together with the default `hydrogenmass=1.5` (hydrogen-mass repartitioning) and
 `rigidwater=True`, `"HBonds"` supports 2 fs timesteps with `LangevinIntegrator` and 4 fs with
 `LangevinMiddleIntegrator`; `"AllBonds"` and `"HAngles"` permit larger ones. With
-`autoconstraints=None` nothing is constrained and the timestep has to come down to around
-0.5 fs — the MD engine warns when it sees that combination.
+`autoconstraints=None` no bonds are constrained (water stays rigid unless `rigidwater=False`)
+and the timestep has to come down to around 0.5 fs — the MD engine warns whenever
+`autoconstraints` is `None`.
+
+Single points, optimizations and frequencies refuse automatic constraints: build the MM
+theory for those, including one inside a `QMMMTheory`, with `autoconstraints=None` and
+`rigidwater=False`, or `OpenMMTheory.run` raises {exc}`~openmmqmmm.InputError`.
 
 `constraints=`, `bondconstraints=`, `restraints=` and `frozen_atoms=` add your own.
 {func}`~openmmqmmm.define_xh_constraints` and {func}`~openmmqmmm.get_water_constraints`
@@ -139,8 +145,8 @@ updating the QM or wrapper core count. On non-CPU platforms, the setter updates
 
 `do_energy_decomposition=True` logs the energy of every force group, which is the fastest way
 to find out why a system has the energy it has. {func}`~openmmqmmm.openmm.print_systemsize`
-and {func}`~openmmqmmm.openmm.write_xmlfile_nonbonded` cover the other two common questions:
-how big is it, and what nonbonded parameters did the force field actually assign.
+logs how many atoms a `Modeller` holds, and {func}`~openmmqmmm.openmm.write_xmlfile_nonbonded`
+writes per-residue nonbonded parameters out as an OpenMM force-field XML.
 
 ## NumGrad
 
@@ -155,8 +161,9 @@ optimize_geometry(theory=NumGrad(theory=orca), fragment=fragment)
 
 `npoint=1` is a forward difference, `npoint=2` (the default) central. With
 `runmode="parallel"` the displacements are spread over `numcores` workers.
-`optimize_geometry(num_grad=True)` and {func}`~openmmqmmm.numerical_frequencies` do the same
-thing internally, so reach for `NumGrad` when you need the gradient somewhere else.
+`optimize_geometry(num_grad=True)` does this wrapping for you, so reach for `NumGrad`
+directly when you need the gradient somewhere else. {func}`~openmmqmmm.numerical_frequencies`
+is different: it finite-differences the theory's gradients to build a Hessian.
 
 ## ZeroTheory
 

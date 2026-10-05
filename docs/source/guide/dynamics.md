@@ -155,7 +155,8 @@ The following options control output or pure-MM wrapping:
 `add_centerforce=True`
 : A flat-bottom restraint (`centerforce_atoms`, `centerforce_center`, `centerforce_distance`,
   `centerforce_constant`) that keeps a solute near the middle of the box. Useful for a small
-  solute that would otherwise diffuse into the periodic boundary.
+  solute that would otherwise diffuse into the periodic boundary. `centerforce_atoms` defaults
+  to the QM region of a QM/MM theory and is required otherwise.
 
 `dummyatomrestraint=True`
 : Restrain to a dummy atom in pure-MM dynamics. QM/MM and external-QM dynamics reject this

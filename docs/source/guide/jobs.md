@@ -1,8 +1,9 @@
 # Jobs and results
 
-Every job function takes `theory=` and `fragment=`, returns a {class}`~openmmqmmm.Results`
-object, and writes that object to JSON next to the script. Energies are in Hartree, gradients
-in Hartree/Bohr, coordinates in Angstrom, frequencies in cm⁻¹.
+The job functions take `theory=` and `fragment=` (or their plural forms for the sweeps) and
+return a {class}`~openmmqmmm.Results` object, which most of them also write to JSON in the
+working directory (see [Results](#results)). Energies are in Hartree, gradients in
+Hartree/Bohr, coordinates in Angstrom, frequencies in cm⁻¹.
 
 ## Single points
 
@@ -46,9 +47,9 @@ result = optimize_geometry(theory=theory, fragment=fragment, maxiter=250)
 ```
 
 `coordsystem=`
-: `"tric"` by default; geomeTRIC's other internal-coordinate systems are available, and
-  `force_coordsystem=True` stops the automatic fallback to Cartesians for a system it thinks
-  needs them.
+: `"tric"` by default; geomeTRIC's other internal-coordinate systems are available. With an
+  active region, `"tric"` is switched to `"hdlc"` automatically; `force_coordsystem=True`
+  keeps it.
 
 `actatoms=` / `frozenatoms=`
 : The active region, or its complement. For anything protein-sized this is what makes the
@@ -56,7 +57,9 @@ result = optimize_geometry(theory=theory, fragment=fragment, maxiter=250)
 
 `constraints=` / `constraintsinputfile=`
 : Bonds, angles, dihedrals and Cartesian freezes. `constrainvalue=True` holds them at a value
-  you give rather than at their current one.
+  you give rather than at their current one. A constraints file cannot be combined with
+  `constraints=` or `frozenatoms=`, and with an active region every constrained or frozen atom
+  must lie inside it.
 
 `ts_opt=True`, `hessian=`, `partial_hessian_atoms=`, `modelhessian=`
 : Transition-state search, and where its Hessian comes from.
@@ -67,9 +70,10 @@ result = optimize_geometry(theory=theory, fragment=fragment, maxiter=250)
 `convergence_setting=` / `conv_criteria=`
 : A named geomeTRIC convergence set, or explicit thresholds.
 
-{class}`~openmmqmmm.GeometricOptimizer` is the same machinery as an object, for driving an
-optimization step by step. {func}`~openmmqmmm.orca_external_optimizer` hands the optimization
-to ORCA instead, with openmmqmmm supplying energies and gradients.
+{class}`~openmmqmmm.GeometricOptimizer` is the same machinery as a reusable object, which
+{func}`~openmmqmmm.job_parallel` takes as `optimizer=`.
+{func}`~openmmqmmm.orca_external_optimizer` hands the optimization to ORCA instead, with
+openmmqmmm supplying energies and gradients.
 
 ## Frequencies and thermochemistry
 
@@ -112,7 +116,8 @@ parallelism — only worth it when the outer loop is short. `opt=True` runs opti
 rather than single points.
 
 Use a separate theory instance and directory for anything you run concurrently by hand: a
-theory object owns its scratch directory.
+theory writes fixed-name input and output files (`orca.inp`, `orca.gbw`, ...) into the
+working directory.
 
 ## Results
 

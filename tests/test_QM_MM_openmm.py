@@ -116,7 +116,6 @@ def test_qm_mm_orca_openmm_lysozyme():
         rigidwater=False,
     )
     qmatomlist = [1013, 1014, 1015, 1016, 1017, 1018]
-    # Distinct filename so ORCA autostart does not pick up a GBW-file from the MeOH tests above
     qm = ORCATheory(orcasimpleinput="! BP86 def2-SVP tightscf", filename="orca_lysozyme")
     qmmmobject = QMMMTheory(
         qm_theory=qm,
@@ -134,11 +133,6 @@ def test_qm_mm_orca_openmm_lysozyme():
     assert result.energy < 0.0, "QM/MM energy should be negative"
     assert np.isfinite(result.energy), "QM/MM energy should be finite"
     assert np.all(np.isfinite(result.gradient)), "QM/MM gradient should be finite"
-
-
-# The two tests above both use electrostatic embedding on a QM region that is a whole
-# molecule. That leaves mech_run and the link-atom force projection — the code both
-# embeddings share — with no coverage at all.
 
 
 def _meoh_water_qmmm(qmatoms, embedding, tag, unusualboundary=False):
@@ -193,10 +187,10 @@ def test_qm_mm_link_atom_force_projection():
     assert result.gradient.shape == (9, 3), "The gradient covers the real atoms only, not the link atom"
     assert np.all(np.isfinite(result.gradient))
 
-    # The projection splits the link atom's force between its two host atoms with opposite
-    # signs, so their contributions very nearly cancel. Everything else is small by
-    # comparison, which is what makes this visible in the total gradient. Both
-    # projected and residual are in Eh/Bohr; the residual bound is intentionally 1%.
+    # C1 and O2 are dominated by their MM Lennard-Jones pair, which nothing excludes: the
+    # template has no bonds and _meoh_water_qmmm adds them after the System is built. That
+    # ~80 Eh/Bohr equal-and-opposite pair force swamps the projected link-atom force.
+    # Both projected and residual are in Eh/Bohr; the residual bound is intentionally 1%.
     projected = np.abs(result.gradient[[qm1, mm1]]).max()
     residual = np.abs(result.gradient[qm1] + result.gradient[mm1]).max()
     assert projected > 1.0, "The link atom's force should dominate its two host atoms"

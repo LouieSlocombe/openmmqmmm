@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from conftest import _make_analytic_qmmm
 
 import openmmqmmm.qmmm as qmmm_module
 from openmmqmmm import Fragment, OpenMMTheory, QMMMTheory
@@ -558,3 +559,35 @@ def test_energy_decomposition_preserves_custom_cap_definition(monkeypatch):
     assert evaluated_theories[1].linkatom_ratio == 0.42
     assert evaluated_theories[1].embedding == "mech"
     assert theory.embedding == "elstat"
+
+
+def test_drude_embedding_is_rejected_at_construction():
+    with pytest.raises(InputError, match="polembed_drude"):
+        _make_analytic_qmmm("drude")
+
+
+def test_external_force_flag_alone_leaves_a_full_qmmm_evaluation_intact():
+    theory, fragment, _qm = _make_analytic_qmmm("elstat")
+    energy, gradient = theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
+    gradient = gradient.copy()
+    theory.openmm_externalforce = True
+
+    external_energy, external_gradient = theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
+
+    assert external_energy == pytest.approx(energy, abs=1e-14)
+    assert external_gradient == pytest.approx(gradient, abs=1e-14)
+
+
+@pytest.mark.parametrize("embedding", ["mech", "elstat"])
+def test_python_force_receives_the_qm_energy_only_in_external_force_mode(embedding):
+    theory, fragment, _qm = _make_analytic_qmmm(embedding)
+    kwargs = {"current_coords": fragment.coords, "elems": fragment.elems, "charge": 0, "mult": 1}
+    with pytest.raises(InternalError, match="openmm_externalforce"):
+        theory.run_openmm_python_force(**kwargs)
+
+    theory.openmm_externalforce = True
+    energy, _gradient = theory.run_openmm_python_force(**kwargs)
+    early_energy, _ = theory.run(grad=True, exit_after_customexternalforce_update=True, **kwargs)
+
+    assert energy == pytest.approx(theory.QMenergy, abs=1e-14)
+    assert early_energy == pytest.approx(energy, abs=1e-14)

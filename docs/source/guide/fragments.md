@@ -34,7 +34,8 @@ every call. Where they are genuinely unknown, most job functions accept `charge=
 `mult=` of their own, which override the fragment.
 
 `readchargemult=True` reads them from the second line of an XYZ file, which is where
-{func}`~openmmqmmm.write_xyzfile` puts them.
+`Fragment.write_xyzfile` puts them; the module-level {func}`~openmmqmmm.write_xyzfile`
+writes a title line there instead.
 
 ## Connectivity
 
@@ -47,9 +48,10 @@ fragment = Fragment(pdbfile="system.pdb", conncalc=True)
 fragment.calc_connectivity(scale=1.0, tol=0.1)
 ```
 
-`scale` and `tol` set the covalent-radius criterion for a bond. The QM/MM link-atom
-machinery and {func}`~openmmqmmm.expand_qm_region` both need connectivity; they compute it
-if it is missing.
+`scale` and `tol` set the covalent-radius criterion for a bond.
+{func}`~openmmqmmm.expand_qm_region` uses the connectivity when it is present and otherwise
+finds each molecule by distance on the fly. The QM/MM link-atom machinery does not read it:
+it takes bonds from the MM topology, or from a distance criterion when there is none.
 
 ## Inspecting
 
@@ -70,9 +72,9 @@ fragment.write_pdbfile("out")  # writes out.pdb
 fragment.print_system("system.frag")  # everything, including connectivity, for fragfile=
 ```
 
-A fragment built from a PDB file keeps its atom, residue, chain and segment names, and
-`write_pdbfile` reuses them. A fragment built any other way has none, so the PDB it writes
-carries placeholder names.
+A fragment built from a PDB file keeps its OpenMM topology, and `write_pdbfile_openmm`
+reuses it, so atom, residue and chain names survive. `write_pdbfile` does not read that
+topology: it always writes placeholder names (elements as atom names, residue `DUM`).
 
 The `.frag` format is the package's own: it round-trips coordinates, charge, multiplicity
 and connectivity, which no coordinate format does.
@@ -89,8 +91,8 @@ dihedral_between_atoms(fragment=fragment, atoms=[93, 94, 95, 96])  # degrees
 
 Each takes the atom indices as one `atoms=` sequence, of the length that measurement needs.
 
-{func}`~openmmqmmm.print_internal_coordinate_table` logs all of the bonds, angles and
-dihedrals at once, and {func}`~openmmqmmm.calculate_rmsd` compares two structures.
+{func}`~openmmqmmm.print_internal_coordinate_table` logs every bond length at once, and
+{func}`~openmmqmmm.calculate_rmsd` compares two structures.
 
 ## Aligning and combining
 
@@ -105,8 +107,8 @@ the overlapping solvent molecules — the manual counterpart to
 
 ## Reading coordinates without a fragment
 
-{func}`~openmmqmmm.read_xyzfile` and friends return elements and coordinates rather than a
-fragment, which is what you want when reading many structures:
+{func}`~openmmqmmm.read_xyzfile` returns elements and coordinates rather than a fragment,
+and its relatives handle many structures at once:
 
 ```python
 from openmmqmmm import read_xyzfile, read_xyzfiles, split_multimolxyzfile
@@ -116,5 +118,5 @@ fragments = read_xyzfiles("structures/")  # every .xyz in a directory
 split_multimolxyzfile("trajectory.xyz", writexyz=True)  # one file per frame
 ```
 
-{func}`~openmmqmmm.get_molecules_from_trajectory` pulls whole molecules out of an MD
-trajectory, using connectivity rather than residue records.
+{func}`~openmmqmmm.get_molecules_from_trajectory` turns each frame of a multi-structure XYZ
+file into its own `Fragment`.

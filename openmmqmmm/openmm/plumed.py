@@ -34,8 +34,6 @@ def openmm_md_plumed(
 
     logger.info(main_header("OpenMM MD using the OpenMM-Plumed interface"))
 
-    # Imported for the side effect: this registers the PLUMED plugin with OpenMM, so
-    # find_spec would report availability without actually making it available.
     require(
         "openmmplumed",
         hint=(
@@ -49,7 +47,6 @@ def openmm_md_plumed(
         ),
     )
 
-    # The PLUMED input is the whole bias specification; there is nothing to fall back on.
     if plumed_input_string is None:
         raise InputError("plumed_input_string is required: it defines the PLUMED bias to apply.")
     md = MolecularDynamicsEngine(**engine_kwargs)
@@ -65,7 +62,6 @@ def openmm_md_plumed(
         md.run(
             simulation_steps=simulation_steps,
             simulation_time=simulation_time,
-            restraints=restraints,
             plumedinput=plumed_input_string,
         )
         logger.info("PLUMED-biased simulation done")

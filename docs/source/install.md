@@ -62,8 +62,8 @@ conda activate openmmqmmm
 python -c "import openmm; from openmmml import MLPotential; print(openmm.__version__)"
 ```
 
-This pins OpenMM 8.6.1 and OpenMM-ML 1.8 and requires Python 3.11 or higher, below the
-ORCA QM/MM package's own 3.12 floor. Omit `--prune` so the base environment's
+This pins OpenMM 8.6.1 and OpenMM-ML 1.8. OpenMM-ML itself requires Python 3.11 or higher,
+below this package's own 3.12 floor. Omit `--prune` so the base environment's
 packages remain installed. Model-specific backends and pretrained weights are separate
 installs; see the [OpenMM-ML documentation](https://openmm.github.io/openmm-ml/).
 

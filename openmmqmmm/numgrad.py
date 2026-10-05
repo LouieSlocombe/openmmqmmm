@@ -29,7 +29,7 @@ def _validate_numcores(numcores: int) -> int:
 
 
 def _displacement_label(displacement: Displacement) -> str:
-    """One key spelling for a displacement, shared by both runmodes and by the job labels."""
+    """Return the one key spelling for a displacement, shared by both runmodes and by the job labels."""
     atom_index, coord_index, direction = displacement
     return f"{atom_index}_{coord_index}_{direction}"
 
@@ -69,9 +69,6 @@ class NumGrad:
         logger.debug("Creating NumGrad wrapper object")
         if not callable(getattr(theory, "run", None)):
             raise InputError("NumGrad requires a wrapped theory with a callable run method")
-        # Only the 1- and 2-point stencils are implemented. Without this check any other
-        # value skips gradient assembly entirely and returns a zero gradient, which an
-        # optimizer happily reads as a converged structure.
         if isinstance(npoint, bool) or not isinstance(npoint, Integral) or npoint not in (1, 2):
             raise InputError(f"NumGrad npoint must be 1 (forward difference) or 2 (central difference), not {npoint}")
         if runmode not in ("serial", "parallel"):
@@ -98,7 +95,7 @@ class NumGrad:
 
     def cleanup(self) -> None:
         """Do nothing: NumGrad has no scratch files and does not clean up the wrapped theory's."""
-        logger.info("Cleanup method called but not yet implemented for Numgrad")
+        logger.debug("NumGrad cleanup: nothing to remove")
 
     def run(
         self,
@@ -117,7 +114,7 @@ class NumGrad:
         charge: int | None = None,
         mult: int | None = None,
     ) -> float | tuple[float, np.ndarray]:
-        """Compute the energy and a finite-difference gradient of the wrapped theory."""
+        """Compute the wrapped theory's energy and, with grad=True, its finite-difference gradient."""
         logger.info(f"------------RUNNING {self.theorynamelabel} WRAPPER -------------")
 
         element_source = elems if elems is not None else qm_elems
@@ -204,7 +201,6 @@ class NumGrad:
                 grad=False,
                 copytheory=True,
             )
-            logger.info("result: %s", result)
             dispdict = result.energies_dict
             orig_energy = dispdict["orig"]
 

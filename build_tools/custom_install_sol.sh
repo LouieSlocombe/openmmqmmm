@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds the openmmqmmm environment on the Sol cluster, using conda-forge packages for
-# everything except PLUMED, which has to be compiled with the opes module.
+# everything except PLUMED, which has to be compiled with the opes module, and geomeTRIC
+# and Open Babel, which come from PyPI.
 #
 #   sbatch sub_sol_install.sh          # batch
 #   ./custom_install_sol.sh            # from an interactive session, e.g.
@@ -41,7 +42,7 @@ echo "=== Initializing Conda Environment ==="
 mamba create -n "${ENV_NAME}" -c conda-forge python=3.12 -y
 source activate "${ENV_NAME}"
 
-# The same set as environment.yml, which is where the reasons for each package are
+# The same set as environment.yml (less python-build), which is where the reasons for each package are
 # recorded. PLUMED is absent for the same reason it is absent there: build_plumed
 # compiles it into this prefix below.
 echo "=== Installing Dependencies ==="

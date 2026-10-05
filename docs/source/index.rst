@@ -44,10 +44,13 @@ A QM/MM calculation
    fragment = Fragment(pdbfile="system.pdb")
 
    qm = ORCATheory(orcasimpleinput="! r2SCAN-3c tightscf", numcores=8)
+   # Single points and optimizations need an MM theory without automatic constraints.
    mm = OpenMMTheory(
        xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"],
        pdbfile="system.pdb",
        periodic=True,
+       autoconstraints=None,
+       rigidwater=False,
    )
 
    qmatoms = [93, 94, 95, 96, 97, 133, 134, 135, 2001, 2002]
@@ -58,12 +61,12 @@ A QM/MM calculation
    # Optimize the QM region ...
    optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
    # ... or run QM/MM molecular dynamics (ps).
-   openmm_md(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
+   openmm_md(fragment=fragment, theory=qm_mm, timestep=0.0005, simulation_time=2)
 
 Where to go next
 ----------------
 
-* :doc:`install` — the three installation routes, and configuring ORCA.
+* :doc:`install` — the installation routes, and configuring ORCA.
 * :doc:`quickstart` — a first gas-phase calculation, start to finish.
 * :doc:`guide/fragments` — building the ``Fragment`` every job function takes.
 * :doc:`guide/qmmm` — QM region, link atoms, embedding and the active region.

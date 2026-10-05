@@ -71,8 +71,13 @@ configure_logging()
 fragment = Fragment(pdbfile="system.pdb")
 
 qm_orca = ORCATheory(orcasimpleinput="! r2SCAN-3c tightscf", numcores=8)
+# Single points and optimizations need an MM theory without automatic constraints.
 omm = OpenMMTheory(
-    xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"], pdbfile="system.pdb", periodic=True
+    xmlfiles=["charmm36.xml", "charmm36/water.xml", "specialresidue.xml"],
+    pdbfile="system.pdb",
+    periodic=True,
+    autoconstraints=None,
+    rigidwater=False,
 )
 
 qmatoms = [93, 94, 95, 96, 97, 133, 134, 135, 2001, 2002]
@@ -81,11 +86,12 @@ qm_mm = QMMMTheory(qm_theory=qm_orca, mm_theory=omm, fragment=fragment, qm_charg
 # Geometry optimization of the QM region
 optimize_geometry(theory=qm_mm, fragment=fragment, actatoms=qmatoms)
 # or QM/MM molecular dynamics (timestep in ps, simulation_time in ps)
-openmm_md(fragment=fragment, theory=qm_mm, timestep=0.001, simulation_time=2)
+openmm_md(fragment=fragment, theory=qm_mm, timestep=0.0005, simulation_time=2)
 ```
 
-The package is silent by default; `configure_logging()` turns on the calculation output. Each
-job function returns a `Results` object and writes it to a `results_*.json` file.
+The package is silent by default; `configure_logging()` turns on the calculation output. The
+single-point, optimization and frequency functions return a `Results` object and write it to
+a `results_*.json` file.
 
 Runnable scripts, including a gas-phase ORCA example, live in
 [examples/](https://github.com/LouieSlocombe/openmmqmmm/tree/main/examples).
@@ -113,8 +119,9 @@ Runnable scripts, including a gas-phase ORCA example, live in
 pytest
 ```
 
-from the repository root, which takes about five minutes. The four end-to-end QM/MM tests skip
-automatically when no ORCA installation is found; set `OPENMMQMMM_ORCADIR` to run them too.
+from the repository root, which takes about five minutes. The end-to-end QM/MM tests that need
+ORCA skip automatically when no ORCA installation is found; set `OPENMMQMMM_ORCADIR` to run
+them too.
 See the
 [development guide](https://openmmqmmm.readthedocs.io/en/latest/development.html) for
 coverage, linting, building the documentation and building the package.

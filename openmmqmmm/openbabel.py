@@ -21,15 +21,13 @@ def xyz_to_pdb_with_connectivity(file: str, resname: str = "UNL") -> str:
 
     os.remove(stem + "temp.pdb")
 
-    # Change atomnames (AtomIDs) to something sensible (OpenBabel does not do this by default)
+    # OpenBabel names every atom by its bare element symbol; Modeller needs names unique within a residue.
     logger.debug("Creating new atomnames for PDBfile")
-    # Note: currently just combining element and atomindex to get a unique atomname (otherwise Modeller will not work)
     for res in pybel.ob.OBResidueIter(newmol.OBMol):
         res.SetName(resname)
         for i, atom in enumerate(openbabel.OBResidueAtomIter(res)):
             atomname = res.GetAtomID(atom)
             res.SetAtomID(atom, atomname.strip() + str(i + 1))
-            atomname = res.GetAtomID(atom)
 
     newmol.write(format="pdb", filename=stem + ".pdb", overwrite=True)
     logger.info("Wrote PDB-file: %s", stem + ".pdb")

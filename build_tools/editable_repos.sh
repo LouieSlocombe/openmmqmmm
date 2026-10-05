@@ -5,7 +5,8 @@
 # New clones use a reviewed commit by default; set FORCEFILL_REF=main to opt into the
 # latest development branch. Existing checkouts are always left exactly as they are.
 #
-# openmmnqe ships the same file, with the longer list of repositories its workflows need.
+# openmmnqe ships a variant of this file, without the pinned ref or --no-deps, listing the
+# longer set of repositories its workflows need.
 
 # name=url pairs, in install order. The name is both the directory the repo is cloned
 # into and the module the install is checked against.

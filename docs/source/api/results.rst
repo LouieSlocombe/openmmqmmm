@@ -1,7 +1,7 @@
 Results and trajectories
 ========================
 
-Every job function returns a :class:`~openmmqmmm.Results` object and writes it as JSON.
+The job functions return a :class:`~openmmqmmm.Results` object, and most also write it as JSON.
 The trajectory helpers post-process what an MD run leaves behind.
 
 Results
