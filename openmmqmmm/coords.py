@@ -472,54 +472,52 @@ class Fragment:
         logger.info(
             f"Reading coordinates from Amber INPCRD file: '{inpcrdfile}' and PRMTOP file: '{prmtopfile}' into fragment."
         )
-        try:
-            elems, coords, _box_dims = read_ambercoordinates(prmtopfile=prmtopfile, inpcrdfile=inpcrdfile)
-        except FileNotFoundError:
-            raise FileFormatError(f"File {prmtopfile} or {inpcrdfile} not found") from None
-        self.coords = _reformat_list_to_array(coords)
-        self.elems = elems
+        self._read_coordinate_file(
+            read_ambercoordinates,
+            f"File {prmtopfile} or {inpcrdfile} not found",
+            prmtopfile=prmtopfile,
+            inpcrdfile=inpcrdfile,
+        )
 
     def read_grofile(self, filename: str) -> None:
         """Read coordinates from a GROMACS .gro file."""
         logger.info(f"Reading coordinates from Gromacs GRO file '{filename}' into fragment")
-        try:
-            elems, coords, _boxdims = read_gromacsfile(filename)
-        except FileNotFoundError:
-            raise FileFormatError(f"File '{filename}' not found") from None
-        self.coords = coords
-        self.elems = elems
+        self._read_coordinate_file(read_gromacsfile, f"File '{filename}' not found", filename)
 
     def read_chemshellfile(self, filename: str) -> None:
         """Read coordinates from a ChemShell fragment file (Bohr units)."""
         logger.info(f"Reading coordinates from Chemshell file '{filename}' into fragment.")
+        self._read_coordinate_file(_read_chemshellfragfile_xyz, f"File '{filename}' not found.", filename)
+
+    def _read_coordinate_file(self, reader: Callable, missing_message: str, *args: Any, **kwargs: Any) -> None:
         try:
-            elems, coords = _read_chemshellfragfile_xyz(filename)
+            elems, coords, *_box = reader(*args, **kwargs)
         except FileNotFoundError:
-            raise FileFormatError(f"File '{filename}' not found.") from None
-        self.coords = coords
+            raise FileFormatError(missing_message) from None
         self.elems = elems
+        self.coords = _reformat_list_to_array(coords)
 
     def read_pdbfile_openmm(self, filename: str) -> None:
         """Read a PDB file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbfile_openmm: Reading coordinates from PDB file '{filename}' into fragment.")
         import openmm.app
 
-        pdb = openmm.app.PDBFile(filename)
-        self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
-        logger.info("%s", pdb.topology)
-        self.elems = _topology_elements(pdb.topology)
-        self.pdb_topology = pdb.topology
+        self._read_openmm_structure(filename, openmm.app.PDBFile)
 
     def read_pdbxfile(self, filename: str) -> None:
         """Read a PDBx/mmCIF file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbxfile: Reading coordinates from PDBX file '{filename}' into fragment.")
         import openmm.app
 
-        pdb = openmm.app.PDBxFile(filename)
-        self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
-        self.elems = _topology_elements(pdb.topology)
+        self._read_openmm_structure(filename, openmm.app.PDBxFile)
 
-        self.pdb_topology = pdb.topology
+    def _read_openmm_structure(self, filename: str, parser: Callable) -> None:
+        import openmm.unit
+
+        structure = parser(filename)
+        self.coords = np.asarray(structure.positions.value_in_unit(openmm.unit.angstrom))
+        self.elems = _topology_elements(structure.topology)
+        self.pdb_topology = structure.topology
 
     def read_xyzfile(self, filename: str, readchargemult: bool = False) -> None:
         """Read coordinates from an XYZ file."""
@@ -1708,21 +1706,7 @@ def flexible_align_xyz(
     subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> None:
     """Align the molecule in one XYZ file onto the molecule in another."""
-    logger.debug("Will align molecule in file %s onto molecule in file %s", xyzfile_a, xyzfile_b)
-    fragment_a = Fragment(xyzfile=xyzfile_a)
-    fragment_b = Fragment(xyzfile=xyzfile_b)
-
-    newfragA = flexible_align(
-        fragment_a,
-        fragment_b,
-        rotate_only=rotate_only,
-        translate_only=translate_only,
-        reordering=reordering,
-        reorder_method=reorder_method,
-        subset=subset,
-    )
-
-    newfragA.write_xyzfile(f"{basename(xyzfile_a)}_aligned.xyz")
+    _align_files("xyz", xyzfile_a, xyzfile_b, rotate_only, translate_only, reordering, reorder_method, subset)
 
 
 def flexible_align_pdb(
@@ -1735,11 +1719,23 @@ def flexible_align_pdb(
     subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> None:
     """Align the molecule in one PDB file onto the molecule in another."""
-    logger.debug("Will align molecule in file %s onto molecule in file %s", pdbfileA, pdbfileB)
-    fragment_a = Fragment(pdbfile=pdbfileA)
-    fragment_b = Fragment(pdbfile=pdbfileB)
+    _align_files("pdb", pdbfileA, pdbfileB, rotate_only, translate_only, reordering, reorder_method, subset)
 
-    newfragA = flexible_align(
+
+def _align_files(
+    file_format: str,
+    file_a: str,
+    file_b: str,
+    rotate_only: bool,
+    translate_only: bool,
+    reordering: bool,
+    reorder_method: str,
+    subset: Sequence[int] | Sequence[Sequence[int]] | None,
+) -> None:
+    logger.debug("Will align molecule in file %s onto molecule in file %s", file_a, file_b)
+    fragment_a = Fragment(**{file_format + "file": file_a})
+    fragment_b = Fragment(**{file_format + "file": file_b})
+    aligned = flexible_align(
         fragment_a,
         fragment_b,
         rotate_only=rotate_only,
@@ -1748,9 +1744,12 @@ def flexible_align_pdb(
         reorder_method=reorder_method,
         subset=subset,
     )
-
-    fragment_a.coords = newfragA.coords
-    fragment_a.write_pdbfile_openmm(filename=f"{basename(pdbfileA)}_aligned")
+    output = f"{basename(file_a)}_aligned"
+    if file_format == "xyz":
+        aligned.write_xyzfile(output + ".xyz")
+    else:
+        fragment_a.replace_coords(fragment_a.elems, aligned.coords)
+        fragment_a.write_pdbfile_openmm(filename=output)
 
 
 def _resolve_alignment_subsets(
@@ -1844,7 +1843,7 @@ def flexible_align(
 
     if translate_only is True:
         logger.debug("Doing translation only")
-        Anew = fragment_a.coords + (_centroid(subsetB_coords) - _centroid(subsetA_coords))
+        Anew = fragment_a.coords + (subsetB_coords.mean(axis=0) - subsetA_coords.mean(axis=0))
     elif rotate_only is True:
         logger.debug("Doing rotation only")
         Anew = np.dot(fragment_a.coords, rot)
@@ -1890,10 +1889,6 @@ def calculate_rmsd(
     return rmsdval
 
 
-def _centroid(X: np.ndarray) -> np.ndarray:
-    return X.mean(axis=0)
-
-
 def _reorder(
     reorder_method: Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray],
     p_coord: np.ndarray,
@@ -1929,21 +1924,21 @@ def expand_qm_region(
     initial_atom_set = set(initial_atoms)
     atomlist = list(initial_atom_set)
 
-    for c in subsetcoords:
-        for index, allc in enumerate(fragment.coords):
+    connectivity = fragment.connectivity
+    if not connectivity:
+        connectivity = _connected_components(get_connected_atoms_dict(fragment.coords, fragment.elems, scale, tol))
+    for center in subsetcoords:
+        for index in _indices_within_radius(fragment.coords, center, radius):
             if index not in initial_atom_set:
-                dist = distance(c, allc)
-                if dist < radius:
-                    if len(fragment.connectivity) == 0:
-                        wholemol = _get_molecule_members_np(
-                            fragment.coords, fragment.elems, 99, scale, tol, atomindex=index
-                        )
-                    else:
-                        molecule_index = search_list_of_lists_for_index(index, fragment.connectivity)
-                        wholemol = [index] if molecule_index is None else fragment.connectivity[molecule_index]
-
-                    atomlist = atomlist + wholemol
+                molecule_index = search_list_of_lists_for_index(index, connectivity)
+                wholemol = [index] if molecule_index is None else connectivity[molecule_index]
+                atomlist.extend(wholemol)
     return np.unique(atomlist).tolist()
+
+
+def _indices_within_radius(coords: np.ndarray, origin: Sequence[float], radius: float) -> np.ndarray:
+    """Select in atom order using the shared strict radial cutoff."""
+    return np.flatnonzero(np.linalg.norm(np.asarray(coords) - origin, axis=1) < radius)
 
 
 def expand_qm_pc_region(

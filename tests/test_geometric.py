@@ -171,7 +171,6 @@ def optimizer():
 
 
 def test_no_constraints_writes_no_file(optimizer, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     optimizer.write_constraintsfile([], Constraints(), constrainvalue=False)
 
     assert optimizer.constraintsfile is None
@@ -179,14 +178,12 @@ def test_no_constraints_writes_no_file(optimizer, tmp_path, monkeypatch):
 
 
 def test_frozen_atoms_are_written_one_based(optimizer, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     optimizer.write_constraintsfile([0, 3], Constraints(), constrainvalue=False)
 
     assert Path(optimizer.constraintsfile).read_text() == "$freeze\nxyz 1\nxyz 4\n"
 
 
 def test_internal_coordinates_without_values_are_frozen(optimizer, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     constraints = Constraints(bond=[[0, 1]], angle=[[0, 1, 2]], dihedral=[[0, 1, 2, 3]])
     optimizer.write_constraintsfile([], constraints, constrainvalue=False)
 
@@ -197,7 +194,6 @@ def test_internal_coordinates_without_values_are_frozen(optimizer, tmp_path, mon
 
 def test_internal_coordinates_with_values_are_set(optimizer, tmp_path, monkeypatch):
     """constrainvalue=True means the last element of each entry is a target value."""
-    monkeypatch.chdir(tmp_path)
     constraints = Constraints(bond=[[0, 1, 1.5]], angle=[[0, 1, 2, 104.5]], dihedral=[[0, 1, 2, 3, 180.0]])
     optimizer.write_constraintsfile([], constraints, constrainvalue=True)
 
@@ -208,7 +204,6 @@ def test_internal_coordinates_with_values_are_set(optimizer, tmp_path, monkeypat
 
 def test_cartesian_freezes_never_take_a_value(optimizer, tmp_path, monkeypatch):
     """x/y/z freezes stay under $freeze even when constrainvalue is set: there is no value."""
-    monkeypatch.chdir(tmp_path)
     constraints = Constraints(x=[0], y=[1], z=[2], xy=[3], xz=[4], yz=[5])
     optimizer.write_constraintsfile([], constraints, constrainvalue=True)
 
@@ -219,7 +214,6 @@ def test_cartesian_freezes_never_take_a_value(optimizer, tmp_path, monkeypatch):
 
 def test_a_stale_constraints_file_is_replaced(optimizer, tmp_path, monkeypatch):
     """A file left by a previous run must not be appended to."""
-    monkeypatch.chdir(tmp_path)
     optimizer.write_constraintsfile([98], Constraints(), constrainvalue=False)
 
     optimizer.write_constraintsfile([0], Constraints(), constrainvalue=False)
@@ -435,3 +429,20 @@ def test_active_region_optimization_preserves_frozen_atoms_and_full_trajectory()
     optimize_geometry(theory=ZeroTheory(), fragment=fragment, active_region=True, actatoms=[0, 1, 2])
     np.testing.assert_array_equal(fragment.coords[3:], original[3:])
     assert Path("geometric_OPTtraj_Full.xyz").read_text().splitlines()[0] == "6"
+
+
+def test_qm_trajectory_selects_current_full_coordinates():
+    from types import SimpleNamespace
+
+    from openmmqmmm.coords import read_xyzfile
+    from openmmqmmm.geometric import GeometricEngine
+
+    engine = GeometricEngine.__new__(GeometricEngine)
+    engine.fragment = Fragment(elems=["H", "O"], coords=[[0, 0, 0], [1, 1, 1]])
+    engine.theory = SimpleNamespace(qmatoms=[1])
+    engine.full_current_coords = np.array([[2, 3, 4], [5, 6, 7]])
+    engine.iteration_count, engine.energy = 1, -1.0
+    engine.write_trajectory_qmregion()
+    elems, coords = read_xyzfile("geometric_OPTtraj_QMregion.xyz")
+    assert elems == ["O"]
+    np.testing.assert_array_equal(coords, [[5, 6, 7]])

@@ -989,7 +989,7 @@ class GeometricEngine:
     def write_trajectory_qmregion(self) -> None:
         logger.info("Writing trajectory for QM-region to file: geometric_OPTtraj_QMregion.xyz")
         write_xyzfile(
-            self.theory.qm_elems,
+            [self.fragment.elems[i] for i in self.theory.qmatoms],
             self.full_current_coords[self.theory.qmatoms],
             "geometric_OPTtraj_QMregion",
             writemode="a",

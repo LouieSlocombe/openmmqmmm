@@ -535,8 +535,9 @@ class QMMMTheory:
 
     def determine_truncated_pc_indices(self, origincoords: Sequence[float] | np.ndarray) -> None:
         """Select into self.truncated_PC_region_indices the point charges within truncated_pc_radius of origincoords."""
-        distances = np.linalg.norm(np.asarray(self.pointchargecoords) - origincoords, axis=1)
-        self.truncated_PC_region_indices = np.flatnonzero(distances < self.truncated_pc_radius).tolist()
+        self.truncated_PC_region_indices = openmmqmmm.coords._indices_within_radius(
+            self.pointchargecoords, origincoords, self.truncated_pc_radius
+        ).tolist()
 
     def calculate_trunc_pc_gradient_correction(
         self,
@@ -1494,9 +1495,11 @@ def define_active_region(
             "(for residue topology information)"
         )
 
+    topology = None
     if fragment is None:
         logger.debug("No fragment provided. Creating fragment from PDBfile")
         fragment = Fragment(pdbfile=str(pdbfile))
+        topology = fragment.pdb_topology
 
     logger.info("Radius: %s", radius)
     logger.info(f"Origin atom: {originatom} ({fragment.elems[originatom]})")
@@ -1511,7 +1514,6 @@ def define_active_region(
         resids = [atom.residue.index for atom in CharmmPsfFile(str(psffile)).topology.atoms()]
     else:
         logger.info("PDB-file provided. Using residue information")
-        topology = getattr(fragment, "pdb_topology", None)
         if topology is None:
             topology = PDBFile(str(pdbfile)).topology
         resids = [atom.residue.index for atom in topology.atoms()]
@@ -1519,7 +1521,7 @@ def define_active_region(
     origincoords = fragment.coords[originatom]
     logger.info("Origin-atom coordinates: %s", origincoords)
     resids = np.asarray(resids)
-    nearby = np.linalg.norm(fragment.coords - origincoords, axis=1) < radius
+    nearby = openmmqmmm.coords._indices_within_radius(fragment.coords, origincoords, radius)
     act_indices = np.flatnonzero(np.isin(resids, resids[nearby])).tolist()
     logger.info("act_indices: %s", act_indices)
 
