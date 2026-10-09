@@ -49,7 +49,7 @@ dependencies:
   - multiprocess
   # flexible_align(reordering=True)
   - rmsd >=1.4
-  - pytest >=6.2.5
+  - pytest >=8.3
   - pytest-cov >=6
   - python-build
   - pip:

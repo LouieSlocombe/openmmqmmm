@@ -39,36 +39,10 @@ rm -rf "${WORK_DIR}"
 mamba env remove -n "${ENV_NAME}" -y 2>/dev/null || true
 
 echo "=== Initializing Conda Environment ==="
-mamba create -n "${ENV_NAME}" -c conda-forge python=3.12 -y
+mamba env create -n "${ENV_NAME}" -f "${SCRIPT_DIR}/environment.yml"
 source activate "${ENV_NAME}"
-
-# The same set as environment.yml (less python-build), which is where the reasons for each package are
-# recorded. PLUMED is absent for the same reason it is absent there: build_plumed
-# compiles it into this prefix below.
-echo "=== Installing Dependencies ==="
-mamba install -c conda-forge -y \
-    "ase>=3.20.1" \
-    "openmm>=8.6,<8.7" \
-    cmake \
-    make \
-    swig \
-    cxx-compiler \
-    doxygen \
-    cython \
-    pdbfixer \
-    mdtraj \
-    "numpy>=1.21" \
-    scipy \
-    packaging \
-    parmed \
-    openmmforcefields \
-    openff-toolkit \
-    rdkit \
-    multiprocess \
-    "rmsd>=1.4" \
-    "pytest>=6.2.5" \
-    "pytest-cov>=6"
-pip3 install "geometric>=1.1" "openbabel>=3.0"
+# Sol's compiler/module stack is tested with Python 3.12.
+mamba install -n "${ENV_NAME}" -c conda-forge -y python=3.12
 
 echo "=== Preparing Build Directory ==="
 mkdir -p "${WORK_DIR}"
@@ -84,16 +58,7 @@ pip3 install -e "${SRC_DIR}/${ENV_NAME}" --no-deps
 install_editable_repos "${SRC_DIR}"
 
 echo "=== Verifying Installation ==="
-plumed --no-mpi config -q module opes
-echo "PLUMED opes module: OK"
-python3 -c "import plumed; plumed.Plumed()"
-echo "py-plumed kernel load: OK"
-python3 -c "from openmmplumed import PlumedForce"
-echo "openmm-plumed: OK"
-check_editable_repos "${SRC_DIR}"
-echo "editable dependencies: OK"
-python3 -c "import openmmqmmm"
-echo "openmmqmmm: OK"
+verify_install "${SRC_DIR}" python3
 
 conda deactivate
 echo "=== Build Complete! ==="

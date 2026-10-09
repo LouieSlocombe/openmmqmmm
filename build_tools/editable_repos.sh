@@ -104,7 +104,9 @@ install_editable_repos() {
 check_editable_repos() {
     local src_dir="$1"
 
-    python -c "
+    local python_command="${2:-python}"
+
+    "${python_command}" -c "
 import importlib, pathlib, sys
 
 src = pathlib.Path('${src_dir}').resolve()
@@ -114,4 +116,22 @@ for name in '${EDITABLE_REPOS[*]%%=*}'.split():
         sys.exit(f'{name} is not editable: imported from {path.parent}')
     print(f'{name}: {path.parent}')
 "
+}
+
+# verify_install <src_dir> [python]
+# Check every optional build component using the installer's Python interpreter.
+verify_install() {
+    local src_dir="$1"
+    local python_command="${2:-python}"
+
+    plumed --no-mpi config -q module opes || return
+    echo "PLUMED opes module: OK"
+    "${python_command}" -c "import plumed; plumed.Plumed()" || return
+    echo "py-plumed kernel load: OK"
+    "${python_command}" -c "from openmmplumed import PlumedForce" || return
+    echo "openmm-plumed: OK"
+    check_editable_repos "${src_dir}" "${python_command}" || return
+    echo "editable dependencies: OK"
+    "${python_command}" -c "import openmmqmmm" || return
+    echo "openmmqmmm: OK"
 }

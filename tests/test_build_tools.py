@@ -1,5 +1,6 @@
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -7,31 +8,14 @@ BUILD_TOOLS = REPOSITORY_ROOT / "build_tools"
 FORCEFILL_COMMIT = "bff20e2498474b3b3aa965b090fa722f762a49ae"
 
 
-def _run_build_helper(name, *args, check=True):
+def _call_sourced(script, name, *args, check=True):
     return subprocess.run(
         [
             "bash",
             "-c",
             'source "$1" && shift && "$@"',
             "bash",
-            str(BUILD_TOOLS / "build_plumed.sh"),
-            name,
-            *(str(arg) for arg in args),
-        ],
-        check=check,
-        capture_output=True,
-        text=True,
-    )
-
-
-def _run_editable_repo_helper(name, *args, check=True):
-    return subprocess.run(
-        [
-            "bash",
-            "-c",
-            'source "$1" && shift && "$@"',
-            "bash",
-            str(BUILD_TOOLS / "editable_repos.sh"),
+            str(BUILD_TOOLS / script),
             name,
             *(str(arg) for arg in args),
         ],
@@ -42,7 +26,7 @@ def _run_editable_repo_helper(name, *args, check=True):
 
 
 def test_build_job_count_is_available_and_positive():
-    result = _run_build_helper("build_job_count")
+    result = _call_sourced("build_plumed.sh", "build_job_count")
 
     assert int(result.stdout) >= 1
 
@@ -86,8 +70,10 @@ def test_forcefill_install_sources_are_pinned():
 
 
 def test_linker_flags_are_valid_for_darwin_and_linux():
-    darwin_flags = _run_build_helper("build_linker_flags", "Darwin", "/opt/environment/lib").stdout.strip()
-    linux_flags = _run_build_helper("build_linker_flags", "Linux", "/opt/environment/lib").stdout.strip()
+    darwin_flags = _call_sourced(
+        "build_plumed.sh", "build_linker_flags", "Darwin", "/opt/environment/lib"
+    ).stdout.strip()
+    linux_flags = _call_sourced("build_plumed.sh", "build_linker_flags", "Linux", "/opt/environment/lib").stdout.strip()
 
     assert darwin_flags == "-Wl,-rpath,/opt/environment/lib"
     assert "rpath-link" not in darwin_flags
@@ -100,8 +86,8 @@ def test_plumed_kernel_discovery_prefers_the_platform_extension(tmp_path):
     shared_object.touch()
     dynamic_library.touch()
 
-    darwin_kernel = _run_build_helper("find_plumed_kernel", tmp_path, "Darwin").stdout.strip()
-    linux_kernel = _run_build_helper("find_plumed_kernel", tmp_path, "Linux").stdout.strip()
+    darwin_kernel = _call_sourced("build_plumed.sh", "find_plumed_kernel", tmp_path, "Darwin").stdout.strip()
+    linux_kernel = _call_sourced("build_plumed.sh", "find_plumed_kernel", tmp_path, "Linux").stdout.strip()
 
     assert darwin_kernel == str(dynamic_library)
     assert linux_kernel == str(shared_object)
@@ -149,7 +135,7 @@ def test_pinned_clone_is_published_only_after_the_checkout_succeeds(tmp_path):
     )
     destination = tmp_path / "dependency"
 
-    failed = _run_editable_repo_helper("clone_repo", source, destination, "0" * 40, check=False)
+    failed = _call_sourced("editable_repos.sh", "clone_repo", source, destination, "0" * 40, check=False)
 
     assert failed.returncode != 0
     assert not destination.exists(), "A failed pinned checkout must never become an accepted final clone"
@@ -160,7 +146,47 @@ def test_pinned_clone_is_published_only_after_the_checkout_succeeds(tmp_path):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    _run_editable_repo_helper("clone_repo", source, destination, commit)
+    _call_sourced("editable_repos.sh", "clone_repo", source, destination, commit)
 
     assert (destination / ".git").is_dir()
     assert not list(tmp_path.glob(".dependency.clone.*/checkout"))
+
+
+def test_conda_and_project_dependency_bounds_agree():
+    from packaging.requirements import Requirement
+
+    project = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text())["project"]
+    pip_requirements = {
+        Requirement(s).name: Requirement(s).specifier
+        for s in project["dependencies"] + project["optional-dependencies"]["test"]
+    }
+    environment = (BUILD_TOOLS / "environment.yml").read_text()
+    for name in ("openmm", "pytest"):
+        line = re.search(rf"^  - ({name} .+)$", environment, re.MULTILINE).group(1)
+        assert Requirement(line).specifier == pip_requirements[name]
+
+
+def test_verify_install_stops_at_the_first_failed_component(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for name, body in {"plumed": "exit 0", "fake-python": "echo invoked; exit 7"}.items():
+        path = fake_bin / name
+        path.write_text("#!/bin/bash\n" + body + "\n")
+        path.chmod(0o755)
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; PATH="$2:$PATH"; verify_install "$3" fake-python',
+            "bash",
+            str(BUILD_TOOLS / "editable_repos.sh"),
+            str(fake_bin),
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 7
+    assert result.stdout.count("invoked") == 1
+    assert "openmmqmmm: OK" not in result.stdout
