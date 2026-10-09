@@ -30,6 +30,7 @@ from openmmqmmm.utils import (
     listdiff,
     log_time_since,
     natural_sort,
+    require_int_in_range,
     search_list_of_lists_for_index,
     small_header,
     sub_header,
@@ -912,7 +913,9 @@ def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int]
 
     for kind, atoms, value in _internal_coordinate_values(coords, conn, actatoms):
         label = "-".join(elems[i] for i in atoms)
-        if kind == "Bond":
+        if value is None:
+            logger.info(f"{kind:<10} {atoms!s:<20} {label:<15} {'undefined':>10}")
+        elif kind == "Bond":
             logger.info(f"{kind:<10} {atoms!s:<20} {label:<15} {value:>10.4f} Å")
         else:
             atom_label = "(" + ",".join(map(str, atoms)) + ")" if kind == "Angle" else str(atoms)
@@ -927,7 +930,7 @@ def _internal_coordinate_values(
     atoms: Sequence[int],
     *,
     bonds_only: bool = False,
-) -> Iterator[tuple[str, tuple[int, ...], float]]:
+) -> Iterator[tuple[str, tuple[int, ...], float | None]]:
     seen = set()
     for i in atoms:
         neighbours = sorted(connectivity[i])
@@ -955,7 +958,7 @@ def _internal_coordinate_values(
                     try:
                         value = dihedral(coords[h], coords[i], coords[j], coords[k])
                     except InputError:
-                        continue
+                        value = None
                     yield "Dihedral", dihedral_atoms, value
 
 
@@ -1049,7 +1052,8 @@ def _coordinate_lines(
     *,
     index_width: int = 1,
 ) -> Iterator[str]:
-    for i, (elem, coord) in enumerate(zip(elems, coords, strict=False)):
+    for i, elem in enumerate(elems):
+        coord = coords[i]
         prefix = "" if indices is None else f"{indices[i]:>{index_width}} "
         line = f"{prefix}{elem:>4} {coord[0]:>12.8f}  {coord[1]:>12.8f}  {coord[2]:>12.8f}"
         if labels is not None:
@@ -1356,8 +1360,7 @@ def split_multimolxyzfile(
     return_fragments: bool = False,
 ) -> list[Fragment] | tuple[list[list[str]], list[list[list[float]]], list[list[str] | str]]:
     """Split a multi-molecule XYZ file (trajectory, conformer set) into its frames."""
-    if isinstance(skipindex, bool) or not isinstance(skipindex, int) or skipindex < 1:
-        raise InputError("skipindex must be a positive integer")
+    skipindex = require_int_in_range(skipindex, "skipindex must be a positive integer")
     all_coords, all_elems, all_titles, fragments = [], [], [], []
     molcounter = 0
     with open(file) as handle:

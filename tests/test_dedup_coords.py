@@ -88,4 +88,12 @@ def test_multiframe_xyz_titles_do_not_start_new_frames(tmp_path):
     assert titles == [["2", "atoms", "in", "frame", "one"], ["second"]]
     assert coords[1] == [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0]]
     assert read_xyzfile("molecule1.xyz")[0] == ["H", "H"]
-    assert len(split_multimolxyzfile(str(target), skipindex=2, return_fragments=True)) == 1
+    assert len(split_multimolxyzfile(str(target), skipindex=np.int64(2), return_fragments=True)) == 1
+
+
+def test_collinear_optimization_table_reports_undefined_dihedrals(caplog):
+    fragment = Fragment(elems=["C"] * 4, coords=[[i * 1.4, 0, 0] for i in range(4)])
+    with caplog.at_level(logging.INFO, logger="openmmqmmm.coords"):
+        _print_internal_coordinate_table(fragment)
+    rows = [record.message for record in caplog.records if record.message.startswith("Dihedral")]
+    assert rows and all("undefined" in row for row in rows)
