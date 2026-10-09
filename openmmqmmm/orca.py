@@ -23,6 +23,8 @@ from openmmqmmm.exceptions import (
 )
 from openmmqmmm.utils import (
     basename as file_basename,
+)
+from openmmqmmm.utils import (
     insert_line_into_file,
     listdiff,
     log_time_since,
@@ -1201,6 +1203,30 @@ def grab_ir_intensities(filename: StrPath) -> list[float]:
     )
 
 
+def _write_orca_column_blocks(
+    stream: TextIO,
+    matrix: np.ndarray,
+    *,
+    ncols: int,
+    index_fmt: str,
+    value_fmt: str,
+    header_fmt: str,
+    header_prefix: str = "",
+    header_suffix: str = "",
+    first_value_fmt: str | None = None,
+) -> None:
+    """Write ORCA matrix blocks while preserving each file format's exact columns."""
+    for start in range(0, matrix.shape[1], ncols):
+        columns = range(start, min(start + ncols, matrix.shape[1]))
+        stream.write(header_prefix + "".join(header_fmt.format(column) for column in columns) + header_suffix + "\n")
+        for index, row in enumerate(matrix):
+            values = "".join(
+                (first_value_fmt if column == start and first_value_fmt is not None else value_fmt).format(row[column])
+                for column in columns
+            )
+            stream.write(index_fmt.format(index) + values + "\n")
+
+
 def write_orca_hessfile(
     hessian: np.ndarray,
     coords: Coordinates,
@@ -1214,35 +1240,9 @@ def write_orca_hessfile(
         orcahessfile.write("\n")
         orcahessfile.write("$hessian\n")
         orcahessfile.write(str(hessdim) + "\n")
-        orcahesscoldim = 5
-        index = 0
-        tempvar = ""
-        temp2var = ""
-        chunks = hessdim // orcahesscoldim
-        left = hessdim % orcahesscoldim
-        if left > 0:
-            chunks = chunks + 1
-        for chunk in range(chunks):
-            if chunk == chunks - 1:
-                if left == 0:
-                    left = 5
-                for temp in range(index, index + left):
-                    temp2var = temp2var + "         " + str(temp)
-            else:
-                for temp in range(index, index + orcahesscoldim):
-                    temp2var = temp2var + "         " + str(temp)
-            orcahessfile.write(str(temp2var) + "\n")
-            for i in range(hessdim):
-                if chunk == chunks - 1:
-                    for k in range(index, index + left):
-                        tempvar = tempvar + "         " + str(hessian[i, k])
-                else:
-                    for k in range(index, index + orcahesscoldim):
-                        tempvar = tempvar + "         " + str(hessian[i, k])
-                orcahessfile.write("    " + str(i) + "   " + str(tempvar) + "\n")
-                tempvar = ""
-                temp2var = ""
-            index += 5
+        _write_orca_column_blocks(
+            orcahessfile, hessian, ncols=5, index_fmt="    {}   ", value_fmt="         {}", header_fmt="         {}"
+        )
         orcahessfile.write("\n")
         orcahessfile.write("# The atoms: label  mass x y z (in bohrs)\n")
         orcahessfile.write("$atoms\n")

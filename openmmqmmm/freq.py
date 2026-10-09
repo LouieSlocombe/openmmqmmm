@@ -1337,87 +1337,17 @@ CARTESIAN COORDINATES (ANGSTROEM)
         outfile.write("\n")
         outfile.write("\n")
 
-        orcahesscoldim = 6
-        hessdim = 3 * numatoms
-        index = 0
-        line = ""
-        chunkheader = ""
-
-        chunks = hessdim // orcahesscoldim
-        left = hessdim % orcahesscoldim
-
-        if left > 0:
-            chunks = chunks + 1
-        for chunk in range(chunks):
-            if chunk == chunks - 1:
-                if left == 0:
-                    left = 6
-                for temp in range(index, index + left):
-                    chunkheader = chunkheader + "          " + str(temp)
-            else:
-                for temp in range(index, index + orcahesscoldim):
-                    chunkheader = chunkheader + "          " + str(temp)
-            outfile.write("        " + str(chunkheader) + "    \n")
-            for i in range(hessdim):
-                firstcolumnindex = 6 * chunk
-                j = firstcolumnindex
-                if hessdim - j == 1:
-                    val1 = nmodes[j][i]
-                elif hessdim - j == 2:
-                    val1 = nmodes[j][j]
-                    val2 = nmodes[j + 1][i]
-                elif hessdim - j == 3:
-                    val1 = nmodes[j][i]
-                    val2 = nmodes[j + 1][i]
-                    val3 = nmodes[j + 2][i]
-                elif hessdim - j == 4:
-                    val1 = nmodes[j][i]
-                    val2 = nmodes[j + 1][i]
-                    val3 = nmodes[j + 2][i]
-                    val4 = nmodes[j + 3][i]
-                elif hessdim - j == 5:
-                    val1 = nmodes[j][i]
-                    val2 = nmodes[j + 1][i]
-                    val3 = nmodes[j + 2][i]
-                    val4 = nmodes[j + 3][i]
-                    val5 = nmodes[j + 4][i]
-                elif hessdim - j >= 6:
-                    val1 = nmodes[j][i]
-                    val2 = nmodes[j + 1][i]
-                    val3 = nmodes[j + 2][i]
-                    val4 = nmodes[j + 3][i]
-                    val5 = nmodes[j + 4][i]
-                    val6 = nmodes[j + 5][i]
-                else:
-                    raise InputError(f"problem\nhessdim - j :  {hessdim - j}")
-
-                if chunk == chunks - 1:
-                    for _k in range(index, index + left):
-                        if left == 6:
-                            line = (
-                                f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} "
-                                f"{val4:>10.6f} {val5:>10.6f} {val6:>10.6f}"
-                            )
-                        elif left == 5:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} {val4:>10.6f} {val5:>10.6f}"
-                        elif left == 4:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} {val4:>10.6f}"
-                        elif left == 3:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f}"
-                        elif left == 2:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f}"
-                        elif left == 1:
-                            line = f"{i:>6d} {val1:>14.6f}"
-                else:
-                    for _k in range(index, index + orcahesscoldim):
-                        line = (
-                            f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} "
-                            f"{val4:>10.6f} {val5:>10.6f} {val6:>10.6f}"
-                        )
-                outfile.write(" " + str(line) + "\n")
-                line = ""
-                chunkheader = ""
-            index += 6
+        openmmqmmm.orca._write_orca_column_blocks(
+            outfile,
+            np.asarray(nmodes).T,
+            ncols=6,
+            index_fmt=" {:>6d}",
+            value_fmt=" {:>10.6f}",
+            first_value_fmt=" {:>14.6f}",
+            header_fmt="          {}",
+            header_prefix="        ",
+            header_suffix="    ",
+        )
 
         irtable = """
 
