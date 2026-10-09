@@ -439,12 +439,16 @@ class ZeroTheory:
         current_mm_coords: np.ndarray | None = None,
         mm_charges: Sequence[float] | None = None,
         qm_elems: Sequence[str] | None = None,
-    ) -> float | tuple[float, np.ndarray]:
-        """Return zero energy and, if requested, a zero gradient."""
+    ) -> float | tuple[float, np.ndarray] | tuple[float, np.ndarray, np.ndarray]:
+        """Return zero energy and matching QM and optional point-charge gradients."""
         self.energy = 0.0
-        self.gradient = np.zeros((len(elems), 3))
+        current_elems = elems if elems is not None else qm_elems
+        self.gradient = np.zeros((len(current_elems), 3))
         if not grad:
             return self.energy
+        if pc:
+            num_pointcharges = 0 if current_mm_coords is None else len(current_mm_coords)
+            return self.energy, self.gradient, np.zeros((num_pointcharges, 3))
         return self.energy, self.gradient
 
 

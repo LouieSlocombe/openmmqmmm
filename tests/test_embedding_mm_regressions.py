@@ -162,7 +162,12 @@ def test_library_global_parameter_torsion_can_be_removed():
     mm, nb = _system([0] * 4)
     for atom in range(4):
         nb.setParticleParameters(atom, 0, 0.3, 0)
-    mm.add_custom_torsion_force(0, 1, 2, 3, 0.0, 1.0)
+    torsion = openmm.CustomTorsionForce("0.5*k*dtheta^2; dtheta = min(diff, 2*Pi-diff); diff = abs(theta - theta0)")
+    torsion.addGlobalParameter("Pi", np.pi)
+    torsion.addGlobalParameter("k", 4.184)
+    torsion.addGlobalParameter("theta0", 0.0)
+    torsion.addTorsion(0, 1, 2, 3)
+    mm.system.addForce(torsion)
     mm.modify_bonded_forces([0, 1, 2, 3])
     energy, forces, _ = _evaluate(mm.system, [[0, 0, 0], [0.15, 0, 0], [0.2, 0.1, 0], [0.3, 0.1, 0.1]])
     assert energy == pytest.approx(0, abs=1e-12)

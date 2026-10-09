@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from openmmqmmm import Fragment, QMMMTheory
+from openmmqmmm import Fragment, QMMMTheory, ZeroTheory
 from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.qmmm import _linkatom_force_chainrule
@@ -44,7 +44,7 @@ class _CapEnergyQM:
         return float(energy), qm_gradient
 
 
-def _boundary_theory(**options):
+def _boundary_theory(*, qm_theory=None, **options):
     fragment = Fragment(
         elems=["C", "C", "C"],
         coords=[[0.2, -0.4, 0.3], [1.5, 0.1, 0.7], [2.8, 0.9, 0.4]],
@@ -53,7 +53,7 @@ def _boundary_theory(**options):
     )
     theory = QMMMTheory(
         fragment=fragment,
-        qm_theory=_CapEnergyQM(),
+        qm_theory=qm_theory if qm_theory is not None else _CapEnergyQM(),
         mm_theory=_BoundaryMM(),
         qmatoms=[0],
         charges=[0.0, 0.4, -0.1],
@@ -155,3 +155,61 @@ def test_truncated_cached_correction_rejects_cap_gradient():
     with pytest.raises(InputError, match="truncated_pc_recalc_iter=1"):
         theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
     assert theory.runcalls == 0
+
+
+@pytest.mark.parametrize("embedding", ["mech", "elstat"])
+@pytest.mark.parametrize("grad", [False, True])
+def test_zero_theory_keeps_link_atom_gradient_rows(embedding, grad):
+    theory, fragment = _boundary_theory(qm_theory=ZeroTheory(), embedding=embedding)
+    result = theory.run(current_coords=fragment.coords, grad=grad)
+    assert theory.linkatoms is True
+    assert theory.num_linkatoms == 1
+    if grad:
+        energy, gradient = result
+        assert energy == 0.0
+        assert gradient == pytest.approx(np.zeros_like(fragment.coords))
+        assert theory.QMgradient.shape == (2, 3)
+    else:
+        assert result == 0.0
+
+
+@pytest.mark.parametrize("grad", [False, True])
+def test_zero_theory_supports_truncated_pc_full_refresh(grad):
+    theory, fragment = _boundary_theory(
+        qm_theory=ZeroTheory(),
+        embedding="elstat",
+        truncated_pc=True,
+        truncated_pc_radius=0.1,
+        truncated_pc_recalc_iter=1,
+    )
+    result = theory.run(current_coords=fragment.coords, grad=grad)
+    assert theory.linkatoms is True
+    assert theory.truncPC_E_correction == 0.0
+    if grad:
+        energy, gradient = result
+        assert energy == 0.0
+        assert gradient == pytest.approx(np.zeros_like(fragment.coords))
+        assert theory.PCgradient.shape == (4, 3)
+    else:
+        assert result == 0.0
+
+
+@pytest.mark.parametrize("method,dipoles", [("shift", False), ("shift", True), ("rcd", False)])
+def test_boundary_charge_positions_equal_gradient_mappings(method, dipoles):
+    theory, fragment = _boundary_theory(chargeboundary_method=method, dipole_correction=dipoles)
+    for displacement in (np.zeros((3, 3)), np.array([[0.01, 0.02, 0], [0.03, 0, -0.01], [0, 0.04, 0.02]])):
+        coords = fragment.coords + displacement
+        theory.run(current_coords=coords)
+        sites = theory.pointchargecoords[len(theory.mmatoms) :]
+        expected = np.asarray(
+            [
+                sum(weight * coords[index] for index, weight in mapping)
+                for mapping in theory._virtual_site_gradient_mappings
+            ]
+        ).reshape(-1, 3)
+        assert sites == pytest.approx(expected, abs=1e-15)
+
+
+def test_unknown_charge_boundary_method_is_rejected_before_first_run():
+    with pytest.raises(InputError, match="chargeboundary_method"):
+        _boundary_theory(chargeboundary_method="invalid")
