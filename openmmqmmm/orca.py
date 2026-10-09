@@ -303,6 +303,7 @@ class ORCATheory:
             extraline=extraline,
             hs_mult=self.hs_mult,
             moreadfile=self.moreadfile,
+            propertyblock=self.propertyblock,
         )
         logger.info(f"ORCA Calculation started using {numcores} CPU cores")
         _run_orca_sp_parallel(
@@ -311,25 +312,12 @@ class ORCATheory:
             numcores=numcores,
             bind_to_core_option=self.bind_to_core_option,
             ignore_orca_error=self.ignore_orca_error,
+            check_for_errors=self.check_for_errors,
+            check_for_warnings=self.check_for_warnings,
         )
         logger.info("ORCA Calculation done.")
 
-        outfile = self.filename + ".out"
-        ORCAfinished, _iter = check_orca_finished(outfile)
-        if ORCAfinished:
-            logger.info("ORCA job finished")
-            if _check_orca_opt_finished(outfile):
-                logger.info("ORCA geometry optimization finished")
-                self.energy = grab_orca_final_energy(outfile)
-                _opt_elems, opt_coords = openmmqmmm.coords.read_xyzfile(self.filename + ".xyz")
-                logger.info("%s", opt_coords)
-
-                fragment.replace_coords(fragment.elems, opt_coords)
-                fragment.set_energy(self.energy)
-            else:
-                raise ExternalProgramError("ORCA optimization failed to converge. Check ORCA output")
-        else:
-            raise ExternalProgramError("Something happened with ORCA job. Check ORCA output")
+        self.energy = _read_optimized_geometry(fragment, self.filename)
 
         logger.info("ORCA optimized energy: %s", self.energy)
         logger.info("fragment updated: %s", fragment)
@@ -999,6 +987,29 @@ def _check_orca_opt_finished(file: StrPath) -> bool:
                 cycles = line.split()[2]
                 logger.info(f"ORCA Optimization converged in {cycles} cycles")
         return converged
+
+
+def _read_optimized_geometry(fragment: Fragment, basename: str, *, external: bool = False) -> float:
+    """Validate completion and update a fragment through its cache-aware setters."""
+    outfile = basename + ".out"
+    finished, _iterations = check_orca_finished(outfile)
+    if not finished:
+        raise ExternalProgramError(f"ORCA job did not finish. Check outputfile: {outfile}")
+    if not _check_orca_opt_finished(outfile):
+        raise ExternalProgramError(f"ORCA optimization failed to converge. Check outputfile: {outfile}")
+    if external:
+        # ExtOpt's marker precedes the number; keep this format distinct until a real
+        # output fixture establishes that the ordinary energy parser can read both.
+        lines = pygrep2("FINAL SINGLE POINT ENERGY (From external program)", outfile, errors="ignore")
+        energy = float(lines[-1].split()[-1]) if lines else None
+    else:
+        energy = grab_orca_final_energy(outfile)
+    if energy is None:
+        raise ExternalProgramError(f"ORCA optimization produced no final energy. Check outputfile: {outfile}")
+    elems, coords = openmmqmmm.coords.read_xyzfile(basename + ".xyz")
+    fragment.replace_coords(elems, coords)
+    fragment.set_energy(energy)
+    return energy
 
 
 def grab_orca_final_energy(file: StrPath, errors: str | None = "ignore") -> float | None:
@@ -1743,21 +1754,7 @@ end
     if "GOAT" in orca_jobkeyword.upper():
         logger.info("GOAT keyword found. ")
 
-    with open(basename + ".out", "w") as ofile:
-        sp.run([os.path.join(orcadir, "orca"), basename + ".inp"], check=True, stdout=ofile, stderr=ofile, text=True)
-
-    ORCAfinished, _iter = check_orca_finished(basename + ".out")
-    if ORCAfinished is not True:
-        raise ExternalProgramError("Something failed about external ORCA job")
-    if _check_orca_opt_finished(basename + ".out") is not True:
-        raise ExternalProgramError("ORCA external job failed. Check outputfile: {}".format(basename + ".out"))
-    logger.info("ORCA external job finished")
-
-    _elems, coords = openmmqmmm.coords.read_xyzfile(basename + ".xyz")
-    fragment.coords = coords
-
-    energylines = pygrep2("FINAL SINGLE POINT ENERGY (From external program)", f"{basename}.out", errors="ignore")
-    energy = float(energylines[-1].split()[-1])
+    _run_orca_sp_parallel(orcadir, basename + ".inp", bind_to_core_option=False)
+    energy = _read_optimized_geometry(fragment, basename, external=True)
     logger.info("Final energy from external ORCA job: %s", energy)
-
     return energy

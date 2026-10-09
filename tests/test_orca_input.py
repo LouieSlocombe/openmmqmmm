@@ -134,7 +134,7 @@ def external_optimizer_stops_at_orca_launch(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", os.environ["PATH"])
     monkeypatch.setenv("EXTOPTEXE", "")
     monkeypatch.setattr("openmmqmmm.orca.find_orca", lambda orcadir=None: str(tmp_path))
-    monkeypatch.setattr("openmmqmmm.orca.sp.run", _fail_at_launch)
+    monkeypatch.setattr("openmmqmmm.orca._run_orca_sp_parallel", _fail_at_launch)
 
 
 def _external_optimizer_charge_mult(theory, fragment):
@@ -222,3 +222,73 @@ def test_external_optimizer_runs_an_mm_theory_on_a_fragment_without_charge():
 
     assert script_charge_mult == (None, None)
     assert xyzfile_charge_mult == ("0", "1")
+
+
+@pytest.mark.usefixtures("fake_orca_dir")
+def test_opt_forwards_error_policy_and_writes_property_block(tmp_path, monkeypatch):
+    recorded = {}
+
+    def stop(*args, **kwargs):
+        recorded.update(kwargs)
+        raise OrcaLaunchedError
+
+    monkeypatch.setattr("openmmqmmm.orca._run_orca_sp_parallel", stop)
+    theory = ORCATheory(
+        orcasimpleinput="! HF def2-SVP",
+        propertyblock="%elprop Dipole true end\n",
+        check_for_errors=False,
+        check_for_warnings=False,
+    )
+    fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [0, 0, 0.74]], charge=0, mult=1)
+    with pytest.raises(OrcaLaunchedError):
+        theory.opt(fragment)
+    assert recorded["check_for_errors"] is False
+    assert recorded["check_for_warnings"] is False
+    assert theory.propertyblock in (tmp_path / "orca.inp").read_text()
+
+
+def test_external_optimizer_updates_coordinates_energy_and_cached_hessian(tmp_path, monkeypatch):
+    import numpy as np
+
+    monkeypatch.setattr("openmmqmmm.orca.find_orca", lambda _orcadir: str(tmp_path))
+    monkeypatch.setenv("PATH", os.environ["PATH"])
+    monkeypatch.setenv("EXTOPTEXE", "")
+    launched = []
+
+    def finish(argv, **kwargs):
+        launched.append(argv)
+        kwargs["stdout"].write(
+            "THE OPTIMIZATION HAS CONVERGED\n"
+            "FINAL SINGLE POINT ENERGY (From external program) -1.25\n"
+            "TOTAL RUN TIME: 0\n"
+        )
+        kwargs["stdout"].flush()
+        (tmp_path / "ORCAEXTERNAL.xyz").write_text("2\noptimized\nH 0 0 0\nH 0 0 0.8\n")
+
+    monkeypatch.setattr("openmmqmmm.orca.sp.run", finish)
+    fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [0, 0, 0.74]], charge=0, mult=1)
+    fragment.hessian = np.eye(6)
+    energy = orca_external_optimizer(fragment=fragment, theory=ZeroTheory())
+    assert isinstance(fragment.coords, np.ndarray)
+    assert fragment.coords[1, 2] == 0.8
+    assert fragment.hessian is None
+    assert fragment.energy == energy == -1.25
+    assert launched == [[str(tmp_path / "orca"), "ORCAEXTERNAL.inp"]]
+
+
+def test_external_optimizer_reports_subprocess_failure_as_external_program_error(tmp_path, monkeypatch):
+    import subprocess
+
+    from openmmqmmm.exceptions import ExternalProgramError
+
+    monkeypatch.setattr("openmmqmmm.orca.find_orca", lambda _orcadir: str(tmp_path))
+    monkeypatch.setenv("PATH", os.environ["PATH"])
+    monkeypatch.setenv("EXTOPTEXE", "")
+
+    def fail(argv, **kwargs):
+        raise subprocess.CalledProcessError(1, argv)
+
+    monkeypatch.setattr("openmmqmmm.orca.sp.run", fail)
+    fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [0, 0, 0.74]], charge=0, mult=1)
+    with pytest.raises(ExternalProgramError, match="ORCA run failed"):
+        orca_external_optimizer(fragment=fragment, theory=ZeroTheory())
