@@ -5,7 +5,7 @@ import math
 import os
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from math import sqrt
 from numbers import Real
 from pathlib import Path
@@ -25,6 +25,7 @@ from openmmqmmm.exceptions import (
     InternalError,
 )
 from openmmqmmm.utils import (
+    basename,
     isint,
     listdiff,
     log_time_since,
@@ -345,10 +346,10 @@ class Fragment:
         new_elems = []
         new_coords = []
         for line in coordsstring.splitlines():
-            if len(line) > 5:
-                fields = line.split()
-                new_elems.append(reformat_element(fields[0]))
-                new_coords.append([float(fields[1]), float(fields[2]), float(fields[3])])
+            if line.strip():
+                elem, coord = _parse_atom_line(line)
+                new_elems.append(elem)
+                new_coords.append(coord)
 
         parsed_coords = _reformat_list_to_array(new_coords)
         if had_atoms:
@@ -519,35 +520,19 @@ class Fragment:
     def read_xyzfile(self, filename: str, readchargemult: bool = False) -> None:
         """Read coordinates from an XYZ file."""
         logger.info(f"Reading coordinates from XYZ file '{filename}' into fragment.")
-        coords = []
-        with open(filename) as f:
-            for count, line in enumerate(f):
-                if count == 0:
-                    self.numatoms = int(line.split()[0])
-                elif count == 1:
-                    if readchargemult is True:
-                        logger.info("Reading charge/mult from file header.")
-                        try:
-                            self.charge = int(line.split()[0])
-                            self.mult = int(line.split()[1])
-                        except ValueError:
-                            raise FileFormatError(
-                                "{}\nLine: {}".format(
-                                    f"XYZ-file {filename} does not have a valid charge/mult in 2nd-line of header:",
-                                    line,
-                                )
-                            ) from None
-                elif count > 1 and len(line) > 3:
-                    if isint(line.split()[0]) is True:
-                        el = reformat_element(int(line.split()[0]), isatomnum=True)
-                        self.elems.append(el)
-                    else:
-                        el = line.split()[0]
-                        self.elems.append(reformat_element(el))
-                    coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
+        self.elems, coords = read_xyzfile(filename)
         self.coords = _reformat_list_to_array(coords)
-        if self.numatoms != len(self.coords):
-            raise FileFormatError("Number of atoms in header not equal to number of coordinate-lines. Check XYZ file!")
+        self.numatoms = len(self.elems)
+        if readchargemult:
+            with open(filename) as handle:
+                next(handle)
+                header = next(handle)
+            try:
+                self.charge, self.mult = (int(value) for value in header.split()[:2])
+            except ValueError:
+                raise FileFormatError(
+                    f"XYZ-file {filename} does not have a valid charge/mult in 2nd-line of header:\nLine: {header}"
+                ) from None
 
     def set_energy(self, energy: float) -> None:
         """Store a total energy on the fragment."""
@@ -555,10 +540,7 @@ class Fragment:
 
     def get_coordinate_center(self) -> list[float]:
         """Return the mean position of all atoms as a list (unweighted by mass)."""
-        center_x = np.mean(self.coords[:, 0])
-        center_y = np.mean(self.coords[:, 1])
-        center_z = np.mean(self.coords[:, 2])
-        return [center_x, center_y, center_z]
+        return get_centroid(self.coords)
 
     def get_coords_for_atoms(self, atoms: Sequence[int]) -> tuple[np.ndarray, list[str]]:
         """Return the coordinates and elements of a subset of atoms."""
@@ -598,7 +580,7 @@ class Fragment:
     def write_pdbfile(self, filename: str = "Fragment") -> str:
         """Write a PDB file using the fragment's own stored PDB information."""
         logger.debug("Writing fragment to PDB")
-        filename = filename.replace(".pdb", "")
+        filename = basename(filename)
         if self.pdb_atomnames is not None:
             logger.info("Found PDB residue/atom/segment information stored in fragment. Writing proper PDB file.")
         else:
@@ -669,7 +651,7 @@ class Fragment:
 
         from openmmqmmm.openmm.systemsetup import openmm_add_bonds_to_topology
 
-        if ".pdb" not in filename:
+        if not filename.endswith(".pdb"):
             filename += ".pdb"
 
         if pdb_topology is not None:
@@ -721,14 +703,7 @@ class Fragment:
 
     def write_xyz_for_atoms(self, xyzfilename: str = "Fragment-subset.xyz", atoms: Sequence[int] | None = None) -> None:
         """Write an XYZ file containing only the selected atoms."""
-        subset_elems = [self.elems[i] for i in atoms]
-        subset_coords = np.take(self.coords, atoms, axis=0)
-        with open(xyzfilename, "w") as ofile:
-            ofile.write(str(len(subset_elems)) + "\n")
-            ofile.write("title" + "\n")
-            for el, c in zip(subset_elems, subset_coords, strict=False):
-                line = f"{el:4} {c[0]:>12.6f} {c[1]:>12.6f} {c[2]:>12.6f}"
-                ofile.write(line + "\n")
+        _write_xyz_subset(self.coords, self.elems, atoms, xyzfilename)
 
     def print_system(self, filename: str = "fragment.frag") -> None:
         """Write the full fragment (coordinates, charge, mult, connectivity) to a .frag file."""
@@ -1045,9 +1020,13 @@ def print_coords_for_atoms(
 
 
 def write_xyz_for_atoms(coords: np.ndarray, elems: Sequence[str], members: Sequence[int], name: str) -> None:
+    _write_xyz_subset(coords, elems, members, name + ".xyz")
+
+
+def _write_xyz_subset(coords: np.ndarray, elems: Sequence[str], members: Sequence[int], filename: str) -> None:
     subset_elems = [elems[i] for i in members]
     subset_coords = np.take(coords, members, axis=0)
-    with open(name + ".xyz", "w") as ofile:
+    with open(filename, "w") as ofile:
         ofile.write(str(len(subset_elems)) + "\n")
         ofile.write("title" + "\n")
         for el, c in zip(subset_elems, subset_coords, strict=False):
@@ -1062,38 +1041,27 @@ def print_coords_all(
     labels: Sequence[str | int] | None = None,
     labels2: Sequence[str | int] | None = None,
 ) -> None:
-    if indices is None:
-        if labels is None:
-            for i in range(len(elems)):
-                logger.info(f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}")
-        elif labels2 is None:
-            for i in range(len(elems)):
-                logger.info(
-                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}"
-                )
-        else:
-            for i in range(len(elems)):
-                logger.info(
-                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} "
-                    f"{labels[i]:>6} {labels2[i]:>6}"
-                )
-    elif labels is None:
-        for i in range(len(elems)):
-            logger.info(
-                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}"
-            )
-    elif labels2 is None:
-        for i in range(len(elems)):
-            logger.info(
-                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-                f"{coords[i][2]:>12.8f} {labels[i]:>6}"
-            )
-    else:
-        for i in range(len(elems)):
-            logger.info(
-                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-                f"{coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}"
-            )
+    for line in _coordinate_lines(coords, elems, indices, labels, labels2):
+        logger.info("%s", line)
+
+
+def _coordinate_lines(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    indices: Sequence[int] | None = None,
+    labels: Sequence[str | int] | None = None,
+    labels2: Sequence[str | int] | None = None,
+    *,
+    index_width: int = 1,
+) -> Iterator[str]:
+    for i, (elem, coord) in enumerate(zip(elems, coords, strict=False)):
+        prefix = "" if indices is None else f"{indices[i]:>{index_width}} "
+        line = f"{prefix}{elem:>4} {coord[0]:>12.8f}  {coord[1]:>12.8f}  {coord[2]:>12.8f}"
+        if labels is not None:
+            line += f" {labels[i]:>6}"
+            if labels2 is not None:
+                line += f" {labels2[i]:>6}"
+        yield line
 
 
 def write_coords_all(
@@ -1119,40 +1087,7 @@ def _write_coords_lines(
     description: str,
 ) -> None:
     f.write(f"#{description}\n")
-    if indices is None:
-        if labels is None:
-            f.writelines(
-                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
-                for i in range(len(elems))
-            )
-        elif labels2 is None:
-            f.writelines(
-                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}\n"
-                for i in range(len(elems))
-            )
-        else:
-            f.writelines(
-                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6} "
-                f"{labels2[i]:>6}\n"
-                for i in range(len(elems))
-            )
-    elif labels is None:
-        f.writelines(
-            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
-            for i in range(len(elems))
-        )
-    elif labels2 is None:
-        f.writelines(
-            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-            f"{coords[i][2]:>12.8f} {labels[i]:>6}\n"
-            for i in range(len(elems))
-        )
-    else:
-        f.writelines(
-            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-            f"{coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}\n"
-            for i in range(len(elems))
-        )
+    f.writelines(line + "\n" for line in _coordinate_lines(coords, elems, indices, labels, labels2))
 
 
 def distance(A: Sequence[float] | np.ndarray, B: Sequence[float] | np.ndarray) -> float:
@@ -1207,14 +1142,7 @@ def dihedral_between_atoms(fragment: Fragment | None = None, atoms: Sequence[int
 
 
 def get_centroid(coords: Sequence[Sequence[float]] | np.ndarray) -> list[float]:
-    sum_x = 0
-    sum_y = 0
-    sum_z = 0
-    for c in coords:
-        sum_x += c[0]
-        sum_y += c[1]
-        sum_z += c[2]
-    return [sum_x / len(coords), sum_y / len(coords), sum_z / len(coords)]
+    return np.asarray(coords).mean(axis=0).tolist()
 
 
 def threshold_conn(elA: str, elB: str, scale: float, tol: float) -> float:
@@ -1375,27 +1303,22 @@ def _formula_to_elem_list(formulastring: str) -> list[str]:
 def read_xyzfile(filename: str) -> tuple[list[str], list[list[float]]]:
     """Read elements and coordinates from an XYZ file."""
     logger.info(f"Reading coordinates from XYZ file '{filename}'.")
-    coords = []
-    elems = []
-    with open(filename) as f:
-        for count, line in enumerate(f):
-            if count == 0:
-                numatoms = int(line.split()[0])
-            if count > 1 and len(line.strip()) > 0:
-                if isint(line.split()[0]) is True:
-                    el = reformat_element(int(line.split()[0]), isatomnum=True)
-                    elems.append(el)
-                else:
-                    el = reformat_element(line.split()[0])
-                    elems.append(el)
-                coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
-    if len(coords) != numatoms:
+    with open(filename) as handle:
+        try:
+            numatoms = int(next(handle).split()[0])
+            next(handle)
+            atoms = [_parse_atom_line(line) for line in handle if line.strip()]
+        except (StopIteration, IndexError, ValueError):
+            raise FileFormatError(f"Invalid XYZ-file: {filename}") from None
+    if len(atoms) != numatoms:
         raise FileFormatError(f"Number of coordinates in XYZ-file: {filename} does not match header line.")
-    if len(coords) != len(elems):
-        raise FileFormatError(
-            f"Number of coordinates does not match elements. Something wrong with XYZ-file?:  {filename}"
-        )
-    return elems, coords
+    return [atom[0] for atom in atoms], [atom[1] for atom in atoms]
+
+
+def _parse_atom_line(line: str) -> tuple[str, list[float]]:
+    fields = line.split()
+    elem = reformat_element(int(fields[0]), isatomnum=True) if isint(fields[0]) else reformat_element(fields[0])
+    return elem, [float(fields[i]) for i in (1, 2, 3)]
 
 
 def read_xyzfiles(xyzdir: str, readchargemult: bool = False) -> list[Fragment]:
@@ -1438,56 +1361,36 @@ def split_multimolxyzfile(
     return_fragments: bool = False,
 ) -> list[Fragment] | tuple[list[list[str]], list[list[list[float]]], list[list[str] | str]]:
     """Split a multi-molecule XYZ file (trajectory, conformer set) into its frames."""
-    all_coords = []
-    all_elems = []
-    all_titles = []
+    if isinstance(skipindex, bool) or not isinstance(skipindex, int) or skipindex < 1:
+        raise InputError("skipindex must be a positive integer")
+    all_coords, all_elems, all_titles, fragments = [], [], [], []
     molcounter = 0
-    coordgrab = False
-    titlegrab = False
-    coords = []
-    elems = []
-    fragments = []
-    with open(file) as f:
-        for index, line in enumerate(f):
-            if index == 0:
-                numatoms = line.split()[0]
-            if coordgrab is True:
-                if len(line.split()) > 1:
-                    elems.append(reformat_element(line.split()[0]))
-                    coords_x = float(line.split()[1])
-                    coords_y = float(line.split()[2])
-                    coords_z = float(line.split()[3])
-                    coords.append([coords_x, coords_y, coords_z])
-                if len(coords) == int(numatoms):
-                    all_coords.append(coords)
-                    all_elems.append(elems)
-                    if writexyz is True:
-                        write_xyzfile(elems, coords, "molecule" + str(molcounter))
-                    if return_fragments is True:
-                        fragments.append(Fragment(coords=coords, elems=elems))
-                    coords = []
-                    elems = []
-            if titlegrab is True:
-                if len(line.split()) > 0:
-                    all_titles.append(line.split())
-                else:
-                    all_titles.append("NA")
-                titlegrab = False
-                coordgrab = True
-            if len(line.split()) > 0 and line.split()[0] == str(numatoms):
-                if molcounter % skipindex:
-                    molcounter += 1
-                    titlegrab = False
-                    coordgrab = False
-                else:
-                    molcounter += 1
-                    titlegrab = True
-                    coordgrab = False
+    with open(file) as handle:
+        while count_line := handle.readline():
+            if not count_line.strip():
+                continue
+            try:
+                numatoms = int(count_line.strip())
+                if numatoms < 0:
+                    raise ValueError
+                title = next(handle)
+                atoms = [_parse_atom_line(next(handle)) for _ in range(numatoms)]
+            except (StopIteration, IndexError, ValueError):
+                raise FileFormatError(f"Invalid XYZ frame {molcounter + 1} in {file}") from None
+            molcounter += 1
+            if (molcounter - 1) % skipindex:
+                continue
+            elems = [atom[0] for atom in atoms]
+            coords = [atom[1] for atom in atoms]
+            all_elems.append(elems)
+            all_coords.append(coords)
+            all_titles.append(title.split() or "NA")
+            if writexyz:
+                write_xyzfile(elems, coords, "molecule" + str(molcounter))
+            if return_fragments:
+                fragments.append(Fragment(coords=coords, elems=elems))
     logger.info(f"Found {molcounter} geometries in file: {file}")
-
-    if return_fragments is True:
-        return fragments
-    return all_elems, all_coords, all_titles
+    return fragments if return_fragments else (all_elems, all_coords, all_titles)
 
 
 def _read_chemshellfragfile_xyz(fragfile: str) -> tuple[list[str], np.ndarray]:
@@ -1811,7 +1714,7 @@ def flexible_align_xyz(
         subset=subset,
     )
 
-    newfragA.write_xyzfile(f"{xyzfile_a.replace('.xyz', '')}_aligned.xyz")
+    newfragA.write_xyzfile(f"{basename(xyzfile_a)}_aligned.xyz")
 
 
 def flexible_align_pdb(
@@ -1839,7 +1742,7 @@ def flexible_align_pdb(
     )
 
     fragment_a.coords = newfragA.coords
-    fragment_a.write_pdbfile_openmm(filename=f"{pdbfileA.replace('.pdb', '')}_aligned")
+    fragment_a.write_pdbfile_openmm(filename=f"{basename(pdbfileA)}_aligned")
 
 
 def _resolve_alignment_subsets(

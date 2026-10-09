@@ -12,6 +12,8 @@ from openmmqmmm.coords import (
     _write_coords_lines,
     angle,
     dihedral,
+    read_xyzfile,
+    split_multimolxyzfile,
     write_xyz_for_atoms,
 )
 
@@ -67,3 +69,23 @@ def test_xyz_subset_writers_preserve_filename_and_format(tmp_path):
         == ("1\ntitle\nHe       1.000000     2.000000     3.000000\n")
     )
 
+
+def test_xyz_readers_accept_atomic_numbers_and_trailing_whitespace(tmp_path):
+    target = tmp_path / "atoms.xyz"
+    target.write_text("2\n0 1\n1 0 0 0\n8 1 2 3\n     \n")
+    elems, coords = read_xyzfile(str(target))
+    fragment = Fragment(xyzfile=str(target), readchargemult=True)
+    assert fragment.elems == elems == ["H", "O"]
+    np.testing.assert_array_equal(fragment.coords, coords)
+    assert (fragment.charge, fragment.mult) == (0, 1)
+
+
+def test_multiframe_xyz_titles_do_not_start_new_frames(tmp_path):
+    target = tmp_path / "frames.xyz"
+    target.write_text("2\n2 atoms in frame one\nH 0 0 0\nH 1 0 0\n2\nsecond\n1 0 0 1\n1 1 0 1\n")
+    elems, coords, titles = split_multimolxyzfile(str(target), writexyz=True)
+    assert elems == [["H", "H"], ["H", "H"]]
+    assert titles == [["2", "atoms", "in", "frame", "one"], ["second"]]
+    assert coords[1] == [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0]]
+    assert read_xyzfile("molecule1.xyz")[0] == ["H", "H"]
+    assert len(split_multimolxyzfile(str(target), skipindex=2, return_fragments=True)) == 1
