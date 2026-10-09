@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from conftest import labelled_fragments as _labelled_fragments
 
 from openmmqmmm import (
     Fragment,
@@ -27,13 +28,6 @@ def _dummy_qmmm(**kwargs):
     from conftest import make_subregion_qmmm
 
     return make_subregion_qmmm(qm_charge=0, qm_mult=1, **kwargs)
-
-
-def _labelled_fragments(count=3):
-    return [
-        Fragment(coordsstring=f"H 0.0 0.0 0.0\nF 0.0 0.0 {0.9 + 0.1 * i}\n", charge=0, mult=1, label=f"frag{i}")
-        for i in range(count)
-    ]
 
 
 def test_single_point_energy(hydrogen_fluoride):

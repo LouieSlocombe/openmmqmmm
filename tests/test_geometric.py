@@ -18,7 +18,9 @@ from openmmqmmm.geometric import (
 )
 
 
-def test_geometric_optimizer_preserves_application_logging(monkeypatch, tmp_path):
+def test_geometric_optimizer_preserves_application_logging(
+    monkeypatch, tmp_path, isolated_package_logger, root_log_output
+):
     file_config_calls = []
 
     def application_file_config(*args, **kwargs):
@@ -27,12 +29,7 @@ def test_geometric_optimizer_preserves_application_logging(monkeypatch, tmp_path
     monkeypatch.setattr(logging.config, "fileConfig", application_file_config)
     logfile = tmp_path / "geometric.log"
     geometric_logger = logging.getLogger("geometric")
-    original_level = geometric_logger.level
     geometric_logger.setLevel(logging.ERROR)
-    root_output = StringIO()
-    root_handler = logging.StreamHandler(root_output)
-    root_logger = logging.getLogger()
-    root_logger.addHandler(root_handler)
 
     def fake_run_optimizer(**kwargs):
         logging.config.fileConfig(kwargs["logIni"], defaults={"logfilename": logfile})
@@ -40,21 +37,16 @@ def test_geometric_optimizer_preserves_application_logging(monkeypatch, tmp_path
         logging.getLogger("application.fake").warning("application warning")
         return "finished"
 
-    try:
-        result = _run_optimizer_without_reconfiguring_logging(fake_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
-    finally:
-        root_logger.removeHandler(root_handler)
-        root_handler.close()
-        geometric_logger.setLevel(original_level)
+    result = _run_optimizer_without_reconfiguring_logging(fake_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
 
     assert result == "finished"
     assert file_config_calls == []
     assert logging.config.fileConfig is application_file_config
     assert logfile.read_text() == "Step 1: test"
-    assert root_output.getvalue() == "application warning\n"
+    assert root_log_output.getvalue() == "application warning\n"
 
 
-def test_geometric_logging_isolation_restores_state_after_failure(monkeypatch, tmp_path):
+def test_geometric_logging_isolation_restores_state_after_failure(monkeypatch, tmp_path, isolated_package_logger):
     def application_file_config(*args, **kwargs):
         pytest.fail("geomeTRIC must not invoke the application's fileConfig")
 
@@ -81,27 +73,18 @@ def test_geometric_logging_isolation_restores_state_after_failure(monkeypatch, t
         logging.getLogger("geometric.failure").info("Step 1: before failure")
         raise RuntimeError("optimizer failed")
 
-    try:
-        with pytest.raises(RuntimeError, match="optimizer failed"):
-            _run_optimizer_without_reconfiguring_logging(failing_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
+    with pytest.raises(RuntimeError, match="optimizer failed"):
+        _run_optimizer_without_reconfiguring_logging(failing_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
 
-        assert logging.config.fileConfig is application_file_config
-        assert geometric_logger.handlers == [*original_handlers, application_handler]
-        assert geometric_logger.level == logging.ERROR
-        assert geometric_logger.propagate == original_state[1]
-        assert geometric_logger.disabled is True
-        assert application_handler.filters == []
-        assert application_output.getvalue() == ""
-        assert logfile.read_text() == "Step 1: before failure"
-        assert internal_handler is not None and internal_handler.stream is None
-    finally:
-        for handler in list(geometric_logger.handlers):
-            if handler not in original_handlers:
-                geometric_logger.removeHandler(handler)
-                handler.close()
-        geometric_logger.setLevel(original_state[0])
-        geometric_logger.propagate = original_state[1]
-        geometric_logger.disabled = original_state[2]
+    assert logging.config.fileConfig is application_file_config
+    assert geometric_logger.handlers == [*original_handlers, application_handler]
+    assert geometric_logger.level == logging.ERROR
+    assert geometric_logger.propagate == original_state[1]
+    assert geometric_logger.disabled is True
+    assert application_handler.filters == []
+    assert application_output.getvalue() == ""
+    assert logfile.read_text() == "Step 1: before failure"
+    assert internal_handler is not None and internal_handler.stream is None
 
 
 def test_geometric_logging_isolation_serializes_concurrent_runs(monkeypatch, tmp_path):

@@ -1,3 +1,4 @@
+import io
 import logging
 import stat
 from pathlib import Path
@@ -235,3 +236,21 @@ def isolated_package_logger():
         configured_logger.setLevel(level)
         configured_logger.propagate = propagate
         configured_logger.disabled = disabled
+
+
+@pytest.fixture
+def root_log_output():
+    output = io.StringIO()
+    handler = logging.StreamHandler(output)
+    root = logging.getLogger()
+    root.addHandler(handler)
+    yield output
+    root.removeHandler(handler)
+    handler.close()
+
+
+def labelled_fragments(count=3):
+    return [
+        Fragment(coordsstring=f"H 0.0 0.0 0.0\nF 0.0 0.0 {0.9 + 0.1 * i}\n", charge=0, mult=1, label=f"frag{i}")
+        for i in range(count)
+    ]

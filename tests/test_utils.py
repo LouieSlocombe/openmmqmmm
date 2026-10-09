@@ -156,20 +156,11 @@ def test_configure_logging_does_not_stack_handlers(capsys, isolated_package_logg
     assert capsys.readouterr().err.count("one calculation record") == 1
 
 
-def test_configure_logging_does_not_propagate_to_root(isolated_package_logger):
-    root_output = io.StringIO()
-    root_handler = logging.StreamHandler(root_output)
-    root_logger = logging.getLogger()
-    root_logger.addHandler(root_handler)
-    try:
-        package_logger = configure_logging()
-        package_logger.info("package-only record")
-        logging.getLogger("geometric.test").info("geometric-only record")
-    finally:
-        root_logger.removeHandler(root_handler)
-        root_handler.close()
-
-    assert root_output.getvalue() == ""
+def test_configure_logging_does_not_propagate_to_root(isolated_package_logger, root_log_output):
+    package_logger = configure_logging()
+    package_logger.info("package-only record")
+    logging.getLogger("geometric.test").info("geometric-only record")
+    assert root_log_output.getvalue() == ""
 
 
 def test_configure_logging_includes_geometric_output(capsys, isolated_package_logger):
