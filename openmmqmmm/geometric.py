@@ -63,6 +63,16 @@ _CONSTRAINT_ATOM_COUNTS = {"bond": 2, "angle": 3, "dihedral": 4, "torsion": 4}
 _CARTESIAN_CONSTRAINT_KEYS = ("xyz", "x", "y", "z", "xy", "xz", "yz")
 
 
+def _check_hessian_atom_count(hessian: np.ndarray, numatoms: int) -> None:
+    if hessian.shape[0] != 3 * numatoms:
+        raise InputError(
+            f"Hessian shape is {hessian.shape}  which is incompatible with the  number of "
+            f"active atoms present ({numatoms})\n"
+            f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the "
+            f"system (should be : {3 * numatoms} x {3 * numatoms})"
+        )
+
+
 def _run_optimizer_without_reconfiguring_logging(run_optimizer: Any, arguments: Mapping[str, Any]) -> Any:
     """Run geomeTRIC without allowing its legacy INI to replace application logging."""
     # geomeTRIC hard-codes a process-global fileConfig call and this integration
@@ -533,15 +543,7 @@ class GeometricOptimizer:
             logger.info("Hessian option provided is a Numpy array.")
 
             logger.info("Checking that Hessian is compatible with active atoms")
-            if self.hessian.shape[0] != 3 * len(atomsused):
-                raise InputError(
-                    "{}\n{}".format(
-                        f"Hessian shape is {self.hessian.shape}  which is incompatible with the  number of "
-                        f"active atoms present ({len(atomsused)})",
-                        f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the "
-                        f"system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
-                    )
-                )
+            _check_hessian_atom_count(self.hessian, len(atomsused))
 
             logger.info("Writing Hessian array to disk.")
 
@@ -603,15 +605,7 @@ class GeometricOptimizer:
                 logger.info("Checking that defined Hessian is compatible with active-region")
                 hessian_read = read_hessian(hessianfile)
                 logger.info("actatoms: %s", actatoms)
-                if hessian_read.shape[0] != 3 * len(atomsused):
-                    raise InputError(
-                        "{}\n{}".format(
-                            f"Hessian shape is {hessian_read.shape}  which is incompatible with the  number of "
-                            f"active atoms present ({len(atomsused)})",
-                            f"Hessian should have dimension of 3*N x 3*N where N is the number of active-atoms of the "
-                            f"system (should be : {3 * len(atomsused)} x {3 * len(atomsused)})",
-                        )
-                    )
+                _check_hessian_atom_count(hessian_read, len(atomsused))
         elif self.hessian is None:
             logger.info("No Hessian option provided.")
         else:
