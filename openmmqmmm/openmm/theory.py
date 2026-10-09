@@ -5,7 +5,7 @@ import os
 import re
 import time
 import weakref
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from numbers import Integral
 
 import numpy as np
@@ -117,6 +117,16 @@ def _residue_templates(
 def _box_cutoff_limit(vectors_angstrom: npt.ArrayLike) -> float:
     """Return a cutoff in Angstrom just below OpenMM's half-box limit."""
     return 0.499 * float(np.min(np.diag(vectors_angstrom)))
+
+
+def _zero_exception_offsets(force: openmm.NonbondedForce, exceptions: Collection[int], *, preserve_lj: bool) -> None:
+    """Remove independent charge offsets, optionally retaining their LJ contribution."""
+    for offset in range(force.getNumExceptionParameterOffsets()):
+        name, exception, _charge, sigma, epsilon = force.getExceptionParameterOffset(offset)
+        if exception in exceptions:
+            force.setExceptionParameterOffset(
+                offset, name, exception, 0, sigma if preserve_lj else 0, epsilon if preserve_lj else 0
+            )
 
 
 def _reduced_cell_vectors(dimensions: npt.ArrayLike) -> npt.NDArray[np.float64]:
@@ -996,6 +1006,7 @@ class OpenMMTheory:
         """Remove a force by its index in the system."""
         logger.debug("Removing force-index %s: %s", forceindex, self.system.getForces()[forceindex].getName())
         self.system.removeForce(forceindex)
+        self._refresh_forcegroups()
 
     def add_custom_bond_force(self, i: int, j: int, value: float, forceconstant: float) -> None:
         """Restrain the distance between two atoms harmonically."""
@@ -1182,10 +1193,7 @@ class OpenMMTheory:
                         numexceptions += 1
                 # Offsets are independent of the base parameters. Leaving one
                 # active would restore an interaction that was just excluded.
-                for offset in range(force.getNumExceptionParameterOffsets()):
-                    name, exception, *_parameters = force.getExceptionParameterOffset(offset)
-                    if exception in excluded_exceptions:
-                        force.setExceptionParameterOffset(offset, name, exception, 0, 0, 0)
+                _zero_exception_offsets(force, excluded_exceptions, preserve_lj=False)
             elif isinstance(force, openmm.CustomNonbondedForce):
                 # OpenMM rejects a Context whose nonbonded forces carry different exclusions:
                 # https://github.com/choderalab/perses/issues/357
@@ -1387,6 +1395,11 @@ class OpenMMTheory:
         log_time_since(timeA, "creating/updating simulation")
         return simulation
 
+    def _refresh_forcegroups(self) -> None:
+        """Discard wrappers for removed forces without changing assigned groups."""
+        if hasattr(self, "forcegroups"):
+            self.forcegroups = {force: force.getForceGroup() for force in self.system.getForces()}
+
     def forcegroupify(self) -> None:
         """Assign each force its own force group so their energies can be separated."""
         self.forcegroups = {}
@@ -1477,10 +1490,15 @@ class OpenMMTheory:
         return grad  # Eh/Bohr
 
     def get_cell_gradient(self) -> npt.NDArray[np.float64]:
-        """Compute the finite-difference cell gradient on self.stored_context and return it."""
-        logger.debug("Calculating cell gradient")
-        # Using self.stored_context (should have been defined by .run call)
-        self.cell_gradient = self.compute_cell_gradient_fd(self.stored_context, eps=1e-4)
+        """Compute the cell gradient at the last successful periodic single point."""
+        if not hasattr(self, "_cell_gradient_snapshot"):
+            raise InputError("A successful periodic OpenMMTheory.run is required before get_cell_gradient.")
+        positions_nm, box_nm = self._cell_gradient_snapshot
+        simulation = self.create_simulation()
+        simulation.context.setPeriodicBoxVectors(*box_nm)
+        simulation.context.setPositions(positions_nm * openmm.unit.nanometer)
+        simulation.context.computeVirtualSites()
+        self.cell_gradient = self.compute_cell_gradient_fd(simulation.context, eps=1e-4)
         logger.info("OpenMM cell gradient: %s", self.cell_gradient)
         return self.cell_gradient
 
@@ -1581,8 +1599,15 @@ class OpenMMTheory:
         # after real-atom positions (and any constraints) have been applied.
         simulation.context.computeVirtualSites()
         logger.debug("Calling OpenMM getState.")
-        state = simulation.context.getState(getEnergy=True, getForces=grad)
+        state = simulation.context.getState(getEnergy=True, getForces=grad, getPositions=self.periodic)
         self.energy, gradient = _state_energy_gradient(state, get_forces=grad)
+        if self.periodic:
+            # Keep serializable values only: retaining a Context would prevent thread changes
+            # and make the theory unsafe to copy or send to a worker process.
+            self._cell_gradient_snapshot = (
+                np.array(state.getPositions(asNumpy=True).value_in_unit(openmm.unit.nanometer), copy=True),
+                np.array(state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(openmm.unit.nanometer), copy=True),
+            )
         if grad is True:
             self.gradient = gradient
             # OpenMM has transferred virtual-site forces to their parent atoms.
@@ -1631,10 +1656,7 @@ class OpenMMTheory:
                         selected_exceptions.add(exc)
                         if hasattr(self, "_exception_charge_scales"):
                             self._exception_charge_scales[tuple(sorted((p1, p2)))] = 0.0
-                for offset in range(force.getNumExceptionParameterOffsets()):
-                    name, exc, _charge, sigma, epsilon = force.getExceptionParameterOffset(offset)
-                    if exc in selected_exceptions:
-                        force.setExceptionParameterOffset(offset, name, exc, 0, sigma, epsilon)
+                _zero_exception_offsets(force, selected_exceptions, preserve_lj=True)
         log_time_since(timeA, "delete_exceptions")
 
     def get_lj_epsilons(self, atomlist: Sequence[int]) -> list[object]:
@@ -1760,10 +1782,7 @@ class OpenMMTheory:
             raise InternalError("atomlist and epsilons size mismatch")
         for atomindex, newepsilon in zip(atomlist, epsilons, strict=True):
             charge, sigma, _oldepsilon = self.nonbonded_force.getParticleParameters(atomindex)
-            if isinstance(self.nonbonded_force, openmm.CustomNonbondedForce):
-                self.nonbonded_force.setParticleParameters(atomindex, [charge, sigma, newepsilon])
-            elif isinstance(self.nonbonded_force, openmm.NonbondedForce):
-                self.nonbonded_force.setParticleParameters(atomindex, charge, sigma, newepsilon)
+            self.nonbonded_force.setParticleParameters(atomindex, charge, sigma, newepsilon)
 
         log_time_since(timeA, "update_LJ_epsilons")
 
@@ -1780,7 +1799,6 @@ class OpenMMTheory:
             raise InternalError("atomlist and atomcharges size mismatch")
         selected = set(atomlist)
         exception_updates = []
-        exception_offset_updates = []
         new_scales = {}
         # A fixed charge assignment must also remove any alchemical/global charge
         # offsets, which OpenMM adds independently to the base particle charge.
@@ -1798,10 +1816,8 @@ class OpenMMTheory:
             for offset in range(force.getNumExceptionParameterOffsets()):
                 name, exception, charge, sigma, epsilon = force.getExceptionParameterOffset(offset)
                 p1, p2, *_parameters = force.getExceptionParameters(exception)
-                if p1 in selected or p2 in selected:
-                    exception_offset_updates.append((offset, name, exception, sigma, epsilon))
-                    if charge != 0:
-                        charge_offset_exceptions.add(exception)
+                if (p1 in selected or p2 in selected) and charge != 0:
+                    charge_offset_exceptions.add(exception)
             for exception in range(force.getNumExceptions()):
                 p1, p2, chargeprod, sigma, epsilon = force.getExceptionParameters(exception)
                 if p1 not in selected and p2 not in selected:
@@ -1834,8 +1850,7 @@ class OpenMMTheory:
                     self.nonbonded_force.setParticleParameterOffset(offset, name, particle, 0, sigma, epsilon)
             for exception, p1, p2, product, sigma, epsilon in exception_updates:
                 force.setExceptionParameters(exception, p1, p2, product, sigma, epsilon)
-            for offset, name, exception, sigma, epsilon in exception_offset_updates:
-                force.setExceptionParameterOffset(offset, name, exception, 0, sigma, epsilon)
+            _zero_exception_offsets(force, {item[0] for item in exception_updates}, preserve_lj=True)
             self._exception_charge_scales = {**scales, **new_scales}
         for atomindex, newcharge in zip(atomlist, atomcharges, strict=False):
             self.charges[atomindex] = newcharge
@@ -1999,10 +2014,8 @@ class OpenMMTheory:
             self.system.removeForce(force_index)
         for _force_index, replacement in replacement_torsion_forces:
             self.system.addForce(replacement)
-        if replacement_torsion_forces and hasattr(self, "forcegroups"):
-            # The old map contains wrappers for the deleted C++ forces.
-            # Refresh references without renumbering any explicit force group.
-            self.forcegroups = {force: force.getForceGroup() for force in self.system.getForces()}
+        if replacement_torsion_forces:
+            self._refresh_forcegroups()
 
         logger.info("\nNumber of bonded terms removed:")
         logger.info("Harmonic Bond terms: %s", numharmbondterms_removed)
