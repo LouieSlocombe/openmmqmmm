@@ -15,6 +15,8 @@ import numpy as np
 
 import openmmqmmm.constants
 from openmmqmmm.coords import (
+    CONNECTIVITY_SCALE,
+    CONNECTIVITY_TOL,
     Fragment,
     _print_internal_coordinate_table,
     _qm_region_owner,
@@ -37,7 +39,6 @@ from openmmqmmm.exceptions import (
     FileFormatError,
     InputError,
     InternalError,
-    MissingDependencyError,
     OpenMMQMMMError,
 )
 from openmmqmmm.freq import approximate_full_hessian_from_smaller, read_hessian, write_hessian
@@ -358,6 +359,8 @@ class GeometricOptimizer:
             logger.info("Detected periodicity in Theory object")
             logger.info("Activating periodic routines ")
             self.pbc_active = True
+            if pbc_format_option.upper() not in {"CIF", "XSF", "POSCAR"}:
+                raise InputError("pbc_format_option must be CIF, XSF or POSCAR")
             self.pbc_format_option = pbc_format_option
             logger.info("Switching coordsystem to hdlc")
             self.coordsystem = "hdlc"
@@ -553,93 +556,35 @@ class GeometricOptimizer:
                     "hessian='xtb' is not available in this ORCA+OpenMM build. Use '1point', '2point', "
                     "'partial' or a Hessian file instead."
                 )
-            if self.hessian == "1point":
-                logger.info("Requested Hessian from Numfreq 1-point approximation (running in serial)")
-                openmmqmmm.numerical_frequencies(
-                    theory=theory,
-                    fragment=fragment,
-                    charge=charge,
-                    mult=mult,
-                    npoint=1,
-                    runmode="serial",
-                    numcores=theory.numcores,
-                )
-                hessianfile = "Hessian_from_theory"
-                shutil.copyfile("Numfreq_dir/Hessian", hessianfile)
-                self.hessian = "file:" + str(hessianfile)
-            elif self.hessian == "2point":
-                logger.info("Requested Hessian from Numfreq 2-point approximation (running in serial)")
-                openmmqmmm.numerical_frequencies(
-                    theory=theory,
-                    fragment=fragment,
-                    charge=charge,
-                    mult=mult,
-                    npoint=2,
-                    runmode="serial",
-                    numcores=theory.numcores,
-                )
-                hessianfile = "Hessian_from_theory"
-                shutil.copyfile("Numfreq_dir/Hessian", hessianfile)
-                self.hessian = "file:" + str(hessianfile)
-            elif self.hessian == "partial":
-                logger.info("Partial Hessian option requested")
-
-                if self.partial_hessian_atoms is None:
-                    raise InputError("hessian='partial' option requires setting the partial_hessian_atoms option.")
-
-                logger.info("Now doing partial Hessian calculation using atoms: %s", self.partial_hessian_atoms)
+            options = {"1point": (1, False), "2point": (2, False), "partial": (1, True), "partial2": (2, True)}
+            if self.hessian in options:
+                npoint, partial = options[self.hessian]
+                if partial and self.partial_hessian_atoms is None:
+                    raise InputError(
+                        f"hessian='{self.hessian}' option requires setting the partial_hessian_atoms option."
+                    )
+                logger.info("Requested %s Hessian (%s-point, serial)", self.hessian, npoint)
                 result_freq = openmmqmmm.numerical_frequencies(
                     theory=theory,
                     fragment=fragment,
                     charge=charge,
                     mult=mult,
-                    npoint=1,
-                    hessatoms=self.partial_hessian_atoms,
+                    npoint=npoint,
                     runmode="serial",
-                    numcores=1,
+                    numcores=1 if partial else theory.numcores,
+                    **({"hessatoms": self.partial_hessian_atoms} if partial else {}),
                 )
-                # Large Hessian is the actatoms Hessian if actatoms provided
-
-                combined_hessian = approximate_full_hessian_from_smaller(
-                    fragment,
-                    result_freq.hessian,
-                    self.partial_hessian_atoms,
-                    large_atomindices=actatoms,
-                    rest_hessian=modelhessian,
-                )
-
-                hessianfile = "Hessian_from_partial"
-                write_hessian(combined_hessian, hessfile=hessianfile)
-                self.hessian = "file:" + hessianfile
-            elif self.hessian == "partial2":
-                logger.info("Partial Numpoint=2 Hessian option requested")
-
-                if self.partial_hessian_atoms is None:
-                    raise InputError("hessian='partial2' option requires setting the partial_hessian_atoms option.")
-
-                logger.info("Now doing partial Hessian calculation using atoms: %s", self.partial_hessian_atoms)
-                result_freq = openmmqmmm.numerical_frequencies(
-                    theory=theory,
-                    fragment=fragment,
-                    charge=charge,
-                    mult=mult,
-                    npoint=2,
-                    hessatoms=self.partial_hessian_atoms,
-                    runmode="serial",
-                    numcores=1,
-                )
-                # Large Hessian is the actatoms Hessian if actatoms provided
-
-                combined_hessian = approximate_full_hessian_from_smaller(
-                    fragment,
-                    result_freq.hessian,
-                    self.partial_hessian_atoms,
-                    large_atomindices=actatoms,
-                    rest_hessian=modelhessian,
-                )
-
-                hessianfile = "Hessian_from_partial"
-                write_hessian(combined_hessian, hessfile=hessianfile)
+                hessian = result_freq.hessian
+                if partial:
+                    hessian = approximate_full_hessian_from_smaller(
+                        fragment,
+                        hessian,
+                        self.partial_hessian_atoms,
+                        large_atomindices=actatoms,
+                        rest_hessian=modelhessian,
+                    )
+                hessianfile = "Hessian_from_partial" if partial else "Hessian_from_theory"
+                write_hessian(hessian, hessfile=hessianfile)
                 self.hessian = "file:" + hessianfile
             elif self.hessian.startswith(("file:", "file+last:")):
                 hessianfile = self.hessian.split(":", 1)[1]
@@ -761,14 +706,8 @@ class GeometricOptimizer:
         self.print_atoms_output_setting(theory, fragment)
         self.hessian_option(fragment, self.actatoms, theory, charge, mult, self.modelhessian)
 
-        try:
-            import geometric
-        except Exception as e:
-            raise MissingDependencyError(
-                f"Problem importing geomeTRIC module!\nEither install geomeTRIC using pip:\n conda install geometric\n "
-                f"or \n pip install geometric\n or manually from Github (https://github.com/leeping/geomeTRIC)\nActual "
-                f"error message: {e}"
-            ) from e
+        import geometric
+
         # geomeTRIC bond-order threshold: 0 disables bond-order connectivity, which only the PBC engine provides.
         self.bothre = 0.0
 
@@ -1013,10 +952,11 @@ class GeometricEngine:
         if self.pbc_active:
             logger.info("PBC and BOmatrix handling")
             self.BOmatrix = np.zeros((len(self.M.elem), len(self.M.elem)), dtype=int)
-            self.fragment.calc_connectivity()
             from openmmqmmm.coords import get_connected_atoms_dict
 
-            conndict = get_connected_atoms_dict(self.fragment.coords, self.fragment.elems, 1.0, 0.1)
+            conndict = get_connected_atoms_dict(
+                self.fragment.coords, self.fragment.elems, CONNECTIVITY_SCALE, CONNECTIVITY_TOL
+            )
             logger.info("conndict: %s", conndict)
             for i, conn in conndict.items():
                 for c in conn:
@@ -1038,24 +978,23 @@ class GeometricEngine:
     # geomeTRIC itself writes only the active-region trajectory.
     def write_trajectory_full(self) -> None:
         logger.info("Writing trajectory for Full system to file: geometric_OPTtraj_Full.xyz")
-        with open("geometric_OPTtraj_Full.xyz", "a") as trajfile:
-            trajfile.write(str(self.fragment.numatoms) + "\n")
-            trajfile.write(f"Iteration {self.iteration_count} Energy {self.energy} \n")
-            trajfile.writelines(
-                el + "  " + str(cor[0]) + " " + str(cor[1]) + " " + str(cor[2]) + "\n"
-                for el, cor in zip(self.fragment.elems, self.full_current_coords, strict=False)
-            )
+        write_xyzfile(
+            self.fragment.elems,
+            self.full_current_coords,
+            "geometric_OPTtraj_Full",
+            writemode="a",
+            title=f"Iteration {self.iteration_count} Energy {self.energy} ",
+        )
 
     def write_trajectory_qmregion(self) -> None:
         logger.info("Writing trajectory for QM-region to file: geometric_OPTtraj_QMregion.xyz")
-        with open("geometric_OPTtraj_QMregion.xyz", "a") as trajfile:
-            trajfile.write(str(len(self.theory.qmatoms)) + "\n")
-            trajfile.write(f"Iteration {self.iteration_count} Energy {self.energy} \n")
-            qm_coords, qm_elems = self.fragment.get_coords_for_atoms(self.theory.qmatoms)
-            trajfile.writelines(
-                el + "  " + str(cor[0]) + " " + str(cor[1]) + " " + str(cor[2]) + "\n"
-                for el, cor in zip(qm_elems, qm_coords, strict=False)
-            )
+        write_xyzfile(
+            self.theory.qm_elems,
+            self.full_current_coords[self.theory.qmatoms],
+            "geometric_OPTtraj_QMregion",
+            writemode="a",
+            title=f"Iteration {self.iteration_count} Energy {self.energy} ",
+        )
 
     def write_energy_logfile(self) -> None:
         logger.info("Writing logfile with energies: optimization_energies.log")
@@ -1070,13 +1009,15 @@ class GeometricEngine:
     def write_pdbtrajectory(self) -> None:
         logger.info("Writing PDB-trajectory to file: geometric_OPTtraj-PDB.pdb")
         pdbtrajectoryfile = "geometric_OPTtraj-PDB.pdb"
-        # STILL problem with PBC
-        state = self.theory.mm_theory.simulation.context.getState(
-            getEnergy=False, getPositions=True, getForces=False, enforcePeriodicBox=True
-        )
-        newpos = state.getPositions()
+        import openmm.app
+        import openmm.unit
+
         with open(pdbtrajectoryfile, "a") as pdbfh:
-            self.theory.mm_theory.openmm.app.PDBFile.writeFile(self.theory.mm_theory.topology, newpos, file=pdbfh)
+            openmm.app.PDBFile.writeFile(
+                self.theory.mm_theory.topology,
+                self.full_current_coords * openmm.unit.angstrom,
+                file=pdbfh,
+            )
 
     def calc(
         self,
@@ -1106,6 +1047,33 @@ class GeometricEngine:
 
         return egdict
 
+    def _update_iteration_count(self) -> None:
+        step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
+        if step_lines:
+            self.iteration_count = int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
+
+    def _evaluate(
+        self, coords: np.ndarray, elems: Sequence[str], *, write_fragment: bool = False
+    ) -> tuple[float, np.ndarray]:
+        self.full_current_coords = coords
+        self.fragment.replace_coords(self.fragment.elems, coords, conn=False)
+        if write_fragment:
+            self.fragment.print_system(filename="fragment_currentgeo.frag")
+        self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
+        logger.info(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
+        logger.info("---------------------------------------------------")
+        print_coords_for_atoms(coords, elems, self.print_atoms_list)
+        logger.info("Note: Only print_atoms_list region printed above")
+        energy, gradient = self.theory.run(
+            current_coords=coords,
+            elems=elems,
+            charge=self.charge,
+            mult=self.mult,
+            grad=True,
+        )
+        self.energy = energy
+        return energy, gradient
+
     def actregion_calc(self, currcoords: np.ndarray) -> CalculationResult:
         if self.active_region is not True:
             raise InternalError("actregion_calc called without an active region")
@@ -1114,26 +1082,7 @@ class GeometricEngine:
 
         for act_i, curr_i in zip(self.actatoms, currcoords, strict=False):
             full_coords[act_i] = curr_i
-        self.full_current_coords = full_coords
-
-        # Write out fragment with updated coordinates for the purpose of doing restart
-        self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
-        self.fragment.print_system(filename="fragment_currentgeo.frag")
-        self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
-
-        logger.info(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
-        logger.info("-------------------------------------------------")
-
-        print_coords_for_atoms(self.full_current_coords, self.fragment.elems, self.print_atoms_list)
-        logger.info("Note: Only print_atoms_list region printed above")
-
-        E, grad = self.theory.run(
-            current_coords=self.full_current_coords,
-            elems=self.fragment.elems,
-            charge=self.charge,
-            mult=self.mult,
-            grad=True,
-        )
+        E, grad = self._evaluate(full_coords, self.fragment.elems, write_fragment=True)
 
         if logger.isEnabledFor(logging.DEBUG):
             write_coords_all(
@@ -1166,28 +1115,13 @@ class GeometricEngine:
             if isinstance(self.theory.mm_theory, OpenMMTheory) and self.mm_pdb_traj_write is True:
                 self.write_pdbtrajectory()
 
-        step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
-        if len(step_lines) > 0:
-            iteration = int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
-            self.iteration_count = int(iteration)
+        self._update_iteration_count()
 
         return {"energy": E, "gradient": Grad_act.flatten()}
 
     def regular_calc(self, currcoords: np.ndarray) -> CalculationResult:
-        self.full_current_coords = currcoords
-        self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
-        self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
-        logger.info(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
-        logger.info("---------------------------------------------------")
-        print_coords_for_atoms(currcoords, self.fragment.elems, self.print_atoms_list)
-        logger.info("\nNote: printed only print_atoms_list (this is not necessarily all atoms) ")
-        E, grad = self.theory.run(
-            current_coords=currcoords, elems=self.M.elem, charge=self.charge, mult=self.mult, grad=True
-        )
-        step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
-        if len(step_lines) > 0:
-            iteration = int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
-            self.iteration_count = int(iteration)
+        E, grad = self._evaluate(currcoords, self.M.elem)
+        self._update_iteration_count()
         self.energy = E
         return {"energy": E, "gradient": grad.flatten()}
 
@@ -1206,25 +1140,11 @@ class GeometricEngine:
         R_phys = np.dot(s, H_geo) + origin
         self.theory.update_cell(H_geo)
 
-        self.full_current_coords = R_phys
-        self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
-        self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
-        logger.info(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
-        logger.info("---------------------------------------------------")
-        print_coords_for_atoms(R_phys, self.elems_phys, self.print_atoms_list)
-        logger.info("\nNote: printed only print_atoms_list (this is not necessarily all atoms) ")
         logger.info(f"Current cell vectors (Å):{H_geo}")
         logger.info(f"Current cell volume (Å³):{cell_volume(H_geo)}")
+        E, grad_phys = self._evaluate(R_phys, self.elems_phys)
 
-        E, grad_phys = self.theory.run(
-            current_coords=R_phys, elems=self.elems_phys, charge=self.charge, mult=self.mult, grad=True
-        )
-        self.energy = E
-
-        step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
-        if len(step_lines) > 0:
-            iteration = int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
-            self.iteration_count = int(iteration)
+        self._update_iteration_count()
 
         # M is the transformation matrix: R_phys = R_geo @ M
         M = np.dot(self.H_ref_inv, H_geo)

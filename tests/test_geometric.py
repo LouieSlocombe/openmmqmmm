@@ -363,3 +363,75 @@ def test_user_criteria_override_the_preset():
     assert optimizer.conv_criteria["convergence_grms"] == 1e-9
     assert optimizer.conv_criteria["convergence_energy"] == CONVERGENCE_PRESETS["ORCA"]["convergence_energy"]
     assert CONVERGENCE_PRESETS["ORCA"]["convergence_grms"] != 1e-9, "The preset itself must not be mutated"
+
+
+@pytest.mark.parametrize(
+    "option,npoint,partial", [("1point", 1, False), ("2point", 2, False), ("partial", 1, True), ("partial2", 2, True)]
+)
+def test_hessian_options_use_the_requested_stencil(monkeypatch, option, npoint, partial):
+    from types import SimpleNamespace
+
+    import openmmqmmm
+    from openmmqmmm.freq import read_hessian, write_hessian
+
+    fragment = _six_atom_chain()
+    calls = []
+
+    def calculate(**kwargs):
+        calls.append(kwargs)
+        hessian = np.eye(6 if partial else 18)
+        Path("Numfreq_dir").mkdir(exist_ok=True)
+        write_hessian(hessian, hessfile="Numfreq_dir/Hessian")
+        return SimpleNamespace(hessian=hessian)
+
+    monkeypatch.setattr(openmmqmmm, "numerical_frequencies", calculate)
+    monkeypatch.setattr("openmmqmmm.geometric.approximate_full_hessian_from_smaller", lambda *a, **k: np.eye(18) * 2)
+    optimizer = GeometricOptimizer(hessian=option, partial_hessian_atoms=[0, 1])
+    theory = ZeroTheory(numcores=3)
+    optimizer.hessian_option(fragment, [], theory, 0, 1, None)
+    assert calls[0]["npoint"] == npoint
+    assert calls[0]["numcores"] == (1 if partial else 3)
+    assert calls[0].get("hessatoms") == ([0, 1] if partial else None)
+    np.testing.assert_array_equal(read_hessian(optimizer.hessian.split(":", 1)[1]), np.eye(18) * (2 if partial else 1))
+
+
+def test_array_hessian_is_written_without_a_frequency_job():
+    from openmmqmmm.freq import read_hessian
+
+    optimizer = GeometricOptimizer(hessian=np.eye(18))
+    optimizer.hessian_option(_six_atom_chain(), [], ZeroTheory(), 0, 1, None)
+    np.testing.assert_array_equal(read_hessian("Hessian_np"), np.eye(18))
+
+
+def test_pdb_trajectory_uses_the_latest_full_geometry(tmp_path):
+    from types import SimpleNamespace
+
+    import openmm.app
+    import openmm.unit
+
+    from openmmqmmm.geometric import GeometricEngine
+
+    topology = openmm.app.Topology()
+    residue = topology.addResidue("MOL", topology.addChain())
+    topology.addAtom("H", openmm.app.element.hydrogen, residue)
+    engine = GeometricEngine.__new__(GeometricEngine)
+    engine.theory = SimpleNamespace(mm_theory=SimpleNamespace(topology=topology))
+    engine.full_current_coords = np.array([[1.2, 2.3, 3.4]])
+    engine.write_pdbtrajectory()
+    pdb = openmm.app.PDBFile(str(tmp_path / "geometric_OPTtraj-PDB.pdb"))
+    np.testing.assert_allclose(pdb.positions.value_in_unit(openmm.unit.angstrom), engine.full_current_coords)
+
+
+def test_unknown_periodic_output_format_is_rejected_before_optimization():
+    from types import SimpleNamespace
+
+    with pytest.raises(InputError, match="pbc_format_option"):
+        GeometricOptimizer(theory=SimpleNamespace(periodic=True), pbc_format_option="unknown")
+
+
+def test_active_region_optimization_preserves_frozen_atoms_and_full_trajectory():
+    fragment = _six_atom_chain()
+    original = fragment.coords.copy()
+    optimize_geometry(theory=ZeroTheory(), fragment=fragment, active_region=True, actatoms=[0, 1, 2])
+    np.testing.assert_array_equal(fragment.coords[3:], original[3:])
+    assert Path("geometric_OPTtraj_Full.xyz").read_text().splitlines()[0] == "6"
