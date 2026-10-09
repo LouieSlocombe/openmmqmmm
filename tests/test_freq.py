@@ -819,3 +819,22 @@ def test_entirely_absent_optional_properties_are_disabled(dipoles):
 
     assert np.all(dipole_derivs == 0.0)
     assert polarizability_derivs == []
+
+
+@pytest.mark.parametrize("bend", [0.0, 0.0025])
+@pytest.mark.parametrize("masses", [None, [12.0, 18.0, 18.0]])
+def test_near_linear_projection_keeps_all_cartesian_modes(bend, masses):
+    fragment = Fragment(elems=["C", "O", "O"], coords=[[bend, 0, 0], [0, 0, 1.16], [0, 0, -1.16]], charge=0, mult=1)
+    result = analytic_frequencies(fragment=fragment, theory=SoftModeHessianTheory(np.eye(9)), masses=masses)
+    assert len(result.frequencies) == 9
+    assert result.normal_modes.shape == (9, 9)
+    assert result.vib_eigenvectors.shape == (9, 9)
+
+
+def test_forced_partial_projection_uses_the_hessian_geometry(water):
+    result = numerical_frequencies(
+        fragment=water, theory=ZeroTheory(), hessatoms=[1, 2], force_projection=True, IR=False
+    )
+    assert len(result.frequencies) == 6
+    assert result.normal_modes.shape == (6, 6)
+    assert result.freq_tr_modenum == 5

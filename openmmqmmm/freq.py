@@ -218,14 +218,12 @@ def analytic_frequencies(
     if fragment is None or theory is None:
         raise InputError("analytic_frequencies requires a fragment and a theory object")
 
-    if detect_linear(coords=fragment.coords, elems=fragment.elems, threshold=rotmode_threshold) is True:
-        tr_modenum = 5
-    else:
-        tr_modenum = 6
     hessatoms = list(range(fragment.numatoms))
 
     if masses is None:
         masses = fragment.list_of_masses
+
+    tr_modenum = _tr_mode_count(fragment.coords, masses, rotmode_threshold)
 
     # QMMMTheory and the wrapper theories never define analytic_hessian; only ORCATheory sets it True.
     if getattr(theory, "analytic_hessian", False):
@@ -236,7 +234,13 @@ def analytic_frequencies(
         logger.info("Getting analytic Hessian from theory object")
         hessian = theory.hessian
         frequencies, nmodes, evectors, _mode_order = _diagonalize_hessian(
-            fragment.coords, theory.hessian, masses, fragment.elems, tr_modenum=tr_modenum, projection=True
+            fragment.coords,
+            theory.hessian,
+            masses,
+            fragment.elems,
+            tr_modenum=tr_modenum,
+            projection=True,
+            rotmode_threshold=rotmode_threshold,
         )
         logger.info("Now scaling frequencies by scaling factor: %s", scaling_factor)
         frequencies = scaling_factor * frequencies
@@ -693,10 +697,6 @@ def numerical_frequencies(
             )
         if not all(math.isfinite(mass) and mass > 0 for mass in hessatoms_masses):
             raise InputError("hessatoms_masses must contain only positive finite numbers")
-    if detect_linear(coords=fragment.coords, elems=fragment.elems, threshold=rotmode_threshold) is True:
-        tr_modenum = 5
-    else:
-        tr_modenum = 6
     original_directory = Path.cwd()
     lock_owner = _NUMFREQ_LOCK_OWNER.get()
     if lock_owner is None:
@@ -787,6 +787,8 @@ def numerical_frequencies(
     hesscoords = np.take(fragment.coords, hessatoms, axis=0)
     logger.info("Elements: %s", hesselems)
     logger.info("Masses used: %s", hessmasses)
+
+    tr_modenum = _tr_mode_count(hesscoords, hessmasses, rotmode_threshold)
 
     # Evectors: eigenvectors of the mass-weighted Hessian
     # Normal modes: unweighted
@@ -908,7 +910,9 @@ def _diagonalize_hessian(
 
     if projection is True:
         logger.info("Projection of out rotational and translational modes active!")
-        vfreqs, evectors, nmodes = _project_rot_and_trans(coords, masses, hessian, rotmode_threshold=rotmode_threshold)
+        vfreqs, evectors, nmodes, tr_modenum = _project_rot_and_trans(
+            coords, masses, hessian, rotmode_threshold=rotmode_threshold
+        )
         for _ in range(tr_modenum):
             vfreqs = np.insert(vfreqs, 0, 0.0)
         for _ in range(tr_modenum):
@@ -1072,11 +1076,10 @@ def _rotational_thermochemistry(
     logger.info("Moments of inertia (amu Å^2): %s", rinertia)
     inertia_si = np.array(rinertia) * openmmqmmm.constants.AMU_TO_KG * openmmqmmm.constants.ANG_TO_M**2
     inertia_avg = float(np.mean(inertia_si))
-    rotconstants = calc_rotational_constants(fragment)
+    rotconstants = _rotational_constants_from_moments(rinertia)
 
     if moltype == "linear":
-        zero_moment = _ZERO_MOMENT_RTOL * np.max(np.abs(inertia_si))
-        rot_temps = [_rotational_temperature(in_I) for in_I in inertia_si if abs(in_I) > zero_moment]
+        rot_temps = [_rotational_temperature(in_I) for in_I in _nonzero_moments(inertia_si)]
         logger.info(f"Rotational temperatures: {rot_temps} K")
         sigma_r = 1.0 if symmetry_number is None else symmetry_number
         q_r = (1 / sigma_r) * (temp / rot_temps[0])
@@ -1495,32 +1498,28 @@ def _get_center(
     return xcom, ycom, zcom
 
 
+def _inertia_tensor(coords: np.ndarray, masses: Sequence[float], center: Sequence[float] | None = None) -> np.ndarray:
+    """Return the inertia tensor in amu Å² for coordinates in Å."""
+    masses = np.asarray(masses)
+    if center is None:
+        center = _get_center(coords, masses=masses)
+    centered = np.asarray(coords) - center
+    return np.eye(3) * np.sum(masses[:, None] * centered**2) - (centered * masses[:, None]).T @ centered
+
+
+def _principal_moments(coords: np.ndarray, masses: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
+    """Return principal moments in amu Å² and principal axes as columns."""
+    return np.linalg.eigh(_inertia_tensor(coords, masses))
+
+
+def _tr_mode_count(coords: np.ndarray, masses: Sequence[float], threshold: float) -> int:
+    moments, _axes = _principal_moments(coords, masses)
+    return 3 + int(np.count_nonzero(np.abs(moments) > threshold))
+
+
 def inertia(elems: Sequence[str], coords: np.ndarray, center: Sequence[float]) -> np.ndarray:
-    xcom = center[0]
-    ycom = center[1]
-    zcom = center[2]
-    Ixx = 0.0
-    Iyy = 0.0
-    Izz = 0.0
-    Ixy = 0.0
-    Ixz = 0.0
-    Iyz = 0.0
-
-    for mass, coord in zip(openmmqmmm.coords.list_of_masses(elems), coords, strict=False):
-        x = coord[0] - xcom
-        y = coord[1] - ycom
-        z = coord[2] - zcom
-
-        Ixx += mass * (y**2.0 + z**2.0)
-        Iyy += mass * (x**2.0 + z**2.0)
-        Izz += mass * (x**2.0 + y**2.0)
-        Ixy += mass * x * y
-        Ixz += mass * x * z
-        Iyz += mass * y * z
-
-    # np.array, not np.matrix: the matrix subclass is pending deprecation in numpy
-    inertia_tensor = np.array([[Ixx, -Ixy, -Ixz], [-Ixy, Iyy, -Iyz], [-Ixz, -Iyz, Izz]])
-    return np.linalg.eigvals(inertia_tensor)
+    # Preserve this public helper's unsorted principal moments.
+    return np.linalg.eigvals(_inertia_tensor(coords, openmmqmmm.coords.list_of_masses(elems), center))
 
 
 def calc_rotational_constants(frag: Fragment) -> list[float]:
@@ -1530,12 +1529,19 @@ def calc_rotational_constants(frag: Fragment) -> list[float]:
     center = _get_center(coords, elems=elems)
     rinertia = [float(i) for i in inertia(elems, coords, center)]
 
-    zero_moment = _ZERO_MOMENT_RTOL * max(abs(i) for i in rinertia)
+    return _rotational_constants_from_moments(rinertia)
+
+
+def _nonzero_moments(moments: Sequence[float]) -> list[float]:
+    threshold = _ZERO_MOMENT_RTOL * np.max(np.abs(moments))
+    return [float(moment) for moment in moments if abs(moment) > threshold]
+
+
+def _rotational_constants_from_moments(rinertia: Sequence[float]) -> list[float]:
     rot_constants = []
-    for inertval in rinertia:
-        if abs(inertval) > zero_moment:
-            rot_ghz = openmmqmmm.constants.ROT_CONSTANT_GHZ_AMU_ANG2 / inertval
-            rot_constants.append(rot_ghz)
+    for inertval in _nonzero_moments(rinertia):
+        rot_ghz = openmmqmmm.constants.ROT_CONSTANT_GHZ_AMU_ANG2 / inertval
+        rot_constants.append(rot_ghz)
 
     rot_constants_cm = [i * openmmqmmm.constants.GHZ_TO_WAVENUMBER for i in rot_constants]
     logger.info("Moments of inertia (amu A^2 ): %s", rinertia)
@@ -1874,9 +1880,7 @@ def detect_linear(
         return True
     if numatoms == 2:
         return True
-    center = _get_center(coords, elems=elems)
-    rinertia = [float(i) for i in inertia(elems, coords, center)]
-    if any(abs(i) < threshold for i in rinertia) is True:
+    if _tr_mode_count(coords, openmmqmmm.coords.list_of_masses(elems), threshold) < 6:
         logger.info("Molecule is linear")
         return True
     logger.info("Molecule is non-linear")
@@ -1902,8 +1906,11 @@ def _project_rot_and_trans(
     mass: Sequence[float],
     hessian: np.ndarray,
     rotmode_threshold: float = 1e-4,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     mass = np.array(mass)
+    # rotmode_threshold is consistently in amu Å², including detect_linear.
+    Ivals, Ivecs = _principal_moments(coords, mass)
+    Ivecs = Ivecs.T
     coords = np.array(coords) * openmmqmmm.constants.ANG_TO_BOHR
     coords = coords.copy().reshape(-1, 3)
     na = coords.shape[0]
@@ -1921,19 +1928,7 @@ def _project_rot_and_trans(
 
     xcm = coords - cxyz[np.newaxis, :]
 
-    inertia_tensor = np.sum(
-        [mass[i] * (np.eye(3) * (np.dot(xcm[i], xcm[i])) - np.outer(xcm[i], xcm[i])) for i in range(na)], axis=0
-    )
-
-    Ivals, Ivecs = np.linalg.eigh(inertia_tensor)
-    Ivecs = Ivecs.T
-
-    RotDOF = 0
-    for i in range(3):
-        logger.info("Ivals[i]: %s", Ivals[i])
-        if abs(Ivals[i]) > rotmode_threshold:
-            RotDOF += 1
-    TR_DOF = 3 + RotDOF
+    TR_DOF = 3 + int(np.count_nonzero(np.abs(Ivals) > rotmode_threshold))
     logger.info("TR_DOF: %s", TR_DOF)
     if TR_DOF not in (5, 6):
         logger.warning(f"Unexpected number of trans+rot DOF: {TR_DOF} not in (5, 6)")
@@ -2009,7 +2004,7 @@ def _project_rot_and_trans(
 
     freqs_wavenumber = wavenumber_scaling * np.sqrt(np.abs(ichess_vals)) * np.sign(ichess_vals)
 
-    return freqs_wavenumber, normal_modes, normal_modes_cart
+    return freqs_wavenumber, normal_modes, normal_modes_cart, TR_DOF
 
 
 def _calc_raman_activities(
