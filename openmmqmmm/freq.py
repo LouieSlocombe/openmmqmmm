@@ -25,7 +25,7 @@ import openmmqmmm.constants
 import openmmqmmm.coords
 import openmmqmmm.orca
 from openmmqmmm.coords import Fragment, check_charge_mult
-from openmmqmmm.exceptions import InputError, InternalError
+from openmmqmmm.exceptions import ExternalProgramError, InputError, InternalError
 from openmmqmmm.numgrad import _displaced_geometries, _displacement_label
 from openmmqmmm.qmmm import QMMMTheory
 from openmmqmmm.results import Results
@@ -1461,7 +1461,15 @@ def _calc_model_hessian_orca(
     shiftpar = 0
     lastchunk = False
     grabsize = False
-    with open(orcadummycalc.filename + ".opt") as optfile:
+    opt_path = orcadummycalc.filename + ".opt"
+    with open(opt_path, "rb") as optfile:
+        if b"\x00" in optfile.read(256):
+            raise ExternalProgramError(
+                "ORCA wrote a binary .opt model Hessian (as in ORCA 6). Reading this format is not supported; "
+                "use rest_hessian='zero' or 'unit', or supply an explicitly computed Hessian. "
+                "Model-Hessian support is tracked in issue #68."
+            )
+    with open(opt_path) as optfile:
         for line in optfile:
             if "$bmatrix" in line:
                 hesstake = False
@@ -1583,11 +1591,11 @@ def approximate_full_hessian_from_smaller(
             fullhessian[i, j] = hessian_small[s_i, s_j]
     logger.info("Final fullhessian: %s", fullhessian)
     write_hessian(fullhessian, hessfile="intermedfullhessian_after_small_update")
-    tr_modenum = 5 if detect_linear(coords=fragment.coords, elems=fragment.elems) is True else 6
+    tr_modenum = _tr_mode_count(usedfragment.coords, usedfragment.masses, 1e-4)
 
     logger.info("Now diagonalizing full Hessian")
     frequencies, _normal_modes, _evectors, _mode_order = _diagonalize_hessian(
-        fragment.coords,
+        usedfragment.coords,
         fullhessian,
         usedfragment.masses,
         usedfragment.elems,

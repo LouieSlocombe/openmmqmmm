@@ -23,8 +23,8 @@ from openmmqmmm.freq import (
 )
 
 HARTREE_TO_KJ_PER_MOL = 2625.4996394799
-# h * c in Hartree per cm**-1, not halved despite the name; callers apply the 0.5
-HALF_HC = 4.5563352812122295e-06
+# h * c in Hartree per cm**-1; callers apply the 0.5 for zero-point energy.
+HC_HARTREE_PER_WAVENUMBER = 4.5563352812122295e-06
 
 WATER_COORDS = "O 0.0 0.0 0.1173\nH 0.0 0.7572 -0.4692\nH 0.0 -0.7572 -0.4692\n"
 # ORCA HF/def2-SVP harmonic frequencies for the geometry above. calc_thermochemistry takes
@@ -35,6 +35,17 @@ WATER_FREQUENCIES = [0.0] * 6 + [1790.72, 4113.36, 4212.31]
 @pytest.fixture
 def water():
     return Fragment(coordsstring=WATER_COORDS, charge=0, mult=1)
+
+
+@pytest.fixture
+def symmetric_hessian():
+    matrix = np.random.default_rng(1).random((9, 9))
+    return matrix + matrix.T
+
+
+@pytest.fixture
+def water_with_extra_hydrogen():
+    return Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
 
 
 def test_translational_entropy_matches_sackur_tetrode():
@@ -60,7 +71,7 @@ def test_translational_entropy_matches_sackur_tetrode():
 def test_zpve_is_the_harmonic_sum(water):
     """ZPVE must be 0.5*h*c*sum(nu) over the real modes."""
     result = calc_thermochemistry(vfreq=WATER_FREQUENCIES, atoms=[0, 1, 2], fragment=water, multiplicity=1)
-    assert result["ZPVE"] == pytest.approx(0.5 * sum(WATER_FREQUENCIES) * HALF_HC, rel=1e-6)
+    assert result["ZPVE"] == pytest.approx(0.5 * sum(WATER_FREQUENCIES) * HC_HARTREE_PER_WAVENUMBER, rel=1e-6)
 
 
 def test_thermal_corrections_match_orca(water):
@@ -182,18 +193,16 @@ def test_linear_molecule_off_the_cartesian_axes_has_two_finite_rotational_consta
     )
 
 
-def test_detect_linear():
+def test_detect_linear(water):
     linear = Fragment(coordsstring="C 0.0 0.0 0.0\nO 0.0 0.0 1.13\nO 0.0 0.0 -1.13\n", charge=0, mult=1)
-    bent = Fragment(coordsstring=WATER_COORDS, charge=0, mult=1)
+    bent = water
 
     assert detect_linear(fragment=linear) is True
     assert detect_linear(fragment=bent) is False
 
 
-def test_hessian_write_read_roundtrip(tmp_path):
-    rng = np.random.default_rng(0)
-    hessian = rng.random((9, 9))
-    hessian = hessian + hessian.T  # Hessians are symmetric
+def test_hessian_write_read_roundtrip(tmp_path, symmetric_hessian):
+    hessian = symmetric_hessian
 
     hessfile = str(tmp_path / "Hessian")
     write_hessian(hessian, hessfile=hessfile)
@@ -201,12 +210,10 @@ def test_hessian_write_read_roundtrip(tmp_path):
     assert np.allclose(read_hessian(hessfile), hessian)
 
 
-def test_approximate_full_hessian_embeds_the_small_one():
-    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
+def test_approximate_full_hessian_embeds_the_small_one(water_with_extra_hydrogen, symmetric_hessian):
+    fragment = water_with_extra_hydrogen
     hessatoms = [0, 1, 2]
-    rng = np.random.default_rng(1)
-    small = rng.random((9, 9))
-    small = small + small.T
+    small = symmetric_hessian
 
     full = approximate_full_hessian_from_smaller(fragment, small, hessatoms)
 
@@ -215,9 +222,12 @@ def test_approximate_full_hessian_embeds_the_small_one():
     assert np.allclose(full, full.T), "The result must stay symmetric"
 
 
-def test_sub_region_hessian_fragment_does_not_inherit_the_whole_system_charge(monkeypatch):
+def test_sub_region_hessian_fragment_does_not_inherit_the_whole_system_charge(
+    monkeypatch, water_with_extra_hydrogen, symmetric_hessian
+):
     """A model Hessian over part of a fragment must not be run with the whole fragment's charge."""
-    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=-1, mult=1)
+    fragment = water_with_extra_hydrogen
+    fragment.charge = -1
     seen = {}
 
     def fake_model_hessian(subfragment, model="Almloef", *, charge=None, mult=None):
@@ -226,9 +236,7 @@ def test_sub_region_hessian_fragment_does_not_inherit_the_whole_system_charge(mo
         return np.zeros((9, 9))
 
     monkeypatch.setattr(openmmqmmm.freq, "_calc_model_hessian_orca", fake_model_hessian)
-    rng = np.random.default_rng(1)
-    small = rng.random((9, 9))
-    small = small + small.T
+    small = symmetric_hessian
 
     approximate_full_hessian_from_smaller(
         fragment, small, [0, 1, 2], large_atomindices=[0, 1, 2], rest_hessian="Almloef", charge=0, mult=1
@@ -238,11 +246,10 @@ def test_sub_region_hessian_fragment_does_not_inherit_the_whole_system_charge(mo
     assert seen["charge"] == 0, "The explicitly supplied sub-region charge is what gets used"
 
 
-def test_sub_region_model_hessian_without_a_charge_is_rejected():
-    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=-1, mult=1)
-    rng = np.random.default_rng(1)
-    small = rng.random((9, 9))
-    small = small + small.T
+def test_sub_region_model_hessian_without_a_charge_is_rejected(water_with_extra_hydrogen, symmetric_hessian):
+    fragment = water_with_extra_hydrogen
+    fragment.charge = -1
+    small = symmetric_hessian
 
     with pytest.raises(InputError, match="describe the whole system"):
         approximate_full_hessian_from_smaller(
@@ -250,7 +257,7 @@ def test_sub_region_model_hessian_without_a_charge_is_rejected():
         )
 
 
-def test_whole_fragment_model_hessian_may_use_the_fragment_charge(monkeypatch):
+def test_whole_fragment_model_hessian_may_use_the_fragment_charge(monkeypatch, symmetric_hessian):
     """With no sub-region there is no region confusion, so the fragment's charge is correct."""
     fragment = Fragment(coordsstring=WATER_COORDS, charge=-1, mult=2)
     seen = {}
@@ -260,21 +267,17 @@ def test_whole_fragment_model_hessian_may_use_the_fragment_charge(monkeypatch):
         return np.zeros((9, 9))
 
     monkeypatch.setattr(openmmqmmm.freq, "_calc_model_hessian_orca", fake_model_hessian)
-    rng = np.random.default_rng(1)
-    small = rng.random((9, 9))
-    small = small + small.T
+    small = symmetric_hessian
 
     approximate_full_hessian_from_smaller(fragment, small, [0, 1, 2], rest_hessian="Almloef")
 
     assert (seen["charge"], seen["mult"]) == (-1, 2)
 
 
-def test_model_hessian_does_not_mutate_the_callers_fragment(monkeypatch):
+def test_model_hessian_does_not_mutate_the_callers_fragment(monkeypatch, symmetric_hessian):
     fragment = Fragment(coordsstring=WATER_COORDS, charge=-1, mult=2)
     monkeypatch.setattr(openmmqmmm.freq, "_calc_model_hessian_orca", lambda *_a, **_kw: np.zeros((9, 9)))
-    rng = np.random.default_rng(1)
-    small = rng.random((9, 9))
-    small = small + small.T
+    small = symmetric_hessian
 
     approximate_full_hessian_from_smaller(fragment, small, [0, 1, 2], rest_hessian="Almloef", charge=0, mult=1)
 
@@ -285,8 +288,8 @@ def test_model_hessian_does_not_mutate_the_callers_fragment(monkeypatch):
     ("spelling", "rest_diagonal"),
     [(None, 0.0), ("zero", 0.0), ("ZERO", 0.0), ("unit", 1.0), ("Unit", 1.0), ("identity", 1.0), ("IDENTITY", 1.0)],
 )
-def test_rest_hessian_spelling_ignores_case(spelling, rest_diagonal):
-    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
+def test_rest_hessian_spelling_ignores_case(spelling, rest_diagonal, water_with_extra_hydrogen):
+    fragment = water_with_extra_hydrogen
 
     full = approximate_full_hessian_from_smaller(fragment, np.eye(9), [0, 1, 2], rest_hessian=spelling)
 
@@ -294,8 +297,8 @@ def test_rest_hessian_spelling_ignores_case(spelling, rest_diagonal):
 
 
 @pytest.mark.parametrize("spelling", ["Almloef", "almloef", "LINDH", "schlegel", "Swart"])
-def test_model_rest_hessian_spelling_ignores_case(monkeypatch, spelling):
-    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
+def test_model_rest_hessian_spelling_ignores_case(monkeypatch, spelling, water_with_extra_hydrogen):
+    fragment = water_with_extra_hydrogen
     seen = {}
 
     def fake_model_hessian(subfragment, model="Almloef", *, charge=None, mult=None):
@@ -311,8 +314,8 @@ def test_model_rest_hessian_spelling_ignores_case(monkeypatch, spelling):
 
 
 @pytest.mark.parametrize("spelling", ["bogus", "Almlof", "ones"])
-def test_unrecognised_rest_hessian_is_rejected_not_read_as_zero(spelling):
-    fragment = Fragment(coordsstring=WATER_COORDS + "H 0.0 0.0 3.0\n", charge=0, mult=1)
+def test_unrecognised_rest_hessian_is_rejected_not_read_as_zero(spelling, water_with_extra_hydrogen):
+    fragment = water_with_extra_hydrogen
 
     with pytest.raises(InputError, match=f"Unknown rest_hessian '{spelling}'") as excinfo:
         approximate_full_hessian_from_smaller(fragment, np.eye(9), [0, 1, 2], rest_hessian=spelling)
@@ -321,17 +324,17 @@ def test_unrecognised_rest_hessian_is_rejected_not_read_as_zero(spelling):
         assert option in str(excinfo.value)
 
 
-def test_analytic_frequencies_rejects_a_theory_without_an_analytic_hessian():
+def test_analytic_frequencies_rejects_a_theory_without_an_analytic_hessian(water):
     """QMMMTheory and the wrapper theories never define analytic_hessian at all."""
-    fragment = Fragment(coordsstring=WATER_COORDS, charge=0, mult=1)
+    fragment = water
 
     with pytest.raises(InputError, match="numerical_frequencies"):
         analytic_frequencies(fragment=fragment, theory=ZeroTheory(), charge=0, mult=1)
 
 
-def test_numerical_frequencies_on_a_flat_surface():
+def test_numerical_frequencies_on_a_flat_surface(water):
     """A zero potential gives a zero Hessian and therefore zero frequencies."""
-    fragment = Fragment(coordsstring=WATER_COORDS, charge=0, mult=1)
+    fragment = water
 
     result = numerical_frequencies(fragment=fragment, theory=ZeroTheory())
 
@@ -472,7 +475,6 @@ HARMONIC_COORDS = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.98], [0.93, 0.0, -0.26]]
 
 
 def _numerical_hessian(tmp_path, monkeypatch, **kwargs):
-    monkeypatch.chdir(tmp_path)
     fragment = Fragment(elems=["O", "H", "H"], coords=HARMONIC_COORDS, charge=0, mult=1)
     numerical_frequencies(
         fragment=fragment,
@@ -594,7 +596,6 @@ def test_numfreq_recovers_a_lock_file_left_by_a_dead_process(tmp_path, monkeypat
 
 @pytest.mark.parametrize("custom_masses", [[2.5, 12.5], None], ids=["custom", "fragment-default"])
 def test_hessatom_order_keeps_metadata_and_masses_aligned(tmp_path, monkeypatch, custom_masses):
-    monkeypatch.chdir(tmp_path)
     fragment = Fragment(elems=["O", "H", "H"], coords=HARMONIC_COORDS, charge=0, mult=1)
 
     result = numerical_frequencies(
@@ -930,3 +931,24 @@ def test_parallel_numerical_frequencies_schedules_every_displacement(water, monk
     assert [value.value[0] for value in pools[0].async_results] == expected
     assert result.hessian == pytest.approx(np.zeros((9, 9)))
     assert len(result.frequencies) == 9
+
+
+def test_projecting_an_embedded_partial_hessian_uses_only_the_requested_geometry(water):
+    result = approximate_full_hessian_from_smaller(
+        water, np.eye(3), [1], large_atomindices=[1, 2], rest_hessian="unit", projection=True
+    )
+    assert result.shape == (6, 6)
+    assert result == pytest.approx(np.eye(6))
+
+
+@pytest.mark.usefixtures("fake_orca_dir")
+def test_orca6_binary_model_hessian_has_an_actionable_error(water, monkeypatch):
+    from openmmqmmm.exceptions import ExternalProgramError
+
+    def write_binary_model_hessian(**kwargs):
+        # ORCA 6.1.1 .opt files contain binary headers and matrix data, not section markers.
+        Path(kwargs["theory"].filename + ".opt").write_bytes(b"\x08\x00\x00\x00\x00\x00\x00\x00\xff")
+
+    monkeypatch.setattr(openmmqmmm, "single_point", write_binary_model_hessian)
+    with pytest.raises(ExternalProgramError, match=r"binary.*rest_hessian='zero'.*issue #68"):
+        openmmqmmm.freq._calc_model_hessian_orca(water, charge=0, mult=1)
