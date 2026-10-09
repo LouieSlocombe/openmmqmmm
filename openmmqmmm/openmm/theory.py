@@ -28,9 +28,11 @@ from openmmqmmm.exceptions import (
     InputError,
     InternalError,
 )
+from openmmqmmm.openmm.rpmd_force import require_rpmd_unconstrained
 from openmmqmmm.utils import (
     log_time_since,
     main_header,
+    require_int_in_range,
     small_header,
     sub_header,
 )
@@ -355,6 +357,7 @@ class OpenMMTheory:
         log_time_since(module_init_time, "OpenMM object creation")
 
     def _configure_platform(self, platform: str, *, numcores: int, properties: dict[str, str] | None) -> None:
+        numcores = require_int_in_range(numcores, "numcores must be a positive integer.")
         # OpenMM also honours $OPENMM_CPU_THREADS from the shell; numcores sets it here.
         os.environ["OMP_NUM_THREADS"] = str(numcores)
         os.environ["OPENMM_CPU_THREADS"] = str(numcores)
@@ -390,6 +393,21 @@ class OpenMMTheory:
         logger.info("Rigidwater constraints: %s", self.rigidwater)
         self.hydrogenmass = None if hydrogenmass is None else hydrogenmass * openmm.unit.amu
         logger.info("Hydrogenmass option: %s", self.hydrogenmass)
+
+    def _log_constraint_settings(self, target: logging.Logger) -> None:
+        """Describe constraints and warn once about incompatible frozen atoms."""
+        target.info("OpenMM autoconstraints: %s", self.autoconstraints)
+        target.info("OpenMM hydrogenmass: %s", self.hydrogenmass)
+        target.info("OpenMM rigidwater constraints: %s", self.rigidwater)
+        target.info("User constraints: %s", self.user_constraints or None)
+        target.info("User restraints: %s", self.user_restraints or None)
+        target.info("Number of frozen atoms: %s", len(self.user_frozen_atoms))
+        if self.user_frozen_atoms and (self.rigidwater or self.autoconstraints is not None):
+            target.warning(
+                "Frozen_atoms options selected but there are general constraints defined in "
+                "the OpenMM object (either rigidwater=True or autoconstraints is not None)\n"
+                "OpenMM will crash if constraints and frozen atoms involve the same atoms"
+            )
 
     def _apply_bondconstraints(
         self,
@@ -871,6 +889,7 @@ class OpenMMTheory:
         OpenMM fixes Threads when a Context is created, so this raises InputError while a
         CPU Context from create_simulation (MD included) is alive with a different count.
         """
+        numcores = require_int_in_range(numcores, "numcores must be a positive integer.")
         if self.platform_choice == "CPU":
             threads = str(numcores)
             if any(
@@ -1275,26 +1294,21 @@ class OpenMMTheory:
 
     def set_rpmd_num_copies(self, num_copies: int) -> None:
         """Set the number of ring-polymer copies (beads) used by RPMD."""
-        if isinstance(num_copies, bool) or not isinstance(num_copies, Integral) or num_copies < 1:
-            raise InputError("rpmd_num_copies must be a positive integer.")
-        self.rpmd_num_copies = int(num_copies)
+        self.rpmd_num_copies = require_int_in_range(num_copies, "rpmd_num_copies must be a positive integer.")
 
     def set_rpmd_contractions(self, contractions: Mapping[int, int] | None) -> None:
         """Set force-group ring-polymer contractions for the next RPMD integrator."""
         validated = {}
         for group, num_copies in ({} if contractions is None else dict(contractions)).items():
-            if isinstance(group, bool) or not isinstance(group, Integral) or not 0 <= group <= 31:
-                raise InputError("RPMD contraction force groups must be integer indices from 0 to 31.")
-            if (
-                isinstance(num_copies, bool)
-                or not isinstance(num_copies, Integral)
-                or not 1 <= num_copies <= self.rpmd_num_copies
-            ):
-                raise InputError(
-                    f"RPMD contraction copy counts must be positive integers no larger than "
-                    f"rpmd_num_copies ({self.rpmd_num_copies})."
-                )
-            validated[int(group)] = int(num_copies)
+            validated_group = require_int_in_range(
+                group, "RPMD contraction force groups must be integer indices from 0 to 31.", minimum=0, maximum=31
+            )
+            validated[validated_group] = require_int_in_range(
+                num_copies,
+                f"RPMD contraction copy counts must be positive integers no larger than "
+                f"rpmd_num_copies ({self.rpmd_num_copies}).",
+                maximum=self.rpmd_num_copies,
+            )
         self.rpmd_contractions = validated
 
     def create_integrator(self) -> None:
@@ -1321,13 +1335,7 @@ class OpenMMTheory:
             )
         elif self.integrator_name == "RPMDIntegrator":
             logger.info("RPMDIntegrator will be used")
-            num_constraints = self.system.getNumConstraints()
-            if num_constraints:
-                raise InputError(
-                    f"RPMDIntegrator does not support constraints, but the OpenMM System contains "
-                    f"{num_constraints}. Create OpenMMTheory with autoconstraints=None, rigidwater=False, "
-                    "and without bondconstraints."
-                )
+            require_rpmd_unconstrained(self.system)
             logger.info("RPMD number of copies (beads) set to %s", self.rpmd_num_copies)
             args = (
                 self.rpmd_num_copies,

@@ -96,34 +96,12 @@ def openmm_minimize(
     logger.info("Max iterations: %s", maxiter)
     logger.info(f"Tolerance: {tolerance} kj/mol/nm:")
     logger.info(f"Will write to trajectory every {traj_frequency} iterations")
-    logger.info("OpenMM autoconstraints: %s", openmmobject.autoconstraints)
-    logger.info("OpenMM hydrogenmass: %s", openmmobject.hydrogenmass)
-    logger.info("OpenMM rigidwater constraints: %s", openmmobject.rigidwater)
-
-    if openmmobject.user_constraints:
-        logger.info(f"User constraints: {openmmobject.user_constraints}")
-    else:
-        logger.info("User constraints: None")
-
-    if openmmobject.user_restraints:
-        logger.info(f"User restraints: {openmmobject.user_restraints}")
-    else:
-        logger.info("User restraints: None")
-    logger.info(f"Number of frozen atoms: {len(openmmobject.user_frozen_atoms)}")
+    openmmobject._log_constraint_settings(logger)
 
     if openmmobject.autoconstraints is None:
         logger.warning(
             "Autoconstraints have not been set in OpenMMTheory; no bonds are constrained in the optimization"
         )
-    if (openmmobject.rigidwater is True and len(openmmobject.user_frozen_atoms) != 0) or (
-        openmmobject.autoconstraints is not None and len(openmmobject.user_frozen_atoms) != 0
-    ):
-        logger.warning(
-            "Frozen_atoms options selected but there are general constraints defined in "
-            "the OpenMM object (either rigidwater=True or autoconstraints is not None)\n"
-            "OpenMM will crash if constraints and frozen atoms involve the same atoms"
-        )
-
     openmmobject.set_simulation_parameters(timestep=0.001, temperature=1, integrator="VerletIntegrator")
 
     simulation = openmmobject.create_simulation()
@@ -537,17 +515,15 @@ def openmm_modeller(
     logger.info("Extra forcefield XML file: %s", extraxmlfile)
 
     logger.debug("Creating OpenMMTheory object")
-    openmmobject = OpenMMTheory(
-        platform=platform,
-        forcefield=forcefield_obj,
-        topoforce=True,
-        topology=modeller.topology,
-        pdbfile=None,
-        periodic=periodic,
-        autoconstraints="HBonds",
-        rigidwater=True,
-        residuetemplate_choice=residuetemplate_choice,
-    )
+    theory_options = {
+        "platform": platform,
+        "forcefield": forcefield_obj,
+        "topoforce": True,
+        "topology": modeller.topology,
+        "periodic": periodic,
+        "residuetemplate_choice": residuetemplate_choice,
+    }
+    openmmobject = OpenMMTheory(**theory_options, autoconstraints="HBonds", rigidwater=True)
     systemxmlfile = "system_full.xml"
 
     serialized_system = openmm.XmlSerializer.serialize(openmmobject.system)
@@ -565,17 +541,7 @@ def openmm_modeller(
     )
     logger.debug("\nNow running single-point MM job to check for bad contacts")
     # OpenMMTheory.run rejects autoconstraints and rigid water, so the bad-contact check uses an unconstrained copy.
-    omm = OpenMMTheory(
-        platform=platform,
-        forcefield=forcefield_obj,
-        topoforce=True,
-        topology=modeller.topology,
-        pdbfile=None,
-        periodic=periodic,
-        autoconstraints=None,
-        rigidwater=False,
-        residuetemplate_choice=residuetemplate_choice,
-    )
+    omm = OpenMMTheory(**theory_options, autoconstraints=None, rigidwater=False)
     SP_result = single_point(theory=omm, fragment=fragment, grad=True)
     check_gradient_for_bad_atoms(fragment=fragment, gradient=SP_result.gradient, threshold=45000)
 
@@ -689,10 +655,7 @@ def solvate_small_molecule(
         logger.debug("Creating forcefield using XML-files: %s %s", xmlfile, waterxmlfile)
         forcefield = openmm.app.forcefield.ForceField(*[xmlfile, waterxmlfile])
 
-    if skip_xmlfile is True:
-        atomnames = [el + "Y" + str(i) for i, el in enumerate(fragment.elems)]
-        pdbfile = write_pdbfile(fragment, outputname="smallmol", dummyname="LIG", atomnames=atomnames)
-    elif pygrep("<Bond", xmlfile):
+    if not skip_xmlfile and pygrep("<Bond", xmlfile):
         logger.info("XML-file contains bonded parameters. Writing PDB-file with connectivity.")
         xyzfile = Fragment.write_xyzfile(fragment, xyzfilename="smallmol.xyz")
         pdbfile = xyz_to_pdb_with_connectivity(xyzfile)
@@ -711,7 +674,7 @@ def solvate_small_molecule(
     logger.info(f"Solvent boxdimension provided: {solvent_boxdims} Å")
     modeller.addSolvent(
         forcefield,
-        boxSize=openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2]) * openmm.unit.angstrom,
+        boxSize=openmm.Vec3(*solvent_boxdims) * openmm.unit.angstrom,
     )
 
     logger.info("Creating PDB-file: system_aftersolvent.pdb")
@@ -967,9 +930,6 @@ def _add_solvent_or_membrane(
             minimumPadding=membrane_padding * openmm.unit.angstrom,
         )
 
-        write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
-        print_systemsize(modeller)
-        fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
     else:
         logger.info("We are doing explicit solvation")
         logger.debug("Setting periodic to True")
@@ -979,10 +939,7 @@ def _add_solvent_or_membrane(
         logger.info("Actual solvent file: %s", waterxmlfile)
         if solvent_boxdims is not None:
             logger.info(f"Solvent boxdimension provided: {solvent_boxdims} Å")
-            box = {
-                "boxSize": openmm.Vec3(solvent_boxdims[0], solvent_boxdims[1], solvent_boxdims[2])
-                * openmm.unit.angstrom
-            }
+            box = {"boxSize": openmm.Vec3(*solvent_boxdims) * openmm.unit.angstrom}
         else:
             logger.info(f"Using solvent padding (solvent_padding=X keyword): {solvent_padding} Å")
             box = {"padding": solvent_padding * openmm.unit.angstrom}
@@ -998,8 +955,8 @@ def _add_solvent_or_membrane(
             ionicStrength=ionicstrength * openmm.unit.molar,
             residueTemplates=residue_templates,
         )
+    if periodic:
         write_pdbfile_openmm_topology(modeller.topology, modeller.positions, "system_aftersolvent_ions.pdb")
-
         print_systemsize(modeller)
         fragment = Fragment(pdbfile="system_aftersolvent_ions.pdb")
     return periodic, fragment, waterxmlfile

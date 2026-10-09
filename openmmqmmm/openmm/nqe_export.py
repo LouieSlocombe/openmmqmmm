@@ -27,7 +27,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 from collections.abc import Sequence
-from numbers import Integral
 
 import numpy as np
 import numpy.typing as npt
@@ -37,8 +36,14 @@ import openmm.unit
 
 from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.exceptions import InputError
-from openmmqmmm.openmm.rpmd_force import RPMDQMMMForceProvider, add_rpmd_python_force
+from openmmqmmm.openmm.rpmd_force import (
+    RPMDQMMMForceProvider,
+    add_rpmd_python_force,
+    require_rpmd_unconstrained,
+    rpmd_cache_size,
+)
 from openmmqmmm.qmmm import QMMMTheory
+from openmmqmmm.utils import require_int_in_range
 
 logger = logging.getLogger(__name__)
 
@@ -97,24 +102,16 @@ def attach_qmmm_python_force(
             "QM/MM PythonForce dynamics does not support update_qm_region_charges because changing "
             "the shared MM charge set during callback evaluation does not define a fixed potential."
         )
-    if isinstance(num_beads, bool) or not isinstance(num_beads, Integral) or num_beads < 1:
-        raise InputError("num_beads must be a positive integer matching the RPMD copy count the System will run under.")
-    num_beads = int(num_beads)
-
-    num_constraints = theory.mm_theory.system.getNumConstraints()
-    if num_beads > 1 and num_constraints:
-        raise InputError(
-            f"RPMDIntegrator does not support constraints, but the OpenMM System contains "
-            f"{num_constraints}. Create OpenMMTheory with autoconstraints=None, rigidwater=False, "
-            "and without bondconstraints."
-        )
+    num_beads = require_int_in_range(
+        num_beads, "num_beads must be a positive integer matching the RPMD copy count the System will run under."
+    )
+    if num_beads > 1:
+        require_rpmd_unconstrained(theory.mm_theory.system)
     if restore_physical_masses:
         theory.mm_theory._disable_hydrogen_mass_repartitioning()
 
     if cache_size is None:
-        # Two rounds of bead geometries: RPMDIntegrator evaluates every bead twice on a step that
-        # starts without valid forces (e.g. the first) and once on other steps.
-        cache_size = 2 * num_beads + 4
+        cache_size = rpmd_cache_size(num_beads)
 
     provider = RPMDQMMMForceProvider(
         theory,

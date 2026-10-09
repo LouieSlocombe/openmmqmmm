@@ -2,7 +2,7 @@
 
 import openmm
 import pytest
-from conftest import _AnalyticQM
+from conftest import _AnalyticQM, dummy_mm
 
 from openmmqmmm import Fragment, MolecularDynamicsEngine, OpenMMTheory, QMMMTheory, gentle_warmup_md, openmm_md
 from openmmqmmm.exceptions import InputError
@@ -10,15 +10,7 @@ from openmmqmmm.exceptions import InputError
 
 def _make_theory(kind, platform="Reference", **mm_options):
     fragment = Fragment(elems=["H", "H"], coords=[[-0.5, 0, 0], [0.5, 0, 0]], charge=0, mult=1)
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform=platform,
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-        **mm_options,
-    )
+    mm = dummy_mm(fragment, platform=platform, **mm_options)
     theory = mm
     if kind == "qmmm":
         theory = QMMMTheory(

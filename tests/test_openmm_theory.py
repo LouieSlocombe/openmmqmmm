@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import dummy_mm
 
 from openmmqmmm import Fragment, OpenMMTheory, openmm_minimize, single_point
 from openmmqmmm.exceptions import InputError
@@ -37,16 +38,7 @@ def solvated_theory():
 @pytest.fixture
 def cpu_theory():
     fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [5, 0, 0]], conncalc=False)
-    return OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="CPU",
-        numcores=1,
-        properties={"DeterministicForces": "true"},
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
+    return dummy_mm(fragment, platform="CPU", numcores=1, properties={"DeterministicForces": "true"})
 
 
 def test_set_numcores_updates_effective_cpu_threads(cpu_theory):
@@ -312,7 +304,7 @@ def test_qtb_integrator_is_created():
     assert isinstance(theory.integrator, openmm.QTBIntegrator)
 
 
-@pytest.mark.parametrize("num_copies", [0, -1, 1.5, True, "8"])
+@pytest.mark.parametrize("num_copies", [0, -1, 1.5, True, np.bool_(True), "8"])
 def test_rpmd_copy_count_must_be_a_positive_integer(num_copies):
     theory = OpenMMTheory.__new__(OpenMMTheory)
 
@@ -392,16 +384,8 @@ def test_single_point_through_the_job_function(solvated_fragment, solvated_theor
 
 def _dummy_theory(**kwargs):
     fragment = Fragment(elems=["He"] * 3, coords=[[0, 0, 0], [3, 0, 0], [0, 4, 0]], conncalc=False)
-    options = {
-        "fragment": fragment,
-        "dummysystem": True,
-        "platform": "Reference",
-        "autoconstraints": None,
-        "rigidwater": False,
-        "hydrogenmass": None,
-    }
-    options.update(kwargs)
-    return OpenMMTheory(**options)
+    fragment = kwargs.pop("fragment", fragment)
+    return dummy_mm(fragment, **kwargs)
 
 
 def test_fully_specified_bondconstraints_are_added_to_the_system():

@@ -8,7 +8,6 @@ import logging
 import os
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from numbers import Integral
 from sys import stdout
 from typing import Any, TextIO
 
@@ -36,6 +35,7 @@ from openmmqmmm.openmm.nqe_export import attach_qmmm_python_force
 from openmmqmmm.openmm.rpmd_force import (
     RPMDExternalQMForceProvider,
     add_rpmd_python_force,
+    rpmd_cache_size,
 )
 from openmmqmmm.openmm.systemsetup import openmm_minimize
 from openmmqmmm.openmm.theory import NUCLEAR_QUANTUM_INTEGRATORS, ForceReporter, OpenMMTheory
@@ -43,6 +43,7 @@ from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
     log_time_since,
     main_header,
+    require_int_in_range,
     small_header,
 )
 
@@ -346,6 +347,12 @@ class MolecularDynamicsEngine:
             periodic_cell_dimensions=periodic_cell_dimensions,
         )
 
+        if self.theory_runtype == "MM" and (special_wrapping or special_wrapping_updatepos):
+            raise InputError(
+                "MM dynamics does not support special_wrapping. "
+                "Use enforce_periodic_box or image the trajectory afterwards."
+            )
+
         if self.theory_runtype in {"QMMM", "QM"}:
             if special_wrapping or special_wrapping_updatepos:
                 raise InputError(
@@ -409,15 +416,6 @@ class MolecularDynamicsEngine:
                 "'HAngles' permits larger timesteps. See OpenMM issues 2754 and 2520 for guidance."
             )
             logger.debug("Will continue...")
-        if (self.openmmobject.rigidwater is True and len(self.openmmobject.user_frozen_atoms) != 0) or (
-            self.openmmobject.autoconstraints is not None and len(self.openmmobject.user_frozen_atoms) != 0
-        ):
-            logger.warning(
-                "Frozen_atoms options selected but there are general constraints defined in "
-                "the OpenMM object (either rigidwater=True or autoconstraints is not None)"
-                "\nOpenMM will crash if constraints and frozen atoms involve the same atoms"
-            )
-
         self._set_initial_positions(dummyatomrestraint=dummyatomrestraint, solute_indices=solute_indices)
 
         if center_on_atoms is not None:
@@ -468,8 +466,14 @@ class MolecularDynamicsEngine:
                 )
             )
 
+        self._rpmd_reporters.extend(self._trajectory_reporters(restart))
+        logger.info("RPMD restart data will be written to %s", RPMD_RESTART_FILENAME)
+
+    def _trajectory_reporters(self, restart: bool) -> list[Any]:
+        """Create identical per-frame reporters for classical and bead-resolved dynamics."""
+        reporters = []
         if self.trajectory_file_option == "PDB":
-            self._rpmd_reporters.append(
+            reporters.append(
                 openmm.app.PDBReporter(
                     self.trajfilename + ".pdb", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
                 )
@@ -478,7 +482,7 @@ class MolecularDynamicsEngine:
             if restart and not os.path.isfile(f"{self.trajfilename}.dcd"):
                 logger.warning("Restart requested without an existing DCD trajectory; creating a new file")
                 restart = False
-            self._rpmd_reporters.append(
+            reporters.append(
                 openmm.app.DCDReporter(
                     self.trajfilename + ".dcd",
                     self.traj_frequency,
@@ -487,23 +491,23 @@ class MolecularDynamicsEngine:
                 )
             )
         elif self.trajectory_file_option == "NetCDFReporter":
-            self._rpmd_reporters.append(mdtraj.reporters.NetCDFReporter(self.trajfilename + ".nc", self.traj_frequency))
+            reporters.append(mdtraj.reporters.NetCDFReporter(self.trajfilename + ".nc", self.traj_frequency))
         elif self.trajectory_file_option == "HDF5Reporter":
-            self._rpmd_reporters.append(
+            reporters.append(
                 mdtraj.reporters.HDF5Reporter(
                     self.trajfilename + ".lh5", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
                 )
             )
 
         if self.force_file_option is not None:
-            self._rpmd_reporters.append(
+            reporters.append(
                 ForceReporter(
                     self.trajfilename + "_force.txt",
                     self.traj_frequency,
                     atomic_units=self.atomic_units_force_reporter,
                 )
             )
-        logger.info("RPMD restart data will be written to %s", RPMD_RESTART_FILENAME)
+        return reporters
 
     def _report_rpmd_state(self) -> None:
         state = self.simulation.integrator.getState(
@@ -640,6 +644,14 @@ class MolecularDynamicsEngine:
         self._add_simulation_reporter(
             simulation, openmm.app.CheckpointReporter(checkpointfilename, self.traj_frequency * 1)
         )
+        # Keep the legacy trajectory-cadence checkpoint for existing restart workflows.
+        # The canonical restart pair also covers classical MM at the requested cadence.
+        if self.restartfile_frequency > 0:
+            for filename, write_state in (("OpenMM_MD_checkpoint.chk", False), ("OpenMM_MD_state.xml", True)):
+                self._add_simulation_reporter(
+                    simulation,
+                    openmm.app.CheckpointReporter(filename, self.restartfile_frequency, writeState=write_state),
+                )
         logger.debug("Creating StateDataReporter that will write through the package logger")
         statedatareporter_log = openmm.app.StateDataReporter(
             _LoggerWriter(logger),
@@ -672,55 +684,13 @@ class MolecularDynamicsEngine:
             )
             self._add_simulation_reporter(simulation, statedatareporter_file)
 
-        if self.trajectory_file_option == "PDB":
-            self._add_simulation_reporter(
-                simulation,
-                openmm.app.PDBReporter(
-                    self.trajfilename + ".pdb", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
-                ),
-            )
-        elif self.trajectory_file_option == "DCD":
-            # DCDReporter(append=True) fails on a missing file
-            if restart is True and os.path.isfile(f"{self.trajfilename}.dcd") is False:
-                logger.warning("Restart option was active but trajectory file not existing. Will create new file")
-                restart = False
-
-            self._add_simulation_reporter(
-                simulation,
-                openmm.app.DCDReporter(
-                    self.trajfilename + ".dcd",
-                    self.traj_frequency,
-                    append=restart,
-                    enforcePeriodicBox=self.enforce_periodic_box,
-                ),
-            )
-            logger.info("DCDReporter added")
-        elif self.trajectory_file_option == "NetCDFReporter":
-            self._add_simulation_reporter(
-                simulation, mdtraj.reporters.NetCDFReporter(self.trajfilename + ".nc", self.traj_frequency)
-            )
-        elif self.trajectory_file_option == "HDF5Reporter":
-            self._add_simulation_reporter(
-                simulation,
-                mdtraj.reporters.HDF5Reporter(
-                    self.trajfilename + ".lh5", self.traj_frequency, enforcePeriodicBox=self.enforce_periodic_box
-                ),
-            )
-        elif self.trajectory_file_option == "XYZ":
+        for reporter in self._trajectory_reporters(restart):
+            self._add_simulation_reporter(simulation, reporter)
+        if self.trajectory_file_option == "XYZ":
             logger.info("XYZ trajectory format selected (not available for classical MD). Warning: not very fast")
-            logger.info("Deleting possible old trajectory-file (OpenMMMD_traj.xyz)")
             with contextlib.suppress(OSError):
                 os.remove("OpenMMMD_traj.xyz")
-            # Done manually by write_xyzfile
 
-        if self.force_file_option is not None:
-            logger.info("ForceReporter traj format selected.")
-            self._add_simulation_reporter(
-                simulation,
-                ForceReporter(
-                    self.trajfilename + "_force.txt", self.traj_frequency, atomic_units=self.atomic_units_force_reporter
-                ),
-            )
         if self.energy_file_option is not None:
             logger.info("Energyfile  selected.")
             with contextlib.suppress(OSError):
@@ -818,16 +788,11 @@ class MolecularDynamicsEngine:
         if rpmd_qm_num_copies is None:
             self.rpmd_qm_num_copies = self.rpmd_num_copies
             return
-        if (
-            isinstance(rpmd_qm_num_copies, bool)
-            or not isinstance(rpmd_qm_num_copies, Integral)
-            or not 1 <= rpmd_qm_num_copies <= self.rpmd_num_copies
-        ):
-            raise InputError(
-                f"rpmd_qm_num_copies must be a positive integer no larger than rpmd_num_copies "
-                f"({self.rpmd_num_copies})."
-            )
-        self.rpmd_qm_num_copies = int(rpmd_qm_num_copies)
+        self.rpmd_qm_num_copies = require_int_in_range(
+            rpmd_qm_num_copies,
+            f"rpmd_qm_num_copies must be a positive integer no larger than rpmd_num_copies ({self.rpmd_num_copies}).",
+            maximum=self.rpmd_num_copies,
+        )
 
     def _attach_qm_force(self, is_rpmd: bool) -> None:
         """Give every OpenMM energy/force evaluation the physical QM potential."""
@@ -856,7 +821,7 @@ class MolecularDynamicsEngine:
                 self.charge,
                 self.mult,
                 periodic=self.openmmobject.periodic,
-                cache_size=2 * num_beads + 4,
+                cache_size=rpmd_cache_size(num_beads),
             )
             self.rpmd_python_force, self.rpmd_external_force_group = add_rpmd_python_force(
                 self.openmmobject.system,
@@ -905,15 +870,8 @@ class MolecularDynamicsEngine:
             logger.info("RPMD number of copies (beads): %s", self.rpmd_num_copies)
             if self.theory_runtype in {"QMMM", "QM"}:
                 logger.info("RPMD copies used for the QM force: %s", self.rpmd_qm_num_copies)
-        logger.info(
-            f"OpenMM autoconstraints: {self.openmmobject.autoconstraints}\n"
-            f"OpenMM hydrogenmass: {self.openmmobject.hydrogenmass}\n"
-            f"OpenMM rigidwater constraints: {self.openmmobject.rigidwater}\n"
-            f"User Constraints: {self.openmmobject.user_constraints}\n"
-            f"User Restraints: {self.openmmobject.user_restraints}\n"
-            f"Number of atoms: {self.fragment.numatoms}\n"
-            f"Number of frozen atoms: {len(self.openmmobject.user_frozen_atoms)}"
-        )
+        self.openmmobject._log_constraint_settings(logger)
+        logger.info("Number of atoms: %s", self.fragment.numatoms)
         if len(self.openmmobject.user_frozen_atoms) < 50:
             logger.info("Frozen atoms %s", self.openmmobject.user_frozen_atoms)
         logger.info(
@@ -1102,40 +1060,6 @@ class MolecularDynamicsEngine:
             self.simulation.context.getState(getVelocities=True).getVelocities(asNumpy=True),
         )
 
-    def _prepare_wrapping(
-        self,
-    ) -> tuple[openmm.unit.Quantity | None, Any | None, Sequence[int] | None]:
-        """Return the (box vectors, mdtraj topology, wrapping atoms) that per-step wrapping needs."""
-        if self.openmmobject.periodic is not True:
-            logger.info("System is not periodic")
-            return None, None, None
-
-        logger.info("Periodic Boundary Conditions used.")
-        if self.enforce_periodic_box is True:
-            logger.info("EnforcePeriodic Box is True. Wrapping enforced by OpenMM.")
-        if self.special_wrapping is not True:
-            return None, None, None
-
-        logger.info("special_wrapping is True. Preparing box vectors, topology and anchor atoms for mdtraj imaging")
-        boxvectors = self._get_simulation_state().getPeriodicBoxVectors(asNumpy=True)
-        mdtrajtopology = mdtraj.Topology.from_openmm(self.openmmobject.topology)
-
-        if self.wrapping_atoms is not None:
-            logger.debug("Will use atoms %s for wrapping", self.wrapping_atoms)
-            return boxvectors, mdtrajtopology, self.wrapping_atoms
-
-        logger.debug("No wrapping_atoms keyword has been set to center on.")
-        if self.theory_runtype == "QMMM":
-            logger.info("Theory-runtype is QMMM. Using QMatoms as wrapping_atoms")
-            wrapping_atoms = self.QM_MM_object.qmatoms
-        elif self.theory_runtype == "MM":
-            logger.info("Theory_runtype is MM. No anchor atoms needed")
-            wrapping_atoms = None
-        else:
-            raise InputError(f"theory_runtype is {self.theory_runtype} but no wrapping_atoms have been set.")
-        logger.info("wrapping_atoms have been set to: %s", wrapping_atoms)
-        return boxvectors, mdtrajtopology, wrapping_atoms
-
     def _write_first_frame(self) -> None:
         """Write the initial frame next to the trajectory as both PDB and PDBx/mmCIF."""
         state = self._get_simulation_state(
@@ -1167,14 +1091,8 @@ class MolecularDynamicsEngine:
         logger.info(small_header("OpenMM MD simulation finished!"))
         log_time_since(module_init_time, "OpenMM_MD run")
 
-    def _current_step_coords(
-        self,
-        checkpoint: float,
-        boxvectors: openmm.unit.Quantity | None,
-        mdtrajtopology: Any | None,
-        wrapping_atoms: Sequence[int] | None,
-    ) -> tuple[openmm.State, npt.NDArray[np.float64]]:
-        """Return this step's OpenMM state and its coordinates in Angstrom, wrapped if requested."""
+    def _current_step_coords(self, checkpoint: float) -> tuple[openmm.State, npt.NDArray[np.float64]]:
+        """Return this step's state and coordinates in Angstrom."""
         current_state = self.simulation.context.getState(
             getPositions=True, enforcePeriodicBox=self.enforce_periodic_box, getEnergy=True
         )
@@ -1183,16 +1101,6 @@ class MolecularDynamicsEngine:
         current_coords = np.array(current_state.getPositions(asNumpy=True)) * 10
         log_time_since(checkpoint, "get current_coords")
 
-        if self.openmmobject.periodic is True and self.special_wrapping is True:
-            logger.info("special_wrapping is True. Wrapping handled by mdtraj")
-            checkpoint = time.time()
-            current_coords = diff_wrap_box_coords(current_coords / 10.0, boxvectors, mdtrajtopology, wrapping_atoms)
-            log_time_since(checkpoint, "wrapping via diff_wrap_box_coords")
-            if self.special_wrapping_updatepos is True:
-                logger.info("special_wrapping_update is True. Updating positions")
-                checkpoint = time.time()
-                self.openmmobject.set_positions(current_coords, self.simulation)
-                log_time_since(checkpoint, "set positions update")
         return current_state, current_coords
 
     def _write_special_atoms_frame(self, step: int, current_coords: npt.ArrayLike) -> None:
@@ -1296,7 +1204,6 @@ class MolecularDynamicsEngine:
             logger.debug("Calling pre_dynamics_hook before dynamics")
             pre_dynamics_hook(self)
 
-        boxvectors, mdtrajtopology, wrapping_atoms = self._prepare_wrapping()
         if new_simulation:
             self._write_first_frame()
 
@@ -1311,7 +1218,7 @@ class MolecularDynamicsEngine:
             for _step in range(simulation_steps):
                 self.simulation.step(1)
                 step = self.simulation.currentStep
-                _, current_coords = self._current_step_coords(time.time(), boxvectors, mdtrajtopology, wrapping_atoms)
+                _, current_coords = self._current_step_coords(time.time())
                 if step % self.traj_frequency == 0:
                     if self.trajectory_file_option == "XYZ":
                         write_xyzfile(self.fragment.elems, current_coords, "OpenMMMD_traj", writemode="a")
@@ -1321,8 +1228,6 @@ class MolecularDynamicsEngine:
                         with open(self.energy_file_option, "a") as output:
                             output.write(f"{energy / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL}\n")
                 self._write_special_atoms_frame(step, current_coords)
-                if step % self.restartfile_frequency == 0:
-                    self.write_state_and_chk_files(step)
         elif self.theory_runtype == "MM":
             logger.info("OpenMM MM dynamics option chosen.")
             if self._is_rpmd_simulation(self.simulation):
@@ -1535,7 +1440,10 @@ def openmm_box_equilibration(
         if use_mdtraj is True:
             try:
                 logger.info("Imaging trajectory")
-                mdtraj_image_trajectory(f"{trajfilename}.dcd", f"{trajfilename}_lastframe.pdb")
+                extension = _TRAJECTORY_EXTENSIONS.get(trajectory_file_option)
+                if extension is None:
+                    raise InputError(f"Cannot image trajectory format {trajectory_file_option!r} with MDTraj")
+                mdtraj_image_trajectory(f"{trajfilename}.{extension}", f"{trajfilename}_lastframe.pdb")
             except ValueError as e:
                 logger.warning("MDTraj reimaging failed; skipping it: %s", e)
 
