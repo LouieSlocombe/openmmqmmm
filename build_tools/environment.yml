@@ -33,7 +33,6 @@ dependencies:
   - mdtraj
   - numpy >=1.21
   - scipy
-  - packaging
   # Amber/CHARMM/GROMACS topology handling in OpenMMTheory
   - parmed
   # forcefill's dependency stack (openmm_modeller parameterize_nonstandard=True; see README.md).

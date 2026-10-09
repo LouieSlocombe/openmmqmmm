@@ -11,7 +11,6 @@ import numpy as np
 import openmm
 import openmm.app
 import openmm.unit
-from packaging import version
 
 import openmmqmmm.constants
 import openmmqmmm.parallel
@@ -27,7 +26,7 @@ from openmmqmmm.exceptions import (
     require,
 )
 from openmmqmmm.openbabel import xyz_to_pdb_with_connectivity
-from openmmqmmm.openmm.theory import OpenMMTheory
+from openmmqmmm.openmm.theory import OpenMMTheory, _state_energy_gradient
 from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
     log_time_since,
@@ -96,8 +95,7 @@ def openmm_minimize(
     logger.info("Number of atoms: %s", fragment.numatoms)
     logger.info("Max iterations: %s", maxiter)
     logger.info(f"Tolerance: {tolerance} kj/mol/nm:")
-    if version.parse(openmm.__version__) >= version.parse("8.1"):
-        logger.info(f"Will write to trajectory every {traj_frequency} iterations")
+    logger.info(f"Will write to trajectory every {traj_frequency} iterations")
     logger.info("OpenMM autoconstraints: %s", openmmobject.autoconstraints)
     logger.info("OpenMM hydrogenmass: %s", openmmobject.hydrogenmass)
     logger.info("OpenMM rigidwater constraints: %s", openmmobject.rigidwater)
@@ -132,7 +130,7 @@ def openmm_minimize(
 
     logger.info("Simulation created.")
 
-    if version.parse(openmm.__version__) >= version.parse("8.1") and use_reporter is True:
+    if use_reporter is True:
 
         class Reporter(openmm.openmm.MinimizationReporter):
             """Log minimizer progress; the OpenMM reporter hook exists only from 8.1 on."""
@@ -183,9 +181,7 @@ def openmm_minimize(
                 g = np.array(grad).reshape(-1, 3)
                 kjmolnm_to_atomic_factor = -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
                 self.forces_init = g / kjmolnm_to_atomic_factor
-                self.rms_force = np.sqrt(
-                    sum(n * n for n in self.forces_init.flatten()) / len(self.forces_init.flatten())
-                )
+                self.rms_force = np.sqrt(np.mean(self.forces_init**2))
                 self.max_force = np.abs(self.forces_init).max()
 
             def print_forces(self) -> None:
@@ -198,18 +194,13 @@ def openmm_minimize(
     openmmobject.set_positions(fragment.coords, simulation)
 
     state = simulation.context.getState(getEnergy=True, getForces=True, enforcePeriodicBox=enforce_periodic_box)
-    potE_init = (
-        state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system)
-        / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
-    )
+    potE_init, forces_init = _state_energy_gradient(state)
     logger.info(f"Initial potential energy is: {potE_init} Eh")
-    kjmolnm_to_atomic_factor = -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
-    forces_init = np.array(state.getForces(asNumpy=True)) / kjmolnm_to_atomic_factor
-    rms_force = np.sqrt(sum(n * n for n in forces_init.flatten()) / len(forces_init.flatten()))
+    rms_force = np.sqrt(np.mean(forces_init**2))
     logger.info(f"Initial RMS force: {rms_force} Eh/Bohr (w/o restraints)")
     logger.info(f"Initial Max force: {np.abs(forces_init).max()} Eh/Bohr (w/o restraints)")
     logger.debug("\nStarting minimization.")
-    if version.parse(openmm.__version__) >= version.parse("8.1") and use_reporter is True:
+    if use_reporter is True:
         logger.info("OpenMM versions >= 8.1. Will use a reporter to output progress")
         logger.info("OpenMM_Opt trajectory will be written to: OpenMMOpt_traj.xyz")
         with contextlib.suppress(OSError):
@@ -224,13 +215,9 @@ def openmm_minimize(
     state = simulation.context.getState(
         getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=enforce_periodic_box
     )
-    final_energy = (
-        state.getPotentialEnergy().value_in_unit_system(openmm.unit.md_unit_system)
-        / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
-    )
+    final_energy, forces_final = _state_energy_gradient(state)
     logger.info("Final Potential energy is: %s Eh", final_energy)
-    forces_final = np.array(state.getForces(asNumpy=True)) / kjmolnm_to_atomic_factor
-    rms_force = np.sqrt(sum(n * n for n in forces_final.flatten()) / len(forces_final.flatten()))
+    rms_force = np.sqrt(np.mean(forces_final**2))
     logger.info(f"Final RMS force: {rms_force} Eh/Bohr (w/o restraints)")
     logger.info(f"Final Max force: {np.abs(forces_final).max()} Eh/Bohr (w/o restraints)")
 
@@ -606,6 +593,21 @@ def openmm_modeller(
     return openmmobject, fragment
 
 
+def _write_topology_file(
+    topology: openmm.app.Topology,
+    positions: openmm.unit.Quantity | Sequence[openmm.Vec3],
+    filename: str | os.PathLike[str],
+    writer: type[openmm.app.PDBFile | openmm.app.PDBxFile],
+    connectivity_dict: Mapping[int, Sequence[int]] | None = None,
+) -> None:
+    """Write one topology format, preserving optional bond additions for existing callers."""
+    if connectivity_dict is not None:
+        openmm_add_bonds_to_topology(topology, connectivity_dict)
+    with open(filename, "w") as handle:
+        writer.writeFile(topology, positions, file=handle)
+    logger.info("Wrote structure file: %s", filename)
+
+
 def write_pdbfile_openmm_topology(
     topology: openmm.app.Topology,
     positions: openmm.unit.Quantity | Sequence[openmm.Vec3],
@@ -613,13 +615,7 @@ def write_pdbfile_openmm_topology(
     connectivity_dict: Mapping[int, Sequence[int]] | None = None,
 ) -> None:
     """Write an OpenMM topology and positions as PDB, optionally adding bonds."""
-    if connectivity_dict is not None:
-        logger.info("Connectivity passed to write_pdbfile_openmm_topology")
-        openmm_add_bonds_to_topology(topology, connectivity_dict)
-
-    with open(filename, "w") as pdbfh:
-        openmm.app.PDBFile.writeFile(topology, positions, file=pdbfh)
-    logger.info("Wrote PDB-file: %s", filename)
+    _write_topology_file(topology, positions, filename, openmm.app.PDBFile, connectivity_dict)
 
 
 def write_pdbxfile_openmm_topology(
@@ -629,13 +625,7 @@ def write_pdbxfile_openmm_topology(
     connectivity_dict: Mapping[int, Sequence[int]] | None = None,
 ) -> None:
     """Write an OpenMM topology and positions as PDBx, optionally adding bonds."""
-    if connectivity_dict is not None:
-        logger.info("Connectivity passed to write_pdbxfile_openmm_topology")
-        openmm_add_bonds_to_topology(topology, connectivity_dict)
-
-    with open(filename, "w") as pdbfh:
-        openmm.app.PDBxFile.writeFile(topology, positions, file=pdbfh)
-    logger.info("Wrote PDBx-file: %s", filename)
+    _write_topology_file(topology, positions, filename, openmm.app.PDBxFile, connectivity_dict)
 
 
 def openmm_add_bonds_to_topology(topology: openmm.app.Topology, connectivity: Mapping[int, Sequence[int]]) -> None:

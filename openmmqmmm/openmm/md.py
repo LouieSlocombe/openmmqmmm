@@ -1147,15 +1147,12 @@ class MolecularDynamicsEngine:
         pdb_filename = self.trajfilename + "_firstframe.pdb"
         logger.info("Writing initial frame to disk as PDB-file: %s", pdb_filename)
         with open(pdb_filename, "w") as f:
-            openmm.app.pdbfile.PDBFile.writeHeader(topology, f)
-            openmm.app.pdbfile.PDBFile.writeModel(topology, positions, f)
-            openmm.app.pdbfile.PDBFile.writeFooter(topology, f)
+            openmm.app.PDBFile.writeFile(topology, positions, f)
 
         pdbx_filename = self.trajfilename + "_firstframe.cif"
         logger.info("Writing initial frame to disk as PDBx/mmCIF-file: %s", pdbx_filename)
         with open(pdbx_filename, "w") as f:
-            openmm.app.pdbxfile.PDBxFile.writeHeader(topology, f)
-            openmm.app.pdbxfile.PDBxFile.writeModel(topology, positions, f)
+            openmm.app.PDBxFile.writeFile(topology, positions, f)
 
     def _finish_rpmd_run(self, simulation_steps: int, description: str, module_init_time: float) -> None:
         """Run the bead-resolved PythonForce path and log its evaluation statistics."""
@@ -1388,16 +1385,13 @@ class MolecularDynamicsEngine:
         pdb_filename = self.trajfilename + "_lastframe.pdb"
         logger.info("Writing final frame to disk as PDB-file: %s", pdb_filename)
         with open(pdb_filename, "w") as f:
-            openmm.app.pdbfile.PDBFile.writeHeader(self.openmmobject.topology, f)
-            openmm.app.pdbfile.PDBFile.writeModel(
+            openmm.app.PDBFile.writeFile(
                 self.openmmobject.topology, self.state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom), f
             )
-            openmm.app.pdbfile.PDBFile.writeFooter(self.openmmobject.topology, f)
         pdbx_filename = self.trajfilename + "_lastframe.cif"
         logger.info("Writing final frame to disk as PDBx/mmCIF-file: %s", pdbx_filename)
         with open(pdbx_filename, "w") as f:
-            openmm.app.pdbxfile.PDBxFile.writeHeader(self.openmmobject.topology, f)
-            openmm.app.pdbxfile.PDBxFile.writeModel(
+            openmm.app.PDBxFile.writeFile(
                 self.openmmobject.topology, self.state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom), f
             )
         if self.trajectory_file_option in _TRAJECTORY_EXTENSIONS:

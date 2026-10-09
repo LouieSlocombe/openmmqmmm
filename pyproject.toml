@@ -38,7 +38,6 @@ dependencies = [
     # Calculator._directory and numpy.typing.NDArray, respectively.
     "ase >= 3.20.1",
     "numpy >= 1.21",
-    "packaging",
     # openmmqmmm.constants derives every physical constant from scipy.constants (CODATA)
     "scipy",
     # IRC and rigid-body optimization.

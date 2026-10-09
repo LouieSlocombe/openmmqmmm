@@ -19,7 +19,6 @@ from openmmqmmm import (
     openmm_md,
     openmm_md_plumed,
     openmm_modeller,
-    single_point,
 )
 from openmmqmmm.exceptions import InputError, MissingDependencyError
 from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
@@ -69,20 +68,6 @@ def _make_minimal_rpmd_simulation(num_copies):
 )
 def test_modeller_solvent_name_is_defined_for_every_water_model(watermodel, expected):
     assert _normalise_modeller_solvent_name(watermodel) == expected
-
-
-def test_openmm_basic():
-    pdbfile = f"{TEST_DIR}/pdbfiles/1aki_solvated.pdb"
-    fragment = Fragment(pdbfile=pdbfile)
-
-    omm = OpenMMTheory(
-        xmlfiles=["charmm36.xml", "charmm36/water.xml"],
-        pdbfile=pdbfile,
-        periodic=True,
-        autoconstraints=None,
-        rigidwater=False,
-    )
-    single_point(theory=omm, fragment=fragment, grad=True)
 
 
 @pytest.mark.parametrize("forcefield_route", ["name", "xmlfile", "object"])

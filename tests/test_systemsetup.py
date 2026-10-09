@@ -45,3 +45,29 @@ def test_a_solvent_box_uses_the_requested_water_model():
     water_sizes = {len(list(residue.atoms())) for residue in topology.residues() if residue.name == "HOH"}
     assert water_sizes == {4}
     assert fragment.numatoms == topology.getNumAtoms()
+
+
+@pytest.mark.parametrize("format_name", ["PDB", "PDBx"])
+def test_topology_writers_preserve_single_frame_bytes(tmp_path, format_name):
+    import io
+
+    from openmmqmmm.openmm import systemsetup
+
+    topology = openmm.app.Topology()
+    residue = topology.addResidue("HOH", topology.addChain())
+    topology.addAtom("O", openmm.app.element.oxygen, residue)
+    positions = [openmm.Vec3(1.25, 2.5, -0.5)] * openmm.unit.angstrom
+    writer = getattr(openmm.app, format_name + "File")
+    expected = io.StringIO()
+    writer.writeHeader(topology, expected)
+    writer.writeModel(topology, positions, expected)
+    if format_name == "PDB":
+        writer.writeFooter(topology, expected)
+    output = tmp_path / "structure"
+    function = (
+        systemsetup.write_pdbfile_openmm_topology
+        if format_name == "PDB"
+        else systemsetup.write_pdbxfile_openmm_topology
+    )
+    function(topology, positions, output)
+    assert output.read_bytes() == expected.getvalue().encode()

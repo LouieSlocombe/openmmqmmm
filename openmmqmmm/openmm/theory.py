@@ -74,6 +74,32 @@ NONBONDED_METHODS_NO_PBC = {
 NUCLEAR_QUANTUM_INTEGRATORS = frozenset({"RPMDIntegrator", "QTBIntegrator"})
 
 
+# These integrators share the temperature, collision frequency and timestep contract.
+_THERMOSTAT_INTEGRATORS = {
+    name: getattr(openmm, name)
+    for name in (
+        "LangevinIntegrator",
+        "LangevinMiddleIntegrator",
+        "NoseHooverIntegrator",
+        "VariableLangevinIntegrator",
+        "QTBIntegrator",
+    )
+}
+
+
+def _state_energy_gradient(
+    state: openmm.State, *, get_forces: bool = True
+) -> tuple[float, npt.NDArray[np.float64] | None]:
+    """Convert an OpenMM State to energy (Eh) and, when requested, gradient (Eh/Bohr)."""
+    energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
+    energy /= openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
+    gradient = None
+    if get_forces:
+        forces = state.getForces(asNumpy=True).value_in_unit(openmm.unit.kilojoule_per_mole / openmm.unit.nanometer)
+        gradient = np.asarray(forces) / -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
+    return energy, gradient
+
+
 def _reduced_cell_vectors(dimensions: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """Validate cell lengths/angles and return reduced OpenMM vectors in Angstrom."""
     dimensions = np.asarray(dimensions, dtype=float)
@@ -772,25 +798,14 @@ class OpenMMTheory:
         logger.info("Writing PDB-file using OpenMMTheory object")
         logger.debug("Will be using defined topology.")
         logger.debug("Internal positions: %s", self.positions)
-        if positions is not None:
-            logger.info("Using input positions")
-            with open(f"{outputname}.pdb", "w") as pdbfh:
-                openmm.app.PDBFile.writeFile(self.topology, positions, pdbfh)
-        elif self.positions is not None:
-            logger.info("Found positions in OpenMMTheory object. Using them to write PDB-file.")
-            with open(f"{outputname}.pdb", "w") as pdbfh:
-                openmm.app.PDBFile.writeFile(self.topology, self.positions, pdbfh)
-        elif self.fragment is not None:
-            logger.info("Found an fragment file referenced. Using coordinates in fragment to write PDB-file.")
-            logger.debug("%s", self.fragment)
-            coords_nm = self.fragment.coords * 0.1  # converting from Angstrom to nm
-            pos = [
-                openmm.Vec3(coords_nm[i, 0], coords_nm[i, 1], coords_nm[i, 2]) for i in range(len(coords_nm))
-            ] * openmm.unit.nanometer
-            with open(f"{outputname}.pdb", "w") as pdbfh:
-                openmm.app.PDBFile.writeFile(self.topology, pos, pdbfh)
-        else:
+        if positions is None:
+            positions = self.positions
+        if positions is None and self.fragment is not None:
+            positions = self.fragment.coords * openmm.unit.angstrom
+        if positions is None:
             raise InputError("Found neither system positions defined or an fragment file. Can not write PDB-file.")
+        with open(f"{outputname}.pdb", "w") as pdbfh:
+            openmm.app.PDBFile.writeFile(self.topology, positions, pdbfh)
 
     def set_periodics_before_system_creation(
         self,
@@ -1282,27 +1297,8 @@ class OpenMMTheory:
             self.integrator = openmm.VerletIntegrator(self.timestep * openmm.unit.picoseconds)
         elif self.integrator_name == "VariableVerletIntegrator":
             self.integrator = openmm.VariableVerletIntegrator(self.timestep * openmm.unit.picoseconds)
-        elif self.integrator_name == "LangevinIntegrator":
-            self.integrator = openmm.LangevinIntegrator(
-                self.temperature * openmm.unit.kelvin,
-                self.coupling_frequency / openmm.unit.picosecond,
-                self.timestep * openmm.unit.picoseconds,
-            )
-        elif self.integrator_name == "LangevinMiddleIntegrator":
-            # openmm recommended with 4 fs timestep, Hbonds 1/ps friction
-            self.integrator = openmm.LangevinMiddleIntegrator(
-                self.temperature * openmm.unit.kelvin,
-                self.coupling_frequency / openmm.unit.picosecond,
-                self.timestep * openmm.unit.picoseconds,
-            )
-        elif self.integrator_name == "NoseHooverIntegrator":
-            self.integrator = openmm.NoseHooverIntegrator(
-                self.temperature * openmm.unit.kelvin,
-                self.coupling_frequency / openmm.unit.picosecond,
-                self.timestep * openmm.unit.picoseconds,
-            )
-        elif self.integrator_name == "VariableLangevinIntegrator":
-            self.integrator = openmm.VariableLangevinIntegrator(
+        elif self.integrator_name in _THERMOSTAT_INTEGRATORS:
+            self.integrator = _THERMOSTAT_INTEGRATORS[self.integrator_name](
                 self.temperature * openmm.unit.kelvin,
                 self.coupling_frequency / openmm.unit.picosecond,
                 self.timestep * openmm.unit.picoseconds,
@@ -1314,13 +1310,6 @@ class OpenMMTheory:
                 self.coupling_frequency / openmm.unit.picosecond,
                 1 * openmm.unit.kelvin,
                 20 / openmm.unit.picosecond,
-                self.timestep * openmm.unit.picoseconds,
-            )
-        elif self.integrator_name == "QTBIntegrator":
-            logger.info("QTBIntegrator (adaptive quantum thermal bath) will be used")
-            self.integrator = openmm.QTBIntegrator(
-                self.temperature * openmm.unit.kelvin,
-                self.coupling_frequency / openmm.unit.picosecond,
                 self.timestep * openmm.unit.picoseconds,
             )
         elif self.integrator_name == "RPMDIntegrator":
@@ -1558,7 +1547,6 @@ class OpenMMTheory:
 
         log_time_since(timeA, "OpenMMTheory.run: const-check")
         current_coords = np.array(current_coords)
-        factor = -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
         logger.debug("Updating coordinates.")
         timeA = time.time()
 
@@ -1578,25 +1566,14 @@ class OpenMMTheory:
         # after real-atom positions (and any constraints) have been applied.
         simulation.context.computeVirtualSites()
         logger.debug("Calling OpenMM getState.")
+        state = simulation.context.getState(getEnergy=True, getForces=grad)
+        self.energy, gradient = _state_energy_gradient(state, get_forces=grad)
         if grad is True:
-            state = simulation.context.getState(getEnergy=True, getForces=True)
-            self.energy = (
-                state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
-                / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
-            )
-            self.gradient = np.array(state.getForces(asNumpy=True) / factor)
-            # OpenMM has already transferred site forces to their parent atoms.
-            # The remaining site rows are not derivatives with respect to the
-            # independent input coordinates and must not be counted again.
+            self.gradient = gradient
+            # OpenMM has transferred virtual-site forces to their parent atoms.
             for atom in range(self.system.getNumParticles()):
                 if self.system.isVirtualSite(atom):
                     self.gradient[atom] = 0.0
-        else:
-            state = simulation.context.getState(getEnergy=True, getForces=False)
-            self.energy = (
-                state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
-                / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL
-            )
 
         log_time_since(timeA, "OpenMM getState")
 

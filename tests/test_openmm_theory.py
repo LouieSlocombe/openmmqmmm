@@ -29,6 +29,11 @@ def _make_theory(**kwargs):
     return OpenMMTheory(**options)
 
 
+@pytest.fixture(scope="module")
+def solvated_theory():
+    return _make_theory()
+
+
 @pytest.fixture
 def cpu_theory():
     fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [5, 0, 0]], conncalc=False)
@@ -102,9 +107,9 @@ def test_set_numcores_preserves_non_cpu_properties(platform):
     assert "Threads" not in theory.properties
 
 
-def test_run_returns_energy_and_gradient(solvated_fragment):
+def test_run_returns_energy_and_gradient(solvated_fragment, solvated_theory):
     """The theory contract: energy alone, or (energy, gradient) when asked."""
-    theory = _make_theory()
+    theory = solvated_theory
 
     energy = theory.run(current_coords=solvated_fragment.coords, elems=solvated_fragment.elems)
     assert np.isscalar(energy) or np.ndim(energy) == 0
@@ -116,8 +121,8 @@ def test_run_returns_energy_and_gradient(solvated_fragment):
     assert gradient.shape == (solvated_fragment.numatoms, 3), "One gradient row per atom"
 
 
-def test_energy_is_translationally_invariant(solvated_fragment):
-    theory = _make_theory()
+def test_energy_is_translationally_invariant(solvated_fragment, solvated_theory):
+    theory = solvated_theory
 
     energy = theory.run(current_coords=solvated_fragment.coords, elems=solvated_fragment.elems)
     shifted = theory.run(current_coords=solvated_fragment.coords + 0.37, elems=solvated_fragment.elems)
@@ -125,8 +130,8 @@ def test_energy_is_translationally_invariant(solvated_fragment):
     assert shifted == pytest.approx(energy, rel=1e-4)
 
 
-def test_atom_charges_sum_to_the_system_charge():
-    theory = _make_theory()
+def test_atom_charges_sum_to_the_system_charge(solvated_theory):
+    theory = solvated_theory
 
     charges = theory.getatomcharges()
 
@@ -181,8 +186,8 @@ def test_constraints_can_be_added_and_removed():
     assert theory.system.getNumConstraints() == 0
 
 
-def test_periodic_cell_vectors_are_available():
-    theory = _make_theory()
+def test_periodic_cell_vectors_are_available(solvated_theory):
+    theory = solvated_theory
 
     vectors = theory.get_pbc_vectors()
 
@@ -338,11 +343,11 @@ def test_rpmd_force_group_contractions_are_validated(contractions):
         theory.set_rpmd_contractions(contractions)
 
 
-def test_write_pdbfile_uses_the_positions_it_is_given(tmp_path, solvated_fragment):
+def test_write_pdbfile_uses_the_positions_it_is_given(tmp_path, solvated_fragment, solvated_theory):
     """An explicit positions argument must win over the object's own coordinates."""
     import openmm
 
-    theory = _make_theory()
+    theory = solvated_theory
     shifted_nm = (solvated_fragment.coords + 5.0) * 0.1
     positions = [openmm.Vec3(*row) for row in shifted_nm] * openmm.unit.nanometer
 
@@ -369,15 +374,15 @@ def test_openmm_minimize_lowers_the_energy(solvated_fragment):
     assert not np.allclose(fragment.coords, starting_coords), "The fragment geometry must be updated"
 
 
-def test_openmm_minimize_rejects_a_non_openmm_theory():
-    fragment = Fragment(pdbfile=SOLVATED_PDB)
+def test_openmm_minimize_rejects_a_non_openmm_theory(solvated_fragment):
+    fragment = solvated_fragment
 
     with pytest.raises(InputError):
         openmm_minimize(fragment=fragment, theory=None)
 
 
-def test_single_point_through_the_job_function(solvated_fragment):
-    theory = _make_theory()
+def test_single_point_through_the_job_function(solvated_fragment, solvated_theory):
+    theory = solvated_theory
 
     result = single_point(theory=theory, fragment=solvated_fragment, grad=True)
 
@@ -496,3 +501,24 @@ def test_unfreeze_atoms_restores_the_masses_held_just_before_freezing():
 
     masses = [theory.system.getParticleMass(i).value_in_unit(openmm.unit.dalton) for i in range(3)]
     assert masses == pytest.approx([9.0, 7.0, 4.002602], abs=1e-4)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "LangevinIntegrator",
+        "LangevinMiddleIntegrator",
+        "NoseHooverIntegrator",
+        "VariableLangevinIntegrator",
+        "QTBIntegrator",
+    ],
+)
+def test_thermostat_integrators_share_simulation_parameters(name):
+    import openmm
+
+    theory = OpenMMTheory.__new__(OpenMMTheory)
+    theory.system = openmm.System()
+    theory.set_simulation_parameters(integrator=name, timestep=0.002, temperature=275, coupling_frequency=3)
+    theory.create_integrator()
+    assert type(theory.integrator).__name__ == name
+    assert theory.integrator.getTemperature().value_in_unit(openmm.unit.kelvin) == 275
