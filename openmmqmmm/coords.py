@@ -910,50 +910,53 @@ def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int]
     logger.info(f"{'Type':<10} {'Atoms':<20} {'Elements':<15} {'Value':>10}")
     logger.info("%s", "-" * 60)
 
-    seen_bonds = set()
-    seen_angles = set()
-    seen_dihedrals = set()
-
-    for i in actatoms:
-        for j in conn[i]:
-            bond_key = tuple(sorted((i, j)))
-            if bond_key not in seen_bonds:
-                val = distance(coords[i], coords[j])
-                label = f"{elems[i]}-{elems[j]}"
-                logger.info(f"{'Bond':<10} {bond_key!s:<20} {label:<15} {val:>10.4f} Å")
-                seen_bonds.add(bond_key)
-
-            neighbors = list(conn[i])
-            for idx_a in range(len(neighbors)):
-                for idx_b in range(idx_a + 1, len(neighbors)):
-                    n_a, n_b = neighbors[idx_a], neighbors[idx_b]
-                    angle_key = (*sorted((n_a, n_b)), i)
-                    if angle_key not in seen_angles:
-                        val = angle(coords[n_a], coords[i], coords[n_b])
-                        label = f"{elems[n_a]}-{elems[i]}-{elems[n_b]}"
-                        logger.info(f"{'Angle':<10} {f'({n_a},{i},{n_b})':<20} {label:<15} {val:>10.2f}°")
-                        seen_angles.add(angle_key)
-
-        for j in conn[i]:
-            for h in conn[i]:
-                if h == j:
-                    continue
-                for k in conn[j]:
-                    if k in (i, h):
-                        continue
-                    di_key = (h, i, j, k)
-                    rev_key = (k, j, i, h)
-                    if di_key not in seen_dihedrals and rev_key not in seen_dihedrals:
-                        try:
-                            val = dihedral(coords[h], coords[i], coords[j], coords[k])
-                        except InputError:
-                            # A collinear bond has no signed dihedral to print.
-                            continue
-                        label = f"{elems[h]}-{elems[i]}-{elems[j]}-{elems[k]}"
-                        logger.info(f"{'Dihedral':<10} {di_key!s:<20} {label:<15} {val:>10.2f}°")
-                        seen_dihedrals.add(di_key)
+    for kind, atoms, value in _internal_coordinate_values(coords, conn, actatoms):
+        label = "-".join(elems[i] for i in atoms)
+        if kind == "Bond":
+            logger.info(f"{kind:<10} {atoms!s:<20} {label:<15} {value:>10.4f} Å")
+        else:
+            atom_label = "(" + ",".join(map(str, atoms)) + ")" if kind == "Angle" else str(atoms)
+            logger.info(f"{kind:<10} {atom_label:<20} {label:<15} {value:>10.2f}°")
 
     logger.info("%s", "-" * 60)
+
+
+def _internal_coordinate_values(
+    coords: np.ndarray,
+    connectivity: Sequence[Sequence[int]] | Mapping[int, Sequence[int]],
+    atoms: Sequence[int],
+    *,
+    bonds_only: bool = False,
+) -> Iterator[tuple[str, tuple[int, ...], float]]:
+    seen = set()
+    for i in atoms:
+        neighbours = sorted(connectivity[i])
+        for j in neighbours:
+            bond = tuple(sorted((i, j)))
+            if bond not in seen:
+                seen.add(bond)
+                yield "Bond", bond, distance(coords[i], coords[j])
+        if bonds_only:
+            continue
+        for index, left in enumerate(neighbours):
+            for right in neighbours[index + 1 :]:
+                yield "Angle", (left, i, right), angle(coords[left], coords[i], coords[right])
+        for j in neighbours:
+            for h in neighbours:
+                if h == j:
+                    continue
+                for k in sorted(connectivity[j]):
+                    if k in (i, h):
+                        continue
+                    dihedral_atoms = (h, i, j, k)
+                    if dihedral_atoms in seen or dihedral_atoms[::-1] in seen:
+                        continue
+                    seen.add(dihedral_atoms)
+                    try:
+                        value = dihedral(coords[h], coords[i], coords[j], coords[k])
+                    except InputError:
+                        continue
+                    yield "Dihedral", dihedral_atoms, value
 
 
 def print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int] | None = None) -> None:
@@ -973,27 +976,13 @@ def print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int] 
         chosen_coords = fragment.coords
         chosen_elems = fragment.elems
 
-    conndepth = 99
-    scale = CONNECTIVITY_SCALE
-    tol = CONNECTIVITY_TOL
-
-    connectivity = _calc_conn_py(chosen_coords, chosen_elems, conndepth, scale, tol)
-    logger.info("Connectivity calculation complete.")
-
-    bondpairsdict = {}
-
-    for conn_fragment in connectivity:
-        for atom in conn_fragment:
-            connatoms = get_connected_atoms(chosen_coords, chosen_elems, CONNECTIVITY_SCALE, CONNECTIVITY_TOL, atom)
-            for conn_i in connatoms:
-                dist = distance(chosen_coords[atom], chosen_coords[conn_i])
-                bondpairsdict[frozenset((atom, conn_i))] = dist
-
+    adjacency = get_connected_atoms_dict(chosen_coords, chosen_elems, CONNECTIVITY_SCALE, CONNECTIVITY_TOL)
     logger.info(small_header("Internal coordinates"))
 
     logger.info(small_header("Bond lengths (Å):"))
-    for key, val in bondpairsdict.items():
-        listkey = list(key)
+    for _kind, listkey, val in _internal_coordinate_values(
+        chosen_coords, adjacency, range(len(chosen_elems)), bonds_only=True
+    ):
         elA = chosen_elems[listkey[0]]
         elB = chosen_elems[listkey[1]]
         if not actatoms:
