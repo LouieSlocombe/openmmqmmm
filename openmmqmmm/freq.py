@@ -522,8 +522,8 @@ def _assemble_hessian(
     hessindex = 0
     for atomindex in hessatoms:
         for crd in (0, 1, 2):
-            plus = f"{atomindex}_{crd}_+"
-            minus = "Originalgeo" if npoint == 1 else f"{atomindex}_{crd}_-"
+            plus = _displacement_label((atomindex, crd, "+"))
+            minus = "Originalgeo" if npoint == 1 else _displacement_label((atomindex, crd, "-"))
 
             grad_plus = np.ravel(_get_partial_matrix(grads[plus], hessatoms))
             grad_minus = np.ravel(_get_partial_matrix(grads[minus], hessatoms))

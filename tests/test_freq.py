@@ -952,3 +952,17 @@ def test_orca6_binary_model_hessian_has_an_actionable_error(water, monkeypatch):
     monkeypatch.setattr(openmmqmmm, "single_point", write_binary_model_hessian)
     with pytest.raises(ExternalProgramError, match=r"binary.*rest_hessian='zero'.*issue #68"):
         openmmqmmm.freq._calc_model_hessian_orca(water, charge=0, mult=1)
+
+
+@pytest.mark.parametrize("value", [True, np.bool_(True)])
+@pytest.mark.parametrize("name", ["displacement", "numcores", "npoint", "hessatoms_masses", "hessatoms"])
+def test_numerical_frequency_stencil_options_reject_booleans(water, value, name):
+    argument = [value] if name == "hessatoms" else ([16, 1, value] if name == "hessatoms_masses" else value)
+    with pytest.raises(InputError):
+        numerical_frequencies(fragment=water, theory=ZeroTheory(), **{name: argument})
+
+
+@pytest.mark.parametrize("value", [True, np.bool_(True)])
+def test_analytic_frequency_masses_reject_booleans(water, value):
+    with pytest.raises(InputError, match="masses"):
+        analytic_frequencies(fragment=water, theory=SoftModeHessianTheory(np.eye(9)), masses=[16, 1, value])
