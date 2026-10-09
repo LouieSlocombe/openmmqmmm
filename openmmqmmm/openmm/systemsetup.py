@@ -26,7 +26,7 @@ from openmmqmmm.exceptions import (
     require,
 )
 from openmmqmmm.openbabel import xyz_to_pdb_with_connectivity
-from openmmqmmm.openmm.theory import OpenMMTheory, _state_energy_gradient
+from openmmqmmm.openmm.theory import OpenMMTheory, _residue_templates, _state_energy_gradient
 from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
     log_time_since,
@@ -460,14 +460,7 @@ def openmm_modeller(
     logger.warning("OpenMM Modeller will fail in this step if residue information is missing")
     logger.info("residue_states: %s", residue_states)
 
-    residueTemplates = {}
-    if residuetemplate_choice is not None:
-        logger.info("Found user-specified residuetemplate_choice")
-        logger.debug("Will generate residueTemplates based on residuetemplate_choice: %s", residuetemplate_choice)
-        logger.info("Note: residuetemplate_choice should be a dict like this: residuetemplate_choice={'FER':'FE2'}   ")
-        residueTemplates = {}
-        for resname, choice in residuetemplate_choice.items():
-            residueTemplates = {res: choice for res in modeller.topology.residues() if res.name == resname}
+    residueTemplates = _residue_templates(modeller.topology, residuetemplate_choice)
     logger.info("residueTemplates: %s", residueTemplates)
 
     logger.debug("\nNow checking if we have problems with unmatched residues")
@@ -511,9 +504,7 @@ def openmm_modeller(
     print_systemsize(modeller)
 
     # addHydrogens builds a new Topology, so the Residue-keyed templates must be rebuilt.
-    if residuetemplate_choice is not None:
-        for resname, choice in residuetemplate_choice.items():
-            residueTemplates = {res: choice for res in modeller.topology.residues() if res.name == resname}
+    residueTemplates = _residue_templates(modeller.topology, residuetemplate_choice)
 
     periodic, fragment, waterxmlfile = _add_solvent_or_membrane(
         modeller,

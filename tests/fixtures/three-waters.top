@@ -1,0 +1,69 @@
+;
+;   File tests/fixtures/three-waters.top  was generated
+;   By user: louie (1000)
+;   On host:louie 
+;   At date:Fri. October  5 12:39:18 2026 
+;
+;   This is a standalone topology file
+;
+;   Created by:
+;   ParmEd:       build_water_fixtures.py, VERSION4.3.1 
+;   Executable:   build_water_fixtures.py
+;   Library dir:  /usr/local/gromacs/share/gromacs/top
+;   Command line:
+;     /tmp/build_water_fixtures.py
+;
+
+[ defaults ]
+; nbfunc        comb-rule       gen-pairs       fudgeLJ fudgeQQ
+1               2               yes             1            1           
+
+[ atomtypes ]
+; name    at.num    mass    charge ptype  sigma      epsilon
+O1             8  15.999430  0.00000000  A     0.31507524       0.635968
+H1             1   1.007947  0.00000000  A              1              0
+
+
+[ moleculetype ]
+; Name            nrexcl
+HOH          3
+
+[ atoms ]
+;   nr       type  resnr residue  atom   cgnr    charge       mass  typeB    chargeB      massB
+; residue    1 HOH rtp HOH q 0.0
+    1         O1      1    HOH      O      1 -0.83400000  15.999430   ; qtot -0.834000
+    2         H1      1    HOH     H1      2 0.41700000   1.007947   ; qtot -0.417000
+    3         H1      1    HOH     H2      3 0.41700000   1.007947   ; qtot 0.000000
+
+#ifdef FLEXIBLE
+
+[ bonds ]
+;    ai     aj funct         c0         c1         c2         c3
+      1      2     1   0.09572 462750.400000
+      1      3     1   0.09572 462750.400000
+
+[ angles ]
+;    ai     aj     ak funct         c0         c1         c2         c3
+      2      1      3     1   104.5200000 836.800000
+
+
+#else
+
+[ settles ]
+; i     funct   doh     dhh
+1     1   0.09572000   0.15139007
+
+#endif
+
+[ exclusions ]
+1  2  3
+2  1  3
+3  1  2
+
+[ system ]
+; Name
+Generic title
+
+[ molecules ]
+; Compound       #mols
+HOH                  3

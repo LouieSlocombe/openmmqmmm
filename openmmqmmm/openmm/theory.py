@@ -19,6 +19,7 @@ import openmmqmmm.constants
 import openmmqmmm.parallel
 from openmmqmmm.coords import (
     Fragment,
+    _topology_elements,
     define_dummy_topology,
     distance_between_atoms,
 )
@@ -98,6 +99,22 @@ def _state_energy_gradient(
         forces = state.getForces(asNumpy=True).value_in_unit(openmm.unit.kilojoule_per_mole / openmm.unit.nanometer)
         gradient = np.asarray(forces) / -openmmqmmm.constants.HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM
     return energy, gradient
+
+
+def _residue_templates(
+    topology: openmm.app.Topology, choices: Mapping[str, str] | None
+) -> dict[openmm.app.topology.Residue, str]:
+    """Resolve every requested residue name against the current Topology objects."""
+    return {
+        residue: choices[residue.name]
+        for residue in topology.residues()
+        if choices is not None and residue.name in choices
+    }
+
+
+def _box_cutoff_limit(vectors_angstrom: npt.ArrayLike) -> float:
+    """Return a cutoff in Angstrom just below OpenMM's half-box limit."""
+    return 0.499 * float(np.min(np.diag(vectors_angstrom)))
 
 
 def _reduced_cell_vectors(dimensions: npt.ArrayLike) -> npt.NDArray[np.float64]:
@@ -220,11 +237,8 @@ class OpenMMTheory:
 
         self.applyconstraints_in_run = applyconstraints_in_run
 
-        self.resnames = []
-        self.resids = []
         self.segmentnames = []
         self.atomtypes = []
-        self.atomnames = []
         self.mm_elements = []
 
         self.positions = None
@@ -261,16 +275,8 @@ class OpenMMTheory:
         else:
             pdb_pbc_vectors = self._load_xml_forcefield(xmlfiles, pdbfile, pdbxfile)
 
-        residueTemplates = {}
-        if residuetemplate_choice is not None:
-            logger.info("Found user-specified residuetemplate_choice")
-            logger.debug("Will generate residueTemplates based on residuetemplate_choice: %s", residuetemplate_choice)
-            logger.info(
-                "Note: residuetemplate_choice should be a dict like this: residuetemplate_choice={'FER':'FE2'}   "
-            )
-            residueTemplates = {}
-            for resname, choice in residuetemplate_choice.items():
-                residueTemplates = {res: choice for res in self.topology.residues() if res.name == resname}
+        self._read_topology_labels()
+        residueTemplates = _residue_templates(self.topology, residuetemplate_choice)
         logger.info("residueTemplates: %s", residueTemplates)
         if self.system is None:
             if self.periodic is True:
@@ -290,7 +296,11 @@ class OpenMMTheory:
                 )
             else:
                 self._create_nonperiodic_system(
-                    charmm_files=charmm_files, amber_files=amber_files, dummysystem=dummysystem
+                    charmm_files=charmm_files,
+                    gromacs_files=gromacs_files,
+                    amber_files=amber_files,
+                    dummysystem=dummysystem,
+                    residue_templates=residueTemplates,
                 )
 
         for force in self.system.getForces():
@@ -468,21 +478,8 @@ class OpenMMTheory:
 
         logger.info("Nonbonded PBC method selected: %s", nonb_method_PBC)
 
-        smallest_boxdim = min(self.topology.getUnitCellDimensions()).value_in_unit(openmm.unit.angstroms)
-        logger.info("Smallest_box dimension is: %s", smallest_boxdim)
-        logger.info("periodic_nonbonded_cutoff: %s", periodic_nonbonded_cutoff)
-        if smallest_boxdim < periodic_nonbonded_cutoff * 2:
-            logger.warning(
-                f"Smallest box dimension is less than 2*periodic_nonbonded_cutoff = "
-                f"{2 * self.periodic_nonbonded_cutoff}; reducing the cutoff automatically. See "
-                "https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#boxsize"
-            )
-            logger.debug("Will now automatically set the cutoff to be 1/2 the smallest box dimension")
-            self.periodic_nonbonded_cutoff = round(
-                0.5 * min(self.topology.getUnitCellDimensions()).value_in_unit(openmm.unit.angstroms), 6
-            )
-            logger.info("periodic_nonbonded_cutoff is now: %s", self.periodic_nonbonded_cutoff)
-
+        box_vectors = np.array([v.value_in_unit(openmm.unit.angstrom) for v in self.topology.getPeriodicBoxVectors()])
+        self.periodic_nonbonded_cutoff = min(periodic_nonbonded_cutoff, _box_cutoff_limit(box_vectors))
         logger.info(f"Nonbonded cutoff is {self.periodic_nonbonded_cutoff} Angstrom.")
         # Settings follow OpenMM's DHFR example. The GROMACS and Amber forcefield
         # objects already hold their topology and PBC information.
@@ -494,27 +491,15 @@ class OpenMMTheory:
             "ewaldErrorTolerance": self.ewalderrortolerance,
             "nonbondedCutoff": self.periodic_nonbonded_cutoff * openmm.unit.angstroms,
         }
-        if charmm_files is True:
-            logger.info("Using CHARMM files.")
-            self.system = self.forcefield.createSystem(
-                self.params,
-                switchDistance=switching_function_distance * openmm.unit.angstroms,
-                **pbc_system_kwargs,
-            )
-        elif gromacs_files is True:
-            logger.info("Ewald Error tolerance: %s", self.ewalderrortolerance)
-            # Note: no switchDistance. Not available for GROMACS?
-            self.system = self.forcefield.createSystem(**pbc_system_kwargs)
-        elif amber_files is True:
-            self.system = self.forcefield.createSystem(**pbc_system_kwargs)
-        else:
-            self.system = self.forcefield.createSystem(
-                self.topology, residueTemplates=residue_templates, **pbc_system_kwargs
-            )
-
-        self.periodic_cell_vectors = np.array(
-            [[v._value * 10 for v in vec] for vec in self.system.getDefaultPeriodicBoxVectors()]
+        self._create_system(
+            charmm_files=charmm_files,
+            gromacs_files=gromacs_files,
+            amber_files=amber_files,
+            residue_templates=residue_templates,
+            system_kwargs=pbc_system_kwargs,
+            switching_function_distance=switching_function_distance,
         )
+        self.periodic_cell_vectors = np.asarray(self.get_pbc_vectors())
         logger.info("Periodic_cell_vectors (Å) %s", self.periodic_cell_vectors)
 
         self._log_nonbonded_force_settings(dispersion_correction=dispersion_correction, pme_parameters=pme_parameters)
@@ -548,7 +533,15 @@ class OpenMMTheory:
                 logger.info("   Ewald error tolerance: %s", force.getEwaldErrorTolerance())
         logger.info(small_header("OpenMM system created."))
 
-    def _create_nonperiodic_system(self, *, charmm_files: bool, amber_files: bool, dummysystem: bool) -> None:
+    def _create_nonperiodic_system(
+        self,
+        *,
+        charmm_files: bool,
+        gromacs_files: bool,
+        amber_files: bool,
+        dummysystem: bool,
+        residue_templates: Mapping[openmm.app.topology.Residue, str],
+    ) -> None:
         if self.nonbonded_method_no_pbc == "CutoffPeriodic":
             raise InputError("nonbonded_method_no_pbc with CutoffPeriodic not currently allowed")
         try:
@@ -568,16 +561,37 @@ class OpenMMTheory:
             "nonbondedCutoff": self.nonbonded_cutoff_no_pbc * openmm.unit.angstroms,
             "hydrogenMass": self.hydrogenmass,
         }
-        if charmm_files is True:
-            self.system = self.forcefield.createSystem(self.params, **no_pbc_system_kwargs)
-        elif amber_files is True:
-            self.system = self.forcefield.createSystem(**no_pbc_system_kwargs)
-        elif dummysystem is True:
-            self.system = self.forcefield.createSystem(self.topology)
-        else:
-            self.system = self.forcefield.createSystem(self.topology, **no_pbc_system_kwargs)
+        self._create_system(
+            charmm_files=charmm_files,
+            gromacs_files=gromacs_files,
+            amber_files=amber_files,
+            residue_templates=residue_templates,
+            system_kwargs={} if dummysystem else no_pbc_system_kwargs,
+        )
         logger.info(small_header("OpenMM system created."))
         logger.info("OpenMM Forces defined: %s", self.system.getForces())
+
+    def _create_system(
+        self,
+        *,
+        charmm_files: bool,
+        gromacs_files: bool,
+        amber_files: bool,
+        residue_templates: Mapping[openmm.app.topology.Residue, str],
+        system_kwargs: dict,
+        switching_function_distance: float | None = None,
+    ) -> None:
+        """Dispatch each loader's createSystem signature in one place."""
+        if charmm_files:
+            if switching_function_distance is not None:
+                system_kwargs["switchDistance"] = switching_function_distance * openmm.unit.angstrom
+            self.system = self.forcefield.createSystem(self.params, **system_kwargs)
+        elif gromacs_files or amber_files:
+            self.system = self.forcefield.createSystem(**system_kwargs)
+        else:
+            self.system = self.forcefield.createSystem(
+                self.topology, residueTemplates=residue_templates, **system_kwargs
+            )
 
     def _load_charmm_files(
         self,
@@ -595,19 +609,13 @@ class OpenMMTheory:
             self.psf = parmed.charmm.CharmmPsfFile(psffile)
             # parmed's CharmmParameterSet takes no permissive option.
             self.params = parmed.charmm.CharmmParameterSet(charmmtopfile, charmmprmfile)
-            self.resnames = [self.psf.atoms[i].residue.name for i in range(len(self.psf.atoms))]
-            self.resids = [self.psf.atoms[i].residue.idx for i in range(len(self.psf.atoms))]
             self.segmentnames = [self.psf.atoms[i].residue.segid for i in range(len(self.psf.atoms))]
             self.atomtypes = [i.type for i in self.psf.atoms]
-            self.atomnames = [self.psf.atoms[i].name for i in range(len(self.psf.atoms))]
         else:
             self.psf = openmm.app.CharmmPsfFile(psffile)
             self.params = openmm.app.CharmmParameterSet(charmmtopfile, charmmprmfile, permissive=True)
-            self.resnames = [self.psf.atom_list[i].residue.resname for i in range(len(self.psf.atom_list))]
-            self.resids = [self.psf.atom_list[i].residue.idx for i in range(len(self.psf.atom_list))]
             self.segmentnames = [self.psf.atom_list[i].system for i in range(len(self.psf.atom_list))]
             self.atomtypes = [self.psf.atom_list[i].attype for i in range(len(self.psf.atom_list))]
-            self.atomnames = [self.psf.atom_list[i].name for i in range(len(self.psf.atom_list))]
             self.define_mm_elements(self.psf.topology)
 
         self.topology = self.psf.topology
@@ -687,10 +695,7 @@ class OpenMMTheory:
         self.forcefield = self.prmtop
 
         # resids is read by qmmm.define_active_region.
-        self.resids = [i.residue.index for i in self.prmtop.topology.atoms()]
-        self.resnames = [i.residue.name for i in self.prmtop.topology.atoms()]
         self.define_mm_elements(self.prmtop.topology)
-        self.atomnames = [i.name for i in self.prmtop.topology.atoms()]
 
     def _load_topology_forcefield(
         self,
@@ -773,21 +778,20 @@ class OpenMMTheory:
         self.topology = pdb.topology
         self.forcefield = openmm.app.ForceField(*xmlfiles)
         # resids is read by qmmm.define_active_region.
-        self.resids = [i.residue.index for i in self.topology.atoms()]
-        self.resnames = [i.residue.name for i in self.topology.atoms()]
-        self.atomnames = [i.name for i in self.topology.atoms()]
         self.define_mm_elements(self.topology)
         return pdb_pbc_vectors
 
+    def _read_topology_labels(self) -> None:
+        """Use zero-based residue indices and per-atom labels consistently across loaders."""
+        atoms = list(self.topology.atoms())
+        self.resids = [atom.residue.index for atom in atoms]
+        self.resnames = [atom.residue.name for atom in atoms]
+        self.atomnames = [atom.name for atom in atoms]
+        self.define_mm_elements(self.topology)
+
     def define_mm_elements(self, topology: openmm.app.Topology) -> None:
-        """Extract the element symbol of every atom from an OpenMM topology."""
-        try:
-            self.mm_elements = [i.element.symbol for i in topology.atoms()]
-        except AttributeError:
-            logger.info("Problem occurred while defining mm_elements.")
-            logger.info("This may be due to virtual sites present")
-            logger.info("mm_elements will be set to empty list")
-            self.mm_elements = []
+        """Extract elements, retaining the M placeholder for elementless virtual sites."""
+        self.mm_elements = _topology_elements(topology)
 
     def write_pdbfile(
         self,
@@ -828,6 +832,9 @@ class OpenMMTheory:
             logger.info("\nPBC vectors provided by user (in Angstrom): %s", periodic_cell_vectors)
             logger.debug("Setting PBC vectors in topology object")
             self.topology.setPeriodicBoxVectors(periodic_cell_vectors * openmm.unit.angstroms)
+            if self.system is not None:
+                self.system.setDefaultPeriodicBoxVectors(*self.topology.getPeriodicBoxVectors())
+                self.periodic_cell_vectors = np.asarray(periodic_cell_vectors, dtype=float)
             logger.info("Topology PBC vectors set: %s", self.topology.getPeriodicBoxVectors())
             logger.debug("Setting PBC box vectors in forcefield object")
             if charmm_files is True:
@@ -854,11 +861,9 @@ class OpenMMTheory:
 
     def get_pbc_vectors(self) -> list[list[float]]:
         """Return the current periodic box vectors in Angstrom."""
-        vectors_nm = list(self.topology.getPeriodicBoxVectors())
-        a = list(vectors_nm[0].value_in_unit(openmm.unit.angstrom))
-        b = list(vectors_nm[1].value_in_unit(openmm.unit.angstrom))
-        c = list(vectors_nm[2].value_in_unit(openmm.unit.angstrom))
-        return [a, b, c]
+        return [
+            list(vector.value_in_unit(openmm.unit.angstrom)) for vector in self.system.getDefaultPeriodicBoxVectors()
+        ]
 
     def set_numcores(self, numcores: int) -> None:
         """Set the core count and the CPU Threads property used by future Contexts.
@@ -918,9 +923,7 @@ class OpenMMTheory:
         b = cellvecs_nm[1]
         c = cellvecs_nm[2]
 
-        # Shortest box dimension (diagonal elements, safe estimate for triclinic)
-        min_box_dim = min(cellvecs_nm[0, 0], cellvecs_nm[1, 1], cellvecs_nm[2, 2])
-        hard_limit_cutoff = 0.499 * min_box_dim  # just under OpenMM's hard limit of 0.5
+        hard_limit_cutoff = _box_cutoff_limit(self.periodic_cell_vectors) / 10
 
         for i in range(self.system.getNumForces()):
             force = self.system.getForce(i)
@@ -981,12 +984,7 @@ class OpenMMTheory:
             f"Adding custom bond force between atom index i={i} and j={j} with value: {value} Angstrom, "
             f"forceconstant={forceconstant} kcal/mol/Angstrom^2"
         )
-        bond_force = openmm.CustomBondForce("0.5*k*(r-r0)^2")
-        bond_force.addGlobalParameter("k", forceconstant * openmm.unit.kilocalorie_per_mole / openmm.unit.angstrom**2)
-        bond_force.addGlobalParameter("r0", value * openmm.unit.angstrom)
-        bond_force.addBond(i, j)
-        bond_force.setUsesPeriodicBoundaryConditions(False)
-        self.system.addForce(bond_force)
+        self.add_bondrestraints([[i, j, value, forceconstant]])
 
     def add_custom_angle_force(self, i: int, j: int, k: int, value: float, forceconstant: float) -> None:
         """Restrain the i-j-k angle harmonically."""
@@ -994,11 +992,15 @@ class OpenMMTheory:
             f"Adding custom angle force for atoms: {i}, {j}, {k}  with value: {value} radians with "
             f"forceconstant={forceconstant}"
         )
-        angle_force = openmm.CustomAngleForce("0.5*k*(theta-theta0)^2")
-        angle_force.addGlobalParameter("k", forceconstant * openmm.unit.kilocalorie_per_mole / openmm.unit.radian**2)
-        angle_force.addGlobalParameter("theta0", value * openmm.unit.radian)
-        angle_force.addAngle(i, j, k)
-        angle_force.setUsesPeriodicBoundaryConditions(False)
+        angle_force = openmm.HarmonicAngleForce()
+        angle_force.setName("OpenMMQMMM restraint")
+        angle_force.addAngle(
+            i,
+            j,
+            k,
+            value * openmm.unit.radian,
+            forceconstant * openmm.unit.kilocalorie_per_mole / openmm.unit.radian**2,
+        )
         self.system.addForce(angle_force)
 
     def add_custom_torsion_force(
@@ -1019,13 +1021,19 @@ class OpenMMTheory:
         torsion_force = openmm.CustomTorsionForce(
             "0.5*k*dtheta^2; dtheta = min(diff, 2*Pi-diff); diff = abs(theta - theta0)"
         )
-        # Note: using global here, should be fine 1 torsion
         torsion_force.addGlobalParameter("Pi", math.pi)
-        torsion_force.addGlobalParameter("k", forceconstant * openmm.unit.kilocalorie_per_mole / openmm.unit.radian**2)
-        torsion_force.addGlobalParameter("theta0", value * openmm.unit.radian)
-        torsion_force.addTorsion(i, j, k, l)
+        torsion_force.addPerTorsionParameter("k")
+        torsion_force.addPerTorsionParameter("theta0")
+        torsion_force.addTorsion(
+            i,
+            j,
+            k,
+            l,
+            [forceconstant * openmm.unit.kilocalorie_per_mole / openmm.unit.radian**2, value * openmm.unit.radian],
+        )
+        torsion_force.setName("OpenMMQMMM restraint")
         logger.info("torsion_force getTorsionParameters: %s", torsion_force.getTorsionParameters(0))
-        torsion_force.setUsesPeriodicBoundaryConditions(True)
+        torsion_force.setUsesPeriodicBoundaryConditions(self.periodic)
         self.system.addForce(torsion_force)
 
     # https://github.com/openmm/openmm/issues/2568
@@ -1046,18 +1054,16 @@ class OpenMMTheory:
             centerforce = openmm.CustomExternalForce("0.5*k * max(0,periodicdistance(x, y, z, x0, y0, z0) - r0)^2")
         else:
             centerforce = openmm.CustomExternalForce("0.5*k * max(0,sqrt((x-x0)^2+(y-y0)^2+(z-z0)^2)-r0)^2")
-        centerforce.addGlobalParameter(
-            "k", forceconstant * openmm.unit.kilocalories_per_mole / openmm.unit.angstroms**2
-        )
-        centerforce.addGlobalParameter("r0", distance * openmm.unit.angstrom)
-        centerforce.addPerParticleParameter("x0")
-        centerforce.addPerParticleParameter("y0")
-        centerforce.addPerParticleParameter("z0")
-        center_x = center_coords[0] / 10
-        center_y = center_coords[1] / 10
-        center_z = center_coords[2] / 10
+        centerforce.setName("OpenMMQMMM restraint")
+        for name in ("k", "r0", "x0", "y0", "z0"):
+            centerforce.addPerParticleParameter(name)
+        parameters = [
+            forceconstant * openmm.unit.kilocalories_per_mole / openmm.unit.angstroms**2,
+            distance * openmm.unit.angstrom,
+            *(np.asarray(center_coords) / 10),
+        ]
         for i in atomindices:
-            centerforce.addParticle(i, openmm.Vec3(center_x, center_y, center_z))
+            centerforce.addParticle(i, parameters)
         self.system.addForce(centerforce)
         logger.info("Added center force")
         return centerforce
@@ -1067,6 +1073,7 @@ class OpenMMTheory:
         logger.debug("Adding restraints: %s", restraints)
 
         new_restraints = openmm.HarmonicBondForce()
+        new_restraints.setName("OpenMMQMMM restraint")
         for i, j, d, k in restraints:
             logger.debug(
                 f"Adding bond restraint between atoms {i} and {j}. Distance value: {d} Å. Force constant: {k} "
@@ -1858,6 +1865,9 @@ class OpenMMTheory:
         replacement_torsion_forces = []
 
         for force_index, force in enumerate(self.system.getForces()):
+            # User restraints describe the intended geometry even when the underlying bonds are QM.
+            if force.getName() == "OpenMMQMMM restraint":
+                continue
             if isinstance(force, openmm.HarmonicBondForce):
                 logger.debug("HarmonicBonded force")
                 logger.debug("There are %s HarmonicBond terms defined", force.getNumBonds())

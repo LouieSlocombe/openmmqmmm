@@ -1262,7 +1262,7 @@ class MolecularDynamicsEngine:
 
         if restraints is not None:
             logger.debug("Adding restraints")
-            self.openmmobject.add_bondrestraints(restraints=restraints)
+            self._add_restraints(restraints)
 
         new_simulation = False
         if chkfile is not None:
@@ -1378,9 +1378,9 @@ class MolecularDynamicsEngine:
             logger.info("C:  %s", c)
             logger.debug("Updating PBC vectors in simulation.context, OpenMM system and OpenMM topology")
             self.simulation.context.setPeriodicBoxVectors(a, b, c)
-            self.openmmobject.system.setDefaultPeriodicBoxVectors(a, b, c)
-            # PDBFile.writeHeader takes CRYST1 from the topology
-            self.openmmobject.topology.setPeriodicBoxVectors(self.state.getPeriodicBoxVectors())
+            self.openmmobject.update_cell(
+                periodic_cell_vectors=np.array([vector.value_in_unit(openmm.unit.angstrom) for vector in (a, b, c)])
+            )
 
         pdb_filename = self.trajfilename + "_lastframe.pdb"
         logger.info("Writing final frame to disk as PDB-file: %s", pdb_filename)

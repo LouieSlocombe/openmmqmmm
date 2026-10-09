@@ -16,3 +16,5 @@
 !pdbfiles/**
 !xyzfiles/
 !xyzfiles/**
+!fixtures/
+!fixtures/**
