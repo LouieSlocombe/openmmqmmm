@@ -1644,11 +1644,10 @@ def total_nuclear_charge(ellist: Sequence[str]) -> float:
 
 
 def elems_to_nuclear_charges(ellist: Sequence[str]) -> list[int]:
-    nuccharges = []
-    for e in ellist:
-        atcharge = elematomnumbers[e.lower()]
-        nuccharges.append(atcharge)
-    return nuccharges
+    try:
+        return [elematomnumbers[element.lower()] for element in ellist]
+    except KeyError as error:
+        raise InputError(f"Unknown element {error.args[0]!r} in nuclear-charge lookup") from None
 
 
 def total_mass(ellist: Sequence[str]) -> float:

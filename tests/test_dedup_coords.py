@@ -97,3 +97,11 @@ def test_collinear_optimization_table_reports_undefined_dihedrals(caplog):
         _print_internal_coordinate_table(fragment)
     rows = [record.message for record in caplog.records if record.message.startswith("Dihedral")]
     assert rows and all("undefined" in row for row in rows)
+
+
+def test_strict_nuclear_charge_lookup_reports_unknown_elements():
+    from openmmqmmm.coords import elems_to_nuclear_charges
+    from openmmqmmm.exceptions import InputError
+
+    with pytest.raises(InputError, match="Unknown element"):
+        elems_to_nuclear_charges(["H", "unknown"])
