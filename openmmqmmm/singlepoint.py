@@ -2,18 +2,16 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import math
 import shutil
 import time
 from collections.abc import Sequence
-from numbers import Real
 from typing import Any
 
 import numpy as np
 
 import openmmqmmm
 import openmmqmmm.constants
-from openmmqmmm.coords import Fragment, Reaction, check_charge_mult
+from openmmqmmm.coords import Fragment, Reaction, _validate_stoichiometry, check_charge_mult
 from openmmqmmm.exceptions import (
     InputError,
 )
@@ -52,27 +50,6 @@ def _energy_conversion_factor(unit: str) -> float:
     except KeyError:
         choices = ", ".join(openmmqmmm.constants.ENERGY_UNIT_FROM_HARTREE)
         raise InputError(f"Unknown energy unit {unit!r}; choose one of: {choices}") from None
-
-
-def _validate_stoichiometry(stoichiometry: Sequence[float], expected_size: int) -> list[float]:
-    """Return finite numeric coefficients after checking their count."""
-    try:
-        coefficients = list(stoichiometry)
-    except TypeError:
-        raise InputError("stoichiometry must be a sequence of signed numeric coefficients") from None
-    if len(coefficients) != expected_size:
-        raise InputError(
-            f"Number of stoichiometry values ({len(coefficients)}) does not match the number of species "
-            f"({expected_size})"
-        )
-    invalid = [
-        coefficient
-        for coefficient in coefficients
-        if isinstance(coefficient, bool) or not isinstance(coefficient, Real) or not math.isfinite(float(coefficient))
-    ]
-    if invalid:
-        raise InputError(f"stoichiometry must contain only finite numeric coefficients; got {invalid!r}")
-    return [float(coefficient) for coefficient in coefficients]
 
 
 def single_point(
@@ -120,6 +97,26 @@ def single_point(
     return result
 
 
+def _run_and_archive(
+    theory: Any,
+    fragment: Fragment,
+    charge: int | None,
+    mult: int | None,
+    calc_label: str,
+) -> Results:
+    """Run a batch entry and preserve its output before the next entry overwrites it."""
+    result = single_point(
+        theory=theory,
+        fragment=fragment,
+        charge=charge,
+        mult=mult,
+        result_write_to_disk=False,
+    )
+    _archive_theory_output(theory, calc_label)
+    _cleanup_theory(theory)
+    return result
+
+
 def single_point_theories(
     theories: Sequence[Any] | None = None,
     fragment: Fragment | None = None,
@@ -147,18 +144,8 @@ def single_point_theories(
         )
         resolved_states.append((theory_charge, theory_mult))
 
-        result = single_point(
-            theory=theory,
-            fragment=fragment,
-            charge=theory_charge,
-            mult=theory_mult,
-            result_write_to_disk=False,
-        )
-
-        _archive_theory_output(theory, f"Frag_{theory.__class__.__name__}_")
-
+        result = _run_and_archive(theory, fragment, theory_charge, theory_mult, f"Frag_{theory.__class__.__name__}_")
         logger.info(f"Theory Label: {theory.label} Energy: {result.energy} Eh")
-        _cleanup_theory(theory)
         energies.append(result.energy)
 
     _log_theories_table(theories, energies, resolved_states)
@@ -254,13 +241,8 @@ def single_point_fragments(
         if moreadfiles is not None:
             theory.moreadfile = moreadfiles[i]
 
-        result = single_point(theory=theory, fragment=frag, charge=charge, mult=mult, result_write_to_disk=False)
-
+        result = _run_and_archive(theory, frag, charge, mult, _fragment_calc_label(frag))
         logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {result.energy} Eh")
-
-        _archive_theory_output(theory, _fragment_calc_label(frag))
-
-        _cleanup_theory(theory)
         energies.append(result.energy)
 
     common_state = _common_state(resolved_states)
@@ -376,17 +358,9 @@ def single_point_reaction(
         if orbital_files is not None:
             theory.moreadfile = orbital_files[i]
             logger.info("Using orbital file: %s", theory.moreadfile)
-        result = single_point(
-            theory=theory,
-            fragment=frag,
-            charge=frag.charge,
-            mult=frag.mult,
-            result_write_to_disk=False,
-        )
+        result = _run_and_archive(theory, frag, frag.charge, frag.mult, _fragment_calc_label(frag))
         energy = result.energy
         logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {energy} Eh")
-        _archive_theory_output(theory, _fragment_calc_label(frag))
-        _cleanup_theory(theory)
         reaction.energies.append(energy)
 
         if isinstance(theory, openmmqmmm.ORCATheory):

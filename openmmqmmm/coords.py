@@ -48,6 +48,27 @@ CONNECTIVITY_SCALE = 1.0
 CONNECTIVITY_TOL = 0.1
 
 
+def _validate_stoichiometry(stoichiometry: Sequence[float], expected_size: int) -> list[float]:
+    """Return finite numeric coefficients after checking their count."""
+    try:
+        coefficients = list(stoichiometry)
+    except TypeError:
+        raise InputError("stoichiometry must be a sequence of signed numeric coefficients") from None
+    if len(coefficients) != expected_size:
+        raise InputError(
+            f"Number of stoichiometry values ({len(coefficients)}) does not match the number of species "
+            f"({expected_size})"
+        )
+    invalid = [
+        coefficient
+        for coefficient in coefficients
+        if isinstance(coefficient, bool) or not isinstance(coefficient, Real) or not math.isfinite(float(coefficient))
+    ]
+    if invalid:
+        raise InputError(f"stoichiometry must contain only finite numeric coefficients; got {invalid!r}")
+    return [float(coefficient) for coefficient in coefficients]
+
+
 class Reaction:
     """A reaction: an ordered list of fragments with stoichiometry (and optional energies)."""
 
@@ -87,24 +108,7 @@ class Reaction:
         for frag in self.fragments:
             if frag.charge is None or frag.mult is None:
                 raise InputError(f"Missing charge/mult information in fragment: {frag.formula}")
-        try:
-            coefficients = list(self.stoichiometry)
-        except TypeError:
-            raise InputError("Reaction stoichiometry must be a sequence of signed numeric coefficients") from None
-        if len(coefficients) != len(self.fragments):
-            raise InputError(
-                f"{len(coefficients)} stoichiometry values for "
-                f"{len(self.fragments)} fragments. One signed coefficient per fragment is required."
-            )
-        invalid = [
-            coefficient
-            for coefficient in coefficients
-            if isinstance(coefficient, bool)
-            or not isinstance(coefficient, Real)
-            or not math.isfinite(float(coefficient))
-        ]
-        if invalid:
-            raise InputError(f"Reaction stoichiometry must contain only finite numeric coefficients; got {invalid!r}")
+        _validate_stoichiometry(self.stoichiometry, len(self.fragments))
 
     def calculate_reaction_energy(self) -> None:
         """Combine the stored fragment energies into the reaction energy."""
@@ -1012,11 +1016,15 @@ def print_coords_for_atoms(
 ) -> None:
     if labels is not None and len(labels) != len(members):
         raise InputError("Problem. Length of Labels note equal to length of members list")
-    label = ""
-    for i, m in enumerate(members):
-        if labels is not None:
-            label = labels[i]
-        logger.info(f"{label:>4} {elems[m]:>4} {coords[m][0]:>12.8f}  {coords[m][1]:>12.8f}  {coords[m][2]:>12.8f}")
+    selected_coords = np.take(coords, members, axis=0)
+    selected_elems = [elems[i] for i in members]
+    for line in _coordinate_lines(
+        selected_coords,
+        selected_elems,
+        indices=[""] * len(members) if labels is None else labels,
+        index_width=4,
+    ):
+        logger.info("%s", line)
 
 
 def write_xyz_for_atoms(coords: np.ndarray, elems: Sequence[str], members: Sequence[int], name: str) -> None:
@@ -1893,13 +1901,13 @@ def _reorder(
     p_atoms: np.ndarray,
     q_atoms: np.ndarray,
 ) -> list[int]:
-    p_cent = _centroid(p_coord)
-    q_cent = _centroid(q_coord)
+    p_cent = p_coord.mean(axis=0)
+    q_cent = q_coord.mean(axis=0)
     p_coord -= p_cent
     q_coord -= q_cent
 
-    p_atoms = np.array([elematomnumbers[el.lower()] for el in p_atoms])
-    q_atoms = np.array([elematomnumbers[el.lower()] for el in q_atoms])
+    p_atoms = np.array(elems_to_nuclear_charges(p_atoms))
+    q_atoms = np.array(elems_to_nuclear_charges(q_atoms))
 
     q_review = reorder_method(p_atoms, q_atoms, p_coord, q_coord)
     return [q_review.tolist()][0]
