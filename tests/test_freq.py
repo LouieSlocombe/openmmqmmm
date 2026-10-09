@@ -838,3 +838,95 @@ def test_forced_partial_projection_uses_the_hessian_geometry(water):
     assert len(result.frequencies) == 6
     assert result.normal_modes.shape == (6, 6)
     assert result.freq_tr_modenum == 5
+
+
+def test_analytic_and_numerical_analysis_share_result_metadata(water):
+    theory = _HarmonicTheory(water.coords)
+    theory.analytic_hessian = True
+    theory.theorynamelabel = "Harmonic"
+    theory.hessian = np.diag(FORCE_CONSTANTS)
+    analytical = analytic_frequencies(fragment=water, theory=theory, scaling_factor=0.9)
+    numerical = numerical_frequencies(fragment=water, theory=theory, IR=False, scaling_factor=0.9)
+    for field in ("hessian", "frequencies", "freq_coords", "freq_masses", "normal_modes", "vib_eigenvectors"):
+        assert getattr(analytical, field) == pytest.approx(getattr(numerical, field), abs=1e-8)
+    for field in (
+        "freq_atoms",
+        "freq_elems",
+        "freq_tr_modenum",
+        "freq_projection",
+        "freq_scaling_factor",
+        "freq_raman",
+    ):
+        assert getattr(analytical, field) == getattr(numerical, field)
+    for name, value in analytical.thermochemistry.items():
+        assert value == pytest.approx(numerical.thermochemistry[name])
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"temp": 0},
+        {"pressure": float("inf")},
+        {"qrrho_method": "unknown"},
+        {"qrrho_omega_0": 0},
+        {"scaling_factor": -1},
+        {"rotmode_threshold": -1},
+        {"symmetry_number": 0},
+        {"masses": [1, 1]},
+        {"masses": [1, 1, 0]},
+    ],
+)
+def test_analytic_options_are_validated_before_running_theory(water, monkeypatch, kwargs):
+    theory = SoftModeHessianTheory(np.eye(9))
+    monkeypatch.setattr(theory, "run", lambda **kw: pytest.fail("invalid options reached theory.run"))
+    with pytest.raises(InputError):
+        analytic_frequencies(fragment=water, theory=theory, **kwargs)
+
+
+@pytest.mark.parametrize("value", [True, np.bool_(True)])
+@pytest.mark.parametrize(
+    "name", ["temp", "pressure", "qrrho_omega_0", "scaling_factor", "rotmode_threshold", "symmetry_number"]
+)
+@pytest.mark.parametrize("entrypoint", [analytic_frequencies, numerical_frequencies])
+def test_frequency_numeric_options_reject_booleans(water, value, name, entrypoint):
+    with pytest.raises(InputError):
+        entrypoint(fragment=water, theory=SoftModeHessianTheory(np.eye(9)), **{name: value})
+
+
+def test_projected_and_unprojected_wavenumbers_agree_for_exact_rigid_null_space(water):
+    coords = water.coords - np.average(water.coords, axis=0, weights=water.list_of_masses)
+    sqrt_masses = np.sqrt(np.repeat(water.list_of_masses, 3))
+    translations = np.tile(np.eye(3), (3, 1))
+    rotations = np.column_stack([np.cross(coords, axis).ravel() for axis in np.eye(3)])
+    rigid = np.column_stack([translations, rotations]) * sqrt_masses[:, None]
+    basis, _ = np.linalg.qr(rigid, mode="complete")
+    internal = basis[:, 6:]
+    hessian = (internal @ np.diag([0.2, 0.4, 0.8]) @ internal.T) * np.outer(sqrt_masses, sqrt_masses)
+    projected = openmmqmmm.freq._diagonalize_hessian(
+        water.coords, hessian, water.list_of_masses, water.elems, tr_modenum=6
+    )[0]
+    unprojected = openmmqmmm.freq._diagonalize_hessian(
+        water.coords, hessian, water.list_of_masses, water.elems, tr_modenum=6, projection=False
+    )[0]
+    assert np.asarray(projected)[6:] == pytest.approx(np.asarray(unprojected)[6:], rel=1e-10)
+
+
+@pytest.mark.parametrize("npoint", [1, 2])
+def test_parallel_numerical_frequencies_schedules_every_displacement(water, monkeypatch, npoint):
+    from test_parallel import _install_fake_pool
+
+    pools = _install_fake_pool(monkeypatch)
+    result = numerical_frequencies(
+        fragment=water, theory=ZeroTheory(), runmode="parallel", numcores=2, npoint=npoint, IR=False
+    )
+    expected = [
+        f"{atom}_{axis}_{direction}"
+        for atom in range(3)
+        for axis in range(3)
+        for direction in (("+",) if npoint == 1 else ("+", "-"))
+    ]
+    if npoint == 1:
+        expected.append("Originalgeo")
+    assert [value.value[0] for value in pools[0].async_results] == expected
+    assert result.hessian == pytest.approx(np.zeros((9, 9)))
+    assert len(result.frequencies) == 9
