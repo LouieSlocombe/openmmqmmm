@@ -76,3 +76,33 @@ done
 The reference values asserted in `test_orca_parsers.py` are whatever ORCA printed in
 these files. A different ORCA version, geometry or point-charge placement will change
 them, so update the constants in that module together with the files.
+
+
+## Issue #68 parser fixtures
+
+`h2o_tddft.inp` and `h2o_tddft.out` were generated with ORCA 6.1.1 using PBE/def2-SVP,
+`def2/J`, and three full TDDFT roots (`tda false`). This geometry is specified in the
+input and differs from the original fixtures above. Tests duplicate the real output
+to verify that the TDDFT parsers accumulate spectra across jobs.
+
+`h2o_extopt.inp`, `h2o_extopt.out`, and `orca_external.xyz` record an actual ORCA 6.1.1
+external optimization driven by `ZeroTheory`. The two printed final energies are zero.
+The output tests the `(From external program)` energy label. As with the earlier
+fixtures, startup banners above `INPUT FILE` are omitted. Absolute temporary paths
+to the external wrapper are replaced with `./otool_external`.
+
+To regenerate TDDFT, run `orca h2o_tddft.inp > h2o_tddft.out`. To regenerate ExtOpt,
+run the following in an empty temporary directory with the openmmqmmm Python environment
+and ORCA 6.1.1 on `PATH`, then copy `ORCAEXTERNAL.inp`/`.out` to `h2o_extopt.inp`/`.out`:
+
+```python
+from openmmqmmm import Fragment, ZeroTheory, orca_external_optimizer
+
+fragment = Fragment(
+    elems=["O", "H", "H"],
+    coords=[[0, 0, 0], [0.9687, 0, 0], [-0.233013, 0.940258, 0]],
+    charge=0,
+    mult=1,
+)
+orca_external_optimizer(fragment=fragment, theory=ZeroTheory())
+```

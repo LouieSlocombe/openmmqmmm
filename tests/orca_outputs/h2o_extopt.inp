@@ -1,0 +1,6 @@
+! ExtOpt Opt
+
+%method
+ProgExt "otool_external"
+end
+*xyzfile 0 1 orca_external.xyz

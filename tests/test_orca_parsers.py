@@ -275,3 +275,15 @@ def test_orca_matrix_writers_match_pre_refactor_golden_bytes(tmp_path, numatoms,
     assert hashlib.sha256((tmp_path / "golden_dummy.out").read_bytes()).hexdigest() == dummy_sha256
     assert hashlib.sha256((tmp_path / "golden.hess").read_bytes()).hexdigest() == hessian_sha256
     assert orca.grab_hessian("golden.hess") == pytest.approx(matrix)
+
+
+@pytest.mark.parametrize("copies", [1, 2])
+def test_tddft_parsers_preserve_every_spectrum(orca_outputs, tmp_path, copies):
+    output = tmp_path / "tddft.out"
+    output.write_text((orca_outputs / "h2o_tddft.out").read_text() * copies)
+    assert orca._grab_tddft_transition_energies(output) == pytest.approx([7.206, 9.163, 9.498] * copies)
+    assert orca._grab_tddft_intensities(output) == pytest.approx([0.017004466, 0.000000003, 0.079311592] * copies)
+
+
+def test_final_energy_parser_supports_real_orca6_external_optimizer(orca_outputs):
+    assert orca.grab_orca_final_energy(orca_outputs / "h2o_extopt.out") == 0.0

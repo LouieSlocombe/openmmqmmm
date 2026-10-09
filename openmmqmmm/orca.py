@@ -991,7 +991,7 @@ def _check_orca_opt_finished(file: StrPath) -> bool:
         return converged
 
 
-def _read_optimized_geometry(fragment: Fragment, basename: str, *, external: bool = False) -> float:
+def _read_optimized_geometry(fragment: Fragment, basename: str) -> float:
     """Validate completion and update a fragment through its cache-aware setters."""
     outfile = basename + ".out"
     finished, _iterations = check_orca_finished(outfile)
@@ -999,13 +999,7 @@ def _read_optimized_geometry(fragment: Fragment, basename: str, *, external: boo
         raise ExternalProgramError(f"ORCA job did not finish. Check outputfile: {outfile}")
     if not _check_orca_opt_finished(outfile):
         raise ExternalProgramError(f"ORCA optimization failed to converge. Check outputfile: {outfile}")
-    if external:
-        # ExtOpt's marker precedes the number; keep this format distinct until a real
-        # output fixture establishes that the ordinary energy parser can read both.
-        lines = pygrep2("FINAL SINGLE POINT ENERGY (From external program)", outfile, errors="ignore")
-        energy = float(lines[-1].split()[-1]) if lines else None
-    else:
-        energy = grab_orca_final_energy(outfile)
+    energy = grab_orca_final_energy(outfile)
     if energy is None:
         raise ExternalProgramError(f"ORCA optimization produced no final energy. Check outputfile: {outfile}")
     elems, coords = openmmqmmm.coords.read_xyzfile(basename + ".xyz")
@@ -1022,7 +1016,10 @@ def grab_orca_final_energy(file: StrPath, errors: str | None = "ignore") -> floa
                 if "Wavefunction not fully converged!" in line:
                     raise ExternalProgramError("ORCA WF not fully converged!\nNot using energy. Modify ORCA settings")
                 # Index from the left: ORCA sometimes adds info to the right of the energy
-                Energy = float(line.split()[5]) if "(MM)" in line else float(line.split()[4])
+                value = line.split("FINAL SINGLE POINT ENERGY", 1)[1].strip()
+                for marker in ("(MM)", "(From external program)"):
+                    value = value.removeprefix(marker).lstrip()
+                Energy = float(value.split()[0])
     if Energy is None:
         logger.error("Found no energy in file: %s", file)
         logger.error("Something went wrong with ORCA run. Check ORCA outputfile: %s", file)
@@ -1165,30 +1162,29 @@ def _grab_polarizability_tensor(outfile: StrPath) -> tuple[np.ndarray, list[floa
 
 
 def _grab_tddft_transition_energies(file: StrPath) -> list[float]:
-    tddftstates = []
-    grab = False
-    with open(file) as f:
-        for line in f:
-            if grab and "STATE" in line and "eV" in line:
-                tddftstates.append(float(line.split()[5]))
-            if "the weight of the individual excitations" in line:
-                grab = True
-    return tddftstates
+    return _scan_orca_table(
+        file,
+        {
+            "start": "the weight of the individual excitations",
+            "stop": lambda line: False,
+            "row": lambda fields: "STATE" in fields and "eV" in fields,
+            "column": 5,
+            "accumulate": True,
+        },
+    )
 
 
 def _grab_tddft_intensities(file: StrPath) -> list[float]:
-    intensities = []
-    grab = False
-    with open(file) as f:
-        for line in f:
-            if grab:
-                if "->" in line:
-                    intensities.append(float(line.split()[-5]))
-                if len(line.split()) == 0:
-                    grab = False
-            if "fosc(D2)" in line:
-                grab = True
-    return intensities
+    return _scan_orca_table(
+        file,
+        {
+            "start": "fosc(D2)",
+            "stop": lambda line: not line.split(),
+            "row": lambda fields: "->" in fields,
+            "column": -5,
+            "accumulate": True,
+        },
+    )
 
 
 def grab_ir_intensities(filename: StrPath) -> list[float]:
@@ -1528,9 +1524,10 @@ def _scan_orca_table(outputfile: StrPath, spec: Mapping[str, Any]) -> list[float
                     if row_is_data is None or row_is_data(fields):
                         values.append(float(fields[column]))
             if start in line:
-                # A second table of the same kind supersedes the first, and the column is
-                # re-read from this heading: the two Mulliken tables differ in width.
-                values = []
+                # Population analyses keep the final table; excitation spectra accumulate
+                # all requested states. Re-read the column for changing Mulliken headings.
+                if not spec.get("accumulate", False):
+                    values = []
                 grabbing = True
                 column = column_spec(line) if callable(column_spec) else column_spec
     return values
@@ -1755,6 +1752,6 @@ end
         logger.info("GOAT keyword found. ")
 
     _run_orca_sp_parallel(orcadir, basename + ".inp", bind_to_core_option=False)
-    energy = _read_optimized_geometry(fragment, basename, external=True)
+    energy = _read_optimized_geometry(fragment, basename)
     logger.info("Final energy from external ORCA job: %s", energy)
     return energy
