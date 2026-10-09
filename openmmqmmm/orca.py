@@ -22,6 +22,7 @@ from openmmqmmm.exceptions import (
     InputError,
 )
 from openmmqmmm.utils import (
+    basename as file_basename,
     insert_line_into_file,
     listdiff,
     log_time_since,
@@ -874,7 +875,7 @@ def _run_orca_sp_parallel(
         palstring = f"%pal \nnprocs {numcores}\nend"
         with open(inpfile):
             insert_line_into_file(inpfile, "!", palstring, once=True)
-    basename = inpfile.replace(".inp", "")
+    basename = file_basename(inpfile)
 
     with open(basename + ".out", "w") as ofile:
         try:
@@ -1178,16 +1179,15 @@ def _grab_tddft_intensities(file: StrPath) -> list[float]:
 
 
 def grab_ir_intensities(filename: StrPath) -> list[float]:
-    grab = False
-    intensities = []
-    with open(filename) as f:
-        for line in f:
-            if grab and len(line.split()) == 6:
-                intens = float(line.split()[2])
-                intensities.append(intens)
-            if "$ir_spectrum" in line:
-                grab = True
-    return intensities
+    return _scan_orca_table(
+        filename,
+        {
+            "start": "$ir_spectrum",
+            "stop": lambda line: line.startswith("$"),
+            "column": 2,
+            "row": lambda fields: len(fields) == 6,
+        },
+    )
 
 
 def write_orca_hessfile(
@@ -1439,14 +1439,13 @@ def _create_orca_pcfile(name: str, coords: Coordinates, listofcharges: Sequence[
             pcfile.write(line + "\n")
 
 
+def _population_charge_column(heading: str) -> int:
+    return -2 if "SPIN POPULATIONS" in heading else -1
+
+
 # ORCA prints every population analysis as a table: a heading, a rule, one row per atom,
 # then a terminator.
 _CHARGE_TABLES = {
-    "NPA": {
-        "start": "Atom No    Charge        Core      Valence    Rydberg      Total",
-        "stop": lambda line: "=======" in line,
-        "column": 2,
-    },
     "NBO": {
         "start": "Atom No    Charge        Core      Valence    Rydberg      Total",
         "stop": lambda line: "=======" in line,
@@ -1464,23 +1463,17 @@ _CHARGE_TABLES = {
         "column": -2,
         "row": lambda fields: len(fields) == 4,
     },
-    "CM5": {
-        "start": "  ATOM     CHARGE      SPIN",
-        "stop": lambda line: len(line) < 3,
-        "column": -2,
-        "row": lambda fields: len(fields) == 4,
-    },
     "MULLIKEN": {
         "start": "MULLIKEN ATOMIC CHARGES",
         "stop": lambda line: "Sum of atomic" in line,
         # The heading is also the prefix of "MULLIKEN ATOMIC CHARGES AND SPIN POPULATIONS",
         # where the charge is the second-to-last column and the last one is the spin.
-        "column": lambda heading: -2 if "SPIN POPULATIONS" in heading else -1,
+        "column": _population_charge_column,
     },
     "LOEWDIN": {
         "start": "LOEWDIN ATOMIC CHARGES",
         "stop": lambda line: "Sum of atomic" in line or len(line.replace(" ", "")) < 2,
-        "column": lambda heading: -2 if "SPIN POPULATIONS" in heading else -1,
+        "column": _population_charge_column,
     },
     "IAO": {
         "start": "IAO PARTIAL CHARGES",
@@ -1489,14 +1482,17 @@ _CHARGE_TABLES = {
     },
 }
 
+_CHARGE_TABLES["NPA"] = _CHARGE_TABLES["NBO"]
+_CHARGE_TABLES["CM5"] = _CHARGE_TABLES["HIRSHFELD"]
+
 _SPIN_POPULATION_TABLES = {
     "MULLIKEN": {
         "start": "MULLIKEN ATOMIC CHARGES AND SPIN POPULATIONS",
-        "stop": lambda line: "Sum of atomic" in line,
+        "stop": _CHARGE_TABLES["MULLIKEN"]["stop"],
     },
     "LOEWDIN": {
         "start": "LOEWDIN ATOMIC CHARGES AND SPIN POPULATIONS",
-        "stop": lambda line: "Sum of atomic" in line or len(line.replace(" ", "")) < 2,
+        "stop": _CHARGE_TABLES["LOEWDIN"]["stop"],
     },
 }
 
