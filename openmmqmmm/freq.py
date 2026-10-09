@@ -26,6 +26,7 @@ import openmmqmmm.coords
 import openmmqmmm.orca
 from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.exceptions import InputError, InternalError
+from openmmqmmm.numgrad import _displaced_geometries, _displacement_label
 from openmmqmmm.qmmm import QMMMTheory
 from openmmqmmm.results import Results
 from openmmqmmm.utils import (
@@ -312,7 +313,7 @@ def analytic_frequencies(
     return result
 
 
-# ORCA uses 0.005 Bohr = 0.0026458861 Ang, ChemShell uses 0.01 Bohr = 0.00529 Ang
+# Numerical frequencies retain a 0.005 Å default; NumGrad uses 0.005 Bohr in Å.
 def _build_displacements(
     *,
     coords: np.ndarray,
@@ -324,21 +325,10 @@ def _build_displacements(
     mult: int,
 ) -> tuple[list[np.ndarray], list[Displacement], list[str], list[Fragment]]:
     """Return the displaced geometries, their displacement tuples, log labels and fragments."""
-    current = np.array(coords)
-    geometries = []
-    displacements = []
-    signs = [(1, "+")] if npoint == 1 else [(1, "+"), (-1, "-")]
-    for atom_index in hessatoms:
-        for coord_index in range(3):
-            val = current[atom_index, coord_index]
-            for sign, direction in signs:
-                current[atom_index, coord_index] = val + sign * displacement
-                geometries.append(current.copy())
-                displacements.append((atom_index, coord_index, direction))
-            current[atom_index, coord_index] = val
+    geometries, displacements = _displaced_geometries(coords, hessatoms, displacement, npoint)
     if npoint == 1:
         # Forward difference needs the undisplaced gradient as its reference
-        geometries.append(current.copy())
+        geometries.append(np.array(coords, copy=True))
         displacements.append("Originalgeo")
     logger.info("List of displacements: %s", displacements)
 
@@ -351,7 +341,7 @@ def _build_displacements(
         else:
             atom_disp, axis, direction = disp
             calclabel = f"Atom: {atom_disp} Coord: {axis_names[axis]} Direction: {direction}"
-            stringlabel = f"{atom_disp}_{axis}_{direction}"
+            stringlabel = _displacement_label(disp)
         frag = openmmqmmm.Fragment(coords=geometry, elems=elems, label=stringlabel, charge=charge, mult=mult)
         fragments.append(frag)
         labels.append(calclabel)
@@ -386,7 +376,7 @@ def _run_displacements_serially(
             stringlabel = "Originalgeo"
             logger.debug("Doing original geometry calc.")
         else:
-            stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
+            stringlabel = _displacement_label(disp)
             logger.debug("Running displacement %s / %s: %s", numdisp + 1, len(labels), label)
         _energy, gradient = theory.run(current_coords=geo, elems=elems, grad=True, charge=charge, mult=mult)
         grads[stringlabel] = gradient
@@ -442,7 +432,7 @@ def _expected_displacement_labels(npoint: int, hessatoms: Sequence[int]) -> list
     directions = ("+",) if npoint == 1 else ("+", "-")
     for atomindex in hessatoms:
         for coordinate in (0, 1, 2):
-            labels.extend(f"{atomindex}_{coordinate}_{direction}" for direction in directions)
+            labels.extend(_displacement_label((atomindex, coordinate, direction)) for direction in directions)
     if npoint == 1:
         labels.append("Originalgeo")
     return labels

@@ -315,3 +315,10 @@ def test_flat_surface_gives_zero_gradient():
     assert energy == 0.0
     assert gradient.shape == (2, 3), "One gradient row per atom"
     assert np.allclose(gradient, 0.0)
+
+
+@pytest.mark.parametrize("value", [True, np.bool_(True)])
+@pytest.mark.parametrize("option", ["npoint", "numcores", "displacement"])
+def test_numgrad_numeric_options_reject_numpy_and_python_booleans(value, option):
+    with pytest.raises(InputError):
+        NumGrad(ZeroTheory(), **{option: value})
