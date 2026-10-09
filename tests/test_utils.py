@@ -2,6 +2,7 @@ import io
 import logging
 import re
 
+import numpy as np
 import pytest
 
 from openmmqmmm import configure_logging
@@ -261,3 +262,23 @@ def test_configure_logging_preserves_application_handlers(isolated_package_logge
 
     assert application_handler in isolated_package_logger.handlers
     assert application_output.getvalue() == "shared record\n"
+
+
+@pytest.mark.parametrize("value", [True, False, np.bool_(True), 0, -1, float("inf"), float("nan")])
+def test_numeric_validation_rejects_flags_and_nonpositive_values(value):
+    from openmmqmmm.exceptions import InputError
+    from openmmqmmm.utils import require_int_in_range, require_positive_finite
+
+    for validator in (require_int_in_range, require_positive_finite):
+        with pytest.raises(InputError, match="caller message"):
+            validator(value, "caller message")
+
+
+def test_integer_validation_preserves_bounds_and_numpy_integers():
+    from openmmqmmm.exceptions import InputError
+    from openmmqmmm.utils import require_int_in_range
+
+    assert require_int_in_range(np.int64(0), "range", minimum=0, maximum=3) == 0
+    for value in (4, 1.5, "1"):
+        with pytest.raises(InputError, match="range"):
+            require_int_in_range(value, "range", minimum=0, maximum=3)
