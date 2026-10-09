@@ -18,7 +18,9 @@ from openmmqmmm.geometric import (
 )
 
 
-def test_geometric_optimizer_preserves_application_logging(monkeypatch, tmp_path):
+def test_geometric_optimizer_preserves_application_logging(
+    monkeypatch, tmp_path, isolated_package_logger, root_log_output
+):
     file_config_calls = []
 
     def application_file_config(*args, **kwargs):
@@ -27,12 +29,7 @@ def test_geometric_optimizer_preserves_application_logging(monkeypatch, tmp_path
     monkeypatch.setattr(logging.config, "fileConfig", application_file_config)
     logfile = tmp_path / "geometric.log"
     geometric_logger = logging.getLogger("geometric")
-    original_level = geometric_logger.level
     geometric_logger.setLevel(logging.ERROR)
-    root_output = StringIO()
-    root_handler = logging.StreamHandler(root_output)
-    root_logger = logging.getLogger()
-    root_logger.addHandler(root_handler)
 
     def fake_run_optimizer(**kwargs):
         logging.config.fileConfig(kwargs["logIni"], defaults={"logfilename": logfile})
@@ -40,21 +37,16 @@ def test_geometric_optimizer_preserves_application_logging(monkeypatch, tmp_path
         logging.getLogger("application.fake").warning("application warning")
         return "finished"
 
-    try:
-        result = _run_optimizer_without_reconfiguring_logging(fake_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
-    finally:
-        root_logger.removeHandler(root_handler)
-        root_handler.close()
-        geometric_logger.setLevel(original_level)
+    result = _run_optimizer_without_reconfiguring_logging(fake_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
 
     assert result == "finished"
     assert file_config_calls == []
     assert logging.config.fileConfig is application_file_config
     assert logfile.read_text() == "Step 1: test"
-    assert root_output.getvalue() == "application warning\n"
+    assert root_log_output.getvalue() == "application warning\n"
 
 
-def test_geometric_logging_isolation_restores_state_after_failure(monkeypatch, tmp_path):
+def test_geometric_logging_isolation_restores_state_after_failure(monkeypatch, tmp_path, isolated_package_logger):
     def application_file_config(*args, **kwargs):
         pytest.fail("geomeTRIC must not invoke the application's fileConfig")
 
@@ -81,27 +73,18 @@ def test_geometric_logging_isolation_restores_state_after_failure(monkeypatch, t
         logging.getLogger("geometric.failure").info("Step 1: before failure")
         raise RuntimeError("optimizer failed")
 
-    try:
-        with pytest.raises(RuntimeError, match="optimizer failed"):
-            _run_optimizer_without_reconfiguring_logging(failing_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
+    with pytest.raises(RuntimeError, match="optimizer failed"):
+        _run_optimizer_without_reconfiguring_logging(failing_run_optimizer, {"logIni": "openmmqmmm/log.ini"})
 
-        assert logging.config.fileConfig is application_file_config
-        assert geometric_logger.handlers == [*original_handlers, application_handler]
-        assert geometric_logger.level == logging.ERROR
-        assert geometric_logger.propagate == original_state[1]
-        assert geometric_logger.disabled is True
-        assert application_handler.filters == []
-        assert application_output.getvalue() == ""
-        assert logfile.read_text() == "Step 1: before failure"
-        assert internal_handler is not None and internal_handler.stream is None
-    finally:
-        for handler in list(geometric_logger.handlers):
-            if handler not in original_handlers:
-                geometric_logger.removeHandler(handler)
-                handler.close()
-        geometric_logger.setLevel(original_state[0])
-        geometric_logger.propagate = original_state[1]
-        geometric_logger.disabled = original_state[2]
+    assert logging.config.fileConfig is application_file_config
+    assert geometric_logger.handlers == [*original_handlers, application_handler]
+    assert geometric_logger.level == logging.ERROR
+    assert geometric_logger.propagate == original_state[1]
+    assert geometric_logger.disabled is True
+    assert application_handler.filters == []
+    assert application_output.getvalue() == ""
+    assert logfile.read_text() == "Step 1: before failure"
+    assert internal_handler is not None and internal_handler.stream is None
 
 
 def test_geometric_logging_isolation_serializes_concurrent_runs(monkeypatch, tmp_path):
@@ -171,7 +154,6 @@ def optimizer():
 
 
 def test_no_constraints_writes_no_file(optimizer, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     optimizer.write_constraintsfile([], Constraints(), constrainvalue=False)
 
     assert optimizer.constraintsfile is None
@@ -179,14 +161,12 @@ def test_no_constraints_writes_no_file(optimizer, tmp_path, monkeypatch):
 
 
 def test_frozen_atoms_are_written_one_based(optimizer, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     optimizer.write_constraintsfile([0, 3], Constraints(), constrainvalue=False)
 
     assert Path(optimizer.constraintsfile).read_text() == "$freeze\nxyz 1\nxyz 4\n"
 
 
 def test_internal_coordinates_without_values_are_frozen(optimizer, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     constraints = Constraints(bond=[[0, 1]], angle=[[0, 1, 2]], dihedral=[[0, 1, 2, 3]])
     optimizer.write_constraintsfile([], constraints, constrainvalue=False)
 
@@ -197,7 +177,6 @@ def test_internal_coordinates_without_values_are_frozen(optimizer, tmp_path, mon
 
 def test_internal_coordinates_with_values_are_set(optimizer, tmp_path, monkeypatch):
     """constrainvalue=True means the last element of each entry is a target value."""
-    monkeypatch.chdir(tmp_path)
     constraints = Constraints(bond=[[0, 1, 1.5]], angle=[[0, 1, 2, 104.5]], dihedral=[[0, 1, 2, 3, 180.0]])
     optimizer.write_constraintsfile([], constraints, constrainvalue=True)
 
@@ -208,7 +187,6 @@ def test_internal_coordinates_with_values_are_set(optimizer, tmp_path, monkeypat
 
 def test_cartesian_freezes_never_take_a_value(optimizer, tmp_path, monkeypatch):
     """x/y/z freezes stay under $freeze even when constrainvalue is set: there is no value."""
-    monkeypatch.chdir(tmp_path)
     constraints = Constraints(x=[0], y=[1], z=[2], xy=[3], xz=[4], yz=[5])
     optimizer.write_constraintsfile([], constraints, constrainvalue=True)
 
@@ -219,7 +197,6 @@ def test_cartesian_freezes_never_take_a_value(optimizer, tmp_path, monkeypatch):
 
 def test_a_stale_constraints_file_is_replaced(optimizer, tmp_path, monkeypatch):
     """A file left by a previous run must not be appended to."""
-    monkeypatch.chdir(tmp_path)
     optimizer.write_constraintsfile([98], Constraints(), constrainvalue=False)
 
     optimizer.write_constraintsfile([0], Constraints(), constrainvalue=False)
@@ -363,3 +340,92 @@ def test_user_criteria_override_the_preset():
     assert optimizer.conv_criteria["convergence_grms"] == 1e-9
     assert optimizer.conv_criteria["convergence_energy"] == CONVERGENCE_PRESETS["ORCA"]["convergence_energy"]
     assert CONVERGENCE_PRESETS["ORCA"]["convergence_grms"] != 1e-9, "The preset itself must not be mutated"
+
+
+@pytest.mark.parametrize(
+    "option,npoint,partial", [("1point", 1, False), ("2point", 2, False), ("partial", 1, True), ("partial2", 2, True)]
+)
+def test_hessian_options_use_the_requested_stencil(monkeypatch, option, npoint, partial):
+    from types import SimpleNamespace
+
+    import openmmqmmm
+    from openmmqmmm.freq import read_hessian, write_hessian
+
+    fragment = _six_atom_chain()
+    calls = []
+
+    def calculate(**kwargs):
+        calls.append(kwargs)
+        hessian = np.eye(6 if partial else 18)
+        Path("Numfreq_dir").mkdir(exist_ok=True)
+        write_hessian(hessian, hessfile="Numfreq_dir/Hessian")
+        return SimpleNamespace(hessian=hessian)
+
+    monkeypatch.setattr(openmmqmmm, "numerical_frequencies", calculate)
+    monkeypatch.setattr("openmmqmmm.geometric.approximate_full_hessian_from_smaller", lambda *a, **k: np.eye(18) * 2)
+    optimizer = GeometricOptimizer(hessian=option, partial_hessian_atoms=[0, 1])
+    theory = ZeroTheory(numcores=3)
+    optimizer.hessian_option(fragment, [], theory, 0, 1, None)
+    assert calls[0]["npoint"] == npoint
+    assert calls[0]["numcores"] == (1 if partial else 3)
+    assert calls[0].get("hessatoms") == ([0, 1] if partial else None)
+    np.testing.assert_array_equal(read_hessian(optimizer.hessian.split(":", 1)[1]), np.eye(18) * (2 if partial else 1))
+
+
+def test_array_hessian_is_written_without_a_frequency_job():
+    from openmmqmmm.freq import read_hessian
+
+    optimizer = GeometricOptimizer(hessian=np.eye(18))
+    optimizer.hessian_option(_six_atom_chain(), [], ZeroTheory(), 0, 1, None)
+    np.testing.assert_array_equal(read_hessian("Hessian_np"), np.eye(18))
+
+
+def test_pdb_trajectory_uses_the_latest_full_geometry(tmp_path):
+    from types import SimpleNamespace
+
+    import openmm.app
+    import openmm.unit
+
+    from openmmqmmm.geometric import GeometricEngine
+
+    topology = openmm.app.Topology()
+    residue = topology.addResidue("MOL", topology.addChain())
+    topology.addAtom("H", openmm.app.element.hydrogen, residue)
+    engine = GeometricEngine.__new__(GeometricEngine)
+    engine.theory = SimpleNamespace(mm_theory=SimpleNamespace(topology=topology))
+    engine.full_current_coords = np.array([[1.2, 2.3, 3.4]])
+    engine.write_pdbtrajectory()
+    pdb = openmm.app.PDBFile(str(tmp_path / "geometric_OPTtraj-PDB.pdb"))
+    np.testing.assert_allclose(pdb.positions.value_in_unit(openmm.unit.angstrom), engine.full_current_coords)
+
+
+def test_unknown_periodic_output_format_is_rejected_before_optimization():
+    from types import SimpleNamespace
+
+    with pytest.raises(InputError, match="pbc_format_option"):
+        GeometricOptimizer(theory=SimpleNamespace(periodic=True), pbc_format_option="unknown")
+
+
+def test_active_region_optimization_preserves_frozen_atoms_and_full_trajectory():
+    fragment = _six_atom_chain()
+    original = fragment.coords.copy()
+    optimize_geometry(theory=ZeroTheory(), fragment=fragment, active_region=True, actatoms=[0, 1, 2])
+    np.testing.assert_array_equal(fragment.coords[3:], original[3:])
+    assert Path("geometric_OPTtraj_Full.xyz").read_text().splitlines()[0] == "6"
+
+
+def test_qm_trajectory_selects_current_full_coordinates():
+    from types import SimpleNamespace
+
+    from openmmqmmm.coords import read_xyzfile
+    from openmmqmmm.geometric import GeometricEngine
+
+    engine = GeometricEngine.__new__(GeometricEngine)
+    engine.fragment = Fragment(elems=["H", "O"], coords=[[0, 0, 0], [1, 1, 1]])
+    engine.theory = SimpleNamespace(qmatoms=[1])
+    engine.full_current_coords = np.array([[2, 3, 4], [5, 6, 7]])
+    engine.iteration_count, engine.energy = 1, -1.0
+    engine.write_trajectory_qmregion()
+    elems, coords = read_xyzfile("geometric_OPTtraj_QMregion.xyz")
+    assert elems == ["O"]
+    np.testing.assert_array_equal(coords, [[5, 6, 7]])

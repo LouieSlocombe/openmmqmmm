@@ -41,7 +41,7 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 # conda refuses to remove the active environment, so drop back to base first.
 conda activate base
 conda env remove -n "${ENV_NAME}" -y 2>/dev/null || true
-conda env create -f "${SCRIPT_DIR}/environment_custom.yml"
+conda env create -n "${ENV_NAME}" -f "${SCRIPT_DIR}/environment.yml"
 conda activate "${ENV_NAME}"
 
 echo "=== Preparing Build Directory ==="
@@ -49,7 +49,7 @@ rm -rf "${WORK_DIR}"
 mkdir -p "${WORK_DIR}"
 cd "${WORK_DIR}"
 
-# Overwrites the conda-forge openmm that environment_custom.yml pulled in as a
+# Overwrites the conda-forge openmm that environment.yml pulled in as a
 # dependency of pdbfixer and openff-toolkit. CMake finds a CUDA toolkit itself if one
 # is installed; there is no CUDA pin in the environment to point it at.
 echo "=== Compiling OpenMM ${OPENMM_VERSION} ==="
@@ -71,27 +71,18 @@ build_py_plumed "${WORK_DIR}"
 
 # --no-deps matters more here than in the conda route: pyproject.toml requires
 # openmm >=8.6,<8.7, which a master build does not report. Letting pip resolve dependencies
-# could replace that source build. environment_custom.yml is the authority on dependencies.
+# could replace that source build. environment.yml is the authority on dependencies.
 echo "=== Installing openmmqmmm (editable) ==="
 pip install -e "${REPO_DIR}" --no-deps
 
-# forcefill is on neither index, so it cannot go in environment_custom.yml; without it
+# forcefill is on neither index, so it cannot go in environment.yml; without it
 # openmm_modeller(parameterize_nonstandard=True) raises MissingDependencyError.
 install_editable_repos "${SRC_DIR}"
 
 echo "=== Verifying Installation ==="
 cd "${REPO_DIR}"
-plumed --no-mpi config -q module opes
-echo "PLUMED opes module: OK"
-python -c "import plumed; plumed.Plumed()"
-echo "py-plumed kernel load: OK"
-python -c "from openmmplumed import PlumedForce"
-echo "openmm-plumed: OK"
-check_editable_repos "${SRC_DIR}"
-echo "editable dependencies: OK"
+verify_install "${SRC_DIR}"
 python -c "import openmm; print(openmm.__version__)"
-python -c "import openmmqmmm"
-echo "openmmqmmm: OK"
 
 echo "=== Build Complete! ==="
 echo "Activate with: conda activate ${ENV_NAME}"

@@ -25,10 +25,18 @@ import openmmqmmm.constants
 import openmmqmmm.coords
 import openmmqmmm.orca
 from openmmqmmm.coords import Fragment, check_charge_mult
-from openmmqmmm.exceptions import InputError, InternalError
+from openmmqmmm.exceptions import ExternalProgramError, InputError, InternalError
+from openmmqmmm.numgrad import _displaced_geometries, _displacement_label
 from openmmqmmm.qmmm import QMMMTheory
 from openmmqmmm.results import Results
-from openmmqmmm.utils import clean_number, listdiff, log_time_since, main_header
+from openmmqmmm.utils import (
+    clean_number,
+    listdiff,
+    log_time_since,
+    main_header,
+    require_int_in_range,
+    require_positive_finite,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +203,59 @@ def _copy_orca_guess(theory: Any, source_directory: Path, scratch_directory: Pat
         logger.info("Copied ORCA GBW guess into %s", scratch_directory.name)
 
 
+def _validate_thermo_options(
+    temp: float,
+    pressure: float,
+    qrrho: bool,
+    qrrho_method: str,
+    qrrho_omega_0: float,
+    symmetry_number: int | None,
+    rotmode_threshold: float,
+    scaling_factor: float,
+) -> dict[str, Any]:
+    """Normalize shared analysis options before any external job or workspace mutation."""
+    temp = require_positive_finite(temp, "temperature must be a positive finite number")
+    pressure = require_positive_finite(pressure, "pressure must be a positive finite number")
+    scaling_factor = require_positive_finite(scaling_factor, "scaling_factor must be a positive finite number")
+    message = "rotmode_threshold must be a non-negative finite number"
+    if isinstance(rotmode_threshold, (bool, np.bool_)):
+        raise InputError(message)
+    try:
+        rotmode_threshold = float(rotmode_threshold)
+    except (OverflowError, TypeError, ValueError):
+        raise InputError(message) from None
+    if not math.isfinite(rotmode_threshold) or rotmode_threshold < 0:
+        raise InputError(message)
+    if qrrho:
+        if qrrho_method not in ("Grimme", "Truhlar"):
+            raise InputError("Unknown qrrho_method. Choose 'Grimme' or 'Truhlar'.")
+        qrrho_omega_0 = require_positive_finite(qrrho_omega_0, "qrrho_omega_0 must be a positive finite number")
+    if symmetry_number is not None:
+        symmetry_number = require_int_in_range(symmetry_number, "symmetry_number must be a positive integer")
+    return {
+        "temp": temp,
+        "pressure": pressure,
+        "qrrho": qrrho,
+        "qrrho_method": qrrho_method,
+        "qrrho_omega_0": qrrho_omega_0,
+        "symmetry_number": symmetry_number,
+        "rotmode_threshold": rotmode_threshold,
+        "scaling_factor": scaling_factor,
+    }
+
+
+def _validated_masses(masses: Sequence[float], count: int, name: str) -> list[float]:
+    try:
+        values = list(masses)
+    except TypeError:
+        raise InputError(f"{name} must be a sequence of positive finite numbers") from None
+    if len(values) != count:
+        raise InputError(
+            f"Number of provided masses ({name} keyword) is not equal to number of Hessian-atoms. Check input masses!"
+        )
+    return [require_positive_finite(value, f"{name} must contain only positive finite numbers") for value in values]
+
+
 def analytic_frequencies(
     *,
     fragment: Fragment | None = None,
@@ -218,98 +279,41 @@ def analytic_frequencies(
     if fragment is None or theory is None:
         raise InputError("analytic_frequencies requires a fragment and a theory object")
 
-    if detect_linear(coords=fragment.coords, elems=fragment.elems, threshold=rotmode_threshold) is True:
-        tr_modenum = 5
-    else:
-        tr_modenum = 6
-    hessatoms = list(range(fragment.numatoms))
-
-    if masses is None:
-        masses = fragment.list_of_masses
-
-    # QMMMTheory and the wrapper theories never define analytic_hessian; only ORCATheory sets it True.
-    if getattr(theory, "analytic_hessian", False):
-        logger.info(f"Requesting analytical Hessian calculation from {theory.theorynamelabel}\n")
-        charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "AnFreq", theory=theory)
-        theory.run(current_coords=fragment.coords, elems=fragment.elems, charge=charge, mult=mult, hessian=True)
-
-        logger.info("Getting analytic Hessian from theory object")
-        hessian = theory.hessian
-        frequencies, nmodes, evectors, _mode_order = _diagonalize_hessian(
-            fragment.coords, theory.hessian, masses, fragment.elems, tr_modenum=tr_modenum, projection=True
-        )
-        logger.info("Now scaling frequencies by scaling factor: %s", scaling_factor)
-        frequencies = scaling_factor * frequencies
-
-        # These are the theory's own IR intensities, from its masses, not recomputed for masses=
-        # with _calc_ir_intensities.
-        IR_intens_values = None
-        try:
-            IR_intens_values = theory.ir_intensities
-            if len(IR_intens_values) == 0:
-                logger.info("Found no IR intensities")
-                IR_intens_values = None
-            elif len(IR_intens_values) < len(frequencies):
-                logger.info("Found IR intensities, zero-capping needed")
-                IR_intens_values = [0.0] * 6 + list(IR_intens_values)
-                logger.info("Found IR intensities")
-        except (AttributeError, KeyError, TypeError):
-            logger.info("Found no IR intensities in theory object")
-            IR_intens_values = None
-        raman_activities = None
-
-        _log_frequencies(
-            frequencies,
-            len(hessatoms),
-            tr_modenum=tr_modenum,
-            intensities=IR_intens_values,
-            raman_activities=raman_activities,
-        )
-        logger.info("Normal mode composition factors by element")
-        _log_frequencies_and_mode_compositions(
-            frequencies, fragment, evectors, hessatoms=hessatoms, tr_modenum=tr_modenum
-        )
-        thermodict = calc_thermochemistry(
-            frequencies,
-            hessatoms,
-            fragment,
-            mult,
-            temp=temp,
-            pressure=pressure,
-            qrrho=qrrho,
-            qrrho_method=qrrho_method,
-            qrrho_omega_0=qrrho_omega_0,
-            symmetry_number=symmetry_number,
-            rotmode_threshold=rotmode_threshold,
-        )
-
-        fragment.hessian = hessian
-        write_hessian(hessian, hessfile="Hessian")
-
-        _write_dummy_orca_file(fragment.elems, fragment.coords, frequencies, nmodes, "orcahessfile.hess")
-        logger.info("Wrote dummy ORCA outputfile with frequencies and normal modes: orcahessfile.hess_dummy.out")
-        logger.info("Can be used for visualization")
-
-        logger.info("------------ANALYTICAL FREQUENCIES END-------------")
-        log_time_since(module_init_time, "AnFreq")
-
-        result = Results(
-            label="Anfreq",
-            hessian=hessian,
-            frequencies=frequencies,
-            vib_eigenvectors=evectors,
-            normal_modes=nmodes,
-            thermochemistry=thermodict,
-        )
-        result.write_to_disk(filename="results_anfreq.json")
-        return result
-
-    raise InputError(
-        f"Analytical frequencies are not available for {theory.__class__.__name__}. Use numerical_frequencies instead."
+    thermo_options = _validate_thermo_options(
+        temp, pressure, qrrho, qrrho_method, qrrho_omega_0, symmetry_number, rotmode_threshold, scaling_factor
     )
+    hessatoms = list(range(fragment.numatoms))
+    masses = _validated_masses(fragment.list_of_masses if masses is None else masses, fragment.numatoms, "masses")
+    if not getattr(theory, "analytic_hessian", False):
+        raise InputError(
+            f"Analytical frequencies are not available for {theory.__class__.__name__}. "
+            "Use numerical_frequencies instead."
+        )
+    charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "AnFreq", theory=theory)
+    theory.run(current_coords=fragment.coords, elems=fragment.elems, charge=charge, mult=mult, hessian=True)
+    # Preserve the theory's IR intensities: custom masses do not recompute this property.
+    try:
+        analytic_ir = theory.ir_intensities
+    except (AttributeError, KeyError, TypeError):
+        analytic_ir = None
+    result = _analyse_hessian(
+        fragment=fragment,
+        hessian=theory.hessian,
+        hessatoms=hessatoms,
+        hessmasses=masses,
+        mult=mult,
+        projection=True,
+        label="Anfreq",
+        analytic_ir=analytic_ir,
+        **thermo_options,
+    )
+    logger.info("------------ANALYTICAL FREQUENCIES END-------------")
+    log_time_since(module_init_time, "AnFreq")
+    result.write_to_disk(filename="results_anfreq.json")
+    return result
 
 
-# ORCA uses 0.005 Bohr = 0.0026458861 Ang, ChemShell uses 0.01 Bohr = 0.00529 Ang
+# Numerical frequencies retain a 0.005 Å default; NumGrad uses 0.005 Bohr in Å.
 def _build_displacements(
     *,
     coords: np.ndarray,
@@ -321,21 +325,10 @@ def _build_displacements(
     mult: int,
 ) -> tuple[list[np.ndarray], list[Displacement], list[str], list[Fragment]]:
     """Return the displaced geometries, their displacement tuples, log labels and fragments."""
-    current = np.array(coords)
-    geometries = []
-    displacements = []
-    signs = [(1, "+")] if npoint == 1 else [(1, "+"), (-1, "-")]
-    for atom_index in hessatoms:
-        for coord_index in range(3):
-            val = current[atom_index, coord_index]
-            for sign, direction in signs:
-                current[atom_index, coord_index] = val + sign * displacement
-                geometries.append(current.copy())
-                displacements.append((atom_index, coord_index, direction))
-            current[atom_index, coord_index] = val
+    geometries, displacements = _displaced_geometries(coords, hessatoms, displacement, npoint)
     if npoint == 1:
         # Forward difference needs the undisplaced gradient as its reference
-        geometries.append(current.copy())
+        geometries.append(np.array(coords, copy=True))
         displacements.append("Originalgeo")
     logger.info("List of displacements: %s", displacements)
 
@@ -348,7 +341,7 @@ def _build_displacements(
         else:
             atom_disp, axis, direction = disp
             calclabel = f"Atom: {atom_disp} Coord: {axis_names[axis]} Direction: {direction}"
-            stringlabel = f"{atom_disp}_{axis}_{direction}"
+            stringlabel = _displacement_label(disp)
         frag = openmmqmmm.Fragment(coords=geometry, elems=elems, label=stringlabel, charge=charge, mult=mult)
         fragments.append(frag)
         labels.append(calclabel)
@@ -383,7 +376,7 @@ def _run_displacements_serially(
             stringlabel = "Originalgeo"
             logger.debug("Doing original geometry calc.")
         else:
-            stringlabel = f"{disp[0]}_{disp[1]}_{disp[2]}"
+            stringlabel = _displacement_label(disp)
             logger.debug("Running displacement %s / %s: %s", numdisp + 1, len(labels), label)
         _energy, gradient = theory.run(current_coords=geo, elems=elems, grad=True, charge=charge, mult=mult)
         grads[stringlabel] = gradient
@@ -439,7 +432,7 @@ def _expected_displacement_labels(npoint: int, hessatoms: Sequence[int]) -> list
     directions = ("+",) if npoint == 1 else ("+", "-")
     for atomindex in hessatoms:
         for coordinate in (0, 1, 2):
-            labels.extend(f"{atomindex}_{coordinate}_{direction}" for direction in directions)
+            labels.extend(_displacement_label((atomindex, coordinate, direction)) for direction in directions)
     if npoint == 1:
         labels.append("Originalgeo")
     return labels
@@ -529,8 +522,8 @@ def _assemble_hessian(
     hessindex = 0
     for atomindex in hessatoms:
         for crd in (0, 1, 2):
-            plus = f"{atomindex}_{crd}_+"
-            minus = "Originalgeo" if npoint == 1 else f"{atomindex}_{crd}_-"
+            plus = _displacement_label((atomindex, crd, "+"))
+            minus = "Originalgeo" if npoint == 1 else _displacement_label((atomindex, crd, "-"))
 
             grad_plus = np.ravel(_get_partial_matrix(grads[plus], hessatoms))
             grad_minus = np.ravel(_get_partial_matrix(grads[minus], hessatoms))
@@ -580,52 +573,16 @@ def numerical_frequencies(
     if isinstance(theory, QMMMTheory) and theory.embedding == "elstat" and theory.truncated_pc:
         theory._validate_truncated_pc_settings(require_gradients=True)
 
-    if not isinstance(npoint, Integral) or isinstance(npoint, bool) or npoint not in (1, 2):
-        raise InputError("Unknown npoint option. npoint should be 1 (forward) or 2 (central difference).")
+    npoint = require_int_in_range(
+        npoint, "Unknown npoint option. npoint should be 1 (forward) or 2 (central difference).", maximum=2
+    )
     if runmode not in ("serial", "parallel"):
         raise InputError("Unknown runmode. Choose 'serial' or 'parallel'.")
-    if not isinstance(numcores, Integral) or isinstance(numcores, bool) or numcores < 1:
-        raise InputError("numcores must be a positive integer")
-    normalized_values = []
-    for name, value in (("displacement", displacement), ("temperature", temp), ("pressure", pressure)):
-        try:
-            normalized_value = float(value)
-            valid = math.isfinite(normalized_value) and normalized_value > 0
-        except (OverflowError, TypeError, ValueError):
-            valid = False
-        if not valid:
-            raise InputError(f"{name} must be a positive finite number")
-        normalized_values.append(normalized_value)
-    displacement, temp, pressure = normalized_values
-
-    try:
-        rotmode_threshold = float(rotmode_threshold)
-    except (OverflowError, TypeError, ValueError):
-        raise InputError("rotmode_threshold must be a non-negative finite number") from None
-    if not math.isfinite(rotmode_threshold) or rotmode_threshold < 0:
-        raise InputError("rotmode_threshold must be a non-negative finite number")
-
-    try:
-        scaling_factor = float(scaling_factor)
-    except (OverflowError, TypeError, ValueError):
-        raise InputError("scaling_factor must be a positive finite number") from None
-    if not math.isfinite(scaling_factor) or scaling_factor <= 0:
-        raise InputError("scaling_factor must be a positive finite number")
-
-    if qrrho and qrrho_method not in ("Grimme", "Truhlar"):
-        raise InputError("Unknown qrrho_method. Choose 'Grimme' or 'Truhlar'.")
-    if qrrho:
-        try:
-            qrrho_omega_0 = float(qrrho_omega_0)
-            valid_qrrho_cutoff = math.isfinite(qrrho_omega_0) and qrrho_omega_0 > 0
-        except (OverflowError, TypeError, ValueError):
-            valid_qrrho_cutoff = False
-        if not valid_qrrho_cutoff:
-            raise InputError("qrrho_omega_0 must be a positive finite number")
-    if symmetry_number is not None and (
-        not isinstance(symmetry_number, Integral) or isinstance(symmetry_number, bool) or symmetry_number < 1
-    ):
-        raise InputError("symmetry_number must be a positive integer")
+    numcores = require_int_in_range(numcores, "numcores must be a positive integer")
+    displacement = require_positive_finite(displacement, "displacement must be a positive finite number")
+    thermo_options = _validate_thermo_options(
+        temp, pressure, qrrho, qrrho_method, qrrho_omega_0, symmetry_number, rotmode_threshold, scaling_factor
+    )
     if force_projection is not None and not isinstance(force_projection, bool):
         raise InputError("force_projection must be True, False, or None")
 
@@ -682,21 +639,7 @@ def numerical_frequencies(
             projection = False
 
     if hessatoms_masses is not None:
-        try:
-            hessatoms_masses = [float(mass) for mass in hessatoms_masses]
-        except (OverflowError, TypeError, ValueError):
-            raise InputError("hessatoms_masses must be a sequence of positive finite numbers") from None
-        if len(hessatoms_masses) != len(hessatoms):
-            raise InputError(
-                "Number of provided masses (hessatoms_masses keyword) is not equal to number of "
-                "Hessian-atoms.\nCheck input masses!"
-            )
-        if not all(math.isfinite(mass) and mass > 0 for mass in hessatoms_masses):
-            raise InputError("hessatoms_masses must contain only positive finite numbers")
-    if detect_linear(coords=fragment.coords, elems=fragment.elems, threshold=rotmode_threshold) is True:
-        tr_modenum = 5
-    else:
-        tr_modenum = 6
+        hessatoms_masses = _validated_masses(hessatoms_masses, len(hessatoms), "hessatoms_masses")
     original_directory = Path.cwd()
     lock_owner = _NUMFREQ_LOCK_OWNER.get()
     if lock_owner is None:
@@ -788,6 +731,49 @@ def numerical_frequencies(
     logger.info("Elements: %s", hesselems)
     logger.info("Masses used: %s", hessmasses)
 
+    result = _analyse_hessian(
+        fragment=fragment,
+        hessian=hessian,
+        hessatoms=hessatoms,
+        hessmasses=hessmasses,
+        mult=mult,
+        projection=projection,
+        label="Numfreq",
+        IR=IR,
+        Raman=Raman,
+        dipole_derivs=dipole_derivs,
+        polarizability_derivs=polarizability_derivs,
+        **thermo_options,
+    )
+    openmmqmmm.orca.write_orca_hessfile(hessian, hesscoords, hesselems, hessmasses, "orcahessfile.hess")
+    logger.info("------------NUMERICAL FREQUENCIES END-------------")
+    os.chdir(original_directory)
+    log_time_since(module_init_time, "NumFreq")
+    result.write_to_disk(filename="results_numfreq.json")
+    return result
+
+
+def _analyse_hessian(
+    *,
+    fragment: Fragment,
+    hessian: np.ndarray,
+    hessatoms: Sequence[int],
+    hessmasses: Sequence[float],
+    mult: int | None,
+    projection: bool,
+    label: str,
+    scaling_factor: float,
+    IR: bool = False,
+    Raman: bool = False,
+    analytic_ir: Sequence[float] | None = None,
+    dipole_derivs: np.ndarray | None = None,
+    polarizability_derivs: Sequence[np.ndarray] = (),
+    **thermo_options: Any,
+) -> Results:
+    """Analyse either source of Hessians, preserving the Hessian atom ordering."""
+    hesselems = [fragment.elems[index] for index in hessatoms]
+    hesscoords = np.take(fragment.coords, hessatoms, axis=0)
+    tr_modenum = _tr_mode_count(hesscoords, hessmasses, thermo_options["rotmode_threshold"])
     # Evectors: eigenvectors of the mass-weighted Hessian
     # Normal modes: unweighted
     frequencies, nmodes, evectors, _mode_order = _diagonalize_hessian(
@@ -797,15 +783,20 @@ def numerical_frequencies(
         hesselems,
         tr_modenum=tr_modenum,
         projection=projection,
-        rotmode_threshold=rotmode_threshold,
+        rotmode_threshold=thermo_options["rotmode_threshold"],
     )
     logger.info("Diagonalization of frequencies complete")
     logger.info("Now scaling frequencies by scaling factor: %s", scaling_factor)
     frequencies = scaling_factor * np.array(frequencies)
 
-    IR_intens_values = None
-    if IR is True and np.any(dipole_derivs):
-        IR_intens_values = _calc_ir_intensities(hessmasses, evectors, dipole_derivs)
+    IR_intens_values = analytic_ir
+    if label == "Anfreq" and analytic_ir is not None:
+        if len(analytic_ir) == 0:
+            IR_intens_values = None
+        elif len(analytic_ir) < len(frequencies):
+            IR_intens_values = [0.0] * (len(frequencies) - len(analytic_ir)) + list(analytic_ir)
+    elif IR and np.any(dipole_derivs):
+        IR_intens_values = _calc_ir_intensities(nmodes, dipole_derivs)
 
     if Raman is True:
         logger.info("Raman calculation active")
@@ -815,9 +806,7 @@ def numerical_frequencies(
             depolarization_ratios = None
         else:
             logger.info("Polarizability derivatives are available.")
-            raman_activities, depolarization_ratios = _calc_raman_activities(
-                hessmasses, evectors, polarizability_derivs
-            )
+            raman_activities, depolarization_ratios = _calc_raman_activities(nmodes, polarizability_derivs)
     else:
         raman_activities = None
         depolarization_ratios = None
@@ -840,30 +829,14 @@ def numerical_frequencies(
         hessatoms,
         fragment,
         mult,
-        temp=temp,
-        pressure=pressure,
-        qrrho=qrrho,
-        qrrho_method=qrrho_method,
-        qrrho_omega_0=qrrho_omega_0,
-        symmetry_number=symmetry_number,
-        rotmode_threshold=rotmode_threshold,
+        **thermo_options,
     )
 
-    write_hessian(hessian, hessfile="Hessian")
-
-    openmmqmmm.orca.write_orca_hessfile(hessian, hesscoords, hesselems, hessmasses, "orcahessfile.hess")
-
-    _write_dummy_orca_file(hesselems, hesscoords, frequencies, nmodes, "orcahessfile.hess")
-    logger.info("Wrote dummy ORCA outputfile with frequencies and normal modes: orcahessfile.hess_dummy.out")
-    logger.info("Can be used for visualization\n")
-    logger.info("------------NUMERICAL FREQUENCIES END-------------")
-
     fragment.hessian = hessian
-
-    os.chdir(original_directory)
-    log_time_since(module_init_time, "NumFreq")
-    result = Results(
-        label="Numfreq",
+    write_hessian(hessian, hessfile="Hessian")
+    _write_dummy_orca_file(hesselems, hesscoords, frequencies, nmodes, "orcahessfile.hess")
+    return Results(
+        label=label,
         hessian=hessian,
         vib_eigenvectors=evectors,
         frequencies=frequencies,
@@ -883,8 +856,6 @@ def numerical_frequencies(
         freq_raman=Raman,
         freq_polarizability_derivs=polarizability_derivs,
     )
-    result.write_to_disk(filename="results_numfreq.json")
-    return result
 
 
 def _get_partial_matrix(matrix: np.ndarray, hessatoms: Sequence[int]) -> np.ndarray:
@@ -908,7 +879,9 @@ def _diagonalize_hessian(
 
     if projection is True:
         logger.info("Projection of out rotational and translational modes active!")
-        vfreqs, evectors, nmodes = _project_rot_and_trans(coords, masses, hessian, rotmode_threshold=rotmode_threshold)
+        vfreqs, evectors, nmodes, tr_modenum = _project_rot_and_trans(
+            coords, masses, hessian, rotmode_threshold=rotmode_threshold
+        )
         for _ in range(tr_modenum):
             vfreqs = np.insert(vfreqs, 0, 0.0)
         for _ in range(tr_modenum):
@@ -923,11 +896,9 @@ def _diagonalize_hessian(
     evectors = np.transpose(evectors)
 
     # Unweight eigenvectors to get normal modes
-    nmodes = np.dot(evectors, massmatrix)
+    nmodes = evectors * massmatrix
 
-    vfreqs = _frequencies_from_eigenvalues(evalues)
-
-    vfreqs = _clean_frequencies(vfreqs)
+    vfreqs = _eigenvalues_to_wavenumbers(evalues)
 
     logger.info("Calculated frequencies: %s", vfreqs)
     # Unprojected, the lowest modes mix TR modes with saddle-point modes. Heuristic: modes below
@@ -958,31 +929,24 @@ def _diagonalize_hessian(
     return vfreqs, nmodes, evectors, neworder
 
 
-def _calc_ir_intensities(hessmasses: Sequence[float], evectors: np.ndarray, dipole_derivs: np.ndarray) -> np.ndarray:
-    mass_matrix = np.repeat(hessmasses, 3)
-    inv_sqrt_mass_matrix = np.diag(1 / (mass_matrix**0.5))
-    displacements = inv_sqrt_mass_matrix.dot(np.transpose(evectors))
-    de_q = displacements.T @ dipole_derivs
+def _calc_ir_intensities(nmodes: np.ndarray, dipole_derivs: np.ndarray) -> np.ndarray:
+    de_q = nmodes @ dipole_derivs
     return openmmqmmm.constants.IR_INTENSITY_AU_TO_KM_PER_MOL * np.einsum("qt, qt -> q", de_q, de_q)
 
 
 def _mass_weight_hessian(matrix: np.ndarray, masses: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
-    numatoms = len(masses)
-    mass_mat = np.zeros((3 * numatoms, 3 * numatoms), dtype=float)
-    molwt = [masses[int(i)] for i in range(numatoms) for j in range(3)]
-    for i in range(len(molwt)):
-        mass_mat[i, i] = molwt[i] ** -0.5
-    mwhessian = np.dot((np.dot(mass_mat, matrix)), mass_mat)
-    return mwhessian, mass_mat
+    inverse_sqrt_masses = 1 / np.sqrt(np.repeat(masses, 3))
+    return matrix * np.outer(inverse_sqrt_masses, inverse_sqrt_masses), inverse_sqrt_masses
 
 
-def _frequencies_from_eigenvalues(evalues: Sequence[float]) -> list[complex]:
-    evalues_si = [
-        val * openmmqmmm.constants.HARTREE_TO_J / openmmqmmm.constants.BOHR_TO_M**2 / openmmqmmm.constants.AMU_TO_KG
-        for val in evalues
-    ]
-    vfreq_hz = [1 / (2 * math.pi) * np.sqrt(np.complex128(val)) for val in evalues_si]
-    return [val / openmmqmmm.constants.LIGHT_SPEED_CM_PER_S for val in vfreq_hz]
+def _eigenvalues_to_wavenumbers(evalues: Sequence[float]) -> np.ndarray:
+    """Convert mass-weighted Hessian eigenvalues, using negative imaginary modes."""
+    values = np.asarray(evalues)
+    scale = np.sqrt(
+        openmmqmmm.constants.HARTREE_TO_J / openmmqmmm.constants.BOHR_TO_M**2 / openmmqmmm.constants.AMU_TO_KG
+    )
+    scale /= 2 * np.pi * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S
+    return scale * np.sqrt(np.abs(values)) * np.sign(values)
 
 
 def _log_frequencies(
@@ -1072,11 +1036,10 @@ def _rotational_thermochemistry(
     logger.info("Moments of inertia (amu Å^2): %s", rinertia)
     inertia_si = np.array(rinertia) * openmmqmmm.constants.AMU_TO_KG * openmmqmmm.constants.ANG_TO_M**2
     inertia_avg = float(np.mean(inertia_si))
-    rotconstants = calc_rotational_constants(fragment)
+    rotconstants = _rotational_constants_from_moments(rinertia)
 
     if moltype == "linear":
-        zero_moment = _ZERO_MOMENT_RTOL * np.max(np.abs(inertia_si))
-        rot_temps = [_rotational_temperature(in_I) for in_I in inertia_si if abs(in_I) > zero_moment]
+        rot_temps = [_rotational_temperature(in_I) for in_I in _nonzero_moments(inertia_si)]
         logger.info(f"Rotational temperatures: {rot_temps} K")
         sigma_r = 1.0 if symmetry_number is None else symmetry_number
         q_r = (1 / sigma_r) * (temp / rot_temps[0])
@@ -1142,10 +1105,7 @@ def _vibrational_thermochemistry(
             logger.info(f"Mode {mode} with frequency {vib} is not positive. Skipping in thermochemistry")
         else:
             freqs.append(float(vib))
-            freq_hz = vib * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S
-            vibtemps.append(
-                (openmmqmmm.constants.PLANCK_HARTREE_S * freq_hz) / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
-            )
+            vibtemps.append(_vibrational_temperature(vib))
 
     zpve = sum(i * openmmqmmm.constants.HALF_HC_HARTREE_PER_WAVENUMBER for i in freqs)
 
@@ -1243,9 +1203,7 @@ def calc_thermochemistry(
     E_trans = 1.5 * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * temp
 
     qtrans = (openmmqmmm.constants.TRANS_PARTITION_PREFACTOR * temp**2.5 * totalmass**1.5) / pressure
-    S_trans = openmmqmmm.constants.GAS_CONSTANT_KCAL_PER_MOL_K * (math.log(qtrans) + 2.5)
-
-    TS_trans = temp * S_trans / openmmqmmm.constants.HARTREE_TO_KCAL_PER_MOL
+    TS_trans = temp * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (math.log(qtrans) + 2.5)
 
     if multiplicity is not None:
         q_el = multiplicity
@@ -1379,87 +1337,17 @@ CARTESIAN COORDINATES (ANGSTROEM)
         outfile.write("\n")
         outfile.write("\n")
 
-        orcahesscoldim = 6
-        hessdim = 3 * numatoms
-        index = 0
-        line = ""
-        chunkheader = ""
-
-        chunks = hessdim // orcahesscoldim
-        left = hessdim % orcahesscoldim
-
-        if left > 0:
-            chunks = chunks + 1
-        for chunk in range(chunks):
-            if chunk == chunks - 1:
-                if left == 0:
-                    left = 6
-                for temp in range(index, index + left):
-                    chunkheader = chunkheader + "          " + str(temp)
-            else:
-                for temp in range(index, index + orcahesscoldim):
-                    chunkheader = chunkheader + "          " + str(temp)
-            outfile.write("        " + str(chunkheader) + "    \n")
-            for i in range(hessdim):
-                firstcolumnindex = 6 * chunk
-                j = firstcolumnindex
-                if hessdim - j == 1:
-                    val1 = nmodes[j][i]
-                elif hessdim - j == 2:
-                    val1 = nmodes[j][j]
-                    val2 = nmodes[j + 1][i]
-                elif hessdim - j == 3:
-                    val1 = nmodes[j][i]
-                    val2 = nmodes[j + 1][i]
-                    val3 = nmodes[j + 2][i]
-                elif hessdim - j == 4:
-                    val1 = nmodes[j][i]
-                    val2 = nmodes[j + 1][i]
-                    val3 = nmodes[j + 2][i]
-                    val4 = nmodes[j + 3][i]
-                elif hessdim - j == 5:
-                    val1 = nmodes[j][i]
-                    val2 = nmodes[j + 1][i]
-                    val3 = nmodes[j + 2][i]
-                    val4 = nmodes[j + 3][i]
-                    val5 = nmodes[j + 4][i]
-                elif hessdim - j >= 6:
-                    val1 = nmodes[j][i]
-                    val2 = nmodes[j + 1][i]
-                    val3 = nmodes[j + 2][i]
-                    val4 = nmodes[j + 3][i]
-                    val5 = nmodes[j + 4][i]
-                    val6 = nmodes[j + 5][i]
-                else:
-                    raise InputError(f"problem\nhessdim - j :  {hessdim - j}")
-
-                if chunk == chunks - 1:
-                    for _k in range(index, index + left):
-                        if left == 6:
-                            line = (
-                                f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} "
-                                f"{val4:>10.6f} {val5:>10.6f} {val6:>10.6f}"
-                            )
-                        elif left == 5:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} {val4:>10.6f} {val5:>10.6f}"
-                        elif left == 4:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} {val4:>10.6f}"
-                        elif left == 3:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f}"
-                        elif left == 2:
-                            line = f"{i:>6d} {val1:>14.6f} {val2:>10.6f}"
-                        elif left == 1:
-                            line = f"{i:>6d} {val1:>14.6f}"
-                else:
-                    for _k in range(index, index + orcahesscoldim):
-                        line = (
-                            f"{i:>6d} {val1:>14.6f} {val2:>10.6f} {val3:>10.6f} "
-                            f"{val4:>10.6f} {val5:>10.6f} {val6:>10.6f}"
-                        )
-                outfile.write(" " + str(line) + "\n")
-                line = ""
-                chunkheader = ""
-            index += 6
+        openmmqmmm.orca._write_orca_column_blocks(
+            outfile,
+            np.asarray(nmodes).T,
+            ncols=6,
+            index_fmt=" {:>6d}",
+            value_fmt=" {:>10.6f}",
+            first_value_fmt=" {:>14.6f}",
+            header_fmt="          {}",
+            header_prefix="        ",
+            header_suffix="    ",
+        )
 
         irtable = """
 
@@ -1495,32 +1383,28 @@ def _get_center(
     return xcom, ycom, zcom
 
 
+def _inertia_tensor(coords: np.ndarray, masses: Sequence[float], center: Sequence[float] | None = None) -> np.ndarray:
+    """Return the inertia tensor in amu Å² for coordinates in Å."""
+    masses = np.asarray(masses)
+    if center is None:
+        center = _get_center(coords, masses=masses)
+    centered = np.asarray(coords) - center
+    return np.eye(3) * np.sum(masses[:, None] * centered**2) - (centered * masses[:, None]).T @ centered
+
+
+def _principal_moments(coords: np.ndarray, masses: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
+    """Return principal moments in amu Å² and principal axes as columns."""
+    return np.linalg.eigh(_inertia_tensor(coords, masses))
+
+
+def _tr_mode_count(coords: np.ndarray, masses: Sequence[float], threshold: float) -> int:
+    moments, _axes = _principal_moments(coords, masses)
+    return 3 + int(np.count_nonzero(np.abs(moments) > threshold))
+
+
 def inertia(elems: Sequence[str], coords: np.ndarray, center: Sequence[float]) -> np.ndarray:
-    xcom = center[0]
-    ycom = center[1]
-    zcom = center[2]
-    Ixx = 0.0
-    Iyy = 0.0
-    Izz = 0.0
-    Ixy = 0.0
-    Ixz = 0.0
-    Iyz = 0.0
-
-    for mass, coord in zip(openmmqmmm.coords.list_of_masses(elems), coords, strict=False):
-        x = coord[0] - xcom
-        y = coord[1] - ycom
-        z = coord[2] - zcom
-
-        Ixx += mass * (y**2.0 + z**2.0)
-        Iyy += mass * (x**2.0 + z**2.0)
-        Izz += mass * (x**2.0 + y**2.0)
-        Ixy += mass * x * y
-        Ixz += mass * x * z
-        Iyz += mass * y * z
-
-    # np.array, not np.matrix: the matrix subclass is pending deprecation in numpy
-    inertia_tensor = np.array([[Ixx, -Ixy, -Ixz], [-Ixy, Iyy, -Iyz], [-Ixz, -Iyz, Izz]])
-    return np.linalg.eigvals(inertia_tensor)
+    # Preserve this public helper's unsorted principal moments.
+    return np.linalg.eigvals(_inertia_tensor(coords, openmmqmmm.coords.list_of_masses(elems), center))
 
 
 def calc_rotational_constants(frag: Fragment) -> list[float]:
@@ -1530,12 +1414,19 @@ def calc_rotational_constants(frag: Fragment) -> list[float]:
     center = _get_center(coords, elems=elems)
     rinertia = [float(i) for i in inertia(elems, coords, center)]
 
-    zero_moment = _ZERO_MOMENT_RTOL * max(abs(i) for i in rinertia)
+    return _rotational_constants_from_moments(rinertia)
+
+
+def _nonzero_moments(moments: Sequence[float]) -> list[float]:
+    threshold = _ZERO_MOMENT_RTOL * np.max(np.abs(moments))
+    return [float(moment) for moment in moments if abs(moment) > threshold]
+
+
+def _rotational_constants_from_moments(rinertia: Sequence[float]) -> list[float]:
     rot_constants = []
-    for inertval in rinertia:
-        if abs(inertval) > zero_moment:
-            rot_ghz = openmmqmmm.constants.ROT_CONSTANT_GHZ_AMU_ANG2 / inertval
-            rot_constants.append(rot_ghz)
+    for inertval in _nonzero_moments(rinertia):
+        rot_ghz = openmmqmmm.constants.ROT_CONSTANT_GHZ_AMU_ANG2 / inertval
+        rot_constants.append(rot_ghz)
 
     rot_constants_cm = [i * openmmqmmm.constants.GHZ_TO_WAVENUMBER for i in rot_constants]
     logger.info("Moments of inertia (amu A^2 ): %s", rinertia)
@@ -1570,7 +1461,15 @@ def _calc_model_hessian_orca(
     shiftpar = 0
     lastchunk = False
     grabsize = False
-    with open(orcadummycalc.filename + ".opt") as optfile:
+    opt_path = orcadummycalc.filename + ".opt"
+    with open(opt_path, "rb") as optfile:
+        if b"\x00" in optfile.read(256):
+            raise ExternalProgramError(
+                "ORCA wrote a binary .opt model Hessian (as in ORCA 6). Reading this format is not supported; "
+                "use rest_hessian='zero' or 'unit', or supply an explicitly computed Hessian. "
+                "Model-Hessian support is tracked in issue #68."
+            )
+    with open(opt_path) as optfile:
         for line in optfile:
             if "$bmatrix" in line:
                 hesstake = False
@@ -1692,11 +1591,11 @@ def approximate_full_hessian_from_smaller(
             fullhessian[i, j] = hessian_small[s_i, s_j]
     logger.info("Final fullhessian: %s", fullhessian)
     write_hessian(fullhessian, hessfile="intermedfullhessian_after_small_update")
-    tr_modenum = 5 if detect_linear(coords=fragment.coords, elems=fragment.elems) is True else 6
+    tr_modenum = _tr_mode_count(usedfragment.coords, usedfragment.masses, 1e-4)
 
     logger.info("Now diagonalizing full Hessian")
     frequencies, _normal_modes, _evectors, _mode_order = _diagonalize_hessian(
-        fragment.coords,
+        usedfragment.coords,
         fullhessian,
         usedfragment.masses,
         usedfragment.elems,
@@ -1759,18 +1658,24 @@ def _normal_mode_components_by_element(
     return normmodecompelemsdict
 
 
-def _s_vib(freqs: Sequence[float], T: float) -> float:
-    vibtemps = [
-        (f * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S * openmmqmmm.constants.PLANCK_HARTREE_S)
+def _vibrational_temperature(frequency: float) -> float:
+    return (
+        frequency
+        * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S
+        * openmmqmmm.constants.PLANCK_HARTREE_S
         / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
-        for f in freqs
-    ]
-    entropy = 0.0
-    for vibtemp in vibtemps:
-        entropy += openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (vibtemp / T) / (
-            math.exp(vibtemp / T) - 1
-        ) - openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * math.log(1 - math.exp(-1 * vibtemp / T))
-    return entropy * T
+    )
+
+
+def _harmonic_ts_vib_mode(theta: float, temperature: float) -> float:
+    x = theta / temperature
+    return (
+        temperature * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (x / math.expm1(x) - math.log(-math.expm1(-x)))
+    )
+
+
+def _s_vib(freqs: Sequence[float], T: float) -> float:
+    return sum(_harmonic_ts_vib_mode(_vibrational_temperature(frequency), T) for frequency in freqs)
 
 
 def s_vib_qrrho_truhlar(freqs: Sequence[float], T: float, lowfreq_thresh: float = 100) -> float:
@@ -1788,14 +1693,9 @@ def s_vib_qrrho_truhlar(freqs: Sequence[float], T: float, lowfreq_thresh: float 
                 f"Frequency ({f}) is below low-freq threshold ({lowfreq_thresh}) cm-1. Setting to {lowfreq_thresh} cm-1"
             )
             freq_value = lowfreq_thresh
-        vibtemp = (
-            freq_value * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S * openmmqmmm.constants.PLANCK_HARTREE_S
-        ) / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
+        vibtemp = _vibrational_temperature(freq_value)
         logger.info("vibtemp: %s", vibtemp)
-        TS_vib_f = T * (
-            openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (vibtemp / T) / (math.exp(vibtemp / T) - 1)
-            - openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * math.log(1 - math.exp(-1 * vibtemp / T))
-        )
+        TS_vib_f = _harmonic_ts_vib_mode(vibtemp, T)
         TS_vib_final += TS_vib_f
         logger.info("TS_vib_final: %s", TS_vib_final)
 
@@ -1808,22 +1708,16 @@ def s_vib_qrrho_grimme(freqs: Sequence[float], T: float, omega_0: float = 100, i
     logger.info("Cite: S. Grimme, Chem. Eur. J. 2012, 18, 9955-9964.")
     TS_vib_final = 0.0
     for f in freqs:
-        vibtemp = (
-            f * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S * openmmqmmm.constants.PLANCK_HARTREE_S
-        ) / openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
-        TS_vib_f = T * (
-            openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * (vibtemp / T) / (math.exp(vibtemp / T) - 1)
-            - openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K * math.log(1 - math.exp(-1 * vibtemp / T))
-        )
+        TS_vib_f = _harmonic_ts_vib_mode(_vibrational_temperature(f), T)
         m_si = (
             openmmqmmm.constants.PLANCK_J_S
             * openmmqmmm.constants.PLANCK_J_S
             / (8 * math.pi * math.pi * f * openmmqmmm.constants.HC_J_CM)
         )
         mp_si = m_si * i_av / (m_si + i_av)
-        TS_rot_f_kcal = (
+        TS_rot_f_au = (
             T
-            * openmmqmmm.constants.GAS_CONSTANT_KCAL_PER_MOL_K
+            * openmmqmmm.constants.GAS_CONSTANT_HARTREE_PER_K
             * (
                 0.5
                 + math.log(
@@ -1840,7 +1734,6 @@ def s_vib_qrrho_grimme(freqs: Sequence[float], T: float, omega_0: float = 100, i
                 )
             )
         )
-        TS_rot_f_au = TS_rot_f_kcal / openmmqmmm.constants.HARTREE_TO_KCAL_PER_MOL
         w = 1 / (1 + pow(omega_0 / f, 4))
         TS_vib_final += w * TS_vib_f + (1 - w) * TS_rot_f_au
     return TS_vib_final
@@ -1874,27 +1767,11 @@ def detect_linear(
         return True
     if numatoms == 2:
         return True
-    center = _get_center(coords, elems=elems)
-    rinertia = [float(i) for i in inertia(elems, coords, center)]
-    if any(abs(i) < threshold for i in rinertia) is True:
+    if _tr_mode_count(coords, openmmqmmm.coords.list_of_masses(elems), threshold) < 6:
         logger.info("Molecule is linear")
         return True
     logger.info("Molecule is non-linear")
     return False
-
-
-def _get_relevant_part_of_complex(numb: complex) -> float:
-    if numb.real > numb.imag:
-        return numb.real
-    return numb.imag * -1
-
-
-def _clean_frequencies(freqs: Sequence[complex]) -> list[float]:
-    clean = []
-    for f in freqs:
-        bla = _get_relevant_part_of_complex(f)
-        clean.append(bla)
-    return clean
 
 
 def _project_rot_and_trans(
@@ -1902,38 +1779,22 @@ def _project_rot_and_trans(
     mass: Sequence[float],
     hessian: np.ndarray,
     rotmode_threshold: float = 1e-4,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     mass = np.array(mass)
+    # rotmode_threshold is consistently in amu Å², including detect_linear.
+    Ivals, Ivecs = _principal_moments(coords, mass)
+    Ivecs = Ivecs.T
     coords = np.array(coords) * openmmqmmm.constants.ANG_TO_BOHR
     coords = coords.copy().reshape(-1, 3)
     na = coords.shape[0]
-    wavenumber_scaling = (
-        1e10
-        * np.sqrt(openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL / openmmqmmm.constants.BOHR_TO_NM**2)
-        / (2 * np.pi * openmmqmmm.constants.LIGHT_SPEED_CM_PER_S * 0.01)
-    )
     TotDOF = 3 * na
-
-    invsqrtm3 = 1.0 / np.sqrt(np.repeat(mass, 3))
-    wHessian = hessian.copy() * np.outer(invsqrtm3, invsqrtm3)
+    wHessian, invsqrtm3 = _mass_weight_hessian(hessian, mass)
 
     cxyz = np.sum(coords * mass[:, np.newaxis], axis=0) / np.sum(mass)
 
     xcm = coords - cxyz[np.newaxis, :]
 
-    inertia_tensor = np.sum(
-        [mass[i] * (np.eye(3) * (np.dot(xcm[i], xcm[i])) - np.outer(xcm[i], xcm[i])) for i in range(na)], axis=0
-    )
-
-    Ivals, Ivecs = np.linalg.eigh(inertia_tensor)
-    Ivecs = Ivecs.T
-
-    RotDOF = 0
-    for i in range(3):
-        logger.info("Ivals[i]: %s", Ivals[i])
-        if abs(Ivals[i]) > rotmode_threshold:
-            RotDOF += 1
-    TR_DOF = 3 + RotDOF
+    TR_DOF = 3 + int(np.count_nonzero(np.abs(Ivals) > rotmode_threshold))
     logger.info("TR_DOF: %s", TR_DOF)
     if TR_DOF not in (5, 6):
         logger.warning(f"Unexpected number of trans+rot DOF: {TR_DOF} not in (5, 6)")
@@ -2007,21 +1868,17 @@ def _project_rot_and_trans(
     normal_modes = np.dot(ichess_vecs, ic_basis)
     normal_modes_cart = normal_modes * invsqrtm3[np.newaxis, :]
 
-    freqs_wavenumber = wavenumber_scaling * np.sqrt(np.abs(ichess_vals)) * np.sign(ichess_vals)
+    freqs_wavenumber = _eigenvalues_to_wavenumbers(ichess_vals)
 
-    return freqs_wavenumber, normal_modes, normal_modes_cart
+    return freqs_wavenumber, normal_modes, normal_modes_cart, TR_DOF
 
 
 def _calc_raman_activities(
-    hessmasses: Sequence[float], evectors: np.ndarray, polarizability_derivs: Sequence[np.ndarray]
+    nmodes: np.ndarray, polarizability_derivs: Sequence[np.ndarray]
 ) -> tuple[np.ndarray, np.ndarray]:
     logger.info("Calculating Raman activities")
-
-    hesslength = 3 * len(hessmasses)
-
-    mass_matrix = np.repeat(hessmasses, 3)
-    inv_sqrt_mass_matrix = np.diag(1 / (mass_matrix**0.5))
-    displacements = inv_sqrt_mass_matrix.dot(np.transpose(evectors))
+    hesslength = len(nmodes)
+    displacements = nmodes.T
 
     A_der = np.zeros((hesslength, 9))
     for i in range(hesslength):

@@ -20,7 +20,7 @@ from openmmqmmm.exceptions import (
 )
 from openmmqmmm.qmmm import QMMMTheory
 from openmmqmmm.results import Results
-from openmmqmmm.utils import sub_header
+from openmmqmmm.utils import require_int_in_range, sub_header
 
 if TYPE_CHECKING:
     from openmmqmmm.geometric import GeometricOptimizer
@@ -264,11 +264,7 @@ def job_parallel(
     if not fragment_jobs and not fragmentfile_jobs:
         raise InputError("Job_parallel requires at least one fragment or fragment file")
 
-    if isinstance(numcores, (bool, np.bool_)) or not isinstance(numcores, (int, np.integer)) or numcores <= 0:
-        raise InputError(f"numcores must be a positive integer; got {numcores!r}")
-    numcores = int(numcores)
-    if version not in {"multiprocessing", "multiprocess"}:
-        raise InputError(f"Unknown parallel backend {version!r}; expected 'multiprocessing' or 'multiprocess'")
+    numcores = require_int_in_range(numcores, f"numcores must be a positive integer; got {numcores!r}")
     if opt and grad:
         raise InputError("Job_parallel does not support requesting grad=True for optimization jobs")
     if any(not hasattr(theory, "numcores") for theory in theory_jobs):

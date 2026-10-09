@@ -6,8 +6,9 @@ import pytest
 from ase import Atoms, units
 from ase.calculators.calculator import CalculationFailed, CalculatorSetupError
 from ase.optimize import BFGS
+from conftest import meoh_water_mm
 
-from openmmqmmm import Fragment, OpenMMQMMMCalculator, OpenMMTheory, QMMMTheory, ZeroTheory
+from openmmqmmm import OpenMMQMMMCalculator, QMMMTheory, ZeroTheory
 
 TEST_DIR = Path(__file__).parent
 
@@ -207,14 +208,7 @@ def test_ase_optimizer_can_drive_the_calculator():
 
 
 def test_calculator_runs_a_real_openmm_qmmm_theory():
-    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
-    mm_theory = OpenMMTheory(
-        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
-        pdbfile="h2o_MeOH.pdb",
-        autoconstraints=None,
-        rigidwater=False,
-    )
+    fragment, mm_theory = meoh_water_mm()
     qmmm_theory = QMMMTheory(
         fragment=fragment,
         qm_theory=ZeroTheory(),

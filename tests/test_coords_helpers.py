@@ -27,8 +27,8 @@ from openmmqmmm.coords import (
     eldict_covrad,
     elems_to_formula,
     get_centroid,
+    get_connected_atoms_dict,
     list_of_masses,
-    threshold_conn,
     total_mass,
     total_nuclear_charge,
 )
@@ -155,7 +155,6 @@ def test_rmsd_subset_writes_the_full_aligned_structure(tmp_path, monkeypatch):
     original = Fragment(coords=UNIT_SQUARE, elems=["C", "C", "C", "C"], charge=0, mult=1)
     shifted_coords = UNIT_SQUARE + np.array([3.0, -2.0, 1.0])
     shifted = Fragment(coords=shifted_coords, elems=["C", "C", "C", "C"], charge=0, mult=1)
-    monkeypatch.chdir(tmp_path)
 
     rmsd = calculate_rmsd(original, shifted, subset=[0, 1, 2], write_aligned_structure=True)
     written_elems, written_coords = read_xyzfile("structA_aligned.xyz")
@@ -193,13 +192,7 @@ def test_expand_qm_region_uses_initial_atom_membership_and_retains_the_seed():
 
 
 def _neighbours_via_calc_conn(coords, elems):
-    neighbours = [set() for _ in elems]
-    for i in range(len(elems)):
-        for j in range(i + 1, len(elems)):
-            if distance(coords[i], coords[j]) < threshold_conn(elems[i], elems[j], scale=1.0, tol=0.4):
-                neighbours[i].add(j)
-                neighbours[j].add(i)
-    return neighbours
+    return [set(v) for v in get_connected_atoms_dict(coords, elems, 1.0, 0.4).values()]
 
 
 def test_ions_do_not_bond_in_either_connectivity_path():
@@ -257,7 +250,6 @@ def test_expand_qm_pc_region_maps_gradient_rows_through_mmatoms(tmp_path, monkey
         pcgradient=np.array([[1e-2, 0.0, 0.0], [0.0, 0.0, 0.0], [1e-2, 0.0, 0.0]]),
     )
     monkeypatch.setattr(openmmqmmm, "single_point", lambda **_kwargs: None)
-    monkeypatch.chdir(tmp_path)
 
     assert expand_qm_pc_region(theory=theory, fragment=fragment).tolist() == [0, 1, 2, 3]
 
@@ -306,7 +298,6 @@ def test_combine_and_place_fragments_tries_each_displacement_from_the_original_p
 
 
 def test_insert_solute_into_solvent_leaves_the_solute_unchanged(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     solute_coords = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.7]])
     solute = Fragment(coords=solute_coords.copy(), elems=["H", "H"])
     solvent = Fragment(

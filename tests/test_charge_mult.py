@@ -2,10 +2,10 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from conftest import make_subregion_qmmm as _subregion_qmmm
 
 from openmmqmmm import (
     Fragment,
-    OpenMMTheory,
     QMMMTheory,
     ZeroTheory,
     optimize_geometry,
@@ -74,29 +74,6 @@ class _RecordingQM:
         if grad:
             return 0.0, np.zeros((numatoms, 3))
         return 0.0
-
-
-def _subregion_qmmm(qm_theory=None, **kwargs):
-    """A real QM/MM object over two well-separated H atoms: QM region is atom 0, no link atoms."""
-    fragment = Fragment(elems=["H", "H"], coords=[[1.0, 0, 0], [5.0, 0, 0]], charge=0, mult=1, conncalc=False)
-    mm_theory = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
-    qmmm = QMMMTheory(
-        fragment=fragment,
-        qm_theory=ZeroTheory() if qm_theory is None else qm_theory,
-        mm_theory=mm_theory,
-        qmatoms=[0],
-        embedding="elstat",
-        dipole_correction=False,
-        **kwargs,
-    )
-    return qmmm, fragment
 
 
 # Resolver precedence

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-import math
 from collections.abc import Sequence
-from numbers import Integral
 from typing import Any, Literal
 
 import numpy as np
@@ -12,6 +10,7 @@ import openmmqmmm
 import openmmqmmm.constants
 from openmmqmmm.coords import print_coords_all
 from openmmqmmm.exceptions import InputError
+from openmmqmmm.utils import require_int_in_range, require_positive_finite
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +22,7 @@ type RunMode = Literal["serial", "parallel"]
 
 
 def _validate_numcores(numcores: int) -> int:
-    if isinstance(numcores, bool) or not isinstance(numcores, Integral) or numcores < 1:
-        raise InputError(f"NumGrad numcores must be a positive integer, not {numcores!r}")
-    return int(numcores)
+    return require_int_in_range(numcores, f"NumGrad numcores must be a positive integer, not {numcores!r}")
 
 
 def _displacement_label(displacement: Displacement) -> str:
@@ -69,18 +66,14 @@ class NumGrad:
         logger.debug("Creating NumGrad wrapper object")
         if not callable(getattr(theory, "run", None)):
             raise InputError("NumGrad requires a wrapped theory with a callable run method")
-        if isinstance(npoint, bool) or not isinstance(npoint, Integral) or npoint not in (1, 2):
-            raise InputError(f"NumGrad npoint must be 1 (forward difference) or 2 (central difference), not {npoint}")
+        npoint = require_int_in_range(
+            npoint, f"NumGrad npoint must be 1 (forward difference) or 2 (central difference), not {npoint}", maximum=2
+        )
         if runmode not in ("serial", "parallel"):
             raise InputError(f"NumGrad runmode must be 'serial' or 'parallel', not {runmode!r}")
-        if isinstance(displacement, bool):
-            raise InputError(f"NumGrad displacement must be a positive finite number, not {displacement!r}")
-        try:
-            displacement = float(displacement)
-        except (TypeError, ValueError):
-            raise InputError(f"NumGrad displacement must be a positive finite number, not {displacement!r}") from None
-        if not math.isfinite(displacement) or displacement <= 0:
-            raise InputError(f"NumGrad displacement must be a positive finite number, not {displacement!r}")
+        displacement = require_positive_finite(
+            displacement, f"NumGrad displacement must be a positive finite number, not {displacement!r}"
+        )
         self.theory = theory
         self.theorytype = "QM"
         self.theorynamelabel = "NumGrad"
@@ -207,9 +200,11 @@ class NumGrad:
         gradient = np.zeros((numatoms, 3))
         for atindex in range(numatoms):
             for u in range(3):
-                posval = dispdict[f"{atindex}_{u}_+"]
+                posval = dispdict[_displacement_label((atindex, u, "+"))]
                 if self.npoint == 2:
-                    gradient[atindex, u] = (posval - dispdict[f"{atindex}_{u}_-"]) / (2 * displacement_bohr)
+                    gradient[atindex, u] = (posval - dispdict[_displacement_label((atindex, u, "-"))]) / (
+                        2 * displacement_bohr
+                    )
                 else:
                     gradient[atindex, u] = (posval - orig_energy) / displacement_bohr
 
@@ -231,20 +226,27 @@ def _create_displaced_geometries(
     logger.info("\nPrinting original geometry...")
     print_coords_all(current_coords, elems)
 
-    reference_coords = np.array(current_coords, dtype=float, copy=True)
-    list_of_displaced_geos = []
-    list_of_displacements = []
-    for atom_index in range(len(reference_coords)):
-        for coord_index in range(3):
-            displaced = reference_coords.copy()
-            displaced[atom_index, coord_index] += displacement
-            list_of_displaced_geos.append(displaced)
-            list_of_displacements.append((atom_index, coord_index, "+"))
-            if npoint == 2:
-                displaced = reference_coords.copy()
-                displaced[atom_index, coord_index] -= displacement
-                list_of_displaced_geos.append(displaced)
-                list_of_displacements.append((atom_index, coord_index, "-"))
+    geometries, displacements = _displaced_geometries(current_coords, range(len(current_coords)), displacement, npoint)
+    logger.debug("List of displacements: %s", displacements)
+    return geometries, displacements
 
-    logger.debug("List of displacements: %s", list_of_displacements)
-    return list_of_displaced_geos, list_of_displacements
+
+def _displaced_geometries(
+    coords: np.ndarray,
+    atoms: Sequence[int],
+    step: float,
+    npoint: int,
+) -> tuple[list[np.ndarray], list[Displacement]]:
+    """Create independent Å geometries in atom/axis/positive-negative order."""
+    reference_coords = np.array(coords, dtype=float, copy=True)
+    geometries = []
+    displacements = []
+    directions = ((1, "+"),) if npoint == 1 else ((1, "+"), (-1, "-"))
+    for atom_index in atoms:
+        for coord_index in range(3):
+            for sign, direction in directions:
+                geometry = reference_coords.copy()
+                geometry[atom_index, coord_index] += sign * step
+                geometries.append(geometry)
+                displacements.append((atom_index, coord_index, direction))
+    return geometries, displacements

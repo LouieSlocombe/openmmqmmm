@@ -164,6 +164,8 @@ optimize_geometry(theory=NumGrad(theory=orca), fragment=fragment)
 `optimize_geometry(num_grad=True)` does this wrapping for you, so reach for `NumGrad`
 directly when you need the gradient somewhere else. {func}`~openmmqmmm.numerical_frequencies`
 is different: it finite-differences the theory's gradients to build a Hessian.
+`NumGrad.displacement` is supplied in Å and defaults to 0.005 Bohr converted to Å
+(about 0.002646 Å). `numerical_frequencies` retains its separate 0.005 Å default.
 
 ## ZeroTheory
 

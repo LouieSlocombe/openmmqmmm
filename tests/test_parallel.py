@@ -2,23 +2,16 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import labelled_fragments
 
 import openmmqmmm.parallel as parallel_module
-from openmmqmmm import Fragment, ZeroTheory, job_parallel
+from openmmqmmm import ZeroTheory, job_parallel
 from openmmqmmm.exceptions import InputError, OpenMMQMMMError
 from openmmqmmm.parallel import worker_par
 
-FRAGCOORDS = """
-H 0.0 0.0 0.0
-F 0.0 0.0 {bondlength}
-"""
-
 
 def _make_fragments(n=4):
-    return [
-        Fragment(coordsstring=FRAGCOORDS.format(bondlength=0.9 + 0.1 * i), charge=0, mult=1, label=f"frag{i}")
-        for i in range(n)
-    ]
+    return labelled_fragments(n)
 
 
 class _FakeAsyncResult:

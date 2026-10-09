@@ -2,6 +2,7 @@ import io
 import logging
 import re
 
+import numpy as np
 import pytest
 
 from openmmqmmm import configure_logging
@@ -22,37 +23,6 @@ from openmmqmmm.utils import (
     write_list_to_file,
     write_string_to_file,
 )
-
-
-@pytest.fixture
-def isolated_package_logger():
-    """Restore package logging after tests that exercise global logger state."""
-    package_logger = logging.getLogger("openmmqmmm")
-    configured_loggers = (package_logger, logging.getLogger("geometric"))
-    original_states = {
-        configured_logger: (
-            list(configured_logger.handlers),
-            configured_logger.level,
-            configured_logger.propagate,
-            configured_logger.disabled,
-        )
-        for configured_logger in configured_loggers
-    }
-    yield package_logger
-    handlers_to_close = set()
-    for configured_logger, (original_handlers, _level, _propagate, _disabled) in original_states.items():
-        for handler in list(configured_logger.handlers):
-            configured_logger.removeHandler(handler)
-            if handler not in original_handlers:
-                handlers_to_close.add(handler)
-    for handler in handlers_to_close:
-        handler.close()
-    for configured_logger, (original_handlers, level, propagate, disabled) in original_states.items():
-        for handler in original_handlers:
-            configured_logger.addHandler(handler)
-        configured_logger.setLevel(level)
-        configured_logger.propagate = propagate
-        configured_logger.disabled = disabled
 
 
 def test_basename_strips_the_extension_not_the_directory():
@@ -186,20 +156,11 @@ def test_configure_logging_does_not_stack_handlers(capsys, isolated_package_logg
     assert capsys.readouterr().err.count("one calculation record") == 1
 
 
-def test_configure_logging_does_not_propagate_to_root(isolated_package_logger):
-    root_output = io.StringIO()
-    root_handler = logging.StreamHandler(root_output)
-    root_logger = logging.getLogger()
-    root_logger.addHandler(root_handler)
-    try:
-        package_logger = configure_logging()
-        package_logger.info("package-only record")
-        logging.getLogger("geometric.test").info("geometric-only record")
-    finally:
-        root_logger.removeHandler(root_handler)
-        root_handler.close()
-
-    assert root_output.getvalue() == ""
+def test_configure_logging_does_not_propagate_to_root(isolated_package_logger, root_log_output):
+    package_logger = configure_logging()
+    package_logger.info("package-only record")
+    logging.getLogger("geometric.test").info("geometric-only record")
+    assert root_log_output.getvalue() == ""
 
 
 def test_configure_logging_includes_geometric_output(capsys, isolated_package_logger):
@@ -261,3 +222,23 @@ def test_configure_logging_preserves_application_handlers(isolated_package_logge
 
     assert application_handler in isolated_package_logger.handlers
     assert application_output.getvalue() == "shared record\n"
+
+
+@pytest.mark.parametrize("value", [True, False, np.bool_(True), 0, -1, float("inf"), float("nan")])
+def test_numeric_validation_rejects_flags_and_nonpositive_values(value):
+    from openmmqmmm.exceptions import InputError
+    from openmmqmmm.utils import require_int_in_range, require_positive_finite
+
+    for validator in (require_int_in_range, require_positive_finite):
+        with pytest.raises(InputError, match="caller message"):
+            validator(value, "caller message")
+
+
+def test_integer_validation_preserves_bounds_and_numpy_integers():
+    from openmmqmmm.exceptions import InputError
+    from openmmqmmm.utils import require_int_in_range
+
+    assert require_int_in_range(np.int64(0), "range", minimum=0, maximum=3) == 0
+    for value in (4, 1.5, "1"):
+        with pytest.raises(InputError, match="range"):
+            require_int_in_range(value, "range", minimum=0, maximum=3)

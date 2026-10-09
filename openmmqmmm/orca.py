@@ -22,6 +22,9 @@ from openmmqmmm.exceptions import (
     InputError,
 )
 from openmmqmmm.utils import (
+    basename as file_basename,
+)
+from openmmqmmm.utils import (
     insert_line_into_file,
     listdiff,
     log_time_since,
@@ -302,6 +305,7 @@ class ORCATheory:
             extraline=extraline,
             hs_mult=self.hs_mult,
             moreadfile=self.moreadfile,
+            propertyblock=self.propertyblock,
         )
         logger.info(f"ORCA Calculation started using {numcores} CPU cores")
         _run_orca_sp_parallel(
@@ -310,25 +314,12 @@ class ORCATheory:
             numcores=numcores,
             bind_to_core_option=self.bind_to_core_option,
             ignore_orca_error=self.ignore_orca_error,
+            check_for_errors=self.check_for_errors,
+            check_for_warnings=self.check_for_warnings,
         )
         logger.info("ORCA Calculation done.")
 
-        outfile = self.filename + ".out"
-        ORCAfinished, _iter = check_orca_finished(outfile)
-        if ORCAfinished:
-            logger.info("ORCA job finished")
-            if _check_orca_opt_finished(outfile):
-                logger.info("ORCA geometry optimization finished")
-                self.energy = grab_orca_final_energy(outfile)
-                _opt_elems, opt_coords = openmmqmmm.coords.read_xyzfile(self.filename + ".xyz")
-                logger.info("%s", opt_coords)
-
-                fragment.replace_coords(fragment.elems, opt_coords)
-                fragment.set_energy(self.energy)
-            else:
-                raise ExternalProgramError("ORCA optimization failed to converge. Check ORCA output")
-        else:
-            raise ExternalProgramError("Something happened with ORCA job. Check ORCA output")
+        self.energy = _read_optimized_geometry(fragment, self.filename)
 
         logger.info("ORCA optimized energy: %s", self.energy)
         logger.info("fragment updated: %s", fragment)
@@ -874,7 +865,7 @@ def _run_orca_sp_parallel(
         palstring = f"%pal \nnprocs {numcores}\nend"
         with open(inpfile):
             insert_line_into_file(inpfile, "!", palstring, once=True)
-    basename = inpfile.replace(".inp", "")
+    basename = file_basename(inpfile)
 
     with open(basename + ".out", "w") as ofile:
         try:
@@ -1000,6 +991,23 @@ def _check_orca_opt_finished(file: StrPath) -> bool:
         return converged
 
 
+def _read_optimized_geometry(fragment: Fragment, basename: str) -> float:
+    """Validate completion and update a fragment through its cache-aware setters."""
+    outfile = basename + ".out"
+    finished, _iterations = check_orca_finished(outfile)
+    if not finished:
+        raise ExternalProgramError(f"ORCA job did not finish. Check outputfile: {outfile}")
+    if not _check_orca_opt_finished(outfile):
+        raise ExternalProgramError(f"ORCA optimization failed to converge. Check outputfile: {outfile}")
+    energy = grab_orca_final_energy(outfile)
+    if energy is None:
+        raise ExternalProgramError(f"ORCA optimization produced no final energy. Check outputfile: {outfile}")
+    elems, coords = openmmqmmm.coords.read_xyzfile(basename + ".xyz")
+    fragment.replace_coords(elems, coords)
+    fragment.set_energy(energy)
+    return energy
+
+
 def grab_orca_final_energy(file: StrPath, errors: str | None = "ignore") -> float | None:
     Energy = None
     with open(file, errors=errors) as f:
@@ -1008,7 +1016,10 @@ def grab_orca_final_energy(file: StrPath, errors: str | None = "ignore") -> floa
                 if "Wavefunction not fully converged!" in line:
                     raise ExternalProgramError("ORCA WF not fully converged!\nNot using energy. Modify ORCA settings")
                 # Index from the left: ORCA sometimes adds info to the right of the energy
-                Energy = float(line.split()[5]) if "(MM)" in line else float(line.split()[4])
+                value = line.split("FINAL SINGLE POINT ENERGY", 1)[1].strip()
+                for marker in ("(MM)", "(From external program)"):
+                    value = value.removeprefix(marker).lstrip()
+                Energy = float(value.split()[0])
     if Energy is None:
         logger.error("Found no energy in file: %s", file)
         logger.error("Something went wrong with ORCA run. Check ORCA outputfile: %s", file)
@@ -1151,43 +1162,65 @@ def _grab_polarizability_tensor(outfile: StrPath) -> tuple[np.ndarray, list[floa
 
 
 def _grab_tddft_transition_energies(file: StrPath) -> list[float]:
-    tddftstates = []
-    grab = False
-    with open(file) as f:
-        for line in f:
-            if grab and "STATE" in line and "eV" in line:
-                tddftstates.append(float(line.split()[5]))
-            if "the weight of the individual excitations" in line:
-                grab = True
-    return tddftstates
+    return _scan_orca_table(
+        file,
+        {
+            "start": "the weight of the individual excitations",
+            "stop": lambda line: False,
+            "row": lambda fields: "STATE" in fields and "eV" in fields,
+            "column": 5,
+            "accumulate": True,
+        },
+    )
 
 
 def _grab_tddft_intensities(file: StrPath) -> list[float]:
-    intensities = []
-    grab = False
-    with open(file) as f:
-        for line in f:
-            if grab:
-                if "->" in line:
-                    intensities.append(float(line.split()[-5]))
-                if len(line.split()) == 0:
-                    grab = False
-            if "fosc(D2)" in line:
-                grab = True
-    return intensities
+    return _scan_orca_table(
+        file,
+        {
+            "start": "fosc(D2)",
+            "stop": lambda line: not line.split(),
+            "row": lambda fields: "->" in fields,
+            "column": -5,
+            "accumulate": True,
+        },
+    )
 
 
 def grab_ir_intensities(filename: StrPath) -> list[float]:
-    grab = False
-    intensities = []
-    with open(filename) as f:
-        for line in f:
-            if grab and len(line.split()) == 6:
-                intens = float(line.split()[2])
-                intensities.append(intens)
-            if "$ir_spectrum" in line:
-                grab = True
-    return intensities
+    return _scan_orca_table(
+        filename,
+        {
+            "start": "$ir_spectrum",
+            "stop": lambda line: line.startswith("$"),
+            "column": 2,
+            "row": lambda fields: len(fields) == 6,
+        },
+    )
+
+
+def _write_orca_column_blocks(
+    stream: TextIO,
+    matrix: np.ndarray,
+    *,
+    ncols: int,
+    index_fmt: str,
+    value_fmt: str,
+    header_fmt: str,
+    header_prefix: str = "",
+    header_suffix: str = "",
+    first_value_fmt: str | None = None,
+) -> None:
+    """Write ORCA matrix blocks while preserving each file format's exact columns."""
+    for start in range(0, matrix.shape[1], ncols):
+        columns = range(start, min(start + ncols, matrix.shape[1]))
+        stream.write(header_prefix + "".join(header_fmt.format(column) for column in columns) + header_suffix + "\n")
+        for index, row in enumerate(matrix):
+            values = "".join(
+                (first_value_fmt if column == start and first_value_fmt is not None else value_fmt).format(row[column])
+                for column in columns
+            )
+            stream.write(index_fmt.format(index) + values + "\n")
 
 
 def write_orca_hessfile(
@@ -1203,35 +1236,9 @@ def write_orca_hessfile(
         orcahessfile.write("\n")
         orcahessfile.write("$hessian\n")
         orcahessfile.write(str(hessdim) + "\n")
-        orcahesscoldim = 5
-        index = 0
-        tempvar = ""
-        temp2var = ""
-        chunks = hessdim // orcahesscoldim
-        left = hessdim % orcahesscoldim
-        if left > 0:
-            chunks = chunks + 1
-        for chunk in range(chunks):
-            if chunk == chunks - 1:
-                if left == 0:
-                    left = 5
-                for temp in range(index, index + left):
-                    temp2var = temp2var + "         " + str(temp)
-            else:
-                for temp in range(index, index + orcahesscoldim):
-                    temp2var = temp2var + "         " + str(temp)
-            orcahessfile.write(str(temp2var) + "\n")
-            for i in range(hessdim):
-                if chunk == chunks - 1:
-                    for k in range(index, index + left):
-                        tempvar = tempvar + "         " + str(hessian[i, k])
-                else:
-                    for k in range(index, index + orcahesscoldim):
-                        tempvar = tempvar + "         " + str(hessian[i, k])
-                orcahessfile.write("    " + str(i) + "   " + str(tempvar) + "\n")
-                tempvar = ""
-                temp2var = ""
-            index += 5
+        _write_orca_column_blocks(
+            orcahessfile, hessian, ncols=5, index_fmt="    {}   ", value_fmt="         {}", header_fmt="         {}"
+        )
         orcahessfile.write("\n")
         orcahessfile.write("# The atoms: label  mass x y z (in bohrs)\n")
         orcahessfile.write("$atoms\n")
@@ -1439,14 +1446,13 @@ def _create_orca_pcfile(name: str, coords: Coordinates, listofcharges: Sequence[
             pcfile.write(line + "\n")
 
 
+def _population_charge_column(heading: str) -> int:
+    return -2 if "SPIN POPULATIONS" in heading else -1
+
+
 # ORCA prints every population analysis as a table: a heading, a rule, one row per atom,
 # then a terminator.
 _CHARGE_TABLES = {
-    "NPA": {
-        "start": "Atom No    Charge        Core      Valence    Rydberg      Total",
-        "stop": lambda line: "=======" in line,
-        "column": 2,
-    },
     "NBO": {
         "start": "Atom No    Charge        Core      Valence    Rydberg      Total",
         "stop": lambda line: "=======" in line,
@@ -1464,23 +1470,17 @@ _CHARGE_TABLES = {
         "column": -2,
         "row": lambda fields: len(fields) == 4,
     },
-    "CM5": {
-        "start": "  ATOM     CHARGE      SPIN",
-        "stop": lambda line: len(line) < 3,
-        "column": -2,
-        "row": lambda fields: len(fields) == 4,
-    },
     "MULLIKEN": {
         "start": "MULLIKEN ATOMIC CHARGES",
         "stop": lambda line: "Sum of atomic" in line,
         # The heading is also the prefix of "MULLIKEN ATOMIC CHARGES AND SPIN POPULATIONS",
         # where the charge is the second-to-last column and the last one is the spin.
-        "column": lambda heading: -2 if "SPIN POPULATIONS" in heading else -1,
+        "column": _population_charge_column,
     },
     "LOEWDIN": {
         "start": "LOEWDIN ATOMIC CHARGES",
         "stop": lambda line: "Sum of atomic" in line or len(line.replace(" ", "")) < 2,
-        "column": lambda heading: -2 if "SPIN POPULATIONS" in heading else -1,
+        "column": _population_charge_column,
     },
     "IAO": {
         "start": "IAO PARTIAL CHARGES",
@@ -1489,14 +1489,17 @@ _CHARGE_TABLES = {
     },
 }
 
+_CHARGE_TABLES["NPA"] = _CHARGE_TABLES["NBO"]
+_CHARGE_TABLES["CM5"] = _CHARGE_TABLES["HIRSHFELD"]
+
 _SPIN_POPULATION_TABLES = {
     "MULLIKEN": {
         "start": "MULLIKEN ATOMIC CHARGES AND SPIN POPULATIONS",
-        "stop": lambda line: "Sum of atomic" in line,
+        "stop": _CHARGE_TABLES["MULLIKEN"]["stop"],
     },
     "LOEWDIN": {
         "start": "LOEWDIN ATOMIC CHARGES AND SPIN POPULATIONS",
-        "stop": lambda line: "Sum of atomic" in line or len(line.replace(" ", "")) < 2,
+        "stop": _CHARGE_TABLES["LOEWDIN"]["stop"],
     },
 }
 
@@ -1521,9 +1524,10 @@ def _scan_orca_table(outputfile: StrPath, spec: Mapping[str, Any]) -> list[float
                     if row_is_data is None or row_is_data(fields):
                         values.append(float(fields[column]))
             if start in line:
-                # A second table of the same kind supersedes the first, and the column is
-                # re-read from this heading: the two Mulliken tables differ in width.
-                values = []
+                # Population analyses keep the final table; excitation spectra accumulate
+                # all requested states. Re-read the column for changing Mulliken headings.
+                if not spec.get("accumulate", False):
+                    values = []
                 grabbing = True
                 column = column_spec(line) if callable(column_spec) else column_spec
     return values
@@ -1747,21 +1751,7 @@ end
     if "GOAT" in orca_jobkeyword.upper():
         logger.info("GOAT keyword found. ")
 
-    with open(basename + ".out", "w") as ofile:
-        sp.run([os.path.join(orcadir, "orca"), basename + ".inp"], check=True, stdout=ofile, stderr=ofile, text=True)
-
-    ORCAfinished, _iter = check_orca_finished(basename + ".out")
-    if ORCAfinished is not True:
-        raise ExternalProgramError("Something failed about external ORCA job")
-    if _check_orca_opt_finished(basename + ".out") is not True:
-        raise ExternalProgramError("ORCA external job failed. Check outputfile: {}".format(basename + ".out"))
-    logger.info("ORCA external job finished")
-
-    _elems, coords = openmmqmmm.coords.read_xyzfile(basename + ".xyz")
-    fragment.coords = coords
-
-    energylines = pygrep2("FINAL SINGLE POINT ENERGY (From external program)", f"{basename}.out", errors="ignore")
-    energy = float(energylines[-1].split()[-1])
+    _run_orca_sp_parallel(orcadir, basename + ".inp", bind_to_core_option=False)
+    energy = _read_optimized_geometry(fragment, basename)
     logger.info("Final energy from external ORCA job: %s", energy)
-
     return energy

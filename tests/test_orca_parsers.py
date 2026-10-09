@@ -238,3 +238,52 @@ def test_grab_cm5_charges(cation_output):
     hirshfeld = orca.grab_orca_atom_charges("Hirshfeld", cation_output)
     assert cm5[0] < hirshfeld[0]
     assert cm5[1] > hirshfeld[1]
+
+
+@pytest.mark.parametrize(
+    ("numatoms", "dummy_sha256", "hessian_sha256"),
+    [
+        (
+            3,
+            "ab4c6bf0e1fb02680f44b0eedec9c15e12a4d526e4497ce0a95b0a1e11a97c73",
+            "2f2147f8f7b96d233c01e4a52faeb4989744fe2b80b693775ebf63350c2eeb9d",
+        ),
+        (
+            4,
+            "8c3c66bbf3a54d1cac525c76e731a6f1a222e09d7c30f6963919a2b16a7a41b8",
+            "d27ec4789888e67c7088f7cc12e917cc6c24c326769e00d07e594190257b9703",
+        ),
+        (
+            5,
+            "971f39323151c12bad7dcb9d68b7875bb83b50f7cae7d24e8bcb4527e9aaeedf",
+            "b279d9bdba7f433b6a8312c99fa32c50125cd73f3e39b1f01cd5bdd3ed3cfc27",
+        ),
+    ],
+)
+def test_orca_matrix_writers_match_pre_refactor_golden_bytes(tmp_path, numatoms, dummy_sha256, hessian_sha256):
+    import hashlib
+
+    from openmmqmmm.freq import _write_dummy_orca_file
+
+    dimension = 3 * numatoms
+    # Deliberately asymmetric: the dummy writer must transpose the mode matrix.
+    matrix = np.arange(dimension**2).reshape(dimension, dimension) / 100
+    coords = np.arange(dimension).reshape(numatoms, 3) / 10
+    _write_dummy_orca_file(["H"] * numatoms, coords, np.arange(dimension) * 10.0, matrix, "golden")
+    orca.write_orca_hessfile(matrix, coords, ["H"] * numatoms, [1.008] * numatoms, "golden.hess")
+    # Captured from the audit baseline before introducing the common column writer.
+    assert hashlib.sha256((tmp_path / "golden_dummy.out").read_bytes()).hexdigest() == dummy_sha256
+    assert hashlib.sha256((tmp_path / "golden.hess").read_bytes()).hexdigest() == hessian_sha256
+    assert orca.grab_hessian("golden.hess") == pytest.approx(matrix)
+
+
+@pytest.mark.parametrize("copies", [1, 2])
+def test_tddft_parsers_preserve_every_spectrum(orca_outputs, tmp_path, copies):
+    output = tmp_path / "tddft.out"
+    output.write_text((orca_outputs / "h2o_tddft.out").read_text() * copies)
+    assert orca._grab_tddft_transition_energies(output) == pytest.approx([7.206, 9.163, 9.498] * copies)
+    assert orca._grab_tddft_intensities(output) == pytest.approx([0.017004466, 0.000000003, 0.079311592] * copies)
+
+
+def test_final_energy_parser_supports_real_orca6_external_optimizer(orca_outputs):
+    assert orca.grab_orca_final_energy(orca_outputs / "h2o_extopt.out") == 0.0

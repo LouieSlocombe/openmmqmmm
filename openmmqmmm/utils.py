@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import time
 from collections.abc import Iterable, Sequence
+from numbers import Integral
 from os import PathLike
 from typing import Any
 
@@ -12,6 +14,7 @@ import numpy as np
 
 from openmmqmmm.exceptions import (
     FileFormatError,
+    InputError,
 )
 
 logger = logging.getLogger(__name__)
@@ -19,6 +22,31 @@ timings_logger = logging.getLogger("openmmqmmm.timings")
 
 
 _HANDLER_MARKER = "_openmmqmmm_handler"
+
+
+def require_int_in_range(value: Any, message: str, *, minimum: int = 1, maximum: int | None = None) -> int:
+    """Validate an integer without treating boolean flags as numbers."""
+    if (
+        isinstance(value, (bool, np.bool_))
+        or not isinstance(value, Integral)
+        or value < minimum
+        or (maximum is not None and value > maximum)
+    ):
+        raise InputError(message)
+    return int(value)
+
+
+def require_positive_finite(value: Any, message: str) -> float:
+    """Return a positive finite scalar, rejecting boolean flags."""
+    if isinstance(value, (bool, np.bool_)):
+        raise InputError(message)
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise InputError(message) from None
+    if not math.isfinite(result) or result <= 0:
+        raise InputError(message)
+    return result
 
 
 class _LevelAwareFormatter(logging.Formatter):

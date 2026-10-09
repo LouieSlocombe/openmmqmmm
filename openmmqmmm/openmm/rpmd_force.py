@@ -19,6 +19,23 @@ logger = logging.getLogger(__name__)
 RPMD_PYTHON_FORCE_NAME = "openmmqmmm bead-specific external force"
 
 
+def require_rpmd_unconstrained(system: openmm.System) -> None:
+    """Reject constrained Systems before constructing an RPMD Context."""
+    num_constraints = system.getNumConstraints()
+    if num_constraints:
+        raise InputError(
+            f"RPMDIntegrator does not support constraints, but the OpenMM System contains "
+            f"{num_constraints}. Create OpenMMTheory with autoconstraints=None, rigidwater=False, "
+            "and without bondconstraints."
+        )
+
+
+def rpmd_cache_size(num_beads: int) -> int:
+    """Hold two rounds of bead geometries plus spare force/report evaluations."""
+    # RPMD evaluates every bead twice when starting without valid forces.
+    return 2 * num_beads + 4
+
+
 class _RPMDPythonForceProvider:
     """Evaluate an external theory for the coordinates OpenMM is currently processing."""
 

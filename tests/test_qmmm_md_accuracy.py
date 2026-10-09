@@ -6,12 +6,11 @@ from pathlib import Path
 import numpy as np
 import openmm
 import pytest
-from conftest import _AnalyticQM, _make_analytic_qmmm
+from conftest import _AnalyticQM, _make_analytic_qmmm, dummy_mm
 
 from openmmqmmm import (
     Fragment,
     MolecularDynamicsEngine,
-    OpenMMTheory,
     QMMMTheory,
     constants,
     export_rpmd_potential,
@@ -174,16 +173,8 @@ def test_barostat_rejects_trial_with_large_actual_qm_energy():
 
     fragment = Fragment(elems=["H", "H"], coords=[[2.5, 0, 0], [5, 0, 0]], charge=0, mult=1)
     qm = StiffPairQM(fragment.coords)
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        periodic=True,
-        periodic_cell_dimensions=[20, 20, 20, 90, 90, 90],
-        periodic_nonbonded_cutoff=5,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
+    mm = dummy_mm(
+        fragment, periodic=True, periodic_cell_dimensions=[20, 20, 20, 90, 90, 90], periodic_nonbonded_cutoff=5
     )
     qmmm = QMMMTheory(
         fragment=fragment,
@@ -229,19 +220,13 @@ def test_barostat_rejects_trial_with_large_actual_qm_energy():
 
 def _make_qmmm_with_wrapped_mm_bond():
     fragment = Fragment(elems=["He"] * 3, coords=[[5, 0, 0], [29.3, 0, 0], [0.7, 0, 0]], conncalc=False)
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
+    mm = dummy_mm(
+        fragment,
+        bonds=[(1, 2)],
         periodic=True,
         periodic_cell_dimensions=[30, 30, 30, 90, 90, 90],
         periodic_nonbonded_cutoff=5,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
     )
-    atoms = list(mm.topology.atoms())
-    mm.topology.addBond(atoms[1], atoms[2])
     bond = openmm.HarmonicBondForce()
     bond.addBond(1, 2, 0.14, 100.0)
     mm.system.addForce(bond)

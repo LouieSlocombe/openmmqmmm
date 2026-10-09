@@ -126,7 +126,10 @@ to check the dynamics of the chosen QM/MM model.
 
 `restartfile_frequency=` with `chkfile=` / `statefile=`
 : Checkpoint and state files for restarting. A checkpoint is binary and tied to the exact
-  System; a state file is portable XML.
+  System; a state file is portable XML. Classical MM, QM and QM/MM runs write
+  `OpenMM_MD_checkpoint.chk` and `OpenMM_MD_state.xml` at `restartfile_frequency`.
+  The legacy `OpenMM_MD.chk` at `traj_frequency` is retained for existing restart workflows.
+  RPMD retains its bead-complete restart archive.
 
 ## Keeping the solute in the box
 
@@ -139,14 +142,15 @@ Fresh classical and RPMD simulations also start from whole molecules so native M
 forces see contiguous coordinates. Exported RPMD potentials use the same initial images.
 Restarted simulations preserve the coordinate images saved in their state or checkpoint.
 
-The following options control output or pure-MM wrapping:
+The following options control coordinate output:
 
 `enforce_periodic_box=`
 : OpenMM's own wrapping when writing coordinates.
 
 `special_wrapping=` with `wrapping_atoms=`
-: Wrapping driven by a chosen set of atoms for pure-MM runs. QM/MM and external-QM dynamics
-  reject both `special_wrapping=True` and `special_wrapping_updatepos=True`.
+: This operation is unsupported. MM, QM/MM and external-QM dynamics reject both
+  `special_wrapping=True` and `special_wrapping_updatepos=True`. Use `enforce_periodic_box`
+  for coordinate output, or image the saved trajectory afterwards.
 
 `center_on_atoms=` / `solute_indices=`
 : `center_on_atoms` is not implemented and raises an error when supplied. `solute_indices`

@@ -4,29 +4,14 @@ import numpy as np
 import openmm
 import openmm.app
 import pytest
+from conftest import bare_mm as _mm
+from conftest import evaluate as _evaluate
+from conftest import nonbonded_mm
 from openmm import unit
 
-from openmmqmmm import Fragment, OpenMMTheory, QMMMTheory
+from openmmqmmm import Fragment, QMMMTheory, ZeroTheory
 from openmmqmmm.constants import HARTREE_TO_KJ_PER_MOL
 from openmmqmmm.exceptions import InputError
-
-
-def _mm(system):
-    theory = OpenMMTheory.__new__(OpenMMTheory)
-    theory.system = system
-    theory.delete_qm1_mm1_bonded = False
-    return theory
-
-
-def _evaluate(system, positions_nm, groups=-1):
-    integrator = openmm.VerletIntegrator(0.001)
-    context = openmm.Context(system, integrator, openmm.Platform.getPlatformByName("Reference"))
-    context.setPositions(positions_nm)
-    state = context.getState(getEnergy=True, getForces=True, groups=groups)
-    energy = state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
-    forces = state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole / unit.nanometer)
-    del context, integrator
-    return energy, forces
 
 
 def _system(n):
@@ -36,33 +21,18 @@ def _system(n):
     return system
 
 
-class _ZeroQM:
-    numcores = 1
-    theorytype = "QM"
-
-    def set_numcores(self, numcores):
-        self.numcores = numcores
-
-
 def test_elstat_removes_exception_charge_but_preserves_lj():
-    system = _system(3)
-    nb = openmm.NonbondedForce()
-    for charge in (1, -1, -0.5):
-        nb.addParticle(charge, 0.3, 0.2)
+    mm, nb = nonbonded_mm([1, -1, -0.5])
+    system = mm.system
     cross = nb.addException(0, 1, -0.5, 0.27, 0.6)
     mm_pair = nb.addException(1, 2, 0.15, 0.28, 0.4)
     nb.addGlobalParameter("lambda", 1)
     nb.addParticleParameterOffset("lambda", 0, 0.3, 0, 0)
     nb.addExceptionParameterOffset("lambda", cross, -0.2, 0, 0.1)
-    system.addForce(nb)
-    mm = _mm(system)
-    mm.nonbonded_force = nb
-    mm.charges = [1, -1, -0.5]
-    mm.numatoms = 3
     fragment = Fragment(elems=["C"] * 3, coords=[[0, 0, 0], [5, 0, 0], [0, 6, 0]], conncalc=False)
     QMMMTheory(
         fragment=fragment,
-        qm_theory=_ZeroQM(),
+        qm_theory=ZeroTheory(),
         mm_theory=mm,
         qmatoms=[0],
         embedding="elstat",

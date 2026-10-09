@@ -1,0 +1,7 @@
+! PBE def2-SVP def2/J
+%tddft nroots 3 tda false end
+* xyz 0 1
+O 0 0 0
+H 0.9687 0 0
+H -0.233013 0.940258 0
+*

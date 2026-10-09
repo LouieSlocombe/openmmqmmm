@@ -5,7 +5,7 @@ import math
 import os
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from math import sqrt
 from numbers import Real
 from pathlib import Path
@@ -25,10 +25,12 @@ from openmmqmmm.exceptions import (
     InternalError,
 )
 from openmmqmmm.utils import (
+    basename,
     isint,
     listdiff,
     log_time_since,
     natural_sort,
+    require_int_in_range,
     search_list_of_lists_for_index,
     small_header,
     sub_header,
@@ -45,6 +47,27 @@ logger = logging.getLogger(__name__)
 
 CONNECTIVITY_SCALE = 1.0
 CONNECTIVITY_TOL = 0.1
+
+
+def _validate_stoichiometry(stoichiometry: Sequence[float], expected_size: int) -> list[float]:
+    """Return finite numeric coefficients after checking their count."""
+    try:
+        coefficients = list(stoichiometry)
+    except TypeError:
+        raise InputError("stoichiometry must be a sequence of signed numeric coefficients") from None
+    if len(coefficients) != expected_size:
+        raise InputError(
+            f"Number of stoichiometry values ({len(coefficients)}) does not match the number of species "
+            f"({expected_size})"
+        )
+    invalid = [
+        coefficient
+        for coefficient in coefficients
+        if isinstance(coefficient, bool) or not isinstance(coefficient, Real) or not math.isfinite(float(coefficient))
+    ]
+    if invalid:
+        raise InputError(f"stoichiometry must contain only finite numeric coefficients; got {invalid!r}")
+    return [float(coefficient) for coefficient in coefficients]
 
 
 class Reaction:
@@ -86,24 +109,7 @@ class Reaction:
         for frag in self.fragments:
             if frag.charge is None or frag.mult is None:
                 raise InputError(f"Missing charge/mult information in fragment: {frag.formula}")
-        try:
-            coefficients = list(self.stoichiometry)
-        except TypeError:
-            raise InputError("Reaction stoichiometry must be a sequence of signed numeric coefficients") from None
-        if len(coefficients) != len(self.fragments):
-            raise InputError(
-                f"{len(coefficients)} stoichiometry values for "
-                f"{len(self.fragments)} fragments. One signed coefficient per fragment is required."
-            )
-        invalid = [
-            coefficient
-            for coefficient in coefficients
-            if isinstance(coefficient, bool)
-            or not isinstance(coefficient, Real)
-            or not math.isfinite(float(coefficient))
-        ]
-        if invalid:
-            raise InputError(f"Reaction stoichiometry must contain only finite numeric coefficients; got {invalid!r}")
+        _validate_stoichiometry(self.stoichiometry, len(self.fragments))
 
     def calculate_reaction_energy(self) -> None:
         """Combine the stored fragment energies into the reaction energy."""
@@ -345,10 +351,10 @@ class Fragment:
         new_elems = []
         new_coords = []
         for line in coordsstring.splitlines():
-            if len(line) > 5:
-                fields = line.split()
-                new_elems.append(reformat_element(fields[0]))
-                new_coords.append([float(fields[1]), float(fields[2]), float(fields[3])])
+            if line.strip():
+                elem, coord = _parse_atom_line(line)
+                new_elems.append(elem)
+                new_coords.append(coord)
 
         parsed_coords = _reformat_list_to_array(new_coords)
         if had_atoms:
@@ -467,87 +473,69 @@ class Fragment:
         logger.info(
             f"Reading coordinates from Amber INPCRD file: '{inpcrdfile}' and PRMTOP file: '{prmtopfile}' into fragment."
         )
-        try:
-            elems, coords, _box_dims = read_ambercoordinates(prmtopfile=prmtopfile, inpcrdfile=inpcrdfile)
-        except FileNotFoundError:
-            raise FileFormatError(f"File {prmtopfile} or {inpcrdfile} not found") from None
-        self.coords = _reformat_list_to_array(coords)
-        self.elems = elems
+        self._read_coordinate_file(
+            read_ambercoordinates,
+            f"File {prmtopfile} or {inpcrdfile} not found",
+            prmtopfile=prmtopfile,
+            inpcrdfile=inpcrdfile,
+        )
 
     def read_grofile(self, filename: str) -> None:
         """Read coordinates from a GROMACS .gro file."""
         logger.info(f"Reading coordinates from Gromacs GRO file '{filename}' into fragment")
-        try:
-            elems, coords, _boxdims = read_gromacsfile(filename)
-        except FileNotFoundError:
-            raise FileFormatError(f"File '{filename}' not found") from None
-        self.coords = coords
-        self.elems = elems
+        self._read_coordinate_file(read_gromacsfile, f"File '{filename}' not found", filename)
 
     def read_chemshellfile(self, filename: str) -> None:
         """Read coordinates from a ChemShell fragment file (Bohr units)."""
         logger.info(f"Reading coordinates from Chemshell file '{filename}' into fragment.")
+        self._read_coordinate_file(_read_chemshellfragfile_xyz, f"File '{filename}' not found.", filename)
+
+    def _read_coordinate_file(self, reader: Callable, missing_message: str, *args: Any, **kwargs: Any) -> None:
         try:
-            elems, coords = _read_chemshellfragfile_xyz(filename)
+            elems, coords, *_box = reader(*args, **kwargs)
         except FileNotFoundError:
-            raise FileFormatError(f"File '{filename}' not found.") from None
-        self.coords = coords
+            raise FileFormatError(missing_message) from None
         self.elems = elems
+        self.coords = _reformat_list_to_array(coords)
 
     def read_pdbfile_openmm(self, filename: str) -> None:
         """Read a PDB file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbfile_openmm: Reading coordinates from PDB file '{filename}' into fragment.")
         import openmm.app
 
-        pdb = openmm.app.PDBFile(filename)
-        self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
-        logger.info("%s", pdb.topology)
-        self.elems = _topology_elements(pdb.topology)
-        self.pdb_topology = pdb.topology
+        self._read_openmm_structure(filename, openmm.app.PDBFile)
 
     def read_pdbxfile(self, filename: str) -> None:
         """Read a PDBx/mmCIF file using OpenMM's parser, keeping the full topology."""
         logger.info(f"read_pdbxfile: Reading coordinates from PDBX file '{filename}' into fragment.")
         import openmm.app
 
-        pdb = openmm.app.PDBxFile(filename)
-        self.coords = np.array([[i.x * 10, i.y * 10, i.z * 10] for i in pdb.positions])
-        self.elems = _topology_elements(pdb.topology)
+        self._read_openmm_structure(filename, openmm.app.PDBxFile)
 
-        self.pdb_topology = pdb.topology
+    def _read_openmm_structure(self, filename: str, parser: Callable) -> None:
+        import openmm.unit
+
+        structure = parser(filename)
+        self.coords = np.asarray(structure.positions.value_in_unit(openmm.unit.angstrom))
+        self.elems = _topology_elements(structure.topology)
+        self.pdb_topology = structure.topology
 
     def read_xyzfile(self, filename: str, readchargemult: bool = False) -> None:
         """Read coordinates from an XYZ file."""
         logger.info(f"Reading coordinates from XYZ file '{filename}' into fragment.")
-        coords = []
-        with open(filename) as f:
-            for count, line in enumerate(f):
-                if count == 0:
-                    self.numatoms = int(line.split()[0])
-                elif count == 1:
-                    if readchargemult is True:
-                        logger.info("Reading charge/mult from file header.")
-                        try:
-                            self.charge = int(line.split()[0])
-                            self.mult = int(line.split()[1])
-                        except ValueError:
-                            raise FileFormatError(
-                                "{}\nLine: {}".format(
-                                    f"XYZ-file {filename} does not have a valid charge/mult in 2nd-line of header:",
-                                    line,
-                                )
-                            ) from None
-                elif count > 1 and len(line) > 3:
-                    if isint(line.split()[0]) is True:
-                        el = reformat_element(int(line.split()[0]), isatomnum=True)
-                        self.elems.append(el)
-                    else:
-                        el = line.split()[0]
-                        self.elems.append(reformat_element(el))
-                    coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
+        self.elems, coords = read_xyzfile(filename)
         self.coords = _reformat_list_to_array(coords)
-        if self.numatoms != len(self.coords):
-            raise FileFormatError("Number of atoms in header not equal to number of coordinate-lines. Check XYZ file!")
+        self.numatoms = len(self.elems)
+        if readchargemult:
+            with open(filename) as handle:
+                next(handle)
+                header = next(handle)
+            try:
+                self.charge, self.mult = (int(value) for value in header.split()[:2])
+            except ValueError:
+                raise FileFormatError(
+                    f"XYZ-file {filename} does not have a valid charge/mult in 2nd-line of header:\nLine: {header}"
+                ) from None
 
     def set_energy(self, energy: float) -> None:
         """Store a total energy on the fragment."""
@@ -555,10 +543,7 @@ class Fragment:
 
     def get_coordinate_center(self) -> list[float]:
         """Return the mean position of all atoms as a list (unweighted by mass)."""
-        center_x = np.mean(self.coords[:, 0])
-        center_y = np.mean(self.coords[:, 1])
-        center_z = np.mean(self.coords[:, 2])
-        return [center_x, center_y, center_z]
+        return get_centroid(self.coords)
 
     def get_coords_for_atoms(self, atoms: Sequence[int]) -> tuple[np.ndarray, list[str]]:
         """Return the coordinates and elements of a subset of atoms."""
@@ -598,7 +583,7 @@ class Fragment:
     def write_pdbfile(self, filename: str = "Fragment") -> str:
         """Write a PDB file using the fragment's own stored PDB information."""
         logger.debug("Writing fragment to PDB")
-        filename = filename.replace(".pdb", "")
+        filename = basename(filename)
         if self.pdb_atomnames is not None:
             logger.info("Found PDB residue/atom/segment information stored in fragment. Writing proper PDB file.")
         else:
@@ -615,7 +600,9 @@ class Fragment:
         )
         return f"{filename}.pdb"
 
-    def define_topology(self, scale: float = 1.0, tol: float = 0.1, resname: str = "MOL") -> Topology:
+    def define_topology(
+        self, scale: float = CONNECTIVITY_SCALE, tol: float = CONNECTIVITY_TOL, resname: str = "MOL"
+    ) -> Topology:
         """Build an OpenMM topology for the fragment from its connectivity."""
         import openmm.app
 
@@ -625,10 +612,9 @@ class Fragment:
         self.pdb_topology = openmm.app.Topology()
         chain = self.pdb_topology.addChain()
 
-        if self.connectivity is None or (isinstance(self.connectivity, list) and len(self.connectivity) == 0):
-            self.calc_connectivity(scale=scale, tol=tol)
-
         connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, scale, tol)
+        if self.connectivity is None or (isinstance(self.connectivity, list) and len(self.connectivity) == 0):
+            self.connectivity = _connected_components(connectivity_dict)
         for mol in self.connectivity:
             logger.debug("Molecule atom indices: %s", mol)
             residue = self.pdb_topology.addResidue(resname, chain)
@@ -668,7 +654,7 @@ class Fragment:
 
         from openmmqmmm.openmm.systemsetup import openmm_add_bonds_to_topology
 
-        if ".pdb" not in filename:
+        if not filename.endswith(".pdb"):
             filename += ".pdb"
 
         if pdb_topology is not None:
@@ -684,7 +670,7 @@ class Fragment:
         # Non-biomolecules get CONECT records only if their bonds are in the topology.
         if calc_connectivity is True:
             logger.info("Connectivity calculation requested for Fragment")
-            connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, 1.0, 0.1)
+            connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, CONNECTIVITY_SCALE, CONNECTIVITY_TOL)
             logger.debug("Adding connectivity to PDB topology")
             openmm_add_bonds_to_topology(self.pdb_topology, _bonds_to_add(self.pdb_topology, connectivity_dict))
 
@@ -720,14 +706,7 @@ class Fragment:
 
     def write_xyz_for_atoms(self, xyzfilename: str = "Fragment-subset.xyz", atoms: Sequence[int] | None = None) -> None:
         """Write an XYZ file containing only the selected atoms."""
-        subset_elems = [self.elems[i] for i in atoms]
-        subset_coords = np.take(self.coords, atoms, axis=0)
-        with open(xyzfilename, "w") as ofile:
-            ofile.write(str(len(subset_elems)) + "\n")
-            ofile.write("title" + "\n")
-            for el, c in zip(subset_elems, subset_coords, strict=False):
-                line = f"{el:4} {c[0]:>12.6f} {c[1]:>12.6f} {c[2]:>12.6f}"
-                ofile.write(line + "\n")
+        _write_xyz_subset(self.coords, self.elems, atoms, xyzfilename)
 
     def print_system(self, filename: str = "fragment.frag") -> None:
         """Write the full fragment (coordinates, charge, mult, connectivity) to a .frag file."""
@@ -907,53 +886,18 @@ _CONNECTIVITY_TOLERANCE = 0.40  # Angstrom added to sum of covalent radii
 
 
 def _build_connectivity(coords: np.ndarray, elems: Sequence[str]) -> list[set[int]]:
-    coords = np.asarray(coords)
-    n = len(elems)
-
-    # Same table as threshold_conn and _get_connected_atoms_np: eldict_covrad carries the
-    # Na/K and M-site overrides that keep ions and TIP4P dummy sites from bonding to their
-    # neighbours, so a private copy of the radii would make the paths disagree on those atoms.
-    radii = np.array([eldict_covrad.get(e.capitalize(), _DEFAULT_RADIUS) for e in elems])
-
-    conn = [set() for _ in range(n)]
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            dist = np.linalg.norm(coords[i] - coords[j])
-            threshold = radii[i] + radii[j] + _CONNECTIVITY_TOLERANCE
-
-            if 0.4 < dist < threshold:
-                conn[i].add(j)
-                conn[j].add(i)
-
-    return conn
+    adjacency = get_connected_atoms_dict(
+        coords,
+        elems,
+        CONNECTIVITY_SCALE,
+        _CONNECTIVITY_TOLERANCE,
+        min_distance=0.4,
+        fallback_radius=_DEFAULT_RADIUS,
+    )
+    return [set(adjacency[i]) for i in range(len(elems))]
 
 
 def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int] | None = None) -> None:
-    def _measure_bond(coords: np.ndarray, i: int, j: int) -> float:
-        return float(np.linalg.norm(coords[i] - coords[j]))
-
-    def _measure_angle(coords: np.ndarray, i: int, j: int, k: int) -> float:
-        v1 = coords[i] - coords[j]
-        v2 = coords[k] - coords[j]
-        cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-        return float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
-
-    def _measure_dihedral(
-        coords: np.ndarray,
-        i: int,
-        j: int,
-        k: int,
-        l: int,  # noqa: E741 - dihedral atoms i-j-k-l
-    ) -> float:
-        b1 = coords[j] - coords[i]
-        b2 = coords[k] - coords[j]
-        b3 = coords[l] - coords[k]
-        n1 = np.cross(b1, b2)
-        n2 = np.cross(b2, b3)
-        m1 = np.cross(n1, b2 / np.linalg.norm(b2))
-        return float(np.degrees(np.arctan2(np.dot(m1, n2), np.dot(n1, n2))))
-
     if actatoms is None:
         actatoms = fragment.allatoms
 
@@ -967,46 +911,55 @@ def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int]
     logger.info(f"{'Type':<10} {'Atoms':<20} {'Elements':<15} {'Value':>10}")
     logger.info("%s", "-" * 60)
 
-    seen_bonds = set()
-    seen_angles = set()
-    seen_dihedrals = set()
-
-    for i in actatoms:
-        for j in conn[i]:
-            bond_key = tuple(sorted((i, j)))
-            if bond_key not in seen_bonds:
-                val = _measure_bond(coords, i, j)
-                label = f"{elems[i]}-{elems[j]}"
-                logger.info(f"{'Bond':<10} {bond_key!s:<20} {label:<15} {val:>10.4f} Å")
-                seen_bonds.add(bond_key)
-
-            neighbors = list(conn[i])
-            for idx_a in range(len(neighbors)):
-                for idx_b in range(idx_a + 1, len(neighbors)):
-                    n_a, n_b = neighbors[idx_a], neighbors[idx_b]
-                    angle_key = (*sorted((n_a, n_b)), i)
-                    if angle_key not in seen_angles:
-                        val = _measure_angle(coords, n_a, i, n_b)
-                        label = f"{elems[n_a]}-{elems[i]}-{elems[n_b]}"
-                        logger.info(f"{'Angle':<10} {f'({n_a},{i},{n_b})':<20} {label:<15} {val:>10.2f}°")
-                        seen_angles.add(angle_key)
-
-        for j in conn[i]:
-            for h in conn[i]:
-                if h == j:
-                    continue
-                for k in conn[j]:
-                    if k in (i, h):
-                        continue
-                    di_key = (h, i, j, k)
-                    rev_key = (k, j, i, h)
-                    if di_key not in seen_dihedrals and rev_key not in seen_dihedrals:
-                        val = _measure_dihedral(coords, h, i, j, k)
-                        label = f"{elems[h]}-{elems[i]}-{elems[j]}-{elems[k]}"
-                        logger.info(f"{'Dihedral':<10} {di_key!s:<20} {label:<15} {val:>10.2f}°")
-                        seen_dihedrals.add(di_key)
+    for kind, atoms, value in _internal_coordinate_values(coords, conn, actatoms):
+        label = "-".join(elems[i] for i in atoms)
+        if value is None:
+            logger.info(f"{kind:<10} {atoms!s:<20} {label:<15} {'undefined':>10}")
+        elif kind == "Bond":
+            logger.info(f"{kind:<10} {atoms!s:<20} {label:<15} {value:>10.4f} Å")
+        else:
+            atom_label = "(" + ",".join(map(str, atoms)) + ")" if kind == "Angle" else str(atoms)
+            logger.info(f"{kind:<10} {atom_label:<20} {label:<15} {value:>10.2f}°")
 
     logger.info("%s", "-" * 60)
+
+
+def _internal_coordinate_values(
+    coords: np.ndarray,
+    connectivity: Sequence[Sequence[int]] | Mapping[int, Sequence[int]],
+    atoms: Sequence[int],
+    *,
+    bonds_only: bool = False,
+) -> Iterator[tuple[str, tuple[int, ...], float | None]]:
+    seen = set()
+    for i in atoms:
+        neighbours = sorted(connectivity[i])
+        for j in neighbours:
+            bond = tuple(sorted((i, j)))
+            if bond not in seen:
+                seen.add(bond)
+                yield "Bond", bond, distance(coords[i], coords[j])
+        if bonds_only:
+            continue
+        for index, left in enumerate(neighbours):
+            for right in neighbours[index + 1 :]:
+                yield "Angle", (left, i, right), angle(coords[left], coords[i], coords[right])
+        for j in neighbours:
+            for h in neighbours:
+                if h == j:
+                    continue
+                for k in sorted(connectivity[j]):
+                    if k in (i, h):
+                        continue
+                    dihedral_atoms = (h, i, j, k)
+                    if dihedral_atoms in seen or dihedral_atoms[::-1] in seen:
+                        continue
+                    seen.add(dihedral_atoms)
+                    try:
+                        value = dihedral(coords[h], coords[i], coords[j], coords[k])
+                    except InputError:
+                        value = None
+                    yield "Dihedral", dihedral_atoms, value
 
 
 def print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int] | None = None) -> None:
@@ -1026,27 +979,13 @@ def print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int] 
         chosen_coords = fragment.coords
         chosen_elems = fragment.elems
 
-    conndepth = 99
-    scale = CONNECTIVITY_SCALE
-    tol = CONNECTIVITY_TOL
-
-    connectivity = _calc_conn_py(chosen_coords, chosen_elems, conndepth, scale, tol)
-    logger.info("Connectivity calculation complete.")
-
-    bondpairsdict = {}
-
-    for conn_fragment in connectivity:
-        for atom in conn_fragment:
-            connatoms = get_connected_atoms(chosen_coords, chosen_elems, CONNECTIVITY_SCALE, CONNECTIVITY_TOL, atom)
-            for conn_i in connatoms:
-                dist = distance(chosen_coords[atom], chosen_coords[conn_i])
-                bondpairsdict[frozenset((atom, conn_i))] = dist
-
+    adjacency = get_connected_atoms_dict(chosen_coords, chosen_elems, CONNECTIVITY_SCALE, CONNECTIVITY_TOL)
     logger.info(small_header("Internal coordinates"))
 
     logger.info(small_header("Bond lengths (Å):"))
-    for key, val in bondpairsdict.items():
-        listkey = list(key)
+    for _kind, listkey, val in _internal_coordinate_values(
+        chosen_coords, adjacency, range(len(chosen_elems)), bonds_only=True
+    ):
         elA = chosen_elems[listkey[0]]
         elB = chosen_elems[listkey[1]]
         if not actatoms:
@@ -1067,17 +1006,25 @@ def print_coords_for_atoms(
 ) -> None:
     if labels is not None and len(labels) != len(members):
         raise InputError("Problem. Length of Labels note equal to length of members list")
-    label = ""
-    for i, m in enumerate(members):
-        if labels is not None:
-            label = labels[i]
-        logger.info(f"{label:>4} {elems[m]:>4} {coords[m][0]:>12.8f}  {coords[m][1]:>12.8f}  {coords[m][2]:>12.8f}")
+    selected_coords = np.take(coords, members, axis=0)
+    selected_elems = [elems[i] for i in members]
+    for line in _coordinate_lines(
+        selected_coords,
+        selected_elems,
+        indices=[""] * len(members) if labels is None else labels,
+        index_width=4,
+    ):
+        logger.info("%s", line)
 
 
 def write_xyz_for_atoms(coords: np.ndarray, elems: Sequence[str], members: Sequence[int], name: str) -> None:
+    _write_xyz_subset(coords, elems, members, name + ".xyz")
+
+
+def _write_xyz_subset(coords: np.ndarray, elems: Sequence[str], members: Sequence[int], filename: str) -> None:
     subset_elems = [elems[i] for i in members]
     subset_coords = np.take(coords, members, axis=0)
-    with open(name + ".xyz", "w") as ofile:
+    with open(filename, "w") as ofile:
         ofile.write(str(len(subset_elems)) + "\n")
         ofile.write("title" + "\n")
         for el, c in zip(subset_elems, subset_coords, strict=False):
@@ -1092,38 +1039,28 @@ def print_coords_all(
     labels: Sequence[str | int] | None = None,
     labels2: Sequence[str | int] | None = None,
 ) -> None:
-    if indices is None:
-        if labels is None:
-            for i in range(len(elems)):
-                logger.info(f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}")
-        elif labels2 is None:
-            for i in range(len(elems)):
-                logger.info(
-                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}"
-                )
-        else:
-            for i in range(len(elems)):
-                logger.info(
-                    f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} "
-                    f"{labels[i]:>6} {labels2[i]:>6}"
-                )
-    elif labels is None:
-        for i in range(len(elems)):
-            logger.info(
-                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}"
-            )
-    elif labels2 is None:
-        for i in range(len(elems)):
-            logger.info(
-                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-                f"{coords[i][2]:>12.8f} {labels[i]:>6}"
-            )
-    else:
-        for i in range(len(elems)):
-            logger.info(
-                f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-                f"{coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}"
-            )
+    for line in _coordinate_lines(coords, elems, indices, labels, labels2):
+        logger.info("%s", line)
+
+
+def _coordinate_lines(
+    coords: np.ndarray,
+    elems: Sequence[str],
+    indices: Sequence[int] | None = None,
+    labels: Sequence[str | int] | None = None,
+    labels2: Sequence[str | int] | None = None,
+    *,
+    index_width: int = 1,
+) -> Iterator[str]:
+    for i, elem in enumerate(elems):
+        coord = coords[i]
+        prefix = "" if indices is None else f"{indices[i]:>{index_width}} "
+        line = f"{prefix}{elem:>4} {coord[0]:>12.8f}  {coord[1]:>12.8f}  {coord[2]:>12.8f}"
+        if labels is not None:
+            line += f" {labels[i]:>6}"
+            if labels2 is not None:
+                line += f" {labels2[i]:>6}"
+        yield line
 
 
 def write_coords_all(
@@ -1149,40 +1086,7 @@ def _write_coords_lines(
     description: str,
 ) -> None:
     f.write(f"#{description}\n")
-    if indices is None:
-        if labels is None:
-            f.writelines(
-                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
-                for i in range(len(elems))
-            )
-        elif labels2 is None:
-            f.writelines(
-                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6}\n"
-                for i in range(len(elems))
-            )
-        else:
-            f.writelines(
-                f"{elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f} {labels[i]:>6} "
-                f"{labels2[i]:>6}\n"
-                for i in range(len(elems))
-            )
-    elif labels is None:
-        f.writelines(
-            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  {coords[i][2]:>12.8f}\n"
-            for i in range(len(elems))
-        )
-    elif labels2 is None:
-        f.writelines(
-            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-            f"{coords[i][2]:>12.8f} {labels[i]:>6}\n"
-            for i in range(len(elems))
-        )
-    else:
-        f.writelines(
-            f"{indices[i]:>1} {elems[i]:>4} {coords[i][0]:>12.8f}  {coords[i][1]:>12.8f}  "
-            f"{coords[i][2]:>12.8f} {labels[i]:>6} {labels2[i]:>6}\n"
-            for i in range(len(elems))
-        )
+    f.writelines(line + "\n" for line in _coordinate_lines(coords, elems, indices, labels, labels2))
 
 
 def distance(A: Sequence[float] | np.ndarray, B: Sequence[float] | np.ndarray) -> float:
@@ -1195,7 +1099,7 @@ def angle(A: np.ndarray, B: np.ndarray, C: np.ndarray) -> float:
     dot_product = np.dot(AB, CB)
     magnitude1 = np.linalg.norm(AB)
     magnitude2 = np.linalg.norm(CB)
-    angle_rad = np.arccos(dot_product / (magnitude1 * magnitude2))
+    angle_rad = np.arccos(np.clip(dot_product / (magnitude1 * magnitude2), -1.0, 1.0))
     return np.degrees(angle_rad)
 
 
@@ -1237,14 +1141,7 @@ def dihedral_between_atoms(fragment: Fragment | None = None, atoms: Sequence[int
 
 
 def get_centroid(coords: Sequence[Sequence[float]] | np.ndarray) -> list[float]:
-    sum_x = 0
-    sum_y = 0
-    sum_z = 0
-    for c in coords:
-        sum_x += c[0]
-        sum_y += c[1]
-        sum_z += c[2]
-    return [sum_x / len(coords), sum_y / len(coords), sum_z / len(coords)]
+    return np.asarray(coords).mean(axis=0).tolist()
 
 
 def threshold_conn(elA: str, elB: str, scale: float, tol: float) -> float:
@@ -1254,27 +1151,36 @@ def threshold_conn(elA: str, elB: str, scale: float, tol: float) -> float:
 def _calc_conn_py(
     coords: np.ndarray, elems: Sequence[str], conndepth: int, scale: float, tol: float
 ) -> list[list[int]]:
-    found_atoms = []
-    fraglist = []
-    for atom in range(len(elems)):
-        if atom not in found_atoms:
-            members = _get_molecule_members_np(coords, elems, conndepth, scale, tol, atomindex=atom)
-            if members not in fraglist:
-                fraglist.append(members)
-                found_atoms += members
-    return fraglist
+    # conndepth remains accepted for compatibility; components must be complete.
+    return _connected_components(get_connected_atoms_dict(coords, elems, scale, tol))
+
+
+def _connected_components(adjacency: Mapping[int, Sequence[int]]) -> list[list[int]]:
+    remaining = set(adjacency)
+    components = []
+    while remaining:
+        root = min(remaining)
+        members = _connected_members(adjacency, [root])
+        remaining.difference_update(members)
+        components.append(members)
+    return components
+
+
+def _connected_members(adjacency: Mapping[int, Sequence[int]], seeds: Sequence[int]) -> list[int]:
+    visited = set(seeds)
+    pending = list(seeds)
+    while pending:
+        for neighbour in adjacency[pending.pop()]:
+            if neighbour not in visited:
+                visited.add(neighbour)
+                pending.append(neighbour)
+    return sorted(visited)
 
 
 def get_connected_atoms(
     coords: np.ndarray, elems: Sequence[str], scale: float, tol: float, atomindex: int
 ) -> list[int]:
-    connatoms = []
-    coords_ref = coords[atomindex]
-    elem_ref = elems[atomindex]
-    for i, c in enumerate(coords):
-        if distance(coords_ref, c) < threshold_conn(elems[i], elem_ref, scale, tol) and i != atomindex:
-            connatoms.append(i)
-    return connatoms
+    return [i for i in _get_connected_atoms_np(coords, elems, scale, tol, atomindex) if i != atomindex]
 
 
 # https://semantive.com/pl/blog/high-performance-computation-in-python-numpy/
@@ -1287,27 +1193,44 @@ def _einsum_mat(mat_v: np.ndarray, mat_u: np.ndarray) -> np.ndarray:
 def _get_connected_atoms_np(
     coords: np.ndarray, elems: Sequence[str], scale: float, tol: float, atomindex: int
 ) -> list[int]:
-    compcoords = np.tile(coords[atomindex], (len(coords), 1))
-    distances = _einsum_mat(coords, compcoords)
-    el_covrad_ref = eldict_covrad[elems[atomindex]]
-    # Cheaper way of getting thresholds list than calling threshold_conn
-    thresholds = np.array([eldict_covrad[elems[i]] for i in range(len(elems))])
-    thresholds = thresholds + el_covrad_ref
-    thresholds = thresholds * scale
-    thresholds = thresholds + tol
-    diff = distances - thresholds
-    return np.where(diff < 0)[0].tolist()
+    radii = np.array([eldict_covrad[elem] for elem in elems])
+    return _neighbours(coords, radii, scale, tol, atomindex)
+
+
+def _neighbours(
+    coords: np.ndarray,
+    radii: np.ndarray,
+    scale: float,
+    tol: float,
+    atomindex: int,
+    min_distance: float | None = None,
+) -> list[int]:
+    distances = np.linalg.norm(np.asarray(coords) - coords[atomindex], axis=1)
+    connected = distances < scale * (radii + radii[atomindex]) + tol
+    if min_distance is not None:
+        connected &= distances > min_distance
+    return np.flatnonzero(connected).tolist()
 
 
 def get_connected_atoms_dict(
-    coords: np.ndarray, elems: Sequence[str], scale: float, tol: float
+    coords: np.ndarray,
+    elems: Sequence[str],
+    scale: float,
+    tol: float,
+    *,
+    min_distance: float | None = None,
+    fallback_radius: float | None = None,
 ) -> dict[int, list[int]]:
-    conndict = {}
-    for c in range(len(coords)):
-        conn = _get_connected_atoms_np(coords, elems, scale, tol, c)
-        conn.remove(c)
-        conndict[c] = conn
-    return conndict
+    radii = np.array(
+        [
+            eldict_covrad[elem] if fallback_radius is None else eldict_covrad.get(elem.capitalize(), fallback_radius)
+            for elem in elems
+        ]
+    )
+    return {
+        atom: [i for i in _neighbours(coords, radii, scale, tol, atom, min_distance) if i != atom]
+        for atom in range(len(coords))
+    }
 
 
 def _bonds_to_add(topology: Topology, conndict: Mapping[int, Sequence[int]]) -> dict[int, list[int]]:
@@ -1326,22 +1249,10 @@ def _get_molecule_members_np(
     membs: list[int] | int | None = None,
 ) -> list[int]:
     if membs is None:
-        membs = _get_connected_atoms_np(coords, elems, scale, tol, atomindex)
-
-    if isinstance(membs, int):
+        membs = [atomindex]
+    elif isinstance(membs, int):
         membs = [membs]
-    finalmembs = membs
-
-    for _i in range(loopnumber):
-        newmembers = [_get_connected_atoms_np(coords, elems, scale, tol, k) for k in membs]
-        trimmed_flat = np.unique([item for sublist in newmembers for item in sublist]).tolist()
-
-        membs = listdiff(trimmed_flat, finalmembs)
-        if len(membs) == 0:
-            return finalmembs
-        finalmembs += membs
-        finalmembs = np.unique(finalmembs).tolist()
-    return finalmembs
+    return _connected_members(get_connected_atoms_dict(coords, elems, scale, tol), membs)
 
 
 def elems_to_formula(elems: Sequence[str]) -> str:
@@ -1391,27 +1302,22 @@ def _formula_to_elem_list(formulastring: str) -> list[str]:
 def read_xyzfile(filename: str) -> tuple[list[str], list[list[float]]]:
     """Read elements and coordinates from an XYZ file."""
     logger.info(f"Reading coordinates from XYZ file '{filename}'.")
-    coords = []
-    elems = []
-    with open(filename) as f:
-        for count, line in enumerate(f):
-            if count == 0:
-                numatoms = int(line.split()[0])
-            if count > 1 and len(line.strip()) > 0:
-                if isint(line.split()[0]) is True:
-                    el = reformat_element(int(line.split()[0]), isatomnum=True)
-                    elems.append(el)
-                else:
-                    el = reformat_element(line.split()[0])
-                    elems.append(el)
-                coords.append([float(line.split()[1]), float(line.split()[2]), float(line.split()[3])])
-    if len(coords) != numatoms:
+    with open(filename) as handle:
+        try:
+            numatoms = int(next(handle).split()[0])
+            next(handle)
+            atoms = [_parse_atom_line(line) for line in handle if line.strip()]
+        except (StopIteration, IndexError, ValueError):
+            raise FileFormatError(f"Invalid XYZ-file: {filename}") from None
+    if len(atoms) != numatoms:
         raise FileFormatError(f"Number of coordinates in XYZ-file: {filename} does not match header line.")
-    if len(coords) != len(elems):
-        raise FileFormatError(
-            f"Number of coordinates does not match elements. Something wrong with XYZ-file?:  {filename}"
-        )
-    return elems, coords
+    return [atom[0] for atom in atoms], [atom[1] for atom in atoms]
+
+
+def _parse_atom_line(line: str) -> tuple[str, list[float]]:
+    fields = line.split()
+    elem = reformat_element(int(fields[0]), isatomnum=True) if isint(fields[0]) else reformat_element(fields[0])
+    return elem, [float(fields[i]) for i in (1, 2, 3)]
 
 
 def read_xyzfiles(xyzdir: str, readchargemult: bool = False) -> list[Fragment]:
@@ -1454,56 +1360,35 @@ def split_multimolxyzfile(
     return_fragments: bool = False,
 ) -> list[Fragment] | tuple[list[list[str]], list[list[list[float]]], list[list[str] | str]]:
     """Split a multi-molecule XYZ file (trajectory, conformer set) into its frames."""
-    all_coords = []
-    all_elems = []
-    all_titles = []
+    skipindex = require_int_in_range(skipindex, "skipindex must be a positive integer")
+    all_coords, all_elems, all_titles, fragments = [], [], [], []
     molcounter = 0
-    coordgrab = False
-    titlegrab = False
-    coords = []
-    elems = []
-    fragments = []
-    with open(file) as f:
-        for index, line in enumerate(f):
-            if index == 0:
-                numatoms = line.split()[0]
-            if coordgrab is True:
-                if len(line.split()) > 1:
-                    elems.append(reformat_element(line.split()[0]))
-                    coords_x = float(line.split()[1])
-                    coords_y = float(line.split()[2])
-                    coords_z = float(line.split()[3])
-                    coords.append([coords_x, coords_y, coords_z])
-                if len(coords) == int(numatoms):
-                    all_coords.append(coords)
-                    all_elems.append(elems)
-                    if writexyz is True:
-                        write_xyzfile(elems, coords, "molecule" + str(molcounter))
-                    if return_fragments is True:
-                        fragments.append(Fragment(coords=coords, elems=elems))
-                    coords = []
-                    elems = []
-            if titlegrab is True:
-                if len(line.split()) > 0:
-                    all_titles.append(line.split())
-                else:
-                    all_titles.append("NA")
-                titlegrab = False
-                coordgrab = True
-            if len(line.split()) > 0 and line.split()[0] == str(numatoms):
-                if molcounter % skipindex:
-                    molcounter += 1
-                    titlegrab = False
-                    coordgrab = False
-                else:
-                    molcounter += 1
-                    titlegrab = True
-                    coordgrab = False
+    with open(file) as handle:
+        while count_line := handle.readline():
+            if not count_line.strip():
+                continue
+            try:
+                numatoms = int(count_line.strip())
+                if numatoms < 0:
+                    raise ValueError
+                title = next(handle)
+                atoms = [_parse_atom_line(next(handle)) for _ in range(numatoms)]
+            except (StopIteration, IndexError, ValueError):
+                raise FileFormatError(f"Invalid XYZ frame {molcounter + 1} in {file}") from None
+            molcounter += 1
+            if (molcounter - 1) % skipindex:
+                continue
+            elems = [atom[0] for atom in atoms]
+            coords = [atom[1] for atom in atoms]
+            all_elems.append(elems)
+            all_coords.append(coords)
+            all_titles.append(title.split() or "NA")
+            if writexyz:
+                write_xyzfile(elems, coords, "molecule" + str(molcounter))
+            if return_fragments:
+                fragments.append(Fragment(coords=coords, elems=elems))
     logger.info(f"Found {molcounter} geometries in file: {file}")
-
-    if return_fragments is True:
-        return fragments
-    return all_elems, all_coords, all_titles
+    return fragments if return_fragments else (all_elems, all_coords, all_titles)
 
 
 def _read_chemshellfragfile_xyz(fragfile: str) -> tuple[list[str], np.ndarray]:
@@ -1759,11 +1644,10 @@ def total_nuclear_charge(ellist: Sequence[str]) -> float:
 
 
 def elems_to_nuclear_charges(ellist: Sequence[str]) -> list[int]:
-    nuccharges = []
-    for e in ellist:
-        atcharge = elematomnumbers[e.lower()]
-        nuccharges.append(atcharge)
-    return nuccharges
+    try:
+        return [elematomnumbers[element.lower()] for element in ellist]
+    except KeyError as error:
+        raise InputError(f"Unknown element {error.args[0]!r} in nuclear-charge lookup") from None
 
 
 def total_mass(ellist: Sequence[str]) -> float:
@@ -1813,21 +1697,7 @@ def flexible_align_xyz(
     subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> None:
     """Align the molecule in one XYZ file onto the molecule in another."""
-    logger.debug("Will align molecule in file %s onto molecule in file %s", xyzfile_a, xyzfile_b)
-    fragment_a = Fragment(xyzfile=xyzfile_a)
-    fragment_b = Fragment(xyzfile=xyzfile_b)
-
-    newfragA = flexible_align(
-        fragment_a,
-        fragment_b,
-        rotate_only=rotate_only,
-        translate_only=translate_only,
-        reordering=reordering,
-        reorder_method=reorder_method,
-        subset=subset,
-    )
-
-    newfragA.write_xyzfile(f"{xyzfile_a.replace('.xyz', '')}_aligned.xyz")
+    _align_files("xyz", xyzfile_a, xyzfile_b, rotate_only, translate_only, reordering, reorder_method, subset)
 
 
 def flexible_align_pdb(
@@ -1840,11 +1710,23 @@ def flexible_align_pdb(
     subset: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> None:
     """Align the molecule in one PDB file onto the molecule in another."""
-    logger.debug("Will align molecule in file %s onto molecule in file %s", pdbfileA, pdbfileB)
-    fragment_a = Fragment(pdbfile=pdbfileA)
-    fragment_b = Fragment(pdbfile=pdbfileB)
+    _align_files("pdb", pdbfileA, pdbfileB, rotate_only, translate_only, reordering, reorder_method, subset)
 
-    newfragA = flexible_align(
+
+def _align_files(
+    file_format: str,
+    file_a: str,
+    file_b: str,
+    rotate_only: bool,
+    translate_only: bool,
+    reordering: bool,
+    reorder_method: str,
+    subset: Sequence[int] | Sequence[Sequence[int]] | None,
+) -> None:
+    logger.debug("Will align molecule in file %s onto molecule in file %s", file_a, file_b)
+    fragment_a = Fragment(**{file_format + "file": file_a})
+    fragment_b = Fragment(**{file_format + "file": file_b})
+    aligned = flexible_align(
         fragment_a,
         fragment_b,
         rotate_only=rotate_only,
@@ -1853,9 +1735,12 @@ def flexible_align_pdb(
         reorder_method=reorder_method,
         subset=subset,
     )
-
-    fragment_a.coords = newfragA.coords
-    fragment_a.write_pdbfile_openmm(filename=f"{pdbfileA.replace('.pdb', '')}_aligned")
+    output = f"{basename(file_a)}_aligned"
+    if file_format == "xyz":
+        aligned.write_xyzfile(output + ".xyz")
+    else:
+        fragment_a.replace_coords(fragment_a.elems, aligned.coords)
+        fragment_a.write_pdbfile_openmm(filename=output)
 
 
 def _resolve_alignment_subsets(
@@ -1949,7 +1834,7 @@ def flexible_align(
 
     if translate_only is True:
         logger.debug("Doing translation only")
-        Anew = fragment_a.coords + (_centroid(subsetB_coords) - _centroid(subsetA_coords))
+        Anew = fragment_a.coords + (subsetB_coords.mean(axis=0) - subsetA_coords.mean(axis=0))
     elif rotate_only is True:
         logger.debug("Doing rotation only")
         Anew = np.dot(fragment_a.coords, rot)
@@ -1995,10 +1880,6 @@ def calculate_rmsd(
     return rmsdval
 
 
-def _centroid(X: np.ndarray) -> np.ndarray:
-    return X.mean(axis=0)
-
-
 def _reorder(
     reorder_method: Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray],
     p_coord: np.ndarray,
@@ -2006,13 +1887,13 @@ def _reorder(
     p_atoms: np.ndarray,
     q_atoms: np.ndarray,
 ) -> list[int]:
-    p_cent = _centroid(p_coord)
-    q_cent = _centroid(q_coord)
+    p_cent = p_coord.mean(axis=0)
+    q_cent = q_coord.mean(axis=0)
     p_coord -= p_cent
     q_coord -= q_cent
 
-    p_atoms = np.array([elematomnumbers[el.lower()] for el in p_atoms])
-    q_atoms = np.array([elematomnumbers[el.lower()] for el in q_atoms])
+    p_atoms = np.array(elems_to_nuclear_charges(p_atoms))
+    q_atoms = np.array(elems_to_nuclear_charges(q_atoms))
 
     q_review = reorder_method(p_atoms, q_atoms, p_coord, q_coord)
     return [q_review.tolist()][0]
@@ -2034,21 +1915,21 @@ def expand_qm_region(
     initial_atom_set = set(initial_atoms)
     atomlist = list(initial_atom_set)
 
-    for c in subsetcoords:
-        for index, allc in enumerate(fragment.coords):
+    connectivity = fragment.connectivity
+    if not connectivity:
+        connectivity = _connected_components(get_connected_atoms_dict(fragment.coords, fragment.elems, scale, tol))
+    for center in subsetcoords:
+        for index in _indices_within_radius(fragment.coords, center, radius):
             if index not in initial_atom_set:
-                dist = distance(c, allc)
-                if dist < radius:
-                    if len(fragment.connectivity) == 0:
-                        wholemol = _get_molecule_members_np(
-                            fragment.coords, fragment.elems, 99, scale, tol, atomindex=index
-                        )
-                    else:
-                        molecule_index = search_list_of_lists_for_index(index, fragment.connectivity)
-                        wholemol = [index] if molecule_index is None else fragment.connectivity[molecule_index]
-
-                    atomlist = atomlist + wholemol
+                molecule_index = search_list_of_lists_for_index(index, connectivity)
+                wholemol = [index] if molecule_index is None else connectivity[molecule_index]
+                atomlist.extend(wholemol)
     return np.unique(atomlist).tolist()
+
+
+def _indices_within_radius(coords: np.ndarray, origin: Sequence[float], radius: float) -> np.ndarray:
+    """Select in atom order using the shared strict radial cutoff."""
+    return np.flatnonzero(np.linalg.norm(np.asarray(coords) - origin, axis=1) < radius)
 
 
 def expand_qm_pc_region(

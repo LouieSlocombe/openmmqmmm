@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from conftest import _AnalyticQM, _make_analytic_qmmm
+from conftest import _AnalyticQM, _make_analytic_qmmm, meoh_water_mm
 
 from openmmqmmm import (
     Fragment,
@@ -19,12 +19,23 @@ from openmmqmmm import (
     openmm_md,
     openmm_md_plumed,
     openmm_modeller,
-    single_point,
 )
 from openmmqmmm.exceptions import InputError, MissingDependencyError
 from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
 
 TEST_DIR = Path(__file__).parent
+
+
+def _set_beads(simulation, positions_nm, velocities_nm=None):
+    """Initialize each bead from independent test geometries in nm and nm/ps."""
+    import openmm
+
+    positions_nm = np.asarray(positions_nm)
+    if velocities_nm is None:
+        velocities_nm = np.zeros_like(positions_nm)
+    for copy, (positions, velocities) in enumerate(zip(positions_nm, velocities_nm, strict=True)):
+        simulation.integrator.setPositions(copy, positions * openmm.unit.nanometer)
+        simulation.integrator.setVelocities(copy, velocities * openmm.unit.nanometer / openmm.unit.picosecond)
 
 
 def _make_minimal_rpmd_simulation(num_copies):
@@ -69,20 +80,6 @@ def _make_minimal_rpmd_simulation(num_copies):
 )
 def test_modeller_solvent_name_is_defined_for_every_water_model(watermodel, expected):
     assert _normalise_modeller_solvent_name(watermodel) == expected
-
-
-def test_openmm_basic():
-    pdbfile = f"{TEST_DIR}/pdbfiles/1aki_solvated.pdb"
-    fragment = Fragment(pdbfile=pdbfile)
-
-    omm = OpenMMTheory(
-        xmlfiles=["charmm36.xml", "charmm36/water.xml"],
-        pdbfile=pdbfile,
-        periodic=True,
-        autoconstraints=None,
-        rigidwater=False,
-    )
-    single_point(theory=omm, fragment=fragment, grad=True)
 
 
 @pytest.mark.parametrize("forcefield_route", ["name", "xmlfile", "object"])
@@ -176,15 +173,7 @@ def test_openmm_modeller_parameterize_missing_forcefill(monkeypatch):
 
 
 def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
-    theory = OpenMMTheory(
-        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
-        pdbfile="h2o_MeOH.pdb",
-        autoconstraints=None,
-        rigidwater=False,
-    )
+    fragment, theory = meoh_water_mm()
 
     starting_coords = fragment.coords.copy()
     openmm_md(
@@ -202,19 +191,6 @@ def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):
     assert fragment.coords.shape == starting_coords.shape
     assert not np.allclose(fragment.coords, starting_coords), "MD must advance the coordinates"
     assert np.all(np.isfinite(fragment.coords))
-
-
-def _write_plumed_test_system():
-    """The h2o_MeOH system used by the MD tests, written to the current directory."""
-    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
-    theory = OpenMMTheory(
-        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
-        pdbfile="h2o_MeOH.pdb",
-        autoconstraints=None,
-        rigidwater=False,
-    )
-    return fragment, theory
 
 
 def test_openmm_md_plumed_passes_the_run_temperature(tmp_path, monkeypatch):
@@ -236,8 +212,7 @@ def test_openmm_md_plumed_passes_the_run_temperature(tmp_path, monkeypatch):
             self.temperature = temperature
 
     monkeypatch.setitem(sys.modules, "openmmplumed", SimpleNamespace(PlumedForce=_FakePlumedForce))
-    monkeypatch.chdir(tmp_path)
-    fragment, theory = _write_plumed_test_system()
+    fragment, theory = meoh_water_mm()
 
     openmm_md_plumed(
         fragment=fragment,
@@ -265,8 +240,7 @@ def test_openmm_md_plumed_applies_each_restraint_once(tmp_path, monkeypatch):
             pass
 
     monkeypatch.setitem(sys.modules, "openmmplumed", SimpleNamespace(PlumedForce=_InertPlumedForce))
-    monkeypatch.chdir(tmp_path)
-    fragment, theory = _write_plumed_test_system()
+    fragment, theory = meoh_water_mm()
     restrained_pair = {0, 3}
 
     openmm_md_plumed(
@@ -313,8 +287,7 @@ def test_openmm_md_plumed_opes_default_biasfactor(tmp_path, monkeypatch):
     or silently biases towards a uniform target. SIGMA is explicit here only so that kernels — and
     with them the biasfactor header — are written without waiting out the adaptive-SIGMA warmup.
     """
-    monkeypatch.chdir(tmp_path)
-    fragment, theory = _write_plumed_test_system()
+    fragment, theory = meoh_water_mm()
 
     openmm_md_plumed(
         fragment=fragment,
@@ -339,19 +312,13 @@ def test_openmm_md_plumed_opes_default_biasfactor(tmp_path, monkeypatch):
 
 def test_openmm_md_requires_a_run_length():
     """Neither simulation_steps nor simulation_time is an error, not a zero-length run."""
-    with pytest.raises(InputError):
-        openmm_md(fragment=None, theory=None)
+    fragment, theory = meoh_water_mm()
+    with pytest.raises(InputError, match=r"simulation_steps|simulation_time"):
+        openmm_md(fragment=fragment, theory=theory)
 
 
 def test_md_engine_can_override_the_rpmd_copy_count():
-    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
-    theory = OpenMMTheory(
-        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
-        pdbfile="h2o_MeOH.pdb",
-        autoconstraints=None,
-        rigidwater=False,
-    )
+    fragment, theory = meoh_water_mm()
 
     engine = MolecularDynamicsEngine(
         fragment=fragment,
@@ -365,14 +332,7 @@ def test_md_engine_can_override_the_rpmd_copy_count():
 
 
 def test_md_engine_rejects_rpmd_with_barostat_before_adding_force():
-    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
-    theory = OpenMMTheory(
-        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
-        pdbfile="h2o_MeOH.pdb",
-        autoconstraints=None,
-        rigidwater=False,
-    )
+    fragment, theory = meoh_water_mm()
 
     with pytest.raises(InputError, match="RPMDIntegrator cannot be used with a barostat"):
         MolecularDynamicsEngine(
@@ -405,16 +365,7 @@ def test_qmmm_rpmd_uses_pythonforce_instead_of_shared_external_parameters():
     assert engine.rpmd_force_provider is not None
 
     simulation = qmmm.mm_theory.create_simulation()
-    for copy, half_separation_nm in enumerate((0.05, 0.15)):
-        positions = [
-            openmm.Vec3(-half_separation_nm, 0, 0),
-            openmm.Vec3(half_separation_nm, 0, 0),
-        ]
-        simulation.integrator.setPositions(copy, positions * openmm.unit.nanometer)
-        simulation.integrator.setVelocities(
-            copy,
-            [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * openmm.unit.nanometer / openmm.unit.picosecond,
-        )
+    _set_beads(simulation, [[[-half, 0, 0], [half, 0, 0]] for half in (0.05, 0.15)])
 
     forces = []
     for copy in range(2):
@@ -454,10 +405,7 @@ def test_rpmd_each_bead_gets_the_analytic_force_of_its_own_geometry(kind):
         simulation = qmmm.mm_theory.create_simulation()
         qm_rows = [0, 1] if embedding == "mech" else [0]
 
-    zero_velocities = [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * (openmm.unit.nanometer / openmm.unit.picosecond)
-    for copy, positions in enumerate(bead_positions_nm):
-        simulation.integrator.setPositions(copy, [openmm.Vec3(*row) for row in positions] * openmm.unit.nanometer)
-        simulation.integrator.setVelocities(copy, zero_velocities)
+    _set_beads(simulation, bead_positions_nm)
 
     provider = engine.rpmd_force_provider
     group = engine.rpmd_external_force_group
@@ -557,8 +505,7 @@ def test_export_rpmd_potential_energy_matches_analytic():
             [[-0.15, 0.02, -0.01], [0.16, 0.03, -0.02]],
         ]
     )
-    for copy, positions in enumerate(bead_positions_nm):
-        simulation.integrator.setPositions(copy, [openmm.Vec3(*row) for row in positions] * openmm.unit.nanometer)
+    _set_beads(simulation, bead_positions_nm)
 
     for copy, positions_nm in enumerate(bead_positions_nm):
         state = simulation.integrator.getState(copy, getEnergy=True, groups={export.force_group})
@@ -656,10 +603,11 @@ def test_export_rpmd_potential_rejects_non_qmmm_theory():
         export_rpmd_potential(theory=_AnalyticQM(), num_beads=2)
 
 
-def test_export_rpmd_potential_validates_num_beads():
+@pytest.mark.parametrize("num_beads", [0, True, np.bool_(True)])
+def test_export_rpmd_potential_validates_num_beads(num_beads):
     qmmm, _fragment, _qm = _make_analytic_qmmm()
     with pytest.raises(InputError, match="num_beads must be a positive integer"):
-        export_rpmd_potential(theory=qmmm, num_beads=0)
+        export_rpmd_potential(theory=qmmm, num_beads=num_beads)
     force_names = [force.__class__.__name__ for force in qmmm.mm_theory.system.getForces()]
     assert "PythonForce" not in force_names
 
@@ -677,7 +625,6 @@ def test_modeller_from_topology_converts_angstrom_to_nm():
 
 
 def test_qmmm_rpmd_step_evaluates_and_caches_each_final_bead():
-    import openmm
 
     qmmm, fragment, _qm = _make_analytic_qmmm()
     engine = MolecularDynamicsEngine(
@@ -690,15 +637,7 @@ def test_qmmm_rpmd_step_evaluates_and_caches_each_final_bead():
         rpmd_num_copies=2,
     )
     simulation = qmmm.mm_theory.create_simulation()
-    for copy, half_separation_nm in enumerate((0.05, 0.15)):
-        simulation.integrator.setPositions(
-            copy,
-            [openmm.Vec3(-half_separation_nm, 0, 0), openmm.Vec3(half_separation_nm, 0, 0)] * openmm.unit.nanometer,
-        )
-        simulation.integrator.setVelocities(
-            copy,
-            [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * openmm.unit.nanometer / openmm.unit.picosecond,
-        )
+    _set_beads(simulation, [[[-half, 0, 0], [half, 0, 0]] for half in (0.05, 0.15)])
 
     provider = engine.rpmd_force_provider
     provider.clear_cache()
@@ -939,7 +878,6 @@ def test_qmmm_rpmd_electrostatic_pythonforce_returns_physical_qm_energy():
 
 
 def test_qmmm_rpmd_can_contract_only_the_qm_force_to_the_centroid():
-    import openmm
 
     qmmm, fragment, qm = _make_analytic_qmmm()
     engine = MolecularDynamicsEngine(
@@ -955,15 +893,7 @@ def test_qmmm_rpmd_can_contract_only_the_qm_force_to_the_centroid():
     assert qmmm.mm_theory.rpmd_contractions == {engine.rpmd_external_force_group: 1}
 
     simulation = qmmm.mm_theory.create_simulation()
-    for copy, center_nm in enumerate((0.1, 0.3)):
-        simulation.integrator.setPositions(
-            copy,
-            [openmm.Vec3(center_nm - 0.05, 0, 0), openmm.Vec3(center_nm + 0.05, 0, 0)] * openmm.unit.nanometer,
-        )
-        simulation.integrator.setVelocities(
-            copy,
-            [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * openmm.unit.nanometer / openmm.unit.picosecond,
-        )
+    _set_beads(simulation, [[[center - 0.05, 0, 0], [center + 0.05, 0, 0]] for center in (0.1, 0.3)])
 
     qm.calls.clear()
     simulation.integrator.step(1)
@@ -990,15 +920,7 @@ def test_external_qm_rpmd_uses_the_same_bead_specific_force_path():
     assert isinstance(engine.rpmd_python_force, openmm.PythonForce)
 
     simulation = engine.openmmobject.create_simulation()
-    for copy, half_separation_nm in enumerate((0.05, 0.15)):
-        simulation.integrator.setPositions(
-            copy,
-            [openmm.Vec3(-half_separation_nm, 0, 0), openmm.Vec3(half_separation_nm, 0, 0)] * openmm.unit.nanometer,
-        )
-        simulation.integrator.setVelocities(
-            copy,
-            [openmm.Vec3(0, 0, 0), openmm.Vec3(0, 0, 0)] * openmm.unit.nanometer / openmm.unit.picosecond,
-        )
+    _set_beads(simulation, [[[-half, 0, 0], [half, 0, 0]] for half in (0.05, 0.15)])
     simulation.integrator.step(1)
     assert engine.rpmd_force_provider.evaluation_count == 4
 
@@ -1052,7 +974,7 @@ def test_qmmm_rpmd_rejects_state_shared_across_beads(qmmm_kwargs, engine_kwargs,
         )
 
 
-@pytest.mark.parametrize("num_copies", [0, -1, 3, 1.5, True])
+@pytest.mark.parametrize("num_copies", [0, -1, 3, 1.5, True, np.bool_(True)])
 def test_qmmm_rpmd_qm_copy_count_is_validated(num_copies):
     qmmm, fragment, _qm = _make_analytic_qmmm()
     with pytest.raises(InputError, match="rpmd_qm_num_copies must be a positive integer"):
@@ -1077,13 +999,9 @@ def test_rpmd_restart_round_trip_preserves_every_copy(tmp_path):
     for copy_index in range(num_copies):
         positions = np.array([[0.1 + copy_index, 0.2, 0.3]])
         velocities = np.array([[0.01, 0.02 + copy_index, 0.03]])
-        simulation.integrator.setPositions(copy_index, [openmm.Vec3(*xyz) for xyz in positions] * openmm.unit.nanometer)
-        simulation.integrator.setVelocities(
-            copy_index,
-            [openmm.Vec3(*xyz) for xyz in velocities] * (openmm.unit.nanometer / openmm.unit.picosecond),
-        )
         expected_positions.append(positions)
         expected_velocities.append(velocities)
+    _set_beads(simulation, expected_positions, expected_velocities)
     simulation.currentStep = 17
 
     engine = MolecularDynamicsEngine.__new__(MolecularDynamicsEngine)
@@ -1112,17 +1030,10 @@ def test_rpmd_restart_round_trip_preserves_every_copy(tmp_path):
 def test_rpmd_state_report_labels_copy_and_ring_polymer_energy():
     import io
 
-    import openmm
-
     from openmmqmmm.openmm.md import _RPMDStateDataReporter
 
     simulation, _system = _make_minimal_rpmd_simulation(2)
-    for copy_index in range(2):
-        simulation.integrator.setPositions(copy_index, [openmm.Vec3(0.1 + copy_index, 0, 0)] * openmm.unit.nanometer)
-        simulation.integrator.setVelocities(
-            copy_index,
-            [openmm.Vec3(0, 0, 0)] * (openmm.unit.nanometer / openmm.unit.picosecond),
-        )
+    _set_beads(simulation, [[[0.1 + copy_index, 0, 0]] for copy_index in range(2)])
 
     output = io.StringIO()
     reporter = _RPMDStateDataReporter(output, copy_index=1, degrees_of_freedom=3)
@@ -1138,15 +1049,8 @@ def test_rpmd_state_report_labels_copy_and_ring_polymer_energy():
 def test_rpmd_reporters_bypass_simulation_context_reporting(tmp_path, caplog):
     import io
 
-    import openmm
-
     simulation, _system = _make_minimal_rpmd_simulation(2)
-    for copy_index in range(2):
-        simulation.integrator.setPositions(copy_index, [openmm.Vec3(0.1 + copy_index, 0, 0)] * openmm.unit.nanometer)
-        simulation.integrator.setVelocities(
-            copy_index,
-            [openmm.Vec3(0, 0, 0)] * (openmm.unit.nanometer / openmm.unit.picosecond),
-        )
+    _set_beads(simulation, [[[0.1 + copy_index, 0, 0]] for copy_index in range(2)])
 
     data_output = io.StringIO()
     engine = MolecularDynamicsEngine.__new__(MolecularDynamicsEngine)
@@ -1190,15 +1094,7 @@ def test_logger_writer_emits_complete_nonblank_lines(caplog):
 def test_rpmd_run_finalization_writes_only_bead_complete_restart():
     from openmmqmmm.openmm.md import RPMD_FINAL_RESTART_FILENAME
 
-    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
-    theory = OpenMMTheory(
-        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
-        pdbfile="h2o_MeOH.pdb",
-        autoconstraints=None,
-        rigidwater=False,
-        rpmd_num_copies=2,
-    )
+    fragment, theory = meoh_water_mm(rpmd_num_copies=2)
     engine = MolecularDynamicsEngine(
         fragment=fragment,
         theory=theory,

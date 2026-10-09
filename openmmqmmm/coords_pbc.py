@@ -64,6 +64,15 @@ def cell_volume(vectors: np.ndarray) -> float:
     return abs(np.dot(a, np.cross(b, c)))
 
 
+def _resolve_cell(cellvectors: np.ndarray | None, celldimensions: Sequence[float] | None) -> np.ndarray:
+    """Resolve a cell, preserving the established dimensions-over-vectors precedence."""
+    if celldimensions is not None:
+        return cell_params_to_vectors(celldimensions)
+    if cellvectors is None:
+        raise InputError("Either cellvectors or celldimensions should be provided")
+    return np.asarray(cellvectors)
+
+
 def write_poscar_file(
     coords: np.ndarray,
     elems: Sequence[str],
@@ -71,10 +80,7 @@ def write_poscar_file(
     celldimensions: Sequence[float] | None = None,
     filename: str | os.PathLike[str] = "POSCAR",
 ) -> str | os.PathLike[str]:
-    if cellvectors is None and celldimensions is None:
-        raise InputError("Either cellvectors or celldimensions should be provided")
-    if celldimensions is not None:
-        cellvectors = cell_params_to_vectors(celldimensions)
+    cellvectors = _resolve_cell(cellvectors, celldimensions)
 
     unique_elements = []
     for e in elems:
@@ -106,10 +112,7 @@ def write_xsf_file(
     celldimensions: Sequence[float] | None = None,
     filename: str | os.PathLike[str] = "structure.xsf",
 ) -> str | os.PathLike[str]:
-    if cellvectors is None and celldimensions is None:
-        raise InputError("Either cellvectors or celldimensions should be provided")
-    if celldimensions is not None:
-        cellvectors = cell_params_to_vectors(celldimensions)
+    cellvectors = _resolve_cell(cellvectors, celldimensions)
 
     with open(filename, "w") as f:
         f.write("CRYSTAL\n")
@@ -136,11 +139,8 @@ def write_cif_file(
     celldimensions: Sequence[float] | None = None,
     filename: str | os.PathLike[str] = "structure.cif",
 ) -> str | os.PathLike[str]:
-    if cellvectors is None and celldimensions is None:
-        raise InputError("Either cellvectors or celldimensions should be provided")
-    if celldimensions is not None:
-        cellvectors = cell_params_to_vectors(celldimensions)
-    elif cellvectors is not None:
+    cellvectors = _resolve_cell(cellvectors, celldimensions)
+    if celldimensions is None:
         celldimensions = cell_vectors_to_params(cellvectors)
 
     frac_coords = cart_coords_to_fract(coords, cellvectors)

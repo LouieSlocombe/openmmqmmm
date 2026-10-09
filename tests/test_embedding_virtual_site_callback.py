@@ -6,27 +6,15 @@ import pickle
 import numpy as np
 import openmm
 import pytest
+from conftest import central_difference, dummy_mm, use_pme
 from openmm import unit
+from test_qmmm_periodic_accuracy import _CoulombQM
 
-from openmmqmmm import Fragment, OpenMMTheory, QMMMTheory
-from openmmqmmm.constants import ANG_TO_BOHR, HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM, HARTREE_TO_KJ_PER_MOL
+from openmmqmmm import Fragment, QMMMTheory
+from openmmqmmm.constants import HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM, HARTREE_TO_KJ_PER_MOL
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.openmm.rpmd_force import RPMDQMMMForceProvider, add_rpmd_python_force
 from openmmqmmm.virtual_sites import NativeVirtualSites
-
-
-class _CoulombQM:
-    numcores = 1
-
-    def run(self, *, current_coords, current_mm_coords, mm_charges, grad=False, **kwargs):
-        delta = (np.asarray(current_coords)[:, None, :] - np.asarray(current_mm_coords)[None, :, :]) * ANG_TO_BOHR
-        radii = np.linalg.norm(delta, axis=-1)
-        charges = np.asarray(mm_charges)
-        energy = np.sum(charges / radii)
-        if not grad:
-            return energy
-        pairs = -charges[None, :, None] * delta / radii[:, :, None] ** 3
-        return energy, pairs.sum(axis=1), -pairs.sum(axis=0)
 
 
 def _theory(*, periodic):
@@ -35,23 +23,11 @@ def _theory(*, periodic):
         coords=[[1, 1, 1], [6, 1.2, 1], [8, 1, 1.1], [99, -99, 99], [12, 2, 1.8]],
         conncalc=False,
     )
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
-    atoms = list(mm.topology.atoms())
-    mm.topology.addBond(atoms[1], atoms[2])
+    mm = dummy_mm(fragment, bonds=[(1, 2)])
     mm.system.setParticleMass(3, 0)
     mm.system.setVirtualSite(3, openmm.TwoParticleAverageSite(1, 2, 0.4, 0.6))
     if periodic:
-        mm.periodic = True
-        mm.system.setDefaultPeriodicBoxVectors(*(np.eye(3) * 3.0))
-        mm.nonbonded_force.setNonbondedMethod(openmm.NonbondedForce.PME)
-        mm.nonbonded_force.setCutoffDistance(1.0)
+        use_pme(mm)
     mm.update_charges(list(range(5)), [0, 0, 0, -1, 0.4])
     theory = QMMMTheory(
         fragment=fragment,
@@ -73,12 +49,8 @@ def test_native_callback_matches_standalone_without_double_projection(periodic):
 
     # The MM virtual-site force is nonzero as well as the QM embedding force,
     # so projecting an already redistributed native MM contribution fails this.
-    h = 1e-5
     for atom, axis in [(1, 0), (2, 1), (4, 2)]:
-        plus, minus = fragment.coords.copy(), fragment.coords.copy()
-        plus[atom, axis] += h
-        minus[atom, axis] -= h
-        numeric = (theory.run(current_coords=plus) - theory.run(current_coords=minus)) / (2 * h * ANG_TO_BOHR)
+        numeric = central_difference(lambda coords: theory.run(current_coords=coords), fragment.coords, atom, axis)
         assert gradient[atom, axis] == pytest.approx(numeric, abs=1e-8)
 
     theory.openmm_externalforce = True

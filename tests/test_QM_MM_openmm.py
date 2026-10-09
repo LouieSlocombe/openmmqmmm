@@ -2,32 +2,23 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import meoh_water_mm, requires_orca
 
 from openmmqmmm import Fragment, MolecularDynamicsEngine, OpenMMTheory, ORCATheory, QMMMTheory, single_point
-from openmmqmmm.orca import find_orca
 
 TEST_DIR = Path(__file__).parent
 
-pytestmark = pytest.mark.skipif(
-    find_orca(required=False) is None, reason="No ORCA installation found (orcadir / OPENMMQMMM_ORCADIR / PATH)"
-)
+pytestmark = requires_orca
 
 
 def test_qm_mm_orca_openmm_meoh_h2o():
-    H2O_MeOH = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-
-    H2O_MeOH.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
-    pdbfile = "h2o_MeOH.pdb"
+    H2O_MeOH, MMpart = meoh_water_mm()
 
     # Specifying the QM atoms (3-8) by atom indices (MeOH). The other atoms (0,1,2) is the H2O and MM.
     # IMPORTANT: atom indices begin at 0.
     qmatoms = [3, 4, 5, 6, 7, 8]
 
     qm = ORCATheory(orcasimpleinput="! PBE def2-SVP NORI tightscf")
-
-    MMpart = OpenMMTheory(
-        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"], pdbfile=pdbfile, autoconstraints=None, rigidwater=False
-    )
 
     QMMMobject = QMMMTheory(fragment=H2O_MeOH, qm_theory=qm, mm_theory=MMpart, qmatoms=qmatoms, embedding="Elstat")
 
@@ -136,16 +127,8 @@ def test_qm_mm_orca_openmm_lysozyme():
 
 
 def _meoh_water_qmmm(qmatoms, embedding, tag, unusualboundary=False):
-    fragment = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/h2o_MeOH.xyz")
-    fragment.write_pdbfile_openmm(filename="h2o_MeOH.pdb", skip_connectivity=True)
-
+    fragment, mm = meoh_water_mm()
     qm = ORCATheory(orcasimpleinput="! PBE def2-SVP NORI tightscf", filename=f"orca_{tag}")
-    mm = OpenMMTheory(
-        xmlfiles=[f"{TEST_DIR}/extra_files/MeOH_H2O-sigma.xml"],
-        pdbfile="h2o_MeOH.pdb",
-        autoconstraints=None,
-        rigidwater=False,
-    )
     # This fixture deliberately has a nonbonded-only force-field template and
     # omits PDB connectivity. Supply the known methanol covalent graph explicitly
     # so boundary detection can use topology without inventing distance bonds.
