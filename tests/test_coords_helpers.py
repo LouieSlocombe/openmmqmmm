@@ -27,8 +27,8 @@ from openmmqmmm.coords import (
     eldict_covrad,
     elems_to_formula,
     get_centroid,
+    get_connected_atoms_dict,
     list_of_masses,
-    threshold_conn,
     total_mass,
     total_nuclear_charge,
 )
@@ -193,13 +193,7 @@ def test_expand_qm_region_uses_initial_atom_membership_and_retains_the_seed():
 
 
 def _neighbours_via_calc_conn(coords, elems):
-    neighbours = [set() for _ in elems]
-    for i in range(len(elems)):
-        for j in range(i + 1, len(elems)):
-            if distance(coords[i], coords[j]) < threshold_conn(elems[i], elems[j], scale=1.0, tol=0.4):
-                neighbours[i].add(j)
-                neighbours[j].add(i)
-    return neighbours
+    return [set(v) for v in get_connected_atoms_dict(coords, elems, 1.0, 0.4).values()]
 
 
 def test_ions_do_not_bond_in_either_connectivity_path():

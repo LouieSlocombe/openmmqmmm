@@ -615,7 +615,9 @@ class Fragment:
         )
         return f"{filename}.pdb"
 
-    def define_topology(self, scale: float = 1.0, tol: float = 0.1, resname: str = "MOL") -> Topology:
+    def define_topology(
+        self, scale: float = CONNECTIVITY_SCALE, tol: float = CONNECTIVITY_TOL, resname: str = "MOL"
+    ) -> Topology:
         """Build an OpenMM topology for the fragment from its connectivity."""
         import openmm.app
 
@@ -625,10 +627,9 @@ class Fragment:
         self.pdb_topology = openmm.app.Topology()
         chain = self.pdb_topology.addChain()
 
-        if self.connectivity is None or (isinstance(self.connectivity, list) and len(self.connectivity) == 0):
-            self.calc_connectivity(scale=scale, tol=tol)
-
         connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, scale, tol)
+        if self.connectivity is None or (isinstance(self.connectivity, list) and len(self.connectivity) == 0):
+            self.connectivity = _connected_components(connectivity_dict)
         for mol in self.connectivity:
             logger.debug("Molecule atom indices: %s", mol)
             residue = self.pdb_topology.addResidue(resname, chain)
@@ -684,7 +685,7 @@ class Fragment:
         # Non-biomolecules get CONECT records only if their bonds are in the topology.
         if calc_connectivity is True:
             logger.info("Connectivity calculation requested for Fragment")
-            connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, 1.0, 0.1)
+            connectivity_dict = get_connected_atoms_dict(self.coords, self.elems, CONNECTIVITY_SCALE, CONNECTIVITY_TOL)
             logger.debug("Adding connectivity to PDB topology")
             openmm_add_bonds_to_topology(self.pdb_topology, _bonds_to_add(self.pdb_topology, connectivity_dict))
 
@@ -907,53 +908,18 @@ _CONNECTIVITY_TOLERANCE = 0.40  # Angstrom added to sum of covalent radii
 
 
 def _build_connectivity(coords: np.ndarray, elems: Sequence[str]) -> list[set[int]]:
-    coords = np.asarray(coords)
-    n = len(elems)
-
-    # Same table as threshold_conn and _get_connected_atoms_np: eldict_covrad carries the
-    # Na/K and M-site overrides that keep ions and TIP4P dummy sites from bonding to their
-    # neighbours, so a private copy of the radii would make the paths disagree on those atoms.
-    radii = np.array([eldict_covrad.get(e.capitalize(), _DEFAULT_RADIUS) for e in elems])
-
-    conn = [set() for _ in range(n)]
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            dist = np.linalg.norm(coords[i] - coords[j])
-            threshold = radii[i] + radii[j] + _CONNECTIVITY_TOLERANCE
-
-            if 0.4 < dist < threshold:
-                conn[i].add(j)
-                conn[j].add(i)
-
-    return conn
+    adjacency = get_connected_atoms_dict(
+        coords,
+        elems,
+        CONNECTIVITY_SCALE,
+        _CONNECTIVITY_TOLERANCE,
+        min_distance=0.4,
+        fallback_radius=_DEFAULT_RADIUS,
+    )
+    return [set(adjacency[i]) for i in range(len(elems))]
 
 
 def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int] | None = None) -> None:
-    def _measure_bond(coords: np.ndarray, i: int, j: int) -> float:
-        return float(np.linalg.norm(coords[i] - coords[j]))
-
-    def _measure_angle(coords: np.ndarray, i: int, j: int, k: int) -> float:
-        v1 = coords[i] - coords[j]
-        v2 = coords[k] - coords[j]
-        cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-        return float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
-
-    def _measure_dihedral(
-        coords: np.ndarray,
-        i: int,
-        j: int,
-        k: int,
-        l: int,  # noqa: E741 - dihedral atoms i-j-k-l
-    ) -> float:
-        b1 = coords[j] - coords[i]
-        b2 = coords[k] - coords[j]
-        b3 = coords[l] - coords[k]
-        n1 = np.cross(b1, b2)
-        n2 = np.cross(b2, b3)
-        m1 = np.cross(n1, b2 / np.linalg.norm(b2))
-        return float(np.degrees(np.arctan2(np.dot(m1, n2), np.dot(n1, n2))))
-
     if actatoms is None:
         actatoms = fragment.allatoms
 
@@ -975,7 +941,7 @@ def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int]
         for j in conn[i]:
             bond_key = tuple(sorted((i, j)))
             if bond_key not in seen_bonds:
-                val = _measure_bond(coords, i, j)
+                val = distance(coords[i], coords[j])
                 label = f"{elems[i]}-{elems[j]}"
                 logger.info(f"{'Bond':<10} {bond_key!s:<20} {label:<15} {val:>10.4f} Å")
                 seen_bonds.add(bond_key)
@@ -986,7 +952,7 @@ def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int]
                     n_a, n_b = neighbors[idx_a], neighbors[idx_b]
                     angle_key = (*sorted((n_a, n_b)), i)
                     if angle_key not in seen_angles:
-                        val = _measure_angle(coords, n_a, i, n_b)
+                        val = angle(coords[n_a], coords[i], coords[n_b])
                         label = f"{elems[n_a]}-{elems[i]}-{elems[n_b]}"
                         logger.info(f"{'Angle':<10} {f'({n_a},{i},{n_b})':<20} {label:<15} {val:>10.2f}°")
                         seen_angles.add(angle_key)
@@ -1001,7 +967,11 @@ def _print_internal_coordinate_table(fragment: Fragment, actatoms: Sequence[int]
                     di_key = (h, i, j, k)
                     rev_key = (k, j, i, h)
                     if di_key not in seen_dihedrals and rev_key not in seen_dihedrals:
-                        val = _measure_dihedral(coords, h, i, j, k)
+                        try:
+                            val = dihedral(coords[h], coords[i], coords[j], coords[k])
+                        except InputError:
+                            # A collinear bond has no signed dihedral to print.
+                            continue
                         label = f"{elems[h]}-{elems[i]}-{elems[j]}-{elems[k]}"
                         logger.info(f"{'Dihedral':<10} {di_key!s:<20} {label:<15} {val:>10.2f}°")
                         seen_dihedrals.add(di_key)
@@ -1195,7 +1165,7 @@ def angle(A: np.ndarray, B: np.ndarray, C: np.ndarray) -> float:
     dot_product = np.dot(AB, CB)
     magnitude1 = np.linalg.norm(AB)
     magnitude2 = np.linalg.norm(CB)
-    angle_rad = np.arccos(dot_product / (magnitude1 * magnitude2))
+    angle_rad = np.arccos(np.clip(dot_product / (magnitude1 * magnitude2), -1.0, 1.0))
     return np.degrees(angle_rad)
 
 
@@ -1254,27 +1224,36 @@ def threshold_conn(elA: str, elB: str, scale: float, tol: float) -> float:
 def _calc_conn_py(
     coords: np.ndarray, elems: Sequence[str], conndepth: int, scale: float, tol: float
 ) -> list[list[int]]:
-    found_atoms = []
-    fraglist = []
-    for atom in range(len(elems)):
-        if atom not in found_atoms:
-            members = _get_molecule_members_np(coords, elems, conndepth, scale, tol, atomindex=atom)
-            if members not in fraglist:
-                fraglist.append(members)
-                found_atoms += members
-    return fraglist
+    # conndepth remains accepted for compatibility; components must be complete.
+    return _connected_components(get_connected_atoms_dict(coords, elems, scale, tol))
+
+
+def _connected_components(adjacency: Mapping[int, Sequence[int]]) -> list[list[int]]:
+    remaining = set(adjacency)
+    components = []
+    while remaining:
+        root = min(remaining)
+        members = _connected_members(adjacency, [root])
+        remaining.difference_update(members)
+        components.append(members)
+    return components
+
+
+def _connected_members(adjacency: Mapping[int, Sequence[int]], seeds: Sequence[int]) -> list[int]:
+    visited = set(seeds)
+    pending = list(seeds)
+    while pending:
+        for neighbour in adjacency[pending.pop()]:
+            if neighbour not in visited:
+                visited.add(neighbour)
+                pending.append(neighbour)
+    return sorted(visited)
 
 
 def get_connected_atoms(
     coords: np.ndarray, elems: Sequence[str], scale: float, tol: float, atomindex: int
 ) -> list[int]:
-    connatoms = []
-    coords_ref = coords[atomindex]
-    elem_ref = elems[atomindex]
-    for i, c in enumerate(coords):
-        if distance(coords_ref, c) < threshold_conn(elems[i], elem_ref, scale, tol) and i != atomindex:
-            connatoms.append(i)
-    return connatoms
+    return [i for i in _get_connected_atoms_np(coords, elems, scale, tol, atomindex) if i != atomindex]
 
 
 # https://semantive.com/pl/blog/high-performance-computation-in-python-numpy/
@@ -1287,27 +1266,44 @@ def _einsum_mat(mat_v: np.ndarray, mat_u: np.ndarray) -> np.ndarray:
 def _get_connected_atoms_np(
     coords: np.ndarray, elems: Sequence[str], scale: float, tol: float, atomindex: int
 ) -> list[int]:
-    compcoords = np.tile(coords[atomindex], (len(coords), 1))
-    distances = _einsum_mat(coords, compcoords)
-    el_covrad_ref = eldict_covrad[elems[atomindex]]
-    # Cheaper way of getting thresholds list than calling threshold_conn
-    thresholds = np.array([eldict_covrad[elems[i]] for i in range(len(elems))])
-    thresholds = thresholds + el_covrad_ref
-    thresholds = thresholds * scale
-    thresholds = thresholds + tol
-    diff = distances - thresholds
-    return np.where(diff < 0)[0].tolist()
+    radii = np.array([eldict_covrad[elem] for elem in elems])
+    return _neighbours(coords, radii, scale, tol, atomindex)
+
+
+def _neighbours(
+    coords: np.ndarray,
+    radii: np.ndarray,
+    scale: float,
+    tol: float,
+    atomindex: int,
+    min_distance: float | None = None,
+) -> list[int]:
+    distances = np.linalg.norm(np.asarray(coords) - coords[atomindex], axis=1)
+    connected = distances < scale * (radii + radii[atomindex]) + tol
+    if min_distance is not None:
+        connected &= distances > min_distance
+    return np.flatnonzero(connected).tolist()
 
 
 def get_connected_atoms_dict(
-    coords: np.ndarray, elems: Sequence[str], scale: float, tol: float
+    coords: np.ndarray,
+    elems: Sequence[str],
+    scale: float,
+    tol: float,
+    *,
+    min_distance: float | None = None,
+    fallback_radius: float | None = None,
 ) -> dict[int, list[int]]:
-    conndict = {}
-    for c in range(len(coords)):
-        conn = _get_connected_atoms_np(coords, elems, scale, tol, c)
-        conn.remove(c)
-        conndict[c] = conn
-    return conndict
+    radii = np.array(
+        [
+            eldict_covrad[elem] if fallback_radius is None else eldict_covrad.get(elem.capitalize(), fallback_radius)
+            for elem in elems
+        ]
+    )
+    return {
+        atom: [i for i in _neighbours(coords, radii, scale, tol, atom, min_distance) if i != atom]
+        for atom in range(len(coords))
+    }
 
 
 def _bonds_to_add(topology: Topology, conndict: Mapping[int, Sequence[int]]) -> dict[int, list[int]]:
@@ -1326,22 +1322,10 @@ def _get_molecule_members_np(
     membs: list[int] | int | None = None,
 ) -> list[int]:
     if membs is None:
-        membs = _get_connected_atoms_np(coords, elems, scale, tol, atomindex)
-
-    if isinstance(membs, int):
+        membs = [atomindex]
+    elif isinstance(membs, int):
         membs = [membs]
-    finalmembs = membs
-
-    for _i in range(loopnumber):
-        newmembers = [_get_connected_atoms_np(coords, elems, scale, tol, k) for k in membs]
-        trimmed_flat = np.unique([item for sublist in newmembers for item in sublist]).tolist()
-
-        membs = listdiff(trimmed_flat, finalmembs)
-        if len(membs) == 0:
-            return finalmembs
-        finalmembs += membs
-        finalmembs = np.unique(finalmembs).tolist()
-    return finalmembs
+    return _connected_members(get_connected_atoms_dict(coords, elems, scale, tol), membs)
 
 
 def elems_to_formula(elems: Sequence[str]) -> str:
