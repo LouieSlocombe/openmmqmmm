@@ -991,7 +991,10 @@ class OpenMMTheory:
         self.nonbonded_force.addParticle(0, 1, 0)
         chain = self.topology.addChain()
         residue = self.topology.addResidue("dummy", chain)
-        dummy_element = openmm.app.element.Element(0, "Dummyel", "Dd", 0.0)
+        try:
+            dummy_element = openmm.app.element.Element.getBySymbol("Dd")
+        except KeyError:
+            dummy_element = openmm.app.element.Element(0, "Dummyel", "Dd", 0.0 * openmm.unit.dalton)
         self.topology.addAtom("Dum", dummy_element, residue)
 
         self.restraint = openmm.HarmonicBondForce()
@@ -1358,11 +1361,14 @@ class OpenMMTheory:
             else:
                 self.integrator = openmm.RPMDIntegrator(*args)
         else:
-            raise InputError(
-                "Unknown integrator.\n Valid integrator keywords are: VerletIntegrator, VariableVerletIntegrator, "
-                "LangevinIntegrator, LangevinMiddleIntegrator, NoseHooverIntegrator, VariableLangevinIntegrator, "
-                "DrudeLangevinIntegrator, QTBIntegrator, RPMDIntegrator"
+            names = (
+                "VerletIntegrator",
+                "VariableVerletIntegrator",
+                *_THERMOSTAT_INTEGRATORS,
+                "DrudeLangevinIntegrator",
+                "RPMDIntegrator",
             )
+            raise InputError("Unknown integrator.\n Valid integrator keywords are: " + ", ".join(names))
 
     def create_simulation(self, internal: bool = False) -> openmm.app.Simulation | None:
         """Build the OpenMM Simulation from the current system, topology and integrator."""

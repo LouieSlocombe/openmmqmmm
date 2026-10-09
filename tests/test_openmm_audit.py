@@ -233,3 +233,10 @@ def test_xml_system_loader_preserves_topology_metadata_and_energy(tmp_path):
     assert restored.atomnames == theory.atomnames
     assert restored.resids == theory.resids
     assert restored.run(current_coords=fragment.coords) == pytest.approx(theory.run(current_coords=fragment.coords))
+
+
+def test_restraint_dummy_does_not_break_later_charmm_element_lookup():
+    theory, _ = _bare_theory()
+    theory.add_dummy_atom_to_restrain_solute(atomindices=[0])
+    psf = openmm.app.CharmmPsfFile(str(FIXTURES / "three-waters.psf"))
+    assert [atom.element.symbol for atom in psf.topology.atoms()] == ["O", "H", "H"] * 3
