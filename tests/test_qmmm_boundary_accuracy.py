@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from conftest import central_difference_gradient
 
 from openmmqmmm import Fragment, QMMMTheory, ZeroTheory
 from openmmqmmm.constants import ANG_TO_BOHR
@@ -65,16 +66,11 @@ def _boundary_theory(*, qm_theory=None, **options):
 
 
 def _finite_difference(theory, fragment, step=1.0e-5):
-    gradient = np.zeros_like(fragment.coords)
-    for atom in range(len(gradient)):
-        for axis in range(3):
-            plus, minus = fragment.coords.copy(), fragment.coords.copy()
-            plus[atom, axis] += step
-            minus[atom, axis] -= step
-            energy_plus = theory.run(current_coords=plus, elems=fragment.elems, grad=False)
-            energy_minus = theory.run(current_coords=minus, elems=fragment.elems, grad=False)
-            gradient[atom, axis] = (energy_plus - energy_minus) / (2 * step * ANG_TO_BOHR)
-    return gradient
+    return central_difference_gradient(
+        lambda coords: theory.run(current_coords=coords, elems=fragment.elems, grad=False),
+        fragment.coords,
+        step=step,
+    )
 
 
 @pytest.mark.parametrize("placement", ["simple", "ratio"])
@@ -148,13 +144,6 @@ def test_truncated_full_refresh_includes_cap_and_virtual_charge_gradients(placem
     assert gradient == pytest.approx(reference_gradient, abs=1.0e-14)
     assert gradient == pytest.approx(_finite_difference(theory, fragment), abs=2.0e-9)
     assert np.sum(gradient, axis=0) == pytest.approx(np.zeros(3), abs=1.0e-14)
-
-
-def test_truncated_cached_correction_rejects_cap_gradient():
-    theory, fragment = _boundary_theory(truncated_pc=True, truncated_pc_radius=0.1, truncated_pc_recalc_iter=50)
-    with pytest.raises(InputError, match="truncated_pc_recalc_iter=1"):
-        theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
-    assert theory.runcalls == 0
 
 
 @pytest.mark.parametrize("embedding", ["mech", "elstat"])

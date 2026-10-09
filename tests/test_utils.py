@@ -25,37 +25,6 @@ from openmmqmmm.utils import (
 )
 
 
-@pytest.fixture
-def isolated_package_logger():
-    """Restore package logging after tests that exercise global logger state."""
-    package_logger = logging.getLogger("openmmqmmm")
-    configured_loggers = (package_logger, logging.getLogger("geometric"))
-    original_states = {
-        configured_logger: (
-            list(configured_logger.handlers),
-            configured_logger.level,
-            configured_logger.propagate,
-            configured_logger.disabled,
-        )
-        for configured_logger in configured_loggers
-    }
-    yield package_logger
-    handlers_to_close = set()
-    for configured_logger, (original_handlers, _level, _propagate, _disabled) in original_states.items():
-        for handler in list(configured_logger.handlers):
-            configured_logger.removeHandler(handler)
-            if handler not in original_handlers:
-                handlers_to_close.add(handler)
-    for handler in handlers_to_close:
-        handler.close()
-    for configured_logger, (original_handlers, level, propagate, disabled) in original_states.items():
-        for handler in original_handlers:
-            configured_logger.addHandler(handler)
-        configured_logger.setLevel(level)
-        configured_logger.propagate = propagate
-        configured_logger.disabled = disabled
-
-
 def test_basename_strips_the_extension_not_the_directory():
     """Unlike os.path.basename this drops the suffix and keeps the path."""
     assert basename("calc.inp") == "calc"

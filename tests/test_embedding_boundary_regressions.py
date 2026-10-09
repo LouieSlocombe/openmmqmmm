@@ -3,29 +3,15 @@
 import numpy as np
 import openmm
 import pytest
+from conftest import dummy_mm
 
-from openmmqmmm import Fragment, OpenMMTheory, QMMMTheory
+from openmmqmmm import Fragment, QMMMTheory, ZeroTheory
 from openmmqmmm.coords import get_boundary_atoms
 from openmmqmmm.exceptions import InputError
 
 
-class _QM:
-    numcores = 1
-    theorytype = "QM"
-
-
 def _mm(fragment, bonds, *, periodic=False):
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
-    atoms = list(mm.topology.atoms())
-    for first, second in bonds:
-        mm.topology.addBond(atoms[first], atoms[second])
+    mm = dummy_mm(fragment, bonds=bonds)
     if periodic:
         mm.periodic = True
         mm.system.setDefaultPeriodicBoxVectors(*np.diag([3.0] * 3))
@@ -35,7 +21,7 @@ def _mm(fragment, bonds, *, periodic=False):
 def _qmmm(fragment, mm, *, qmatoms=(0,), **kwargs):
     return QMMMTheory(
         fragment=fragment,
-        qm_theory=_QM(),
+        qm_theory=ZeroTheory(),
         mm_theory=mm,
         qmatoms=qmatoms,
         qm_charge=0,

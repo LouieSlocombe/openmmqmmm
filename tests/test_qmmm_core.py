@@ -2,15 +2,15 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from conftest import _make_analytic_qmmm
+from conftest import _make_analytic_qmmm, central_difference_gradient
 
 import openmmqmmm.qmmm as qmmm_module
-from openmmqmmm import Fragment, OpenMMTheory, QMMMTheory
+from openmmqmmm import Fragment, QMMMTheory
 from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError, InternalError
 
 
-class _AnalyticQM:
+class _ConstantGradientQM:
     """Deterministic QM stand-in exposing both QM and point-charge gradients."""
 
     def __init__(self):
@@ -49,7 +49,7 @@ def _minimal_qmmm(
     )
     theory = QMMMTheory(
         fragment=fragment,
-        qm_theory=_AnalyticQM(),
+        qm_theory=_ConstantGradientQM(),
         mm_theory=mm_theory,
         qmatoms=qmatoms,
         charges=[0.25, -0.25],
@@ -94,18 +94,8 @@ def test_no_mm_qmmm_set_numcores_updates_the_wrapper_and_qm_theory():
 
 
 @pytest.fixture
-def cpu_qmmm():
-    fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [5, 0, 0]], conncalc=False)
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="CPU",
-        numcores=1,
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
-    theory, _fragment = _minimal_qmmm([0], mm_theory=mm)
+def cpu_qmmm(cpu_mm):
+    theory, _fragment = _minimal_qmmm([0], mm_theory=cpu_mm)
     return theory
 
 
@@ -145,7 +135,7 @@ def test_updating_qm_region_charges_requires_a_mechanical_mm_theory():
     with pytest.raises(InputError, match="requires mechanical embedding and an MM theory"):
         QMMMTheory(
             fragment=fragment,
-            qm_theory=_AnalyticQM(),
+            qm_theory=_ConstantGradientQM(),
             mm_theory=None,
             qmatoms=[0],
             charges=[0.0, 0.0],
@@ -187,7 +177,7 @@ def test_electrostatic_boundary_rejects_an_mm1_atom_without_mm_side_neighbours()
     with pytest.raises(InputError, match="no MM-side neighbours"):
         QMMMTheory(
             fragment=fragment,
-            qm_theory=_AnalyticQM(),
+            qm_theory=_ConstantGradientQM(),
             mm_theory=_BoundaryMM(fragment.numatoms),
             qmatoms=[0],
             charges=[0.0, 0.3],
@@ -250,7 +240,7 @@ def test_openmm_qmmm_keeps_an_independent_snapshot_of_original_charges():
 
     theory = QMMMTheory(
         fragment=fragment,
-        qm_theory=_AnalyticQM(),
+        qm_theory=_ConstantGradientQM(),
         mm_theory=mm_theory,
         qmatoms=[0],
         embedding="elstat",
@@ -264,7 +254,7 @@ def test_openmm_qmmm_keeps_an_independent_snapshot_of_original_charges():
     assert theory.charges is not mm_theory.charges
 
 
-class _PointChargeHarmonicQM(_AnalyticQM):
+class _PointChargeHarmonicQM(_ConstantGradientQM):
     """Coordinate-dependent point-charge energy with exact analytic gradients."""
 
     def run(
@@ -360,18 +350,11 @@ def _boundary_qmmm(chargeboundary_method):
 
 
 def _finite_difference_qmmm_gradient(theory, fragment, step=1.0e-5):
-    coords = fragment.coords.copy()
-    gradient_per_angstrom = np.zeros_like(coords)
-    for atom_index in range(len(coords)):
-        for axis in range(3):
-            plus = coords.copy()
-            minus = coords.copy()
-            plus[atom_index, axis] += step
-            minus[atom_index, axis] -= step
-            plus_energy = theory.run(current_coords=plus, elems=fragment.elems, grad=False, charge=0, mult=1)
-            minus_energy = theory.run(current_coords=minus, elems=fragment.elems, grad=False, charge=0, mult=1)
-            gradient_per_angstrom[atom_index, axis] = (plus_energy - minus_energy) / (2 * step)
-    return gradient_per_angstrom / ANG_TO_BOHR
+    return central_difference_gradient(
+        lambda coords: theory.run(current_coords=coords, elems=fragment.elems, grad=False, charge=0, mult=1),
+        fragment.coords,
+        step=step,
+    )
 
 
 @pytest.mark.parametrize("chargeboundary_method", ["rcd", "shift"])
@@ -410,7 +393,7 @@ def test_rcd_shifting_uses_full_indices_before_compacting_to_mm_atoms():
     assert np.allclose(pointchargecoords, [[1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [1.5, 0.0, 0.0]])
 
 
-@pytest.mark.parametrize("qmatoms", [[-1], [2], [0.0], [True], []])
+@pytest.mark.parametrize("qmatoms", [[-1], [2], [0.0], [True], [np.bool_(True)], [np.bool_(False)], []])
 def test_qmmm_rejects_invalid_qm_atom_indices(qmatoms):
     with pytest.raises(InputError, match=r"QM atom|qmatoms"):
         _minimal_qmmm(qmatoms)
@@ -447,18 +430,9 @@ def test_linkatom_projection_name_is_normalized_and_validated():
         _minimal_qmmm([0], linkatom_forceproj_method="unknown")
 
 
-class _RecordingMM:
-    def __init__(self):
-        self.numatoms = 2
-        self.updates = []
-
-    def update_charges(self, atom_indices, charges):
-        self.updates.append((list(atom_indices), list(charges)))
-
-
 def test_mechanical_embedding_logs_original_mm_region_charges_at_debug(caplog):
     with caplog.at_level("DEBUG", logger="openmmqmmm.qmmm"):
-        _minimal_qmmm([0], embedding="mech", mm_theory=_RecordingMM())
+        _minimal_qmmm([0], embedding="mech", mm_theory=_BoundaryMM(2))
 
     assert "QM atom 0 (H) charge: 0.25" in caplog.text
     assert "MM atom 1 (H) charge: -0.25" in caplog.text

@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from conftest import central_difference_gradient
 
 from openmmqmmm import Fragment, QMMMTheory, numerical_frequencies
 from openmmqmmm.constants import ANG_TO_BOHR
@@ -116,14 +117,8 @@ def test_refresh_every_call_gradients_match_full_field_and_energy_derivatives():
 
     assert energy == pytest.approx(reference_energy, abs=1e-14)
     assert gradient == pytest.approx(reference_gradient, abs=1e-14)
-    step = 1e-5
-    for atom in range(fragment.numatoms):
-        for axis in range(3):
-            plus, minus = fragment.coords.copy(), fragment.coords.copy()
-            plus[atom, axis] += step
-            minus[atom, axis] -= step
-            numeric = (theory.run(current_coords=plus) - theory.run(current_coords=minus)) / (2 * step * ANG_TO_BOHR)
-            assert gradient[atom, axis] == pytest.approx(numeric, abs=1e-9)
+    numeric = central_difference_gradient(lambda coords: theory.run(current_coords=coords), fragment.coords)
+    assert gradient == pytest.approx(numeric, abs=1e-9)
 
 
 @pytest.mark.parametrize("runmode", ["serial", "parallel"])

@@ -2,8 +2,10 @@ import ast
 import os
 
 import pytest
+from conftest import dummy_mm as _two_hydrogen_mm_theory
+from conftest import make_subregion_qmmm as _subregion_qmmm
 
-from openmmqmmm import Fragment, OpenMMTheory, ORCATheory, QMMMTheory, ZeroTheory, orca_external_optimizer
+from openmmqmmm import Fragment, ORCATheory, ZeroTheory, orca_external_optimizer
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.orca import create_orca_input_pc, create_orca_input_plain
 
@@ -154,32 +156,6 @@ def _external_optimizer_charge_mult(theory, fragment):
     with open("ORCAEXTERNAL.inp") as inp:
         xyzfile_line = next(line for line in inp if line.startswith("*xyzfile"))
     return (script_values["charge"], script_values["mult"]), tuple(xyzfile_line.split()[1:3])
-
-
-def _two_hydrogen_mm_theory(fragment):
-    return OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
-
-
-def _subregion_qmmm(**kwargs):
-    """A QM/MM theory whose QM region (atom 0) is a strict subset of the two-atom system."""
-    fragment = Fragment(elems=["H", "H"], coords=[[1.0, 0, 0], [5.0, 0, 0]], charge=0, mult=1, conncalc=False)
-    theory = QMMMTheory(
-        fragment=fragment,
-        qm_theory=ZeroTheory(),
-        mm_theory=_two_hydrogen_mm_theory(fragment),
-        qmatoms=[0],
-        embedding="elstat",
-        dipole_correction=False,
-        **kwargs,
-    )
-    return theory, fragment
 
 
 @pytest.mark.usefixtures("external_optimizer_stops_at_orca_launch")

@@ -3,44 +3,14 @@
 import numpy as np
 import openmm
 import pytest
+from conftest import central_difference, dummy_mm
+from conftest import evaluate as _evaluate
+from conftest import nonbonded_mm as _system
 from openmm import unit
 
-from openmmqmmm import Fragment, OpenMMTheory, QMMMTheory
-from openmmqmmm.constants import ANG_TO_BOHR, HARTREE_TO_KJ_PER_MOL
+from openmmqmmm import Fragment, QMMMTheory, ZeroTheory
+from openmmqmmm.constants import HARTREE_TO_KJ_PER_MOL
 from openmmqmmm.exceptions import InputError
-
-
-def _system(charges):
-    system = openmm.System()
-    nonbonded = openmm.NonbondedForce()
-    for charge in charges:
-        system.addParticle(12)
-        nonbonded.addParticle(charge, 0.3, 0.2)
-    system.addForce(nonbonded)
-    mm = OpenMMTheory.__new__(OpenMMTheory)
-    mm.system = system
-    mm.nonbonded_force = nonbonded
-    mm.charges = list(charges)
-    mm.numatoms = len(charges)
-    mm.delete_qm1_mm1_bonded = False
-    return mm, nonbonded
-
-
-def _evaluate(system, positions, derivatives=False):
-    integrator = openmm.VerletIntegrator(0.001)
-    context = openmm.Context(system, integrator, openmm.Platform.getPlatformByName("Reference"))
-    context.setPositions(positions)
-    state = context.getState(getEnergy=True, getForces=True, getParameterDerivatives=derivatives)
-    energy = state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
-    forces = state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole / unit.nanometer)
-    result = energy, forces, dict(state.getEnergyParameterDerivatives()) if derivatives else {}
-    del context, integrator
-    return result
-
-
-class _ZeroQM:
-    numcores = 1
-    theorytype = "QM"
 
 
 @pytest.mark.parametrize("embedding", ["mech", "elstat"])
@@ -52,14 +22,14 @@ def test_all_qm_exceptions_remove_base_parameters_and_every_offset(embedding):
     fragment = Fragment(elems=["C", "C"], coords=[[0, 0, 0], [4, 0, 0]], conncalc=False)
     QMMMTheory(
         fragment=fragment,
-        qm_theory=_ZeroQM(),
+        qm_theory=ZeroTheory(),
         mm_theory=mm,
         qmatoms=[0, 1],
         embedding=embedding,
         qm_charge=0,
         qm_mult=1,
     )
-    energy, forces, _ = _evaluate(mm.system, fragment.coords * 0.1)
+    energy, forces = _evaluate(mm.system, fragment.coords * 0.1)
     assert energy == pytest.approx(0, abs=1e-12)
     assert forces == pytest.approx(np.zeros((2, 3)), abs=1e-12)
     assert nb.getExceptionParameterOffset(0)[2:] == [0, 0, 0]
@@ -86,7 +56,7 @@ def test_charge_update_changes_scaled_pair_energy_and_force():
     mm, nb = _system([0.2, -0.5])
     nb.addException(0, 1, -0.05, 0.3, 0)
     mm.update_charges([0], [0.8])
-    energy, forces, _ = _evaluate(mm.system, [[0, 0, 0], [0.4, 0, 0]])
+    energy, forces = _evaluate(mm.system, [[0, 0, 0], [0.4, 0, 0]])
     expected_energy = 138.93545764438198 * -0.2 / 0.4
     assert energy == pytest.approx(expected_energy, abs=1e-10)
     assert forces[0, 0] == pytest.approx(-expected_energy / 0.4, abs=1e-9)
@@ -169,7 +139,7 @@ def test_library_global_parameter_torsion_can_be_removed():
     torsion.addTorsion(0, 1, 2, 3)
     mm.system.addForce(torsion)
     mm.modify_bonded_forces([0, 1, 2, 3])
-    energy, forces, _ = _evaluate(mm.system, [[0, 0, 0], [0.15, 0, 0], [0.2, 0.1, 0], [0.3, 0.1, 0.1]])
+    energy, forces = _evaluate(mm.system, [[0, 0, 0], [0.15, 0, 0], [0.2, 0.1, 0], [0.3, 0.1, 0.1]])
     assert energy == pytest.approx(0, abs=1e-12)
     assert forces == pytest.approx(np.zeros((4, 3)), abs=1e-12)
 
@@ -183,7 +153,7 @@ def test_periodic_dispersion_tail_is_retained_after_direct_qm_pair_exclusion():
     energies = []
     for length in (3, 4):
         mm.system.setDefaultPeriodicBoxVectors(*np.eye(3) * length)
-        energy, forces, _ = _evaluate(mm.system, [[0, 0, 0], [0.4, 0, 0]])
+        energy, forces = _evaluate(mm.system, [[0, 0, 0], [0.4, 0, 0]])
         energies.append(energy)
         assert forces == pytest.approx(np.zeros((2, 3)), abs=1e-12)
         # Homogeneous LJ tail: 8*pi*N^2*epsilon*sigma^6/(3V*rc^3)
@@ -207,7 +177,7 @@ def test_mechanical_periodic_coulomb_images_remain_after_direct_qm_pair_exclusio
     energies = []
     for length in (3, 4):
         mm.system.setDefaultPeriodicBoxVectors(*np.eye(3) * length)
-        energy, _forces, _ = _evaluate(mm.system, [[0, 0, 0], [length / 5, 0, 0]])
+        energy, _forces = _evaluate(mm.system, [[0, 0, 0], [length / 5, 0, 0]])
         energies.append(energy)
     assert abs(energies[0]) > 0.1
     # At fixed fractional positions an electrostatic lattice energy scales as 1/L.
@@ -222,13 +192,13 @@ def test_ljpme_dispersion_images_remain_after_direct_qm_pair_exclusion():
     mm.system.setDefaultPeriodicBoxVectors(*np.eye(3) * 3)
     mm.addexceptions([0, 1])
     positions = [[0, 0, 0], [0.6, 0, 0]]
-    energy, forces, _ = _evaluate(mm.system, positions)
+    energy, forces = _evaluate(mm.system, positions)
     assert energy < -1e-6
     assert np.max(np.abs(forces)) > 1e-6
     # This residual belongs to the LJ lattice, not the excluded direct pair.
     for index in range(2):
         nb.setParticleParameters(index, 0, 0.3, 0)
-    energy, forces, _ = _evaluate(mm.system, positions)
+    energy, forces = _evaluate(mm.system, positions)
     assert energy == pytest.approx(0, abs=1e-12)
     assert forces == pytest.approx(np.zeros((2, 3)), abs=1e-12)
 
@@ -239,14 +209,7 @@ def test_standalone_mm_recomputes_native_sites_and_returns_only_independent_grad
         coords=[[0.0, 0, 0], [3.0, 0, 0], [8.0, 0, 0], [99.0, 0, 0]],
         conncalc=False,
     )
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
+    mm = dummy_mm(fragment)
     mm.system.setParticleMass(3, 0)
     mm.system.setVirtualSite(3, openmm.TwoParticleAverageSite(0, 1, 0.25, 0.75))
     mm.update_charges([0, 1, 2, 3], [0, 0, -1, 0.5])
@@ -255,8 +218,5 @@ def test_standalone_mm_recomputes_native_sites_and_returns_only_independent_grad
     expected = 138.93545764438198 * -0.5 / ((8 - 2.25) * 0.1)
     assert energy * HARTREE_TO_KJ_PER_MOL == pytest.approx(expected, abs=1e-10)
     for atom in range(4):
-        plus, minus = fragment.coords.copy(), fragment.coords.copy()
-        plus[atom, 0] += 1e-5
-        minus[atom, 0] -= 1e-5
-        difference = (mm.run(current_coords=plus) - mm.run(current_coords=minus)) / (2e-5 * ANG_TO_BOHR)
+        difference = central_difference(lambda coords: mm.run(current_coords=coords), fragment.coords, atom, 0)
         assert gradient[atom, 0] == pytest.approx(difference, abs=1e-10)

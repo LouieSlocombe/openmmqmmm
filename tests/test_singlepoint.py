@@ -3,8 +3,6 @@ import pytest
 
 from openmmqmmm import (
     Fragment,
-    OpenMMTheory,
-    QMMMTheory,
     Reaction,
     ZeroTheory,
     reaction_energy,
@@ -26,27 +24,9 @@ def hydrogen_fluoride():
 
 def _dummy_qmmm(**kwargs):
     """A cheap real QM/MM object: two well-separated H atoms, QM region is atom 0."""
-    fragment = Fragment(elems=["H", "H"], coords=[[1.0, 0, 0], [5.0, 0, 0]], charge=0, mult=1, conncalc=False)
-    mm_theory = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
-    qmmm = QMMMTheory(
-        fragment=fragment,
-        qm_theory=ZeroTheory(),
-        mm_theory=mm_theory,
-        qmatoms=[0],
-        embedding="elstat",
-        qm_charge=0,
-        qm_mult=1,
-        dipole_correction=False,
-        **kwargs,
-    )
-    return qmmm, fragment
+    from conftest import make_subregion_qmmm
+
+    return make_subregion_qmmm(qm_charge=0, qm_mult=1, **kwargs)
 
 
 def _labelled_fragments(count=3):

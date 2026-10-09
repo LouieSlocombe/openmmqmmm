@@ -5,11 +5,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import ORCA_PROBE_OUTPUT, dummy_mm, requires_orca
 
-from openmmqmmm import Fragment, OpenMMTheory, ORCATheory, QMMMTheory
+from openmmqmmm import Fragment, ORCATheory, QMMMTheory
 from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError
-from openmmqmmm.orca import find_orca
 
 
 class _PopulationQM:
@@ -52,18 +52,7 @@ def _qmmm(qm, *, water=False, capped=False):
         elems = ["C", "C", "C"]
         qmatoms = [0]
     fragment = Fragment(elems=elems, coords=coords, conncalc=False)
-    mm = OpenMMTheory(
-        fragment=fragment,
-        dummysystem=True,
-        platform="Reference",
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-    )
-    if capped:
-        atoms = list(mm.topology.atoms())
-        mm.topology.addBond(atoms[0], atoms[1])
-        mm.topology.addBond(atoms[1], atoms[2])
+    mm = dummy_mm(fragment, bonds=[(0, 1), (1, 2)] if capped else ())
     mm.update_charges(list(range(len(coords))), [0.0] * (len(coords) - 1) + [0.5])
     theory = QMMMTheory(
         fragment=fragment,
@@ -147,7 +136,7 @@ def test_orca_population_updates_work_without_population_logging(fake_orca_dir, 
     (fake_orca_dir / "orca").write_text(
         "#!/bin/sh\n"
         'if [ "$#" -eq 0 ]; then\n'
-        "  echo 'This program requires the name of a parameterfile'\n"
+        f"  echo {shlex.quote(ORCA_PROBE_OUTPUT)}\n"
         "  exit 2\n"
         "fi\n"
         f"cat {shlex.quote(str(output))}\n"
@@ -175,7 +164,7 @@ def test_orca_accessor_rejects_missing_population_table(tmp_path):
         qm.get_atomic_charges()
 
 
-@pytest.mark.skipif(find_orca(required=False) is None, reason="No working ORCA installation found")
+@requires_orca
 def test_real_orca_energy_only_population_update():
     qm = ORCATheory(orcasimpleinput="! HF STO-3G TightSCF", print_population_analysis=False)
     theory, fragment = _qmmm(qm)
