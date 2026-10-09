@@ -88,17 +88,25 @@ print(result.thermochemistry)
 `hessatoms=` restricts the Hessian to a subset of atoms — mandatory for QM/MM, where a full
 Hessian is out of reach. `npoint=2` is a central difference (`1` is forward),
 `displacement=0.005` is the step in Angstrom, and `runmode="parallel"` with `numcores` spreads
-the displacements over workers.
+the displacements over workers. This 0.005 Å default is larger than the
+{class}`~openmmqmmm.NumGrad` default of 0.005 Bohr (about 0.002646 Å); both APIs accept
+explicit `displacement` values in Å.
 
 Thermochemistry comes back in the same `Results`: ZPE, enthalpy, entropy and Gibbs energy at
 `temp` and `pressure`, with Grimme's quasi-RRHO treatment on by default (`qrrho=False` turns
 it off). `IR=True` gives intensities, `Raman=True` activities, and `scaling_factor` applies a
-uniform frequency scaling.
+uniform frequency scaling. `rotmode_threshold` is measured in amu·Å². Projection and
+mode padding use the Hessian geometry and its supplied masses, including a forced
+projection of a partial Hessian.
 
 {func}`~openmmqmmm.analytic_frequencies` uses a theory's analytic Hessian where it has one.
 {func}`~openmmqmmm.read_hessian` and {func}`~openmmqmmm.write_hessian` move a Hessian between
 runs, and {func}`~openmmqmmm.approximate_full_hessian_from_smaller` extends a partial Hessian
-to the full system.
+to the full system. Its `rest_hessian="zero"` and `"unit"` choices work without ORCA.
+The ORCA model choices (`Almloef`, `Lindh`, `Schlegel`, `Swart`) currently cannot read
+ORCA 6 binary `.opt` files and raise an explanatory error. Repairing that binary-file
+interface is deferred under issue #68; use `"zero"`, `"unit"`, or an explicitly
+computed Hessian in the meantime.
 
 ## Running many jobs at once
 
