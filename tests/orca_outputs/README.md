@@ -106,3 +106,18 @@ fragment = Fragment(
 )
 orca_external_optimizer(fragment=fragment, theory=ZeroTheory())
 ```
+
+## Property-parser fixtures (2026-10-09)
+
+Three more ORCA 6.1.1 runs on the water geometry above, each well under a second,
+read by `test_orca_parsers_extra.py` and `test_orca_theory_run.py`:
+
+| Run | Input | Output | Exercises |
+| --- | --- | --- | --- |
+| HF/def2-SVP static polarizability (`%elprop Polar 1 end`) | `h2o_polar.inp` | `h2o_polar.out` | raw and diagonalized polarizability tensor parser |
+| `! FOD` (TPSS/def2-TZVP, Fermi smearing at 5000 K) | `h2o_fod.inp` | `h2o_fod.out` | fractional SCF occupation parser behind the NMF option |
+| HF/def2-SVP ICE-CI (`%ice nel 8 norb 6 end`) | `h2o_ice.inp` | `h2o_ice.out` | `'rest' energy` and configuration-count parsers |
+
+Regenerate with `orca h2o_polar.inp > h2o_polar.out` (likewise `h2o_fod`, `h2o_ice`) and trim
+to the `INPUT FILE` banner as described above. The ICE run also leaves `h2o_ice.cipsi.*`
+scratch files behind; only the `.inp` and `.out` are kept.
