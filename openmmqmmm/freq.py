@@ -1403,8 +1403,8 @@ def _tr_mode_count(coords: np.ndarray, masses: Sequence[float], threshold: float
 
 
 def inertia(elems: Sequence[str], coords: np.ndarray, center: Sequence[float]) -> np.ndarray:
-    # Preserve this public helper's unsorted principal moments.
-    return np.linalg.eigvals(_inertia_tensor(coords, openmmqmmm.coords.list_of_masses(elems), center))
+    """Return real principal moments in amu Å² in ascending order."""
+    return np.linalg.eigvalsh(_inertia_tensor(coords, openmmqmmm.coords.list_of_masses(elems), center))
 
 
 def calc_rotational_constants(frag: Fragment) -> list[float]:

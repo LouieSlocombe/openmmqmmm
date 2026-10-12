@@ -1799,7 +1799,6 @@ def flexible_align(
             reorder_brute,
             reorder_distance,
             reorder_hungarian,
-            reorder_inertia_hungarian,
             reorder_similarity,
         )
 
@@ -1810,7 +1809,7 @@ def flexible_align(
         reorder_methods_dict = {
             "brute": reorder_brute,
             "hungarian": reorder_hungarian,
-            "inertia_hungarian": reorder_inertia_hungarian,
+            "inertia_hungarian": _reorder_inertia_hungarian,
             "similarity": reorder_similarity,
             "distance": reorder_distance,
         }
@@ -1878,6 +1877,30 @@ def calculate_rmsd(
         newfrag.write_xyzfile("structA_aligned.xyz")
 
     return rmsdval
+
+
+def _reorder_inertia_hungarian(
+    p_atoms: np.ndarray, q_atoms: np.ndarray, p_coord: np.ndarray, q_coord: np.ndarray
+) -> np.ndarray:
+    """Match atoms after aligning the two possible principal-axis directions."""
+    from rmsd import get_inertia_tensor, kabsch_rmsd, reorder_hungarian, rotation_matrix_vectors
+
+    # rmsd's general eig solver returns complex arrays with NumPy >= 2.5.
+    # Inertia tensors are real symmetric; eigh keeps the axes real and returns
+    # eigenvectors in columns, ordered by increasing moment of inertia.
+    _, p_axes = np.linalg.eigh(get_inertia_tensor(p_atoms, p_coord))
+    _, q_axes = np.linalg.eigh(get_inertia_tensor(q_atoms, q_coord))
+    p_axis, q_axis = p_axes[:, -1], q_axes[:, -1]
+
+    candidates = []
+    scores = []
+    for sign in (1, -1):
+        rotation = rotation_matrix_vectors(p_axis, sign * q_axis)
+        rotated = q_coord @ rotation
+        order = reorder_hungarian(p_atoms, q_atoms, p_coord, rotated)
+        candidates.append(order)
+        scores.append(kabsch_rmsd(p_coord, rotated[order]))
+    return candidates[int(np.argmin(scores))]
 
 
 def _reorder(

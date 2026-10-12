@@ -9,6 +9,7 @@ import pytest
 import openmmqmmm.freq
 from openmmqmmm import Fragment, ZeroTheory, analytic_frequencies, constants, numerical_frequencies
 from openmmqmmm.constants import ANG_TO_BOHR
+from openmmqmmm.coords import list_of_masses
 from openmmqmmm.exceptions import InputError, InternalError
 from openmmqmmm.freq import (
     _assemble_hessian,
@@ -16,6 +17,7 @@ from openmmqmmm.freq import (
     calc_rotational_constants,
     calc_thermochemistry,
     detect_linear,
+    inertia,
     read_hessian,
     s_vib_qrrho_grimme,
     s_vib_qrrho_truhlar,
@@ -154,6 +156,19 @@ def test_electronic_entropy_follows_multiplicity(water):
     assert singlet["TS_el"] == 0.0, "A non-degenerate state has no electronic entropy"
     assert triplet["TS_el"] > 0.0
     assert triplet["TS_el"] / singlet["Hcorr"] < 1.0  # sanity: a small correction, not a dominant term
+
+
+def test_principal_moments_are_real_and_match_a_rotated_symmetric_geometry():
+    coords = np.array([[1, 0, 0], [-1, 0, 0], [0, 2, 0], [0, -2, 0], [0, 0, 3], [0, 0, -3]])
+    rotation = np.array([[1, 2, 2], [2, 1, -2], [-2, 2, -1]]) / 3
+    center = np.array([2, -1, 0.5])
+
+    moments = inertia(["H"] * 6, coords @ rotation + center, center)
+
+    assert np.isrealobj(moments)
+    hydrogen_mass = list_of_masses(["H"])[0]
+    # The unrotated tensor is diagonal: each opposing pair contributes 2*m*r².
+    assert moments == pytest.approx(hydrogen_mass * np.array([10, 20, 26]))
 
 
 def test_rotational_constants_of_water(water):

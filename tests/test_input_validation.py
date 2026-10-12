@@ -1,6 +1,7 @@
 """Guard branches of the small modules: results serialization, NumGrad, utils, ASE, virtual sites, PLUMED."""
 
 import logging
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,7 +15,7 @@ from test_ase_calculator import StubQMMMTheory
 
 from openmmqmmm import Fragment, NumGrad, OpenMMQMMMCalculator, Results, ZeroTheory, openmm_md_plumed
 from openmmqmmm.coords_pbc import align_to_standard_orientation, cell_vectors_to_params, write_cif_file
-from openmmqmmm.exceptions import FileFormatError, InputError
+from openmmqmmm.exceptions import FileFormatError, InputError, MissingDependencyError
 from openmmqmmm.openmm.nqe_export import modeller_from_topology
 from openmmqmmm.results import read_results_from_file
 from openmmqmmm.utils import pygrep2, read_intlist_from_file
@@ -153,10 +154,24 @@ def test_modeller_from_topology_rejects_non_finite_coordinates():
         modeller_from_topology(topology=topology, coords_angstrom=[[np.nan, 0, 0]])
 
 
-def test_plumed_driver_requires_an_input_string():
+@pytest.mark.parametrize("plugin", [None, SimpleNamespace()], ids=["missing-plugin", "available-plugin"])
+def test_plumed_driver_requires_an_input_string(monkeypatch, plugin):
+    monkeypatch.setitem(sys.modules, "openmmplumed", plugin)
     fragment = Fragment(elems=["He"], coords=[[0, 0, 0]], conncalc=False)
     with pytest.raises(InputError, match="plumed_input_string is required"):
         openmm_md_plumed(fragment=fragment, theory=dummy_mm(fragment), simulation_steps=1)
+
+
+def test_plumed_driver_requires_the_plugin_for_valid_input(monkeypatch):
+    monkeypatch.setitem(sys.modules, "openmmplumed", None)
+    fragment = Fragment(elems=["He"], coords=[[0, 0, 0]], conncalc=False)
+    with pytest.raises(MissingDependencyError, match="openmmplumed"):
+        openmm_md_plumed(
+            fragment=fragment,
+            theory=dummy_mm(fragment),
+            simulation_steps=1,
+            plumed_input_string="p: POSITION ATOM=1\n",
+        )
 
 
 def test_cif_writer_derives_cell_parameters_from_vectors_and_needs_a_cell():

@@ -32,6 +32,9 @@ def openmm_md_plumed(
     """
     engine_kwargs = engine_kwargs_checked(md_options, restraints=restraints)
 
+    if plumed_input_string is None:
+        raise InputError("plumed_input_string is required: it defines the PLUMED bias to apply.")
+
     logger.info(main_header("OpenMM MD using the OpenMM-Plumed interface"))
 
     require(
@@ -47,8 +50,6 @@ def openmm_md_plumed(
         ),
     )
 
-    if plumed_input_string is None:
-        raise InputError("plumed_input_string is required: it defines the PLUMED bias to apply.")
     md = MolecularDynamicsEngine(**engine_kwargs)
     try:
         logger.debug("Setting up Plumed")

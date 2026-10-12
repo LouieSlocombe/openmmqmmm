@@ -86,6 +86,54 @@ def test_flexible_align_reordering_matches_a_permuted_target(reorder_method):
     assert aligned.coords == pytest.approx(target, abs=1e-9)
 
 
+@pytest.mark.parametrize("degrees", [0.0, 60.0])
+@pytest.mark.parametrize("complex_eigenvectors", [False, True])
+def test_inertia_reordering_matches_repeated_elements(monkeypatch, degrees, complex_eigenvectors):
+    if complex_eigenvectors:
+        original_eig = np.linalg.eig
+
+        def complex_eig(matrix):
+            # Reproduce NumPy 2.5's return dtype on older supported versions.
+            values, vectors = original_eig(matrix)
+            return values.astype(complex), vectors.astype(complex)
+
+        monkeypatch.setattr(np.linalg, "eig", complex_eig)
+
+    elems = ["C", "H", "H", "H", "C"]
+    target = COORDS @ _rotation(degrees).T + TRANSLATION
+    fragment_a = Fragment(coords=COORDS.copy(), elems=elems)
+    fragment_b = Fragment(coords=target[PERMUTATION].copy(), elems=[elems[i] for i in PERMUTATION])
+
+    aligned = flexible_align(fragment_a, fragment_b, reordering=True, reorder_method="inertia_hungarian")
+
+    assert aligned.elems == elems
+    assert np.isrealobj(aligned.coords)
+    assert aligned.coords == pytest.approx(target, abs=1e-9)
+    assert fragment_a.coords == pytest.approx(COORDS)
+    assert fragment_b.coords == pytest.approx(target[PERMUTATION])
+
+
+@pytest.mark.parametrize(
+    ("elems", "coords"),
+    [
+        (["He"], [[0.0, 0.0, 0.0]]),
+        (["O", "C", "O"], [[-1.2, 0.0, 0.0], [0.0, 0.0, 0.0], [1.2, 0.0, 0.0]]),
+    ],
+)
+def test_inertia_reordering_handles_degenerate_moments(elems, coords):
+    coords = np.asarray(coords)
+    target = coords @ _rotation(37.0).T + TRANSLATION
+    fragment_a = Fragment(coords=coords, elems=elems)
+    fragment_b = Fragment(coords=target[::-1].copy(), elems=elems[::-1])
+
+    aligned = flexible_align(fragment_a, fragment_b, reordering=True, reorder_method="inertia_hungarian")
+
+    assert np.isrealobj(aligned.coords)
+    assert np.all(np.isfinite(aligned.coords))
+    distances = np.linalg.norm(aligned.coords[:, None, :] - target[None, :, :], axis=2)
+    assert distances.min(axis=1) == pytest.approx(np.zeros(len(elems)), abs=1e-9)
+
+
 def test_reorder_returns_the_permutation_that_restores_the_reference_order():
     p_coord = COORDS.copy()
     q_coord = _moved(rotate=False)[PERMUTATION]
