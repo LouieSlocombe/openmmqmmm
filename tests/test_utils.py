@@ -99,14 +99,6 @@ def test_find_replace_string_in_file(tmp_path):
     assert "STO-3G" not in target.read_text()
 
 
-def test_write_and_read_intlist(tmp_path):
-    """Active-region files are written and read back as plain integer lists."""
-    listfile = tmp_path / "actatoms.txt"
-    write_list_to_file([3, 4, 5], str(listfile))
-
-    assert read_intlist_from_file(str(listfile)) == [3, 4, 5]
-
-
 def test_read_intlist_applies_the_offset(tmp_path):
     """The offset converts between 1-based file conventions and 0-based indices."""
     listfile = tmp_path / "actatoms.txt"

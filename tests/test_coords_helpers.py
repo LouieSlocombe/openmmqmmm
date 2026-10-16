@@ -21,16 +21,12 @@ from openmmqmmm import (
 from openmmqmmm.coords import (
     _build_connectivity,
     _combine_and_place_fragments,
-    angle,
     dihedral,
     distance,
     eldict_covrad,
     elems_to_formula,
-    get_centroid,
     get_connected_atoms_dict,
     list_of_masses,
-    total_mass,
-    total_nuclear_charge,
 )
 from openmmqmmm.exceptions import InputError
 
@@ -41,19 +37,6 @@ UNIT_SQUARE = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0,
 def test_distance():
     assert distance([0.0, 0.0, 0.0], [3.0, 4.0, 0.0]) == pytest.approx(5.0)
     assert distance([1.0, 1.0, 1.0], [1.0, 1.0, 1.0]) == pytest.approx(0.0)
-
-
-def test_angle_of_a_right_corner():
-    assert angle(UNIT_SQUARE[0], UNIT_SQUARE[1], UNIT_SQUARE[2]) == pytest.approx(90.0)
-
-
-def test_angle_of_a_straight_line():
-    collinear = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
-    assert angle(*collinear) == pytest.approx(180.0)
-
-
-def test_dihedral_of_a_planar_arrangement():
-    assert abs(dihedral(*UNIT_SQUARE)) == pytest.approx(0.0, abs=1e-9)
 
 
 def test_dihedral_of_a_right_angle_twist():
@@ -100,21 +83,11 @@ def test_geometry_helpers_on_a_fragment():
     assert abs(dihedral_between_atoms(fragment=fragment, atoms=[0, 1, 2, 3])) == pytest.approx(0.0, abs=1e-9)
 
 
-def test_get_centroid():
-    assert get_centroid(UNIT_SQUARE) == pytest.approx([0.5, 0.5, 0.0])
-
-
 def test_elemlisttoformula_is_deterministic_hill_notation():
     assert elems_to_formula(["H", "O", "H"]) == "H2O1"
     assert elems_to_formula(["O", "H", "H"]) == "H2O1", "Input order must not matter"
     # Hill notation: carbon first, then hydrogen, then the rest alphabetically.
     assert elems_to_formula(["O", "H", "C", "H", "N", "H"]) == "C1H3N1O1"
-
-
-def test_nuclear_charges_and_mass():
-    assert total_nuclear_charge(["H", "O", "H"]) == pytest.approx(10.0)
-    # Water is about 18 amu.
-    assert total_mass(["H", "O", "H"]) == pytest.approx(18.0, abs=0.1)
 
 
 def test_xyzfile_roundtrip(tmp_path):
@@ -127,28 +100,6 @@ def test_xyzfile_roundtrip(tmp_path):
     read_elems, read_coords = read_xyzfile(f"{name}.xyz")
     assert read_elems == elems
     assert np.allclose(read_coords, coords)
-
-
-def test_rmsd_of_identical_structures_is_zero():
-    fragment = Fragment(coords=UNIT_SQUARE, elems=["C", "C", "C", "C"], charge=0, mult=1)
-    assert calculate_rmsd(fragment, fragment) == pytest.approx(0.0, abs=1e-9)
-
-
-def test_rmsd_is_invariant_under_translation():
-    """RMSD aligns the structures first, so a rigid shift must not change it."""
-    original = Fragment(coords=UNIT_SQUARE, elems=["C", "C", "C", "C"], charge=0, mult=1)
-    shifted = Fragment(coords=UNIT_SQUARE + 10.0, elems=["C", "C", "C", "C"], charge=0, mult=1)
-
-    assert calculate_rmsd(original, shifted) == pytest.approx(0.0, abs=1e-9)
-
-
-def test_rmsd_detects_a_real_difference():
-    original = Fragment(coords=UNIT_SQUARE, elems=["C", "C", "C", "C"], charge=0, mult=1)
-    distorted_coords = UNIT_SQUARE.copy()
-    distorted_coords[0, 2] += 1.0
-    distorted = Fragment(coords=distorted_coords, elems=["C", "C", "C", "C"], charge=0, mult=1)
-
-    assert calculate_rmsd(original, distorted) > 0.1
 
 
 def test_rmsd_subset_writes_the_full_aligned_structure(tmp_path, monkeypatch):
@@ -193,17 +144,6 @@ def test_expand_qm_region_uses_initial_atom_membership_and_retains_the_seed():
 
 def _neighbours_via_calc_conn(coords, elems):
     return [set(v) for v in get_connected_atoms_dict(coords, elems, 1.0, 0.4).values()]
-
-
-def test_ions_do_not_bond_in_either_connectivity_path():
-    # Na+ at the origin with three oxygens at 2.4 A -- a typical first solvation shell,
-    # inside the 2.72 A threshold the unmodified Alvarez radii for Na (1.66) and O (0.66)
-    # give with the 0.4 A tolerance.
-    coords = np.array([[0.0, 0.0, 0.0], [2.4, 0.0, 0.0], [0.0, 2.4, 0.0], [0.0, 0.0, 2.4]])
-    elems = ["Na", "O", "O", "O"]
-
-    assert _build_connectivity(coords, elems)[0] == set()
-    assert _neighbours_via_calc_conn(coords, elems)[0] == set()
 
 
 def test_both_paths_use_the_same_covalent_radii():

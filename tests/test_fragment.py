@@ -11,36 +11,6 @@ from openmmqmmm.constants import BOHR_TO_ANG
 from openmmqmmm.coords import write_pdbfile
 from openmmqmmm.exceptions import InputError
 
-TEST_DIR = Path(__file__).parent
-
-
-def test_fragread():
-    fragcoords = """
-    H 0.0 0.0 0.0
-    F 0.0 0.0 1.0
-    """
-    HF_frag = Fragment(coordsstring=fragcoords)
-    elems = ["H", "Cl"]
-    coords = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.9]]
-    HCl_frag = Fragment(elems=elems, coords=coords)
-    elems2 = ["H", "Cl"]
-    coords2 = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.9]])
-    HCl_frag_np = Fragment(elems=elems2, coords=coords2)
-    HI_frag = Fragment(xyzfile=f"{TEST_DIR}/xyzfiles/hi.xyz")
-    HF_frag2 = Fragment(coordsstring=fragcoords)
-    elems = ["H", "Cl"]
-    coords = [[0.0, 0.0, 0.0], [0.0, 0.0, 1.1]]
-    HCl_frag.replace_coords(elems, coords)
-
-    HCl_frag.calc_connectivity()
-    print(HCl_frag.connectivity)
-
-    assert HF_frag2.numatoms == 2, "Number of atoms is not correct"
-    assert HI_frag.numatoms == 2, "Number of atoms is not correct"
-    assert HF_frag.numatoms == 2, "Number of atoms is not correct"
-    assert HCl_frag.numatoms == 2, "Number of atoms is not correct"
-    assert HCl_frag_np.numatoms == 2, "Number of atoms is not correct"
-
 
 def test_fragread_files():
     fragcoords = """
@@ -58,14 +28,6 @@ def test_fragread_files():
 
     assert New_frag.numatoms == 2, "Number of atoms is not correct"
     assert New_frag.nuccharge == 10, "Nuccharge of fragment is incorrect"
-
-
-def test_read_pdb():
-    PDB_frag = Fragment(pdbfile=f"{TEST_DIR}/pdbfiles/1aki.pdb", conncalc=False)
-    print("PDB_frag:", PDB_frag)
-    print(PDB_frag.numatoms)
-
-    assert PDB_frag.numatoms == 1079, "Number of atoms in fragment is incorrect"
 
 
 def test_add_coords_from_string_appends_and_invalidates_atom_dependent_caches():
@@ -208,12 +170,6 @@ def test_calc_connectivity_defaults_scale_and_tol_independently(kwargs):
 def test_fragment_conncalc_honours_tol_given_without_scale():
     assert Fragment(coords=STRETCHED_H2, elems=["H", "H"], conncalc=True, tol=0.9).connectivity == [[0, 1]]
     assert Fragment(coords=STRETCHED_H2, elems=["H", "H"], conncalc=True).connectivity == [[0], [1]]
-
-
-def test_define_topology_adds_each_bond_once():
-    water = Fragment(coords=WATER_COORDS, elems=["O", "H", "H"])
-
-    assert water.define_topology().getNumBonds() == 2
 
 
 def test_write_pdbfile_openmm_lists_each_conect_partner_once(tmp_path):

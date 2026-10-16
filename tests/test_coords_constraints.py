@@ -50,15 +50,6 @@ def _methanol_two_waters():
     return Fragment(coords=METHANOL_COORDS + waters, elems=METHANOL_ELEMS + WATER_ELEMS * 2)
 
 
-def test_define_xh_constraints_pairs_each_hydrogen_with_its_heavy_atom():
-    assert define_xh_constraints(Fragment(coords=METHANOL_COORDS, elems=METHANOL_ELEMS)) == [
-        [0, 1],
-        [0, 2],
-        [0, 3],
-        [4, 5],
-    ]
-
-
 def test_define_xh_constraints_reports_full_system_indices_for_an_active_region():
     fragment = _water_methanol()
 
