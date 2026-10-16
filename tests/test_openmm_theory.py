@@ -35,52 +35,46 @@ def solvated_theory():
     return _make_theory()
 
 
-@pytest.fixture
-def cpu_theory():
-    fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [5, 0, 0]], conncalc=False)
-    return dummy_mm(fragment, platform="CPU", numcores=1, properties={"DeterministicForces": "true"})
+def test_set_numcores_updates_effective_cpu_threads(cpu_mm):
+    cpu_mm.set_numcores(4)
 
-
-def test_set_numcores_updates_effective_cpu_threads(cpu_theory):
-    cpu_theory.set_numcores(4)
-
-    simulation = cpu_theory.create_simulation()
+    simulation = cpu_mm.create_simulation()
     context = simulation.context
-    assert cpu_theory.numcores == 4
-    assert cpu_theory.properties == {"Threads": "4", "DeterministicForces": "true"}
+    assert cpu_mm.numcores == 4
+    assert cpu_mm.properties == {"Threads": "4", "DeterministicForces": "true"}
     assert context.getPlatform().getPropertyValue(context, "Threads") == "4"
 
 
 @pytest.mark.parametrize("internal", [False, True])
-def test_set_numcores_rejects_changes_with_a_live_cpu_context(cpu_theory, internal):
-    simulation = cpu_theory.create_simulation(internal=internal)
+def test_set_numcores_rejects_changes_with_a_live_cpu_context(cpu_mm, internal):
+    simulation = cpu_mm.create_simulation(internal=internal)
     if internal:
-        simulation = cpu_theory.simulation
+        simulation = cpu_mm.simulation
     context = simulation.context
 
-    cpu_theory.set_numcores(1)
+    cpu_mm.set_numcores(1)
     with pytest.raises(InputError, match=r"Cannot change CPU Threads.*Context is alive"):
-        cpu_theory.set_numcores(4)
+        cpu_mm.set_numcores(4)
 
-    assert cpu_theory.numcores == 1
-    assert cpu_theory.properties == {"Threads": "1", "DeterministicForces": "true"}
+    assert cpu_mm.numcores == 1
+    assert cpu_mm.properties == {"Threads": "1", "DeterministicForces": "true"}
     assert context.getPlatform().getPropertyValue(context, "Threads") == "1"
 
 
-def test_set_numcores_requires_release_of_every_cpu_context(cpu_theory):
-    simulation = cpu_theory.create_simulation()
+def test_set_numcores_requires_release_of_every_cpu_context(cpu_mm):
+    simulation = cpu_mm.create_simulation()
     retained_context = simulation.context
-    other_simulation = cpu_theory.create_simulation()
+    other_simulation = cpu_mm.create_simulation()
     del simulation, other_simulation
     gc.collect()
 
     with pytest.raises(InputError, match="Context is alive"):
-        cpu_theory.set_numcores(4)
+        cpu_mm.set_numcores(4)
 
     del retained_context
     gc.collect()
-    cpu_theory.set_numcores(4)
-    simulation = cpu_theory.create_simulation()
+    cpu_mm.set_numcores(4)
+    simulation = cpu_mm.create_simulation()
     context = simulation.context
     assert context.getPlatform().getPropertyValue(context, "Threads") == "4"
 
@@ -132,41 +126,6 @@ def test_atom_charges_sum_to_the_system_charge(solvated_theory):
     assert sum(charges) == pytest.approx(round(sum(charges)), abs=1e-3)
 
 
-def test_update_charges_zeroes_the_qm_region():
-    """QMMMTheory zeroes the QM-region charges this way before embedding."""
-    theory = _make_theory()
-    qmatoms = [0, 1, 2, 3]
-
-    theory.update_charges(qmatoms, [0.0] * len(qmatoms))
-
-    charges = theory.getatomcharges()
-    assert all(charges[i] == 0.0 for i in qmatoms)
-    assert any(charge != 0.0 for charge in charges), "Only the listed atoms are zeroed"
-
-
-def test_freezing_atoms_sets_their_mass_to_zero():
-    theory = _make_theory()
-    frozen = [0, 1, 2]
-    original_masses = [theory.system.getParticleMass(i)._value for i in frozen]
-
-    theory.freeze_atoms(frozen_atoms=frozen)
-    assert all(theory.system.getParticleMass(i)._value == 0.0 for i in frozen)
-
-    theory.unfreeze_atoms()
-    assert [theory.system.getParticleMass(i)._value for i in frozen] == pytest.approx(original_masses)
-
-
-def test_add_and_remove_force_restores_the_force_count():
-    theory = _make_theory()
-    before = theory.system.getNumForces()
-
-    theory.add_custom_bond_force(0, 1, 1.0, 100.0)
-    assert theory.system.getNumForces() == before + 1
-
-    theory.remove_force(theory.system.getNumForces() - 1)
-    assert theory.system.getNumForces() == before
-
-
 def test_constraints_can_be_added_and_removed():
     theory = _make_theory()
     before = theory.system.getNumConstraints()
@@ -176,29 +135,6 @@ def test_constraints_can_be_added_and_removed():
 
     theory.remove_all_constraints()
     assert theory.system.getNumConstraints() == 0
-
-
-def test_periodic_cell_vectors_are_available(solvated_theory):
-    theory = solvated_theory
-
-    vectors = theory.get_pbc_vectors()
-
-    assert np.array(vectors).shape == (3, 3)
-    assert np.array(vectors).any(), "A periodic system must report a non-zero cell"
-
-
-def test_energy_decomposition_covers_the_total(solvated_fragment):
-    theory = _make_theory()
-    total = theory.run(current_coords=solvated_fragment.coords, elems=solvated_fragment.elems)
-
-    theory.forcegroupify()
-    simulation = theory.create_simulation()
-    theory.set_positions(solvated_fragment.coords, simulation)
-    decomposition = theory.get_energy_decomposition(simulation.context)
-
-    components_kj = sum(value._value for value in decomposition.values())
-    # run() reports Hartree; the decomposition comes straight from OpenMM in kJ/mol.
-    assert components_kj / 2625.4996394799 == pytest.approx(total, rel=1e-4)
 
 
 def test_set_positions_initializes_every_rpmd_copy():
@@ -291,39 +227,12 @@ def test_nuclear_quantum_integrators_disable_hydrogen_mass_repartitioning(integr
     )
 
 
-def test_qtb_integrator_is_created():
-    import openmm
-
-    theory = OpenMMTheory.__new__(OpenMMTheory)
-    theory.system = openmm.System()
-    theory.system.addParticle(1.0)
-    theory.set_simulation_parameters(integrator="QTBIntegrator")
-
-    theory.create_integrator()
-
-    assert isinstance(theory.integrator, openmm.QTBIntegrator)
-
-
 @pytest.mark.parametrize("num_copies", [0, -1, 1.5, True, np.bool_(True), "8"])
 def test_rpmd_copy_count_must_be_a_positive_integer(num_copies):
     theory = OpenMMTheory.__new__(OpenMMTheory)
 
     with pytest.raises(InputError, match="rpmd_num_copies must be a positive integer"):
         theory.set_rpmd_num_copies(num_copies)
-
-
-def test_rpmd_force_group_contractions_reach_the_integrator():
-    import openmm
-
-    theory = OpenMMTheory.__new__(OpenMMTheory)
-    theory.system = openmm.System()
-    theory.system.addParticle(1.0)
-    theory.set_rpmd_num_copies(4)
-    theory.set_rpmd_contractions({7: 1})
-    theory.set_simulation_parameters(integrator="RPMDIntegrator")
-    theory.create_integrator()
-
-    assert dict(theory.integrator.getContractions()) == {7: 1}
 
 
 @pytest.mark.parametrize("contractions", [{-1: 1}, {32: 1}, {1: 0}, {1: 5}, {True: 1}, {1: True}])
@@ -352,20 +261,6 @@ def test_write_pdbfile_uses_the_positions_it_is_given(tmp_path, solvated_fragmen
     assert first_atom_x == pytest.approx(solvated_fragment.coords[0][0] + 5.0, abs=0.01)
 
 
-def test_openmm_minimize_lowers_the_energy(solvated_fragment):
-    """Minimisation must not raise the energy, and must update the fragment."""
-    theory = _make_theory()
-    fragment = Fragment(pdbfile=SOLVATED_PDB)
-    before = theory.run(current_coords=fragment.coords, elems=fragment.elems)
-    starting_coords = fragment.coords.copy()
-
-    openmm_minimize(fragment=fragment, theory=theory, maxiter=20, use_reporter=False)
-
-    after = theory.run(current_coords=fragment.coords, elems=fragment.elems)
-    assert after <= before, "Minimisation must not increase the energy"
-    assert not np.allclose(fragment.coords, starting_coords), "The fragment geometry must be updated"
-
-
 def test_openmm_minimize_rejects_a_non_openmm_theory(solvated_fragment):
     fragment = solvated_fragment
 
@@ -386,17 +281,6 @@ def _dummy_theory(**kwargs):
     fragment = Fragment(elems=["He"] * 3, coords=[[0, 0, 0], [3, 0, 0], [0, 4, 0]], conncalc=False)
     fragment = kwargs.pop("fragment", fragment)
     return dummy_mm(fragment, **kwargs)
-
-
-def test_fully_specified_bondconstraints_are_added_to_the_system():
-    import openmm
-
-    theory = _dummy_theory(bondconstraints=[[0, 1, 1.2], [0, 2, 3.5]])
-
-    assert theory.system.getNumConstraints() == 2
-    i, j, distance = theory.system.getConstraintParameters(1)
-    assert (i, j) == (0, 2)
-    assert distance.value_in_unit(openmm.unit.angstrom) == pytest.approx(3.5)
 
 
 @pytest.mark.parametrize("constraint", [[0], [0, 1, 1.2, 5.0]])

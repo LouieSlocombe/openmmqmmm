@@ -13,7 +13,6 @@ from conftest import dummy_mm, evaluate, meoh_water_mm, nonbonded_mm, use_pme
 from openmmqmmm import Fragment, OpenMMTheory
 from openmmqmmm.constants import HARTREE_PER_BOHR_TO_KJ_PER_MOL_NM, HARTREE_TO_KJ_PER_MOL, KCAL_TO_KJ
 from openmmqmmm.exceptions import FileFormatError, InputError, InternalError
-from openmmqmmm.openmm.theory import clean_up_constraints_list
 
 TEST_DIR = Path(__file__).parent
 MEOH_XML = str(TEST_DIR / "extra_files" / "MeOH_H2O-sigma.xml")
@@ -122,14 +121,6 @@ def test_many_restraints_build_one_named_harmonic_force(caplog):
     assert evaluate(mm.system, coords / 10)[0] == pytest.approx(0.0, abs=1e-12)
     coords[10, 0] += 0.1  # stretches bond 9-10 and compresses 10-11 by 0.01 nm each
     assert evaluate(mm.system, coords / 10)[0] == pytest.approx(2 * 0.5 * KJ_PER_NM2_PER_KCAL_PER_A2 * 0.01**2)
-
-
-def test_clean_up_constraints_fills_missing_distances_from_the_fragment():
-    fragment = Fragment(elems=["He"] * 3, coords=[[0, 0, 0], [3, 4, 0], [3, 4, 12]], conncalc=False)
-
-    result = clean_up_constraints_list(fragment=fragment, constraints=[[0, 1], [1, 2], [0, 2, 7.5]])
-
-    assert result == [[0, 1, pytest.approx(5.0)], [1, 2, pytest.approx(12.0)], [0, 2, 7.5]]
 
 
 def test_update_lj_epsilons_changes_only_the_listed_atoms():

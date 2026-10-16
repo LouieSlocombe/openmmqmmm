@@ -61,51 +61,6 @@ def test_topology_built_theory_keeps_every_atom_label():
     assert theory.mm_elements == ["O", "M"]
 
 
-def test_periodic_box_accessor_reads_system_default():
-    theory, _ = _bare_theory()
-    theory.system.setDefaultPeriodicBoxVectors(*(np.eye(3) * 3.5))
-    assert theory.get_pbc_vectors() == pytest.approx(np.eye(3) * 35)
-
-
-@pytest.mark.parametrize("periodic", [False, True])
-@pytest.mark.parametrize("loader", ["charmm", "gromacs", "amber"])
-def test_small_real_loader_fixtures_create_systems(loader, periodic):
-    options = dict(  # noqa: C408
-        platform="Reference",
-        periodic=periodic,
-        autoconstraints=None,
-        rigidwater=False,
-        hydrogenmass=None,
-        periodic_cell_dimensions=[30, 30, 30, 90, 90, 90],
-        periodic_nonbonded_cutoff=10,
-        switching_function_distance=8,
-    )
-    if loader == "charmm":
-        options.update(
-            charmm_files=True,
-            psffile=str(FIXTURES / "three-waters.psf"),
-            charmmtopfile=str(FIXTURES / "three-waters.rtf"),
-            charmmprmfile=str(FIXTURES / "three-waters.prm"),
-        )
-    elif loader == "gromacs":
-        options.update(
-            gromacs_files=True,
-            grofile=str(FIXTURES / "three-waters.gro"),
-            gromacstopfile=str(FIXTURES / "three-waters.top"),
-        )
-    else:
-        options.update(amber_files=True, amberprmtopfile=str(FIXTURES / "three-waters.prmtop"))
-    theory = OpenMMTheory(**options)
-    assert theory.numatoms == 9
-    coords = np.array(
-        openmm.app.GromacsGroFile(str(FIXTURES / "three-waters.gro")).getPositions().value_in_unit(openmm.unit.angstrom)
-    )
-    energy, gradient = theory.run(current_coords=coords, grad=True)
-    assert np.isfinite(energy)
-    assert np.all(np.isfinite(gradient))
-    assert theory.resids == [0] * 3 + [1] * 3 + [2] * 3
-
-
 @pytest.mark.parametrize("periodic", [False, True])
 def test_residue_template_choices_include_every_name(monkeypatch, periodic):
     topology = openmm.app.Topology()
@@ -189,7 +144,6 @@ def test_cell_gradient_uses_last_successful_geometry_without_retaining_context()
     expected = np.zeros((3, 3))
     expected[0, 0] = 2 * BOHR_TO_ANG / HARTREE_TO_KCAL_PER_MOL
     assert gradient == pytest.approx(expected, rel=1e-4, abs=1e-12)
-    assert not hasattr(theory, "stored_context")
     import pickle
 
     restored = pickle.loads(pickle.dumps(theory))

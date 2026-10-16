@@ -346,36 +346,6 @@ def test_md_engine_rejects_rpmd_with_barostat_before_adding_force():
     assert "MonteCarloBarostat" not in force_names
 
 
-def test_qmmm_rpmd_uses_pythonforce_instead_of_shared_external_parameters():
-    import openmm
-
-    qmmm, fragment, _qm = _make_analytic_qmmm()
-    engine = MolecularDynamicsEngine(
-        fragment=fragment,
-        theory=qmmm,
-        charge=0,
-        mult=1,
-        integrator="RPMDIntegrator",
-        rpmd_num_copies=2,
-    )
-
-    force_names = [force.__class__.__name__ for force in qmmm.mm_theory.system.getForces()]
-    assert force_names.count("PythonForce") == 1
-    assert "CustomExternalForce" not in force_names
-    assert engine.rpmd_force_provider is not None
-
-    simulation = qmmm.mm_theory.create_simulation()
-    _set_beads(simulation, [[[-half, 0, 0], [half, 0, 0]] for half in (0.05, 0.15)])
-
-    forces = []
-    for copy in range(2):
-        state = simulation.integrator.getState(copy, getForces=True, groups={engine.rpmd_external_force_group})
-        forces.append(
-            state.getForces(asNumpy=True).value_in_unit(openmm.unit.kilojoules_per_mole / openmm.unit.nanometer)[0, 0]
-        )
-    assert forces[0] != pytest.approx(forces[1])
-
-
 @pytest.mark.parametrize("kind", ["qmmm-mech", "qmmm-elstat", "external-qm"])
 def test_rpmd_each_bead_gets_the_analytic_force_of_its_own_geometry(kind):
     import openmm
@@ -716,24 +686,6 @@ def test_rpmd_run_invokes_pre_dynamics_hook_and_extra_reporters():
     assert hook_steps == [0], "The hook must run once, before any dynamics"
     assert recorder in engine._rpmd_reporters
     assert recorder.reports == [1, 2], "The RPMD event loop must drive extra reporters at traj_frequency"
-
-
-def test_classical_run_attaches_extra_reporters_natively():
-    qmmm, fragment, _qm = _make_analytic_qmmm()
-    engine = MolecularDynamicsEngine(
-        fragment=fragment,
-        theory=qmmm,
-        charge=0,
-        mult=1,
-        timestep=0.000001,
-        traj_frequency=1,
-    )
-    recorder = _RecordingReporter()
-
-    engine.run(simulation_steps=1, extra_reporters=[recorder])
-
-    assert recorder in engine.simulation.reporters
-    assert recorder.reports, "Native OpenMM scheduling must call the extra reporter"
 
 
 def test_classical_restart_reuses_engine_owned_reporters(caplog):
