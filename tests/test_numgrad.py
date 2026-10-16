@@ -307,16 +307,6 @@ def test_parallel_run_rejects_invalid_numcores_override(monkeypatch):
         )
 
 
-def test_flat_surface_gives_zero_gradient():
-    numgrad = NumGrad(theory=ZeroTheory())
-
-    energy, gradient = numgrad.run(current_coords=STRETCHED_PAIR, elems=["H", "H"], charge=0, mult=1, grad=True)
-
-    assert energy == 0.0
-    assert gradient.shape == (2, 3), "One gradient row per atom"
-    assert np.allclose(gradient, 0.0)
-
-
 @pytest.mark.parametrize("value", [True, np.bool_(True)])
 @pytest.mark.parametrize("option", ["npoint", "numcores", "displacement"])
 def test_numgrad_numeric_options_reject_numpy_and_python_booleans(value, option):

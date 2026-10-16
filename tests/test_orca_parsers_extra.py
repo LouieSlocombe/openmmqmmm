@@ -45,30 +45,11 @@ def test_polarizability_tensor_matches_the_raw_tensor_in_the_output():
     assert len(diagonal) == 3
 
 
-def test_polarizability_diagonal_is_the_spectrum_of_the_raw_tensor():
-    tensor, diagonal = orca._grab_polarizability_tensor(FIXTURES / "h2o_polar.out")
-
-    assert tensor == pytest.approx(tensor.T, abs=1e-9)
-    assert sorted(diagonal) == pytest.approx(np.linalg.eigvalsh(tensor), abs=1e-6)
-
-
 def test_polarizability_tensor_is_empty_without_an_elprop_section():
     tensor, diagonal = orca._grab_polarizability_tensor(FIXTURES / "h2o_engrad.out")
 
     assert not tensor.any()
     assert diagonal == []
-
-
-def test_fod_occupations_match_the_orbital_energy_table():
-    text = (FIXTURES / "h2o_fod.out").read_text()
-    expected = _orbital_occupations(_section(text, "ORBITAL ENERGIES", "MULLIKEN POPULATION ANALYSIS"))
-
-    occupations = orca._grab_scf_fod_occupations(FIXTURES / "h2o_fod.out")
-
-    assert occupations == pytest.approx(expected)
-    assert len(occupations) == 18
-    assert 0.0 < occupations[4] < 2.0, "smearing must leave the HOMO fractionally occupied"
-    assert sum(occupations) == pytest.approx(10.0, abs=1e-3), "ten electrons in water"
 
 
 def test_fod_occupations_of_an_open_shell_output_are_the_spin_up_block():

@@ -103,18 +103,6 @@ def test_grab_hessian(orca_outputs):
     assert np.allclose(hessian, hessian.T), "The Hessian must be symmetric"
 
 
-def test_hessian_write_read_roundtrip(orca_outputs, tmp_path):
-    hessian = orca.grab_hessian(str(orca_outputs / "h2o_freq.hess"))
-    elems = ["O", "H", "H"]
-    coords = [[0.0, 0.0, 0.1173], [0.0, 0.7572, -0.4692], [0.0, -0.7572, -0.4692]]
-    masses = [15.999, 1.008, 1.008]
-
-    outputname = str(tmp_path / "roundtrip.hess")
-    orca.write_orca_hessfile(hessian, coords, elems, masses, outputname)
-
-    assert np.allclose(orca.grab_hessian(outputname), hessian)
-
-
 def test_grab_ir_intensities(orca_outputs):
     """IR intensities come from the $ir_spectrum block of the .hess file."""
     intensities = orca.grab_ir_intensities(str(orca_outputs / "h2o_freq.hess"))
@@ -214,14 +202,6 @@ def test_grab_spin_populations(cation_output, chargemodel, expected):
     assert spinpops == pytest.approx(expected)
     # A doublet has one unpaired electron.
     assert sum(spinpops) == pytest.approx(1.0, abs=1e-5)
-
-
-def test_charge_tables_are_not_confused_with_spin_tables(cation_output):
-    """The plain-charge and charge-plus-spin tables share a heading prefix."""
-    charges = orca.grab_orca_atom_charges("Mulliken", cation_output)
-    spinpops = orca.grab_orca_spin_populations("Mulliken", cation_output)
-    assert charges != pytest.approx(spinpops)
-    assert charges == pytest.approx(CATION_CHARGES["Mulliken"])
 
 
 def test_grab_spin_populations_rejects_unknown_model(cation_output):

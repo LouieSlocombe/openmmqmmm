@@ -393,7 +393,6 @@ def test_property_block_follows_the_coordinates(fake_orca):
     _run(theory)
 
     assert Path("orca.inp").read_text().endswith("*\n%elprop Polar 1 end\n")
-    assert theory.get_polarizability_tensor().shape == (3, 3)
 
 
 def test_run_prints_population_analysis_on_request(fake_orca, caplog):

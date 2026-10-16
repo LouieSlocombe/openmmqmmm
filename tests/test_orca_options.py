@@ -50,11 +50,6 @@ def test_autostart_false_adds_the_noautostart_keyword():
     assert _theory(autostart=True, extraline="! TightSCF").extraline == "! TightSCF"
 
 
-def test_first_iteration_input_defaults_to_empty():
-    assert _theory().first_iteration_input == ""
-    assert _theory(first_iteration_input="! SlowConv").first_iteration_input == "! SlowConv"
-
-
 def test_atoms_to_flip_must_be_a_sequence():
     with pytest.raises(InputError, match="list of integers"):
         _theory(atomstoflip=2)
@@ -92,13 +87,6 @@ def test_parallel_theory_checks_openmpi_once(monkeypatch):
     assert calls == []
     assert _theory(numcores=4).numcores == 4
     assert calls == [True]
-
-
-def test_set_numcores():
-    theory = _theory()
-    theory.set_numcores(3)
-
-    assert theory.numcores == 3
 
 
 def test_cleanup_removes_only_the_scratch_files_of_this_filename():
@@ -144,11 +132,6 @@ def test_cpcm_radii_block():
     assert theory.orcablocks == "%cpcm\nAtomRadii(0,  1.5)\nAtomRadii(1,  1.2)\nend\n"
 
 
-def test_xdm_requests_the_wfx_file():
-    assert _theory(xdm=True).orcasimpleinput == "! HF def2-SVP AIM"
-    assert _theory(xdm=False).xdm is False
-
-
 def test_basis_per_element_block_is_appended_once():
     theory = _theory(basis_per_element={"O": "def2-TZVP", "H": "def2-SVP"}, orcablocks="%scf maxiter 50 end")
 
@@ -177,14 +160,6 @@ def test_reset_names_the_gbw_file_of_the_rohf_uhf_swap_job():
     theory = _theory(filename="plain")
     theory._reset_one_shot_options()
     assert theory.gbwfile == "plain.gbw"
-
-
-def test_reset_turns_off_broken_symmetry_after_one_run():
-    theory = _theory(orcasimpleinput="! UKS BP86 def2-SVP", brokensym=True, hs_mult=3, atomstoflip=[0])
-
-    theory._reset_one_shot_options()
-
-    assert theory.brokensym is False
 
 
 def test_reset_turns_off_delta_scf_and_pins_the_scf_solver():

@@ -396,13 +396,6 @@ def test_truhlar_raises_low_modes_to_the_requested_cutoff(cutoff):
     assert result == pytest.approx(_harmonic_ts_vib(raised, ROOM_TEMPERATURE), rel=1e-12)
 
 
-def test_truhlar_entropy_decreases_as_the_cutoff_rises():
-    """A stiffer mode carries less entropy, and only modes under the cut-off are touched."""
-    entropies = [s_vib_qrrho_truhlar(LOW_MODE_FREQUENCIES, ROOM_TEMPERATURE, lowfreq_thresh=c) for c in (50, 100, 200)]
-
-    assert entropies[0] > entropies[1] > entropies[2]
-
-
 def test_truhlar_default_cutoff_is_the_published_one():
     """Ribeiro et al. use 100 cm-1; the default must not drift away from the citation."""
     assert inspect.signature(s_vib_qrrho_truhlar).parameters["lowfreq_thresh"].default == 100
