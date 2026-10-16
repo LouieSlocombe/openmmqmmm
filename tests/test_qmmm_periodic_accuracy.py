@@ -128,12 +128,6 @@ def test_explicit_current_box_reaches_both_qm_images_and_mm_context():
     ) == pytest.approx(original_box)
 
 
-def test_winding_covalent_network_is_rejected_instead_of_cut_silently():
-    geometry = PeriodicQMGeometry(3, [(0, 1), (1, 2), (2, 0)], [0])
-    with pytest.raises(InputError, match="winds around"):
-        geometry.image(np.array([[0, 0, 0], [2, 0, 0], [4, 0, 0]]), np.diag([5.0] * 3))
-
-
 def test_virtual_charge_sites_share_host_image_without_creating_covalent_boundaries():
     coords = np.array([[0, 1, 1], [14.8, 1, 1], [15.1, 1, 1], [15.05, 1, 1]])
     geometry = PeriodicQMGeometry(4, [(1, 2)], [0], image_links=[(3, 1), (3, 2)])

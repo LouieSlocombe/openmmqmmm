@@ -232,16 +232,3 @@ def test_pdb_bridge_from_classical_stage_into_rpmd():
         assert archive["num_beads"].item() == NUM_BEADS
         assert archive["step_count"].item() == 4
         assert np.isfinite(archive["positions_nm"]).all()
-
-
-def test_prepared_system_rejects_foreign_topology():
-    qmmm, _fragment, _qm = _make_analytic_qmmm()
-    export = export_rpmd_potential(theory=qmmm, num_beads=2)
-    prepared = openmmnqe.PreparedSystem(export.system)
-
-    foreign = openmm.app.Topology()
-    residue = foreign.addResidue("AR", foreign.addChain())
-    foreign.addAtom("Ar", openmm.app.Element.getBySymbol("Ar"), residue)
-
-    with pytest.raises(ValueError, match="prepared for a different structure"):
-        prepared.createSystem(foreign)

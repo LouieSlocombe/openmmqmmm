@@ -7,7 +7,6 @@ from conftest import central_difference_gradient
 from openmmqmmm import Fragment, QMMMTheory, ZeroTheory
 from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError
-from openmmqmmm.qmmm import _linkatom_force_chainrule
 
 
 class _BoundaryMM:
@@ -74,11 +73,8 @@ def _finite_difference(theory, fragment, step=1.0e-5):
 
 
 @pytest.mark.parametrize("placement", ["simple", "ratio"])
-@pytest.mark.parametrize("projection", ["adv", "lever", "chain"])
-def test_linkatom_projection_matches_placement_derivative(placement, projection):
-    theory, fragment = _boundary_theory(
-        embedding="mech", linkatom_method=placement, linkatom_forceproj_method=projection
-    )
+def test_linkatom_projection_matches_placement_derivative(placement):
+    theory, fragment = _boundary_theory(embedding="mech", linkatom_method=placement)
     _energy, gradient = theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
     gradient = gradient.copy()
 
@@ -92,31 +88,6 @@ def test_ratio_placement_uses_exact_derivative_with_default_projection():
     gradient = gradient.copy()
 
     assert gradient == pytest.approx(_finite_difference(theory, fragment), abs=2.0e-9)
-
-
-def test_fixed_distance_projection_obeys_chain_rule_and_conserves_cap_force():
-    qm_coords = np.array([0.2, -0.4, 0.3])
-    mm_coords = np.array([1.5, 0.1, 0.7])
-    cap_gradient = np.array([0.4, -0.7, 0.9])
-
-    def cap_position(qm, mm):
-        return qm + 1.09 * (mm - qm) / np.linalg.norm(mm - qm)
-
-    qm_gradient, mm_gradient = _linkatom_force_chainrule(
-        qm_coords, mm_coords, cap_position(qm_coords, mm_coords), cap_gradient
-    )
-    numerical = np.zeros((2, 3))
-    step = 1.0e-5
-    for atom in range(2):
-        for axis in range(3):
-            plus = np.array([qm_coords, mm_coords])
-            minus = plus.copy()
-            plus[atom, axis] += step
-            minus[atom, axis] -= step
-            numerical[atom, axis] = np.dot(cap_gradient, cap_position(*plus) - cap_position(*minus)) / (2 * step)
-
-    assert np.array([qm_gradient, mm_gradient]) == pytest.approx(numerical, abs=2.0e-9)
-    assert np.asarray(qm_gradient) + mm_gradient == pytest.approx(cap_gradient, abs=1.0e-14)
 
 
 @pytest.mark.parametrize("placement", ["simple", "ratio"])

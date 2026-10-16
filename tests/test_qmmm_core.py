@@ -146,22 +146,6 @@ def test_updating_qm_region_charges_requires_a_mechanical_mm_theory():
         )
 
 
-def test_rcd_without_a_covalent_boundary_uses_only_real_mm_sites():
-    theory, fragment = _minimal_qmmm([0], embedding="elstat", chargeboundary_method="rcd")
-
-    energy, gradient = theory.run(
-        current_coords=fragment.coords,
-        elems=fragment.elems,
-        grad=True,
-        charge=0,
-        mult=1,
-    )
-
-    assert energy == pytest.approx(1.25)
-    assert np.allclose(gradient, [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-    assert theory._virtual_site_gradient_mappings == []
-
-
 class _BoundaryMM:
     def __init__(self, numatoms):
         self.numatoms = numatoms

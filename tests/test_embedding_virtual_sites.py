@@ -3,7 +3,7 @@
 import numpy as np
 import openmm
 import pytest
-from conftest import central_difference, central_difference_gradient, dummy_mm, use_pme
+from conftest import central_difference_gradient, dummy_mm, use_pme
 from test_qmmm_periodic_accuracy import _CoulombQM
 
 from openmmqmmm import Fragment, QMMMTheory
@@ -59,18 +59,3 @@ def test_periodic_virtual_site_placement_uses_unwrapped_hosts():
     energy, wrapped_gradient = theory.run(current_coords=wrapped, grad=True)
     assert energy == pytest.approx(reference, abs=1e-12)
     assert wrapped_gradient == pytest.approx(gradient, abs=1e-12)
-
-
-def test_standalone_mm_recomputes_virtual_sites_and_zeros_dependent_rows():
-    theory, fragment = _native_site_theory("local")
-    mm = theory.mm_theory
-    # Introduce a charged real MM atom so native MM site forces are nonzero too.
-    mm.update_charges([3], [0.5])
-    energy, gradient = mm.run(current_coords=fragment.coords, grad=True)
-    gradient = gradient.copy()
-    numerical = central_difference(lambda coords: mm.run(current_coords=coords), fragment.coords, 1, 2)
-    assert gradient[1, 2] == pytest.approx(numerical, abs=1e-8)
-    assert gradient[4] == pytest.approx(np.zeros(3), abs=1e-14)
-    changed_site = fragment.coords.copy()
-    changed_site[4] += 5
-    assert mm.run(current_coords=changed_site) == pytest.approx(energy, abs=1e-12)

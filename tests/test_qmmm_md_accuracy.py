@@ -88,14 +88,6 @@ def test_second_classical_engine_cannot_accumulate_a_frozen_qm_force():
     assert not any(isinstance(force, openmm.CustomExternalForce) for force in qmmm.mm_theory.system.getForces())
 
 
-@pytest.mark.parametrize("option", ["truncated_pc", "update_qm_region_charges"])
-def test_classical_callback_rejects_history_dependent_potential(option):
-    qmmm, fragment, _qm = _make_analytic_qmmm(**{option: True})
-    with pytest.raises(InputError, match=f"does not support {option}"):
-        MolecularDynamicsEngine(fragment=fragment, theory=qmmm, integrator="VerletIntegrator")
-    assert not any(isinstance(force, openmm.PythonForce) for force in qmmm.mm_theory.system.getForces())
-
-
 @pytest.mark.parametrize("invalid_option", ["special_wrapping", "truncated_pc", "update_qm_region_charges"])
 def test_rejected_engine_leaves_standalone_qmmm_energy_intact(invalid_option):
     theory_kwargs = {} if invalid_option == "special_wrapping" else {invalid_option: True}

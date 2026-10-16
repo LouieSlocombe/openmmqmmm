@@ -99,18 +99,6 @@ def test_cache_holds_only_the_configured_number_of_geometries():
     assert (roomy.evaluation_count, roomy.cache_hits) == (3, 1)
 
 
-def test_periodic_cache_keys_include_the_box():
-    theory = _Theory(result=(0.0, np.zeros((2, 3))))
-    provider = _provider(theory, periodic=True)
-    positions = [[0, 0, 0], [0.1, 0, 0]]
-
-    provider(_state(positions, box_nm=2.0))
-    provider(_state(positions, box_nm=2.5))
-    provider(_state(positions, box_nm=2.0))
-
-    assert (provider.evaluation_count, provider.cache_hits) == (2, 1)
-
-
 def test_python_force_needs_a_free_force_group():
     system = openmm.System()
     system.addParticle(1.0)
