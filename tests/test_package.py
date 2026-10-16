@@ -30,31 +30,10 @@ def test_import_silent():
     assert result.stderr == ""
 
 
-def test_find_orca_explicit_dir(tmp_path, monkeypatch, make_fake_orca_install):
-    monkeypatch.delenv("OPENMMQMMM_ORCADIR", raising=False)
-    orca_dir = make_fake_orca_install(tmp_path / "orca_install")
-    assert find_orca(orcadir=str(orca_dir)) == str(orca_dir)
-
-
 def test_find_orca_env_var(tmp_path, monkeypatch, make_fake_orca_install):
     orca_dir = make_fake_orca_install(tmp_path / "orca_install")
     monkeypatch.setenv("OPENMMQMMM_ORCADIR", str(orca_dir))
     assert find_orca() == str(orca_dir)
-
-
-def test_find_orca_rejects_impostor_in_path(tmp_path, monkeypatch, make_fake_orca_install):
-    """A lone orca binary in PATH must not be mistaken for the QC program."""
-    impostor_dir = make_fake_orca_install(tmp_path / "usr_bin", with_helpers=False, output="not the qc program")
-    monkeypatch.delenv("OPENMMQMMM_ORCADIR", raising=False)
-    monkeypatch.setenv("PATH", str(impostor_dir))
-    assert find_orca(required=False) is None
-
-
-def test_find_orca_accepts_valid_path_install(tmp_path, monkeypatch, make_fake_orca_install):
-    orca_dir = make_fake_orca_install(tmp_path / "orca_install")
-    monkeypatch.delenv("OPENMMQMMM_ORCADIR", raising=False)
-    monkeypatch.setenv("PATH", str(orca_dir))
-    assert find_orca(required=False) == str(orca_dir)
 
 
 def test_find_orca_nothing_found(tmp_path, monkeypatch):

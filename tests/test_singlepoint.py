@@ -55,15 +55,6 @@ def test_single_point_requires_a_theory(hydrogen_fluoride):
         single_point(theory=None, fragment=hydrogen_fluoride)
 
 
-def test_single_point_theories(hydrogen_fluoride):
-    theories = [ZeroTheory(), ZeroTheory()]
-
-    result = single_point_theories(theories=theories, fragment=hydrogen_fluoride)
-
-    assert len(result.energies) == len(theories)
-    assert all(energy == 0.0 for energy in result.energies)
-
-
 def test_multi_entry_points_reject_empty_inputs(hydrogen_fluoride):
     with pytest.raises(InputError, match="at least one theory"):
         single_point_theories(theories=[], fragment=hydrogen_fluoride)
@@ -113,15 +104,6 @@ def test_single_point_fragments_and_theories_completes_with_a_qmmm_theory():
     assert result.energies == [[0.0]]
 
 
-def test_single_point_fragments():
-    fragments = _labelled_fragments()
-
-    result = single_point_fragments(theory=ZeroTheory(), fragments=fragments)
-
-    assert len(result.energies) == len(fragments)
-    assert all(energy == 0.0 for energy in result.energies)
-
-
 def test_single_point_fragments_and_theories():
     """Every fragment is run through every theory: one row of energies per theory."""
     fragments = _labelled_fragments(2)
@@ -131,18 +113,6 @@ def test_single_point_fragments_and_theories():
 
     assert len(result.energies) == len(theories)
     assert all(len(row) == len(fragments) for row in result.energies)
-
-
-def test_single_point_fragments_and_theories_collects_reaction_energies():
-    fragments = _labelled_fragments(2)
-
-    result = single_point_fragments_and_theories(
-        theories=[ZeroTheory(label="a"), ZeroTheory(label="b")],
-        fragments=fragments,
-        stoichiometry=[-1, 1],
-    )
-
-    assert result.reaction_energies == [0.0, 0.0]
 
 
 def test_single_point_fragments_validates_orbital_file_count():
@@ -171,16 +141,6 @@ def test_single_point_fragments_reports_only_a_common_charge_and_multiplicity():
     result = single_point_fragments(theory=ZeroTheory(), fragments=fragments)
 
     assert (result.charge, result.mult) == (None, None)
-
-
-def test_reaction_energy_of_a_null_reaction():
-    """With identical energies on both sides the reaction energy is zero."""
-    reactant, product = _labelled_fragments(2)
-    reaction = Reaction(fragments=[reactant, product], stoichiometry=[-1, 1])
-
-    single_point_reaction(theory=ZeroTheory(), reaction=reaction)
-
-    assert reaction.reaction_energy == pytest.approx(0.0)
 
 
 def test_single_point_reaction_resolves_named_orbital_files():

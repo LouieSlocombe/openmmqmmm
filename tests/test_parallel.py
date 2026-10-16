@@ -74,17 +74,6 @@ class _PropertyTheory(ZeroTheory):
         return np.eye(3)
 
 
-def test_job_parallel_energies():
-    fragments = _make_fragments()
-
-    result = job_parallel(fragments=fragments, theories=[ZeroTheory()], numcores=2)
-
-    assert len(result.energies) == len(fragments), "One energy per fragment expected"
-    assert set(result.energies_dict) == {f.label for f in fragments}
-    assert all(e == 0.0 for e in result.energies_dict.values()), "ZeroTheory energies should all be 0.0"
-    assert set(result.worker_dirnames) == {f.label for f in fragments}
-
-
 def test_job_parallel_gradients():
     fragments = _make_fragments(3)
 

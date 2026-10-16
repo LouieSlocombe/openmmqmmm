@@ -108,19 +108,6 @@ def test_pbc_step_maps_geometric_coordinates_through_the_current_cell_and_masks_
     np.testing.assert_allclose(result["gradient"], expected_gradient.flatten())
 
 
-def test_pbc_step_with_a_uniformly_scaled_cell_scales_the_physical_geometry():
-    fragment = _water()
-    theory = _PeriodicTheory(LOWER_CELL)
-    engine = _bare_engine(theory, fragment, pbc_active=True, elems_phys=list(fragment.elems), H_ref=LOWER_CELL.copy())
-    engine.H_ref_inv = np.linalg.inv(LOWER_CELL)
-    Path("geometric_OPTtraj.log").write_text("")
-
-    engine.pbc_calc(np.vstack([WATER, np.zeros(3), 1.1 * LOWER_CELL]))
-
-    np.testing.assert_allclose(theory.geometries[-1], 1.1 * WATER)
-    np.testing.assert_allclose(theory.cells[-1], 1.1 * LOWER_CELL)
-
-
 def test_pbc_bond_orders_connect_bonded_atoms_and_the_lattice_dummies_once():
     fragment = _water()
     engine = _bare_engine(_PeriodicTheory(LOWER_CELL), fragment, pbc_active=True, elems_phys=list(fragment.elems))

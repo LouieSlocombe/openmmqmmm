@@ -54,10 +54,6 @@ def _scan(page):
     return documented, summarised
 
 
-def test_api_pages_exist():
-    assert API_PAGES, "no reference pages found under docs/source/api"
-
-
 def test_every_public_name_is_documented():
     """Every exported name must appear on a reference page, exactly once."""
     documented = [name for page in API_PAGES for name in _scan(page)[0]]

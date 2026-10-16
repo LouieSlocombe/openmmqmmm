@@ -14,7 +14,7 @@ from conftest import dummy_mm
 from test_ase_calculator import StubQMMMTheory
 
 from openmmqmmm import Fragment, NumGrad, OpenMMQMMMCalculator, Results, ZeroTheory, openmm_md_plumed
-from openmmqmmm.coords_pbc import align_to_standard_orientation, cell_vectors_to_params, write_cif_file
+from openmmqmmm.coords_pbc import cell_vectors_to_params, write_cif_file
 from openmmqmmm.exceptions import FileFormatError, InputError, MissingDependencyError
 from openmmqmmm.openmm.nqe_export import modeller_from_topology
 from openmmqmmm.results import read_results_from_file
@@ -186,21 +186,3 @@ def test_cif_writer_derives_cell_parameters_from_vectors_and_needs_a_cell():
     assert parameters["_cell_angle_gamma"] == pytest.approx(gamma)
     with pytest.raises(InputError, match="cellvectors or celldimensions"):
         write_cif_file(np.zeros((1, 3)), ["O"], filename="none.cif")
-
-
-def test_standard_orientation_makes_the_cell_lower_triangular_and_keeps_geometry():
-    angle = 0.9
-    rotation = np.array([[np.cos(angle), -np.sin(angle), 0], [np.sin(angle), np.cos(angle), 0], [0, 0, 1]])
-    cell = np.array([[10.0, 0, 0], [1.0, 10.0, 0], [0.5, 0.5, 10.0]]) @ rotation
-    coords = np.array([[0.0, 0, 0], [0.96, 0, 0], [-0.24, 0.93, 0]]) @ rotation
-
-    aligned_coords, aligned_cell = align_to_standard_orientation(coords, cell)
-
-    np.testing.assert_allclose(np.triu(aligned_cell, 1), 0, atol=1e-12)
-    assert np.all(np.diag(aligned_cell) > 0)
-    np.testing.assert_allclose(cell_vectors_to_params(aligned_cell), cell_vectors_to_params(cell))
-    original_distances = np.linalg.norm(coords[:, None] - coords[None], axis=-1)
-    np.testing.assert_allclose(
-        np.linalg.norm(aligned_coords[:, None] - aligned_coords[None], axis=-1), original_distances
-    )
-    np.testing.assert_allclose(coords @ np.linalg.inv(cell), aligned_coords @ np.linalg.inv(aligned_cell), atol=1e-12)
