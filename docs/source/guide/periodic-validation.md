@@ -23,7 +23,7 @@ python -m pytest tests/test_qmmm_periodic_switching.py
 The [runner source](https://github.com/LouieSlocombe/openmmqmmm/blob/main/examples/periodic_embedding_validation.py)
 defines the coordinates, charges, molecule membership and integration settings. Compare its
 JSON output with the checked-in
-[baseline](https://github.com/LouieSlocombe/openmmqmmm/blob/main/docs/audits/embedding-repros/finite-periodic-baseline.json).
+[baseline](https://github.com/LouieSlocombe/openmmqmmm/blob/main/tests/fixtures/finite-periodic-baseline.json).
 Use numerical tolerances, not a byte-for-byte comparison: package versions and floating-point
 results can differ. Keep the old baseline alongside results from a proposed change.
 

@@ -18,7 +18,7 @@ def validation():
 
 @pytest.mark.parametrize("scan", ["box_scan", "extent_scan"])
 def test_relative_energies_and_qm_mm_probe_forces_match_recorded_baseline(validation, scan):
-    baseline = json.loads((ROOT / "docs/audits/embedding-repros/finite-periodic-baseline.json").read_text())
+    baseline = json.loads((ROOT / "tests/fixtures/finite-periodic-baseline.json").read_text())
     actual_rows = validation[scan]["rows"]
     expected_rows = baseline[scan]["rows"]
     assert len(actual_rows) == len(expected_rows)
