@@ -27,3 +27,6 @@ htmlcov/
 # tests/.gitignore; the tests themselves run in temporary directories.
 *_OPTtraj.tmp/
 results_*.json
+
+# Local Claude Code guidance, not part of the package
+CLAUDE.md
