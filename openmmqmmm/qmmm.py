@@ -9,6 +9,7 @@ from os import PathLike
 from typing import Any
 
 import numpy as np
+import openmm
 from openmm.app import CharmmPsfFile, PDBFile
 
 import openmmqmmm.constants
@@ -153,6 +154,8 @@ class QMMMTheory:
 
         self.mmatoms = np.setdiff1d(self.allatoms, self.qmatoms)
 
+        polarization_links = self._validate_polarizable_mm(embedding, charges)
+
         # Reject an unsupported native-site partition before assigning charges
         # or stripping any force-field terms from the supplied MM object.
         self._get_native_virtual_sites()
@@ -171,7 +174,7 @@ class QMMMTheory:
         self._periodic_geometry: PeriodicQMGeometry | None = None
         self._current_periodic_box_vectors: np.ndarray | None = None
         if self.mm_theory_name == "OpenMMTheory" and getattr(self.mm_theory, "periodic", False):
-            image_links = []
+            image_links = list(polarization_links)
             for index in range(self.mm_theory.system.getNumParticles()):
                 if self.mm_theory.system.isVirtualSite(index):
                     site = self.mm_theory.system.getVirtualSite(index)
@@ -221,11 +224,12 @@ class QMMMTheory:
             self.embedding = "mech"
             self.pc = False
         elif self.embedding.lower() == "polembed_drude" or self.embedding.lower() == "drude":
-            raise InputError("embedding='polembed_drude' is not supported in this distribution")
+            self.embedding = "elstat"
+            self.pc = True
         else:
             raise InputError(
                 "Unknown embedding. Valid options are: elstat (synonyms: electrostatic, electronic), mech (synonym: "
-                "mechanical)"
+                "mechanical), drude (synonym: polembed_drude)"
             )
         logger.info("Embedding: %s", self.embedding)
         if self._periodic_geometry is not None and self.embedding == "elstat":
@@ -301,6 +305,36 @@ class QMMMTheory:
         else:
             self._setup_mm_theory(fragment)
         log_time_since(module_init_time, "QM/MM object creation")
+
+    def _validate_polarizable_mm(self, embedding: str, charges: Sequence[float] | None) -> list[tuple[int, int]]:
+        """Validate polarization and region dependencies before modifying the MM system."""
+        from openmmqmmm.openmm._drude import _validate_drude_qm_region
+        from openmmqmmm.openmm.polarizable import _validate_amoeba_qm_region
+
+        self._amoeba_mechanical = False
+        system = getattr(self.mm_theory, "system", None)
+        drude = system is not None and any(isinstance(force, openmm.DrudeForce) for force in system.getForces())
+        if embedding.lower() in {"drude", "polembed_drude"} and not drude:
+            raise InputError("embedding='drude' requires an OpenMM MM system containing a DrudeForce")
+        if self.mm_theory_name != "OpenMMTheory" or system is None:
+            return []
+        if self.num_allatoms != system.getNumParticles() or self.mm_theory.topology.getNumAtoms() != self.num_allatoms:
+            raise InputError(
+                "QM/MM requires matching fragment, topology and System particle counts, including all extra particles"
+            )
+        if any(isinstance(force, openmm.AmoebaMultipoleForce) for force in system.getForces()):
+            if embedding.lower() not in {"mech", "mechanical"}:
+                raise InputError(
+                    "AMOEBA QM/MM requires embedding='mech': the QM point-charge interface cannot represent "
+                    "permanent multipoles and induced dipoles for electrostatic embedding"
+                )
+            if charges is not None or self.update_qm_region_charges:
+                raise InputError("AMOEBA QM/MM retains its native multipoles; fixed-charge overrides are unsupported")
+            _validate_amoeba_qm_region(system, self.mm_theory.topology, self.qmatoms)
+            self._amoeba_mechanical = True
+        if drude:
+            return _validate_drude_qm_region(system, self.mm_theory.topology, self.qmatoms)
+        return []
 
     def get_mm_boundary(self, scale: float, tol: float) -> None:
         """Map each MM1 boundary atom to its MM2 neighbours in self.MMboundarydict."""
@@ -703,11 +737,18 @@ class QMMMTheory:
             # Constraints act only when OpenMM integrates the system (QM/MM MD), not in energy calls.
             self.mm_theory.remove_constraints_for_atoms(self.qmatoms)
             logger.debug("Removing bonded terms for QM-region in MMtheory")
-            self.mm_theory.modify_bonded_forces(self.qmatoms)
+            if self._amoeba_mechanical:
+                from openmmqmmm.openmm.polarizable import _prepare_amoeba_mechanical
+
+                _prepare_amoeba_mechanical(self.mm_theory.system, self.qmatoms)
+                self.mm_theory._refresh_forcegroups()
+            else:
+                self.mm_theory.modify_bonded_forces(self.qmatoms)
             # Exceptions make OpenMM ignore QM-QM Coulomb and LJ. QM-MM elstat Coulomb
             # charges are zeroed separately below.
             logger.debug("Removing nonbonded terms for QM-region in MMtheory (QM-QM interactions)")
-            self.mm_theory.addexceptions(self.qmatoms)
+            if not self._amoeba_mechanical:
+                self.mm_theory.addexceptions(self.qmatoms)
 
         embedding = self.embedding.lower()
         if embedding == "elstat":

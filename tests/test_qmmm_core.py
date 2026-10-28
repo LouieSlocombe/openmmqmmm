@@ -519,8 +519,8 @@ def test_energy_decomposition_preserves_custom_cap_definition(monkeypatch):
     assert theory.embedding == "elstat"
 
 
-def test_drude_embedding_is_rejected_at_construction():
-    with pytest.raises(InputError, match="polembed_drude"):
+def test_drude_embedding_requires_a_drude_force():
+    with pytest.raises(InputError, match=r"requires.*DrudeForce"):
         _make_analytic_qmmm("drude")
 
 

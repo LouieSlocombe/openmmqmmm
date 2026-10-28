@@ -28,6 +28,8 @@ from openmmqmmm.exceptions import (
     InputError,
     InternalError,
 )
+from openmmqmmm.openmm._drude import _validate_drude_charge_updates
+from openmmqmmm.openmm.polarizable import _nonbonded_forces
 from openmmqmmm.openmm.rpmd_force import require_rpmd_unconstrained
 from openmmqmmm.utils import (
     log_time_since,
@@ -315,9 +317,15 @@ class OpenMMTheory:
                     residue_templates=residueTemplates,
                 )
 
+        self.amoeba_multipole_force = None
+        self.amoeba_vdw_force = None
         for force in self.system.getForces():
             if isinstance(force, openmm.NonbondedForce):
                 self.nonbonded_force = force
+            elif isinstance(force, openmm.AmoebaMultipoleForce):
+                self.amoeba_multipole_force = force
+            elif isinstance(force, openmm.AmoebaVdwForce):
+                self.amoeba_vdw_force = force
 
         logger.info("Setting charges")
         self.getatomcharges()
@@ -557,6 +565,15 @@ class OpenMMTheory:
                 if force.getUseSwitchingFunction() is True:
                     logger.info(f"   SwitchingFunction distance: {force.getSwitchingDistance()}")
                 logger.info(f"   Use Long-range Dispersion correction: {force.getUseDispersionCorrection()}")
+                logger.info("   PME Parameters: %s", force.getPMEParameters())
+                logger.info("   Ewald error tolerance: %s", force.getEwaldErrorTolerance())
+            elif isinstance(force, openmm.AmoebaVdwForce):
+                force.setUseDispersionCorrection(dispersion_correction)
+                logger.info("   AMOEBA van der Waals cutoff: %s", force.getCutoffDistance())
+            elif isinstance(force, openmm.AmoebaMultipoleForce):
+                if pme_parameters is not None:
+                    force.setPMEParameters(*pme_parameters)
+                logger.info("   AMOEBA multipole cutoff: %s", force.getCutoffDistance())
                 logger.info("   PME Parameters: %s", force.getPMEParameters())
                 logger.info("   Ewald error tolerance: %s", force.getEwaldErrorTolerance())
         logger.info(small_header("OpenMM system created."))
@@ -954,24 +971,18 @@ class OpenMMTheory:
 
         hard_limit_cutoff = _box_cutoff_limit(self.periodic_cell_vectors) / 10
 
-        for i in range(self.system.getNumForces()):
-            force = self.system.getForce(i)
-            if isinstance(force, openmm.NonbondedForce):
-                current_cutoff = force.getCutoffDistance().value_in_unit(openmm.unit.nanometer)
-
-                if not hasattr(self, "_original_cutoff_nm"):
-                    self._original_cutoff_nm = current_cutoff
-                    logger.info(f"Storing original cutoff: {self._original_cutoff_nm:.3f} nm")
-
-                desired_cutoff = min(self._original_cutoff_nm, hard_limit_cutoff)
-
-                if abs(desired_cutoff - current_cutoff) > 1e-6:
-                    logger.info(
-                        f"Adjusting cutoff from {current_cutoff:.3f} to {desired_cutoff:.3f} nm "
-                        f"(box limit: {hard_limit_cutoff:.3f} nm, original: {self._original_cutoff_nm:.3f} nm)"
-                    )
-                    force.setCutoffDistance(desired_cutoff * openmm.unit.nanometer)
-                break
+        if not hasattr(self, "_original_force_cutoffs_nm"):
+            self._original_force_cutoffs_nm = {}
+        for index, force in enumerate(_nonbonded_forces(self.system)):
+            cutoff = force.getCutoffDistance()
+            current_cutoff = (
+                cutoff.value_in_unit(openmm.unit.nanometer) if isinstance(cutoff, openmm.unit.Quantity) else cutoff
+            )
+            original_cutoff = self._original_force_cutoffs_nm.setdefault(index, current_cutoff)
+            desired_cutoff = min(original_cutoff, hard_limit_cutoff)
+            if abs(desired_cutoff - current_cutoff) > 1e-6:
+                logger.info("Adjusting %s cutoff from %.3f to %.3f nm", force.getName(), current_cutoff, desired_cutoff)
+                force.setCutoffDistance(desired_cutoff * openmm.unit.nanometer)
         # run() builds a new Context each call, so the box goes into the System and Topology.
         self.system.setDefaultPeriodicBoxVectors(a, b, c)
         self.topology.setPeriodicBoxVectors(cellvecs_nm)
@@ -1638,16 +1649,18 @@ class OpenMMTheory:
         return self.energy
 
     def getatomcharges(self) -> list[float]:
-        """Return the partial charge of every atom, in elementary charges."""
-        chargelist = []
+        """Return atomic charges or AMOEBA permanent monopoles in elementary charges."""
+        chargelist = [0.0] * self.system.getNumParticles()
         for force in self.system.getForces():
             if isinstance(force, openmm.NonbondedForce):
                 for i in range(force.getNumParticles()):
                     charge = force.getParticleParameters(i)[0]
-                    if isinstance(charge, openmm.unit.Quantity):
-                        charge = charge / openmm.unit.elementary_charge
-                        chargelist.append(charge)
-                self.charges = chargelist
+                    chargelist[i] += charge.value_in_unit(openmm.unit.elementary_charge)
+            elif isinstance(force, openmm.AmoebaMultipoleForce):
+                for i in range(force.getNumMultipoles()):
+                    charge = force.getMultipoleParameters(i)[0]
+                    chargelist[i] += charge.value_in_unit(openmm.unit.elementary_charge)
+        self.charges = chargelist
         return chargelist
 
     def delete_exceptions(self, atomlist: Sequence[int]) -> None:
@@ -1681,6 +1694,11 @@ class OpenMMTheory:
         cannot safely be classified as Lennard-Jones by parameter names alone.
         Coordinates are in Angstrom; the System's default periodic box is used.
         """
+        if any(isinstance(force, openmm.AmoebaVdwForce) for force in self.system.getForces()):
+            raise InputError(
+                "Lennard-Jones decomposition does not support AMOEBA van der Waals potentials; "
+                "use native OpenMM force energy decomposition instead"
+            )
         selected = set(atomlist)
         n_atoms = self.system.getNumParticles()
         if any(not isinstance(i, Integral) or i < 0 or i >= n_atoms for i in selected):
@@ -1806,6 +1824,9 @@ class OpenMMTheory:
         logger.info("Updating charges in OpenMM object.")
         if len(atomlist) != len(atomcharges):
             raise InternalError("atomlist and atomcharges size mismatch")
+        if any(isinstance(force, openmm.AmoebaMultipoleForce) for force in self.system.getForces()):
+            raise InputError("AMOEBA uses native multipoles; fixed-charge updates are unsupported")
+        _validate_drude_charge_updates(self.system, atomlist, atomcharges)
         selected = set(atomlist)
         exception_updates = []
         new_scales = {}
