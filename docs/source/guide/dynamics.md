@@ -113,6 +113,8 @@ openmm_md(
 motion, with a separate shell bath fixed at 1 K and 20 ps⁻¹. It retains OpenMM's default
 maximum Drude displacement of 0.02 nm. Do not add `anderson_thermostat=True` to this
 integrator, since its two thermostats already handle physical and shell motion.
+Both the shell and its parent must have positive masses; freezing either member of a
+Drude pair is rejected for this integrator. Massless shells require `DrudeSCFIntegrator`.
 
 `DrudeSCFIntegrator` uses Verlet integration and relaxes the Drude coordinates during each
 step. With electrostatic Drude QM/MM, the relaxation includes forces from the QM

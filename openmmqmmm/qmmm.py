@@ -318,11 +318,20 @@ class QMMMTheory:
             raise InputError("embedding='drude' requires an OpenMM MM system containing a DrudeForce")
         if self.mm_theory_name != "OpenMMTheory" or system is None:
             return []
-        if self.num_allatoms != system.getNumParticles() or self.mm_theory.topology.getNumAtoms() != self.num_allatoms:
+        amoeba = any(isinstance(force, openmm.AmoebaMultipoleForce) for force in system.getForces())
+        if not (drude or amoeba):
+            return []
+        topology = getattr(self.mm_theory, "topology", None)
+        if (
+            topology is None
+            or self.num_allatoms != system.getNumParticles()
+            or topology.getNumAtoms() != self.num_allatoms
+        ):
             raise InputError(
-                "QM/MM requires matching fragment, topology and System particle counts, including all extra particles"
+                "Polarizable QM/MM requires matching fragment, topology and System particle counts, "
+                "including all extra particles"
             )
-        if any(isinstance(force, openmm.AmoebaMultipoleForce) for force in system.getForces()):
+        if amoeba:
             if embedding.lower() not in {"mech", "mechanical"}:
                 raise InputError(
                     "AMOEBA QM/MM requires embedding='mech': the QM point-charge interface cannot represent "
