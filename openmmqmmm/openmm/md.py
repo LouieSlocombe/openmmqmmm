@@ -794,6 +794,22 @@ class MolecularDynamicsEngine:
                 "An Andersen thermostat cannot be combined with DrudeLangevinIntegrator: "
                 "it would heat the Drude displacements above their separate cold-bath temperature."
             )
+        if integrator == "DrudeLangevinIntegrator":
+            for force in self.openmmobject.system.getForces():
+                if not isinstance(force, openmm.DrudeForce):
+                    continue
+                for index in range(force.getNumParticles()):
+                    shell, parent = force.getParticleParameters(index)[:2]
+                    masses = [
+                        self.openmmobject.system.getParticleMass(atom).value_in_unit(openmm.unit.dalton)
+                        for atom in (shell, parent)
+                    ]
+                    if any(not np.isfinite(mass) or mass <= 0 for mass in masses):
+                        raise InputError(
+                            "DrudeLangevinIntegrator requires positive finite masses for both the Drude particle "
+                            f"({shell}) and its parent ({parent}); frozen or massless pairs are unsupported. "
+                            "Use DrudeSCFIntegrator for massless Drude particles."
+                        )
         if integrator == "DrudeSCFIntegrator" and barostat is not None and not anderson_thermostat:
             raise InputError(
                 "DrudeSCFIntegrator with a barostat requires anderson_thermostat=True, "

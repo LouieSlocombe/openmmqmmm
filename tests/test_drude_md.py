@@ -45,6 +45,17 @@ def test_drude_integrators_require_a_drude_force(integrator):
         MolecularDynamicsEngine(fragment=fragment, theory=mm, integrator=integrator)
 
 
+@pytest.mark.parametrize("frozen_atoms", [[0], [1], [0, 1]])
+def test_drude_langevin_rejects_frozen_shell_or_parent_before_mutation(frozen_atoms):
+    fragment, mm = _drude_mm()
+    mm.freeze_atoms(frozen_atoms)
+    before = openmm.XmlSerializer.serialize(mm.system)
+    # OpenMM's reduced-mass update would otherwise generate NaN coordinates.
+    with pytest.raises(InputError, match="requires positive finite masses"):
+        MolecularDynamicsEngine(fragment=fragment, theory=mm, integrator="DrudeLangevinIntegrator")
+    assert openmm.XmlSerializer.serialize(mm.system) == before
+
+
 @pytest.mark.parametrize(
     "integrator,barostat,andersen,match",
     [
