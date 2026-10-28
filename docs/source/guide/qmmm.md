@@ -56,7 +56,95 @@ QM/MM gradient and adds every molecule whose point-charge gradient exceeds `thre
 `embedding="elstat"` (the default) is electrostatic embedding: the MM point charges enter the
 QM Hamiltonian, so the QM region is polarized by its environment. `embedding="mech"` is
 mechanical embedding, where the two regions interact only through the MM force field.
-Polarizable Drude embedding (`"polembed_drude"`) is not implemented and raises an error.
+
+## Polarizable MM force fields
+
+Both Drude and AMOEBA force fields can be used as the MM model, with different QM/MM
+couplings:
+
+| MM model | Electrostatic embedding | Mechanical embedding |
+| --- | --- | --- |
+| Drude oscillators | Explicit core and shell charges enter the QM Hamiltonian; QM forces act on the shells. | Native Drude polarization and classical QM–MM interactions remain. |
+| AMOEBA multipoles | Unsupported: the QM backend interface accepts point charges, not multipoles or induced dipoles. | Native AMOEBA multipoles and polarization remain in the MM coupling. |
+
+### Drude embedding
+
+For an MM system containing an OpenMM `DrudeForce`, `embedding="drude"` and
+`embedding="polembed_drude"` are aliases for `embedding="elstat"`. The explicit names
+require a Drude force field. `embedding="mech"` is also supported.
+
+```python
+qm_mm = QMMMTheory(
+    qm_theory=qm,
+    mm_theory=mm,
+    fragment=fragment,
+    qmatoms=qmatoms,
+    qm_charge=0,
+    qm_mult=1,
+    embedding="drude",
+)
+```
+
+The fragment must contain **every OpenMM particle**, in topology order, including Drude
+shells and native virtual sites. Use element `"M"` for particles without a chemical
+element; see the setup example in {doc}`system_setup`. Drude shells are independent
+coordinates, while native virtual sites follow their hosts. The QM point-charge gradients
+therefore contribute directly to the shell forces as well as to the other MM forces.
+
+Select complete QM molecules that have no Drude particles or dependencies. Every Drude
+shell, its parent, and its anisotropy reference atoms must remain MM. Native virtual sites
+and their hosts must also remain MM. Covalent QM/MM cuts are unsupported for Drude
+systems. These checks prevent a split oscillator or an undefined polarization boundary.
+Prepare the QM solute with compatible non-Drude parameters and the MM environment with
+Drude parameters; selecting physical atoms of a Drude molecule does not convert it into
+a QM molecule.
+Custom `charges=` may not change a Drude shell's force-field charge, since that charge also
+sets its spring and screening model.
+
+A standalone energy or gradient evaluates the **supplied shell coordinates**; it does not
+relax them internally. Changing only the QM coordinates leaves the MM polarization
+coordinates at their supplied positions. A separate shell minimization must use the
+complete QM/MM potential, including the QM forces. For the supported dynamics route,
+choose `DrudeLangevinIntegrator` or `DrudeSCFIntegrator` explicitly as described in
+{doc}`dynamics`. The former propagates the shells with a cold thermostat; the latter
+relaxes them during integration, including the QM contribution to their forces.
+
+### AMOEBA mechanical embedding
+
+Build `OpenMMTheory` with an AMOEBA force field, then choose `embedding="mech"` and
+complete QM molecules:
+
+```python
+qm_mm = QMMMTheory(
+    qm_theory=qm,
+    mm_theory=mm,
+    fragment=fragment,
+    qmatoms=qmatoms,
+    qm_charge=0,
+    qm_mult=1,
+    embedding="mech",
+)
+```
+
+The native AMOEBA force field determines permanent multipoles and induced polarization.
+Internal QM bonded and van der Waals terms are removed. The multipole contribution is the
+full-system AMOEBA multipole energy minus a separate AMOEBA multipole calculation for the
+QM molecules alone, using the same electrostatic method and periodic box. This retains
+the MM polarization and the classical interaction between the regions without counting
+the isolated QM multipole model twice. QM–QM van der Waals pair exclusions follow
+OpenMM's native policy; periodic dispersion-tail contributions can remain even for an
+entirely QM system.
+
+The QM calculation receives no MM point charges in this mode. AMOEBA polarization
+responds to the force-field multipoles on the QM atoms; it is not coupled to the QM
+electron density. Local multipole frames, polarization groups and reduced van der Waals
+sites must stay within one region. Electrostatic embedding, covalent cuts, `charges=`
+overrides and population-charge updates are rejected rather than replacing AMOEBA by its
+monopoles. Generalized Kirkwood implicit solvent, WCA dispersion and unrecognized forces
+are unsupported for this QM/MM partition.
+See {doc}`system_setup` for an AMOEBA construction example.
+
+## Fixed-charge force-field partition
 
 Electrostatic embedding removes MM charges and Coulomb exception charge products involving
 QM atoms; QM–MM Lennard-Jones interactions remain. Internal QM bonded terms and direct
@@ -102,7 +190,8 @@ Use the {doc}`periodic-validation` protocol to compare cell sizes, complete-mole
 embedding extents, image-switch jumps and NVE energy drift. It includes a reproducible
 analytic baseline and a separate protocol for convergence of the intended QM system.
 
-QM–QM nonbonded exclusions remove direct pairs in the primary cell. The configured MM
+For standard point-charge force fields, QM–QM nonbonded exclusions remove direct pairs
+in the primary cell. The configured MM
 periodic image interactions and dispersion-tail corrections remain. Thus an entirely QM
 periodic system can still have MM energy, forces, and pressure contributions: mechanical
 embedding retains periodic Coulomb image terms, and either embedding can retain LJ image
@@ -220,6 +309,10 @@ settings. It includes standard nonbonded exceptions and the supported CHARMM/GRO
 custom forces. An unrecognized custom pair potential raises an error instead of being
 silently omitted. Covalent coupling is not decomposed separately: the function logs this
 limitation and retains those terms in the MM contribution.
+
+The LJ decomposition helper does not support AMOEBA's buffered van der Waals potential
+and raises an error for it. Use OpenMM's native force-group decomposition to inspect the
+AMOEBA force contributions.
 
 ## Running it
 

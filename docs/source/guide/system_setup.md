@@ -56,6 +56,90 @@ Each stage writes its own PDB file — `system_afterfixes.pdb`, `system_afterH.p
 result is wrong you can see which step made it wrong, rather than only what came out at the
 end.
 
+## Polarizable force fields
+
+### Drude particles and virtual sites
+
+Prepare the complete OpenMM topology before constructing either `OpenMMTheory` or the
+fragment. OpenMM's `Modeller.addExtraParticles` adds both Drude shells and the native
+virtual sites required by the selected force field. Build coordinates and elements from
+that expanded model, so the fragment and MM system have the same particle order:
+
+```python
+import numpy as np
+from openmm import app, unit
+
+from openmmqmmm import Fragment, OpenMMTheory
+
+pdb = app.PDBFile("prepared_system.pdb")
+forcefield = app.ForceField("charmm_polar_2023.xml")
+modeller = app.Modeller(pdb.topology, pdb.positions)
+modeller.addExtraParticles(forcefield)
+
+fragment = Fragment(
+    elems=[atom.element.symbol if atom.element is not None else "M" for atom in modeller.topology.atoms()],
+    coords=np.asarray(modeller.positions.value_in_unit(unit.angstrom)),
+)
+mm = OpenMMTheory(
+    topoforce=True,
+    forcefield=forcefield,
+    topology=modeller.topology,
+    periodic=True,
+    platform="Reference",
+    autoconstraints=None,
+    rigidwater=False,
+    hydrogenmass=None,
+)
+```
+
+This example assumes a prepared, parameterized structure with periodic box vectors. For
+a nonperiodic cluster, set `periodic=False`. `hydrogenmass=None` preserves the masses
+defined by the Drude force field. Element `"M"` labels an extra particle; it does not
+convert a Drude shell into a virtual site. The resulting OpenMM `System` determines which
+coordinates are independent.
+
+For QM/MM, choose the QM indices **after** adding extra particles. The QM region must
+consist of complete molecules with no Drude particles, Drude parents or anisotropy
+references, and no native virtual sites or their hosts. For example, a separately
+parameterized solute without Drude particles can be placed in a Drude solvent. Include
+its compatible residue parameters when building `forcefield`. A fully Drude-parameterized
+molecule cannot be promoted to QM simply by selecting its physical atoms.
+
+Standalone calculations evaluate the shell coordinates in the fragment. Use a Drude
+integrator for dynamics, with `DrudeSCFIntegrator` relaxing the shells during integration;
+see {doc}`qmmm` and {doc}`dynamics`. OpenMM documents the topology expansion in
+[Adding or Removing Extra Particles](https://docs.openmm.org/latest/userguide/application/03_model_building_editing.html#adding-or-removing-extra-particles).
+
+### AMOEBA
+
+AMOEBA keeps its native multipole and polarization forces. For a structure with complete
+AMOEBA residue parameters, construct the MM theory directly:
+
+```python
+from openmmqmmm import Fragment, OpenMMTheory
+
+fragment = Fragment(pdbfile="prepared_system.pdb")
+mm = OpenMMTheory(
+    xmlfiles=["amoeba2018.xml"],
+    pdbfile="prepared_system.pdb",
+    periodic=True,
+    platform="Reference",  # Use "CUDA" for production on a supported GPU.
+    autoconstraints=None,
+    rigidwater=False,
+    hydrogenmass=None,
+)
+```
+
+Use `Reference` for small validation calculations or `CUDA` for production; the selected
+OpenMM platform must provide the AMOEBA kernels. Pure MM uses the full force field.
+QM/MM supports `embedding="mech"` with complete molecules; it does not expose AMOEBA
+multipoles or induced dipoles to the QM backend. See {doc}`qmmm` for the energy partition.
+
+The `xmlfile="amoeba2018.xml"` option also selects this force field when using
+`openmm_modeller`; existing `"Amoeba2013"` and `"Amoeba2009"` aliases remain available.
+OpenMM recommends AMOEBA 2018 for new calculations in its
+[force-field documentation](https://docs.openmm.org/latest/userguide/application/02_running_sims.html#amoeba).
+
 ## Ligands and other non-standard residues
 
 A biomolecular force field covers amino acids, nucleic acids, water and ions — and nothing

@@ -74,7 +74,7 @@ selects the platform for that new system. These rules also apply to
 `integrator=` selects one of `"LangevinMiddleIntegrator"` (the default),
 `"LangevinIntegrator"`, `"VerletIntegrator"`, `"VariableVerletIntegrator"`,
 `"VariableLangevinIntegrator"`, `"NoseHooverIntegrator"`, `"DrudeLangevinIntegrator"`,
-`"RPMDIntegrator"` or `"QTBIntegrator"`. The last two are for nuclear quantum effects —
+`"DrudeSCFIntegrator"`, `"RPMDIntegrator"` or `"QTBIntegrator"`. The last two are for nuclear quantum effects —
 see {doc}`rpmd`.
 
 `temperature=` is in kelvin and `coupling_frequency=` is the thermostat coupling in ps⁻¹.
@@ -89,11 +89,51 @@ an unconstrained system.
 QM/MM setup removes constraints involving QM atoms; choose the timestep for the resulting
 unconstrained QM bonds as well as the MM region.
 
+### Drude dynamics
+
+A system containing `DrudeForce` requires an explicit Drude integrator. This applies to
+both pure MM and QM/MM dynamics; the default `LangevinMiddleIntegrator`, other ordinary
+integrators, RPMD and QTB are rejected for these systems. `export_rpmd_potential` also
+rejects Drude systems, including single-bead exports: the shell coordinates must not be
+treated as additional nuclei by an external NQE driver.
+
+```python
+openmm_md(
+    fragment=fragment,
+    theory=qm_mm,  # Or the pure MM theory.
+    integrator="DrudeLangevinIntegrator",
+    temperature=300,
+    coupling_frequency=1,
+    timestep=0.0005,
+    simulation_steps=1000,
+)
+```
+
+`DrudeLangevinIntegrator` uses the requested temperature and coupling for physical
+motion, with a separate shell bath fixed at 1 K and 20 ps⁻¹. It retains OpenMM's default
+maximum Drude displacement of 0.02 nm. Do not add `anderson_thermostat=True` to this
+integrator, since its two thermostats already handle physical and shell motion.
+
+`DrudeSCFIntegrator` uses Verlet integration and relaxes the Drude coordinates during each
+step. With electrostatic Drude QM/MM, the relaxation includes forces from the QM
+`PythonForce` callback, so it can require several QM evaluations per step. It has no
+thermostat of its own: omit `anderson_thermostat` for NVE, or set it to `True` for Andersen
+NVT. NPT with this integrator requires `anderson_thermostat=True` as well as the barostat.
+
+The timestep above is a starting point, not a stability guarantee. Converge it for the
+Drude parameters, constraints and QM method in use. Preserve the force-field masses when
+constructing `OpenMMTheory` with `hydrogenmass=None`. The fragment must include the Drude
+particles and native virtual sites, as shown in {doc}`system_setup`.
+
+AMOEBA uses native induced-dipole evaluation and ordinary integrators; it has no explicit
+Drude shells. Its supported QM/MM coupling is mechanical embedding ({doc}`qmmm`).
+
 ## Pressure
 
 `barostat="MonteCarloBarostat"` runs NPT at `pressure` (bar), applied every
-`barostat_frequency` steps. Selecting a barostat forces `LangevinMiddleIntegrator`, and it
-cannot be combined with `RPMDIntegrator`.
+`barostat_frequency` steps. For ordinary integrators, selecting a barostat forces
+`LangevinMiddleIntegrator`; a selected Drude integrator is preserved. A barostat cannot
+be combined with `RPMDIntegrator`.
 
 Classical QM/MM NPT is supported: each proposed volume move evaluates the actual QM energy
 at its proposed coordinates and box, so the acceptance test uses the QM/MM potential.

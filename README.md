@@ -101,6 +101,15 @@ The package is silent by default; `configure_logging()` turns on the calculation
 single-point, optimization and frequency functions return a `Results` object and write it to
 a `results_*.json` file.
 
+Polarizable MM force fields are supported: Drude QM/MM uses explicit core and shell
+charges with `embedding="drude"` (or `"elstat"`), and AMOEBA QM/MM uses mechanical
+embedding with its native multipoles and polarization. Both require complete QM molecules;
+Drude particles and their parent/reference atoms remain MM. Use `DrudeLangevinIntegrator`
+or `DrudeSCFIntegrator` for Drude dynamics. AMOEBA coupling to the QM electron density is
+not implemented. See the
+[polarizable QM/MM guide](https://openmmqmmm.readthedocs.io/en/latest/guide/qmmm.html#polarizable-mm-force-fields)
+and [system preparation](https://openmmqmmm.readthedocs.io/en/latest/guide/system_setup.html#polarizable-force-fields).
+
 ## ML/MM example
 
 Build a fully parameterized `OpenMMTheory` named `mm` and a matching `Fragment`, then select
