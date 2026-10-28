@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import openmm
 
+from openmmqmmm._mace_polar import _create_polar_potential, _polar_name, _polar_options
 from openmmqmmm.exceptions import InputError, MissingDependencyError, require
 from openmmqmmm.openmm.theory import OpenMMTheory
 
@@ -83,8 +84,18 @@ class MLMMTheory(OpenMMTheory):
         if not isinstance(potential, str) and potential_options:
             raise InputError("potential_kwargs can only be used with a potential name")
 
-        if isinstance(potential, str):
-            if not potential.strip():
+        polar_name = _polar_name(potential)
+        polar_settings = None
+        if polar_name is not None:
+            if not isinstance(potential, str):
+                model_path = getattr(potential._impl, "modelPath", None)
+                if model_path is not None:
+                    potential_options["modelPath"] = model_path
+            polar_model, polar_settings = _polar_options(
+                polar_name, potential_options, system_options, mm_theory.system, mm_theory.periodic
+            )
+        if isinstance(potential, str) or polar_name is not None:
+            if isinstance(potential, str) and not potential.strip():
                 raise InputError("potential must be a nonempty OpenMM-ML potential name")
             openmmml = require(
                 "openmmml",
@@ -92,14 +103,19 @@ class MLMMTheory(OpenMMTheory):
                 hint="conda env update -n openmmqmmm -f build_tools/environment_ml.yml",
             )
             try:
-                ml_potential = openmmml.MLPotential(potential, **potential_options)
+                if polar_name is not None:
+                    ml_potential, system_options = _create_polar_potential(openmmml, polar_model, polar_settings)
+                else:
+                    ml_potential = openmmml.MLPotential(potential, **potential_options)
             except KeyError as exc:
                 raise InputError(f"Unknown OpenMM-ML potential or model option: {potential!r}: {exc}") from exc
             except ImportError as exc:
+                if isinstance(exc, MissingDependencyError):
+                    raise
                 raise MissingDependencyError(
                     f"The OpenMM-ML backend for {potential!r} is unavailable; install its model dependencies."
                 ) from exc
-            potential_name = potential
+            potential_name = polar_name or potential
         else:
             ml_potential = potential
             potential_name = type(potential).__name__
@@ -110,6 +126,17 @@ class MLMMTheory(OpenMMTheory):
         # bound Integrator, cached results, or force wrappers from the old System.
         state = {key: value for key, value in vars(mm_theory).items() if key not in _TRANSIENT_ATTRIBUTES}
         self.__dict__.update(copy.deepcopy(state))
+        if polar_settings is not None:
+            self.ml_charge = polar_settings["charge"]
+            self.ml_mult = polar_settings["multiplicity"]
+            self.ml_precision = polar_settings["precision"]
+            self.ml_model = polar_model
+            logger.info("MACE-POLAR model/checkpoint: %s", polar_model)
+            # The source theory's boundary condition is authoritative, including
+            # nonperiodic systems loaded from PDB files containing a CRYST1 cell.
+            self.topology.setPeriodicBoxVectors(
+                mm_theory.system.getDefaultPeriodicBoxVectors() if self.periodic else None
+            )
         classical_system = copy.deepcopy(mm_theory.system)
         restraints = []
         for index in reversed(range(classical_system.getNumForces())):

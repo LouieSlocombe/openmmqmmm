@@ -65,6 +65,56 @@ override `topology`, `system`, `atoms`, `embedding`, `interpolate`, `returnInfo`
 `removeConstraints`; use the explicit `remove_constraints` argument for the last option.
 `potential_kwargs` configures named potentials only.
 
+## MACE-POLAR
+
+`potential="mace-polar"` selects `mace-polar-1-medium`. The explicit names
+`mace-polar-1-small`, `mace-polar-1-medium` and `mace-polar-1-large` select the corresponding
+[OpenMM-ML models](https://github.com/openmm/openmm-ml/blob/1.8/openmmml/models/macepotential.py).
+Install the {ref}`MACE-POLAR backend <install-mace-polar>` before constructing the theory.
+
+```python
+polar_mlmm = MLMMTheory(
+    mm_theory=mm,
+    mlatoms=mlatoms,
+    potential="mace-polar",
+    system_kwargs={"charge": -1, "multiplicity": 1, "device": "cuda"},
+)
+```
+
+`charge` and `multiplicity` describe the entire selected ML subset, not the full solvated
+system. Their defaults are 0 and 1; set them explicitly for a different electronic state.
+Job-level `charge` and `mult` do not reconfigure the model. Rebuild `MLMMTheory` to change
+its state. `precision` defaults to `"double"`; the backend device remains independent of
+the source theory's OpenMM platform.
+
+The wrapper requires `returnEnergyType="energy"` for MACE-POLAR. The upstream
+`interaction_energy` output omits electrostatic contributions, whereas its forces derive
+from the full energy; using both together would give inconsistent energies and forces.
+See the [PolarMACE implementation](https://github.com/ACEsuit/mace/blob/v0.3.16/mace/modules/extensions.py).
+
+For a local MACE-POLAR checkpoint, retain the polar alias and supply its path:
+
+```python
+polar_mlmm = MLMMTheory(
+    mm_theory=mm,
+    mlatoms=mlatoms,
+    potential="mace-polar",
+    potential_kwargs={"modelPath": "/path/to/MACE-POLAR.model"},
+    system_kwargs={"charge": -1, "multiplicity": 1, "device": "cuda"},
+)
+```
+
+Local checkpoints use the same electronic-state settings, long-range treatment and
+full-energy safeguard. Named foundation models may download weights on first use; a local
+checkpoint avoids that download. For periodic systems, use a source MM theory with PME or
+Ewald; LJPME is unsupported.
+
+[MACE-POLAR](https://github.com/ACEsuit/mace-foundations/releases/tag/mace_polar_1) includes
+long-range electrostatics within the ML region. The ML/MM coupling here remains mechanical:
+MM charges do not produce a field in the ML model, and its predicted charges do not update
+the classical cross-region interactions. This interface does not expose an `external_field`
+option. Whole-molecule and force-field restrictions above still apply.
+
 ## Jobs and dynamics
 
 Use `MLMMTheory` with {func}`~openmmqmmm.single_point`,
@@ -88,9 +138,10 @@ the ML forces. {class}`~openmmqmmm.OpenMMQMMMCalculator` and
 ## Scope of the model
 
 Mechanical embedding keeps classical cross-region interactions, including the force
-field's fixed charges and van der Waals parameters. It does not provide electronic
-polarization, charge transfer or reactions across the ML/MM boundary. A model trained on
-isolated molecules does not acquire those capabilities merely by being placed in solvent.
+field's fixed charges and van der Waals parameters. It does not provide polarization by the
+MM environment, charge transfer between regions or reactions across the ML/MM boundary. A
+model trained on isolated molecules does not acquire those capabilities merely by being
+placed in solvent.
 
 Check the model's supported elements, charge states, spin states, molecular sizes and
 training domain. Validate energies, forces and the sampled configurations for the intended

@@ -40,6 +40,20 @@ selects zero-based topology residue indices, not PDB residue IDs; alternatively 
 chosen model. The example needs OpenMM-ML, its model backend and weights, but no ORCA.
 See `--help` for platform and device options and {doc}`guide/mlmm` for limitations.
 
+For MACE-POLAR, supply the selected ML region's charge and multiplicity:
+
+```bash
+python examples/mlmm_dynamics.py system.pdb \
+    --forcefield amber14-all.xml amber14/tip3pfb.xml ligand.xml \
+    --ml-residues 1 --potential mace-polar --ml-charge -1 --ml-multiplicity 1 \
+    --platform CUDA --device cuda --periodic --steps 1000
+```
+
+`mace-polar` selects the medium model. Use `--model-path /path/to/MACE-POLAR.model` for
+a local polar checkpoint; `--precision` selects `single` or `double` (the polar default).
+MM charges still couple mechanically to the ML region. See {doc}`install` for the
+additional MACE-POLAR dependencies.
+
 ## qmmm_rpmd_nqe_stages.py
 
 ```bash

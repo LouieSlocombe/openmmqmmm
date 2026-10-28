@@ -44,6 +44,11 @@ OpenMM-ML's own floor is Python 3.11, below this package's 3.12 requirement; mod
 and weights are installed separately. See the installation guide for details.
 ML/MM does not require ORCA.
 
+For MACE-POLAR, the
+`conda env update -n openmmqmmm -f build_tools/environment_mace_polar.yml` overlay also
+installs a compatible MACE and graph-electrostatics pair. Model weights are fetched on
+first use or supplied as a local checkpoint.
+
 Python 3.12 or newer is required. For a pip-only install from a checkout, every runtime
 dependency resolves from PyPI, but forcefill and PLUMED are left out, so
 `openmm_modeller(parameterize_nonstandard=True)` and `openmm_md_plumed` are unavailable:
@@ -116,6 +121,13 @@ For single points, optimization or frequencies, build `mm` with `autoconstraints
 and `rigidwater=False`. See the
 [ML/MM guide](https://openmmqmmm.readthedocs.io/en/latest/guide/mlmm.html) and the runnable
 [ML/MM example](https://github.com/LouieSlocombe/openmmqmmm/blob/main/examples/mlmm_dynamics.py).
+
+For MACE-POLAR, use `potential="mace-polar"` (the medium model) and set the ML region's
+state with `system_kwargs={"charge": -1, "multiplicity": 1, "device": "cuda"}`. Explicit
+small, medium and large model names and local checkpoints are supported. The wrapper uses
+full model energy and defaults to double precision; MM coupling remains mechanical.
+See the [MACE-POLAR guide](https://openmmqmmm.readthedocs.io/en/latest/guide/mlmm.html#mace-polar)
+for dependencies, electronic-state settings and periodicity requirements.
 
 Runnable scripts, including a gas-phase ORCA example, live in
 [examples/](https://github.com/LouieSlocombe/openmmqmmm/tree/main/examples).

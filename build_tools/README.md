@@ -138,6 +138,31 @@ Install model-specific backends and pretrained weights separately, following the
 [OpenMM-ML documentation](https://openmm.github.io/openmm-ml/). Its ASE adapter can use
 the ASE installation already included in the base environment.
 
+### Optional MACE-POLAR
+
+After applying `environment_ml.yml`, add the MACE-POLAR backend from the repository root,
+without `--prune`:
+
+```bash
+conda env update -n openmmqmmm -f build_tools/environment_mace_polar.yml
+conda activate openmmqmmm
+python -c "from mace.calculators import mace_polar; import graph_longrange"
+```
+
+It pairs `mace-torch==0.3.16` with graph-electrostatics v0.4.0, pinned to
+[`0e21d554`](https://github.com/WillBaldwin0/graph_electrostatics/tree/0e21d5546c482d08388a08eb4d948e833227ce47).
+Keep this pair together: graph-electrostatics 0.4.4 removed interfaces required by MACE
+0.3.16. MACE installs its remaining Python dependencies, including e3nn and PyTorch;
+GPU use requires a CUDA-enabled PyTorch build. The import check does not fetch weights.
+
+Use `potential="mace-polar"` for the medium model, an explicit `mace-polar-1-small`,
+`mace-polar-1-medium` or `mace-polar-1-large` name, or supply a local checkpoint through
+`potential_kwargs={"modelPath": "/path/to/MACE-POLAR.model"}`. Named checkpoints are
+downloaded and cached by [MACE](https://github.com/ACEsuit/mace/blob/v0.3.16/mace/calculators/foundations_models.py)
+on first use. See the
+[ML/MM guide](https://openmmqmmm.readthedocs.io/en/latest/guide/mlmm.html#mace-polar) for
+charge, multiplicity and mechanical-embedding limits.
+
 ### One environment for openmmqmmm + openmmnqe
 
 The QM/MM-through-openmmnqe workflows (see
@@ -223,7 +248,7 @@ listed.
 
 [ORCA](https://www.faccts.de/orca/) is licensed separately (free for academic use) and has
 to be installed by hand — no route above installs it. It is required for `ORCATheory` and
-QM/MM, but not for the pure-MM OpenMM functionality. Setting `OPENMMQMMM_ORCADIR` to the
+QM/MM, but not for pure-MM or ML/MM functionality. Setting `OPENMMQMMM_ORCADIR` to the
 installation directory is enough;
 [Configuring ORCA](https://openmmqmmm.readthedocs.io/en/latest/install.html#configuring-orca)
 in the installation guide has the full search order and the OpenMPI note for parallel runs.

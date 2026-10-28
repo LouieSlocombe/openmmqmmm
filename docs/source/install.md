@@ -71,6 +71,27 @@ The base package imports without OpenMM-ML. See {doc}`guide/mlmm` for selecting 
 and a complete-molecule ML region. Models may fetch pretrained weights on first use;
 prepare their backend and weights before running on a machine without network access.
 
+(install-mace-polar)=
+### MACE-POLAR
+
+After the OpenMM-ML setup above, add the MACE-POLAR backend from the repository root:
+
+```bash
+conda env update -n openmmqmmm -f build_tools/environment_mace_polar.yml
+conda activate openmmqmmm
+python -c "from mace.calculators import mace_polar; import graph_longrange"
+```
+
+This includes OpenMM-ML and pins `mace-torch==0.3.16` with
+[graph-electrostatics v0.4.0](https://github.com/WillBaldwin0/graph_electrostatics/tree/0e21d5546c482d08388a08eb4d948e833227ce47)
+at a fixed commit. Keep these versions together: graph-electrostatics 0.4.4 changed APIs
+that MACE 0.3.16 still uses. MACE's dependencies include PyTorch and e3nn; running the ML
+backend on CUDA requires a CUDA-enabled PyTorch installation. Select the OpenMM platform
+separately on the source MM theory.
+The import check does not download model weights. Named models download and cache their
+checkpoints on first use; `potential_kwargs={"modelPath": "/path/to/MACE-POLAR.model"}`
+uses a local checkpoint. See {doc}`guide/mlmm` for model names and ML-region charge and spin.
+
 ## pip
 
 The package itself is not published on PyPI, but every one of its runtime dependencies is,

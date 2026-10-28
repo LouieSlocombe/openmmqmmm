@@ -1,0 +1,16 @@
+# Optional MACE-POLAR backend, added after environment_ml.yml.
+# From the repository root (omit --prune):
+#   conda env update -n openmmqmmm -f build_tools/environment_mace_polar.yml
+# graph-electrostatics v0.4.0 retains the API required by mace-torch 0.3.16.
+name: openmmqmmm
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.12
+  - openmm =8.6.1
+  - openmm-ml =1.8
+  - git
+  - pip
+  - pip:
+      - mace-torch==0.3.16
+      - git+https://github.com/WillBaldwin0/graph_electrostatics.git@0e21d5546c482d08388a08eb4d948e833227ce47

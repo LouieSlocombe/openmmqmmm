@@ -18,6 +18,10 @@ def main() -> None:
     parser.add_argument("--potential", default="ani2x", help="Installed OpenMM-ML potential name (default: ani2x)")
     parser.add_argument("--platform", default="CPU", help="OpenMM platform (default: CPU)")
     parser.add_argument("--device", help="Optional ML backend device, for example cpu or cuda")
+    parser.add_argument("--model-path", help="Local checkpoint (use --potential mace-polar for a PolarMACE model)")
+    parser.add_argument("--precision", choices=["single", "double"], help="ML backend numerical precision")
+    parser.add_argument("--ml-charge", type=int, help="Total ML-region charge for charge-aware models")
+    parser.add_argument("--ml-multiplicity", type=int, help="ML-region spin multiplicity for spin-aware models")
     parser.add_argument("--periodic", action="store_true", help="Use the PDB's periodic box and PME")
     parser.add_argument("--steps", type=int, default=1000, help="Number of MD steps (default: 1000)")
     parser.add_argument("--timestep", type=float, default=0.0005, help="Timestep in ps (default: 0.0005)")
@@ -46,11 +50,22 @@ def main() -> None:
             parser.error("ML residue indices must be unique")
         mlatoms = [atom.index for index in args.ml_residues for atom in residues[index].atoms()]
 
+    system_kwargs = {
+        key: value
+        for key, value in (
+            ("device", args.device),
+            ("precision", args.precision),
+            ("charge", args.ml_charge),
+            ("multiplicity", args.ml_multiplicity),
+        )
+        if value is not None
+    }
     mlmm = MLMMTheory(
         mm_theory=mm,
         mlatoms=mlatoms,
         potential=args.potential,
-        system_kwargs={"device": args.device} if args.device is not None else None,
+        potential_kwargs={"modelPath": args.model_path} if args.model_path is not None else None,
+        system_kwargs=system_kwargs,
     )
     result = single_point(theory=mlmm, fragment=fragment)
     print(f"Initial ML/MM energy: {result.energy:.8f} Eh")

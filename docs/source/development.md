@@ -21,6 +21,17 @@ pip install -e ".[test]"
 pytest --cov --cov-report=term
 ```
 
+ML/MM tests use deterministic potentials without downloading weights. To also check the
+MACE-POLAR adapter against an actual checkpoint, install the {ref}`MACE-POLAR backend
+<install-mace-polar>` and provide a local model:
+
+```bash
+OPENMMQMMM_MACE_POLAR_MODEL=/absolute/path/to/MACE-POLAR.model pytest tests/test_mace_polar_backend.py
+```
+
+These opt-in tests compare nonperiodic and PME energies and forces with independent ASE
+and MM calculations, then run two integration steps. Without that variable they skip.
+
 ## Linting and formatting
 
 ```bash
