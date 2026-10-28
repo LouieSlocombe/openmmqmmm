@@ -346,6 +346,7 @@ class MolecularDynamicsEngine:
             force_periodic=force_periodic,
             periodic_cell_dimensions=periodic_cell_dimensions,
         )
+        self._validate_drude_dynamics(integrator=integrator, barostat=barostat, anderson_thermostat=anderson_thermostat)
 
         if self.theory_runtype == "MM" and (special_wrapping or special_wrapping_updatepos):
             raise InputError(
@@ -775,6 +776,30 @@ class MolecularDynamicsEngine:
                 "(as mm_theory in a new QMMMTheory for QM/MM)."
             )
 
+    def _validate_drude_dynamics(self, *, integrator: str, barostat: str | None, anderson_thermostat: bool) -> None:
+        """Require an integrator that treats Drude displacement degrees of freedom correctly."""
+        drude_integrators = {"DrudeLangevinIntegrator", "DrudeSCFIntegrator"}
+        has_drudes = any(isinstance(force, openmm.DrudeForce) for force in self.openmmobject.system.getForces())
+        if not has_drudes:
+            if integrator in drude_integrators:
+                raise InputError(f"{integrator} requires a system containing a DrudeForce.")
+            return
+        if integrator not in drude_integrators:
+            raise InputError(
+                "Drude dynamics requires DrudeLangevinIntegrator or DrudeSCFIntegrator. "
+                "Ordinary thermostats and nuclear-quantum integrators do not correctly treat Drude particles."
+            )
+        if integrator == "DrudeLangevinIntegrator" and anderson_thermostat:
+            raise InputError(
+                "An Andersen thermostat cannot be combined with DrudeLangevinIntegrator: "
+                "it would heat the Drude displacements above their separate cold-bath temperature."
+            )
+        if integrator == "DrudeSCFIntegrator" and barostat is not None and not anderson_thermostat:
+            raise InputError(
+                "DrudeSCFIntegrator with a barostat requires anderson_thermostat=True, "
+                "or use DrudeLangevinIntegrator for thermostatted Drude dynamics."
+            )
+
     def _configure_rpmd_copies(
         self, *, is_rpmd: bool, rpmd_num_copies: int | None, rpmd_qm_num_copies: int | None
     ) -> None:
@@ -904,6 +929,14 @@ class MolecularDynamicsEngine:
 
     def _configure_integrator_and_barostat(self, *, barostat: str | None, anderson_thermostat: bool) -> None:
         """Add or drop the barostat/thermostat, then hand the integrator settings to OpenMM."""
+        # Remove controls disabled for this stage, including an old hot shell
+        # thermostat when a Drude Langevin stage retains its barostat.
+        for index in reversed(range(self.openmmobject.system.getNumForces())):
+            force = self.openmmobject.system.getForce(index)
+            if (isinstance(force, openmm.AndersenThermostat) and not anderson_thermostat) or (
+                isinstance(force, openmm.MonteCarloBarostat) and barostat is None
+            ):
+                self.openmmobject.system.removeForce(index)
         forceclassnames = [force.__class__.__name__ for force in self.openmmobject.system.getForces()]
         if barostat is not None:
             if "MonteCarloBarostat" in forceclassnames:
@@ -915,23 +948,18 @@ class MolecularDynamicsEngine:
                 montecarlobarostat.setFrequency(self.barostat_frequency)
                 self.openmmobject.system.addForce(montecarlobarostat)
                 logger.info("Barostat added")
-            self.integrator = "LangevinMiddleIntegrator"
-            logger.info("Barostat requires using integrator: %s", self.integrator)
-        elif anderson_thermostat is True:
+            if self.integrator not in {"DrudeLangevinIntegrator", "DrudeSCFIntegrator"}:
+                self.integrator = "LangevinMiddleIntegrator"
+            logger.info("Barostat uses integrator: %s", self.integrator)
+        if anderson_thermostat and (barostat is None or self.integrator == "DrudeSCFIntegrator"):
             logger.info("Anderson thermostat is on.")
             if "AndersenThermostat" not in forceclassnames:
                 self.openmmobject.system.addForce(
                     openmm.AndersenThermostat(self.temperature * openmm.unit.kelvin, 1 / openmm.unit.picosecond)
                 )
-            self.integrator = "VerletIntegrator"
+            if self.integrator != "DrudeSCFIntegrator":
+                self.integrator = "VerletIntegrator"
             logger.debug("Now using integrator: %s", self.integrator)
-        else:
-            # Highest index first: removeForce renumbers every force above the one it removes
-            for index, forcename in reversed(list(enumerate(forceclassnames))):
-                if forcename in {"MonteCarloBarostat", "AndersenThermostat"}:
-                    logger.debug("Removing old force: %s", forcename)
-                    self.openmmobject.system.removeForce(index)
-
         self.openmmobject.set_simulation_parameters(
             timestep=self.timestep,
             temperature=self.temperature,

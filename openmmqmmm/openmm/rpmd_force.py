@@ -20,7 +20,12 @@ RPMD_PYTHON_FORCE_NAME = "openmmqmmm bead-specific external force"
 
 
 def require_rpmd_unconstrained(system: openmm.System) -> None:
-    """Reject constrained Systems before constructing an RPMD Context."""
+    """Reject constraints and classical Drude displacements before constructing RPMD."""
+    if any(isinstance(force, openmm.DrudeForce) for force in system.getForces()):
+        raise InputError(
+            "RPMDIntegrator does not support Drude particles: Drude displacements are electronic "
+            "polarization degrees of freedom and must not be treated as quantum nuclei."
+        )
     num_constraints = system.getNumConstraints()
     if num_constraints:
         raise InputError(

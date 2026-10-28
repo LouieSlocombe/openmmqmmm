@@ -1344,6 +1344,8 @@ class OpenMMTheory:
                 20 / openmm.unit.picosecond,
                 self.timestep * openmm.unit.picoseconds,
             )
+        elif self.integrator_name == "DrudeSCFIntegrator":
+            self.integrator = openmm.DrudeSCFIntegrator(self.timestep * openmm.unit.picoseconds)
         elif self.integrator_name == "RPMDIntegrator":
             logger.info("RPMDIntegrator will be used")
             require_rpmd_unconstrained(self.system)
@@ -1366,6 +1368,7 @@ class OpenMMTheory:
                 "VariableVerletIntegrator",
                 *_THERMOSTAT_INTEGRATORS,
                 "DrudeLangevinIntegrator",
+                "DrudeSCFIntegrator",
                 "RPMDIntegrator",
             )
             raise InputError("Unknown integrator.\n Valid integrator keywords are: " + ", ".join(names))

@@ -155,6 +155,11 @@ def export_rpmd_potential(
             f"export_rpmd_potential requires a QMMMTheory, got {type(theory).__name__}. "
             "Wrap the QM and MM sides in a QMMMTheory first."
         )
+    if any(isinstance(force, openmm.DrudeForce) for force in theory.mm_theory.system.getForces()):
+        raise InputError(
+            "export_rpmd_potential does not support Drude particles, including num_beads=1 exports for QTB. "
+            "Use MolecularDynamicsEngine with DrudeLangevinIntegrator or DrudeSCFIntegrator."
+        )
     if fragment is None:
         fragment = theory.fragment
 
