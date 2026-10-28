@@ -3,12 +3,12 @@
 ## Requirements
 
 - Linux or macOS, Python ≥ 3.12.
-- Every Python dependency is required — there are no feature-gated extras. `pip install .`
-  pulls the full set: ASE, OpenMM 8.6, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd,
+- The base Python dependencies are required. `pip install .`
+  pulls ASE, OpenMM 8.6, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd,
   multiprocess, numpy, scipy and packaging.
 - [ORCA](https://www.faccts.de/orca/), installed separately (free for academic use). It is
   needed for {class}`~openmmqmmm.ORCATheory` and therefore for QM/MM, but not for the
-  pure-MM functionality.
+  pure-MM or ML/MM functionality.
 
 Two pieces cannot come from PyPI, and both are optional in the sense that everything else
 works without them:
@@ -51,10 +51,11 @@ is the full installation guide: the other two routes (Sol cluster, source-built 
 what to do with an environment that already exists, how to put openmmqmmm and openmmnqe in
 one environment, and the equivalent commands run by hand.
 
+(install-openmm-ml)=
 ## Optional OpenMM-ML
 
-[OpenMM-ML](https://github.com/openmm/openmm-ml) 1.8 can share the environment for ML/MM
-workflows. After creating the base environment, run from the repository root:
+[OpenMM-ML](https://github.com/openmm/openmm-ml) 1.8 is an optional dependency for
+{class}`~openmmqmmm.MLMMTheory`. After creating the base environment, run from the repository root:
 
 ```bash
 conda env update -n openmmqmmm -f build_tools/environment_ml.yml
@@ -66,6 +67,9 @@ This pins OpenMM 8.6.1 and OpenMM-ML 1.8. OpenMM-ML itself requires Python 3.11 
 below this package's own 3.12 floor. Omit `--prune` so the base environment's
 packages remain installed. Model-specific backends and pretrained weights are separate
 installs; see the [OpenMM-ML documentation](https://openmm.github.io/openmm-ml/).
+The base package imports without OpenMM-ML. See {doc}`guide/mlmm` for selecting a model
+and a complete-molecule ML region. Models may fetch pretrained weights on first use;
+prepare their backend and weights before running on a machine without network access.
 
 ## pip
 
@@ -80,7 +84,8 @@ pip install .
 
 This is the route the documentation build uses. It leaves out forcefill and PLUMED, so
 `openmm_modeller(parameterize_nonstandard=True)` and
-{func}`~openmmqmmm.openmm_md_plumed` are unavailable; everything else works. openff-toolkit,
+{func}`~openmmqmmm.openmm_md_plumed` are unavailable. ML/MM additionally needs the optional
+dependencies above. openff-toolkit,
 which forcefill needs, is not on PyPI at all, which is why the conda route above is the
 recommended one for a working environment.
 

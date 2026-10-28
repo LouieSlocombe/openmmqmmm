@@ -1,4 +1,4 @@
-# openmmqmmm — ORCA + OpenMM QM/MM
+# openmmqmmm — QM/MM and ML/MM with OpenMM
 
 [![Documentation](https://readthedocs.org/projects/openmmqmmm/badge/?version=latest)](https://openmmqmmm.readthedocs.io/en/latest/)
 [![CI](https://github.com/LouieSlocombe/openmmqmmm/actions/workflows/ci.yml/badge.svg)](https://github.com/LouieSlocombe/openmmqmmm/actions/workflows/ci.yml)
@@ -7,12 +7,14 @@ Electrostatically embedded QM/MM for biomolecular systems, combining the
 [ORCA](https://www.faccts.de/orca/) quantum chemistry program with the
 [OpenMM](https://openmm.org) molecular-mechanics library. Derived from the
 [ASH](https://github.com/RagnarB83/ash) multiscale modelling program and reduced to the
-ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API.
+ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API. Optional
+[OpenMM-ML](https://github.com/openmm/openmm-ml) potentials provide mechanically embedded
+ML/MM calculations and dynamics.
 
 **📖 Full documentation: [openmmqmmm.readthedocs.io](https://openmmqmmm.readthedocs.io)**
 
 `openmmqmmm.__all__` is the public API. Its core is the theory classes `ORCATheory`,
-`OpenMMTheory`, `QMMMTheory`, `OpenMMQMMMCalculator` and `Fragment`, the job functions
+`OpenMMTheory`, `QMMMTheory`, `MLMMTheory`, `OpenMMQMMMCalculator` and `Fragment`, the job functions
 `single_point`, `optimize_geometry` (via [geomeTRIC](https://github.com/leeping/geomeTRIC)),
 `numerical_frequencies`, `analytic_frequencies`, `openmm_md` and `job_parallel`, and the OpenMM
 setup helpers `openmm_modeller`, `openmm_minimize`, `openmm_box_equilibration`,
@@ -40,6 +42,7 @@ For OpenMM-ML 1.8 alongside OpenMM 8.6.1, add the optional ML dependencies with
 `conda env update -n openmmqmmm -f build_tools/environment_ml.yml` after the base install.
 OpenMM-ML's own floor is Python 3.11, below this package's 3.12 requirement; model backends
 and weights are installed separately. See the installation guide for details.
+ML/MM does not require ORCA.
 
 Python 3.12 or newer is required. For a pip-only install from a checkout, every runtime
 dependency resolves from PyPI, but forcefill and PLUMED are left out, so
@@ -93,6 +96,27 @@ The package is silent by default; `configure_logging()` turns on the calculation
 single-point, optimization and frequency functions return a `Results` object and write it to
 a `results_*.json` file.
 
+## ML/MM example
+
+Build a fully parameterized `OpenMMTheory` named `mm` and a matching `Fragment`, then select
+complete molecules by zero-based topology atom indices:
+
+```py
+from openmmqmmm import MLMMTheory, openmm_md
+
+mlatoms = [atom.index for atom in mm.topology.atoms() if atom.residue.name == "LIG"]
+mlmm = MLMMTheory(mm_theory=mm, mlatoms=mlatoms, potential="ani2x")
+openmm_md(fragment=fragment, theory=mlmm, timestep=0.0005, simulation_time=1)
+```
+
+The source MM system is preserved. ML/MM uses classical interactions across the boundary;
+it does not polarize the ML model with MM charges. Covalent bonds across the boundary and
+ML virtual sites are unsupported. Choose a potential trained for your system's chemistry.
+For single points, optimization or frequencies, build `mm` with `autoconstraints=None`
+and `rigidwater=False`. See the
+[ML/MM guide](https://openmmqmmm.readthedocs.io/en/latest/guide/mlmm.html) and the runnable
+[ML/MM example](https://github.com/LouieSlocombe/openmmqmmm/blob/main/examples/mlmm_dynamics.py).
+
 Runnable scripts, including a gas-phase ORCA example, live in
 [examples/](https://github.com/LouieSlocombe/openmmqmmm/tree/main/examples).
 
@@ -104,6 +128,8 @@ Runnable scripts, including a gas-phase ORCA example, live in
   PDB repair, solvation, ions, ligand force fields through forcefill.
 - [QM/MM](https://openmmqmmm.readthedocs.io/en/latest/guide/qmmm.html) — QM region, link atoms,
   embedding, active region.
+- [ML/MM](https://openmmqmmm.readthedocs.io/en/latest/guide/mlmm.html) — OpenMM-ML potentials,
+  complete-molecule regions and mechanical embedding.
 - [Molecular dynamics](https://openmmqmmm.readthedocs.io/en/latest/guide/dynamics.html) —
   integrators, reporters, restarts, PLUMED metadynamics.
 - [Ring-polymer dynamics](https://openmmqmmm.readthedocs.io/en/latest/guide/rpmd.html) — QM/MM

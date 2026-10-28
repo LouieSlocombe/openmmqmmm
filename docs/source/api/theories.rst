@@ -3,7 +3,8 @@ Theory objects
 
 A theory object knows how to turn coordinates into an energy and a gradient. Every job
 function in :doc:`jobs` takes one. ``ORCATheory`` is the QM side, ``OpenMMTheory`` the MM
-side, and ``QMMMTheory`` couples them by electrostatic embedding.
+side, and ``QMMMTheory`` couples them by electrostatic embedding. ``MLMMTheory`` combines
+an OpenMM-ML potential with a classical MM environment by mechanical embedding.
 
 See :doc:`../guide/theories` and :doc:`../guide/qmmm` for how to configure them.
 
@@ -28,6 +29,19 @@ Molecular mechanics
    OpenMMTheory
 
 .. autoclass:: OpenMMTheory
+
+ML/MM
+-----
+
+See :doc:`../guide/mlmm` for model options, region selection and supported jobs.
+
+.. currentmodule:: openmmqmmm
+
+.. autosummary::
+
+   MLMMTheory
+
+.. autoclass:: MLMMTheory
 
 QM/MM
 -----

@@ -59,6 +59,9 @@ from .freq import (
 from .geometric import GeometricOptimizer, optimize_geometry
 from .mdtraj import mdtraj_image_trajectory, mdtraj_rmsf
 
+# Machine-learning/MM
+from .mlmm import MLMMTheory
+
 # Numerical gradient and OpenMM
 from .numgrad import NumGrad
 from .openmm import (
@@ -118,6 +121,7 @@ __all__ = [
     # Core classes
     "Fragment",
     "GeometricOptimizer",
+    "MLMMTheory",
     "MolecularDynamicsEngine",
     "NumGrad",
     "OpenMMQMMMCalculator",

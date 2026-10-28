@@ -3,7 +3,9 @@ openmmqmmm
 
 Electrostatically embedded QM/MM for biomolecular systems, combining the
 `ORCA <https://www.faccts.de/orca/>`_ quantum chemistry program with the
-`OpenMM <https://openmm.org>`_ molecular-mechanics library.
+`OpenMM <https://openmm.org>`_ molecular-mechanics library. Mechanically embedded ML/MM
+is also available through optional `OpenMM-ML <https://github.com/openmm/openmm-ml>`_
+potentials.
 
 The package is derived from the `ASH <https://github.com/RagnarB83/ash>`_ multiscale
 modelling program, reduced to the ORCA + OpenMM QM/MM stack and given a PEP 8 Python API.
@@ -70,6 +72,7 @@ Where to go next
 * :doc:`quickstart` — a first gas-phase calculation, start to finish.
 * :doc:`guide/fragments` — building the ``Fragment`` every job function takes.
 * :doc:`guide/qmmm` — QM region, link atoms, embedding and the active region.
+* :doc:`guide/mlmm` — ML potentials for complete molecules in an MM environment.
 * :doc:`guide/system_setup` — going from a raw PDB file to a solvated, parameterized system.
 * :doc:`guide/dynamics` and :doc:`guide/rpmd` — classical, QM/MM and ring-polymer dynamics.
 * :doc:`api/index` — every name in the public API.
@@ -90,6 +93,7 @@ Where to go next
    guide/fragments
    guide/theories
    guide/qmmm
+   guide/mlmm
    guide/periodic-validation
    guide/system_setup
    guide/jobs

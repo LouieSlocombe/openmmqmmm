@@ -697,6 +697,8 @@ class QMMMTheory:
             self.linkatoms = False
             self.dipole_correction = False
 
+        if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory):
+            self.mm_theory._qmmm_prepared = True
         if self.mm_theory_name == "OpenMMTheory":
             # Constraints act only when OpenMM integrates the system (QM/MM MD), not in energy calls.
             self.mm_theory.remove_constraints_for_atoms(self.qmatoms)

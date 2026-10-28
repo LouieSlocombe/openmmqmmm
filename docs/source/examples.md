@@ -25,6 +25,21 @@ Electrostatically embedded QM/MM: a CHARMM36 protein, an ORCA QM region of eight
 geometry optimization restricted to that region. The shape of most QM/MM work — see
 {doc}`guide/qmmm`.
 
+## mlmm_dynamics.py
+
+```bash
+python examples/mlmm_dynamics.py system.pdb \
+    --forcefield amber14-all.xml amber14/tip3pfb.xml ligand.xml \
+    --ml-residues 1 --potential ani2x --periodic --steps 1000
+```
+
+Mechanically embedded ML/MM: an initial single point followed by a short trajectory.
+Supply a prepared PDB and force-field XML files covering the full system. `--ml-residues`
+selects zero-based topology residue indices, not PDB residue IDs; alternatively use
+`--ml-atoms` with zero-based atom indices. Select complete molecules supported by the
+chosen model. The example needs OpenMM-ML, its model backend and weights, but no ORCA.
+See `--help` for platform and device options and {doc}`guide/mlmm` for limitations.
+
 ## qmmm_rpmd_nqe_stages.py
 
 ```bash

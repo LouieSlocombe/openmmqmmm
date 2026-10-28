@@ -148,6 +148,17 @@ to find out why a system has the energy it has. {func}`~openmmqmmm.openmm.print_
 logs how many atoms a `Modeller` holds, and {func}`~openmmqmmm.openmm.write_xmlfile_nonbonded`
 writes per-residue nonbonded parameters out as an OpenMM force-field XML.
 
+## MLMMTheory
+
+{class}`~openmmqmmm.MLMMTheory` combines an OpenMM-ML potential with an existing MM
+system. Select complete molecules using zero-based `mlatoms` indices; the ML model replaces
+their internal force-field interactions while classical interactions couple them to the
+environment. The source `OpenMMTheory` is copied and remains available independently.
+
+Use it with single points, geometry optimization, numerical frequencies and OpenMM dynamics.
+OpenMM-ML and the model backend are optional dependencies; ORCA is not needed. See
+{doc}`mlmm` for setup, model limitations and constraints.
+
 ## NumGrad
 
 {class}`~openmmqmmm.NumGrad` wraps any theory and produces a gradient by finite differences,
