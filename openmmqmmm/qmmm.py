@@ -15,6 +15,7 @@ from openmm.app import CharmmPsfFile, PDBFile
 import openmmqmmm.constants
 import openmmqmmm.coords
 from openmmqmmm.coords import CONNECTIVITY_SCALE, CONNECTIVITY_TOL, Fragment
+from openmmqmmm.embedding_selection import build_charge_groups, select_charge_groups
 from openmmqmmm.exceptions import (
     InputError,
     InternalError,
@@ -42,7 +43,7 @@ def _validate_qmmm_derivatives(theory: Any) -> None:
     seen = set()
     while theory is not None and id(theory) not in seen:
         seen.add(id(theory))
-        if isinstance(theory, QMMMTheory) and theory.embedding == "elstat" and theory.truncated_pc:
+        if isinstance(theory, QMMMTheory) and theory.embedding == "elstat":
             theory._validate_truncated_pc_settings(require_gradients=True)
         theory = getattr(theory, "theory", None)
 
@@ -66,7 +67,10 @@ class QMMMTheory:
         openmm_externalforce: bool = False,
         truncated_pc: bool = False,
         truncated_pc_radius: float = 55,
-        truncated_pc_recalc_iter: int = 50,
+        truncated_pc_recalc_iter: int = 1,
+        truncated_pc_selection: str = "nearest",
+        truncated_pc_groups: Sequence[Sequence[int]] | None = None,
+        truncated_pc_error_tolerance: float | None = None,
         qm_charge: int | None = None,
         qm_mult: int | None = None,
         chargeboundary_method: str = "shift",
@@ -165,6 +169,25 @@ class QMMMTheory:
 
         self.mmatoms = np.setdiff1d(self.allatoms, self.qmatoms)
 
+        # Validate user controls before charge assignment or force-field mutation
+        # can alter an MM object supplied by the caller.
+        self.truncated_pc = truncated_pc
+        self.truncated_pc_radius = truncated_pc_radius
+        self.truncated_pc_calls = 0
+        self.truncated_pc_recalc_flag = False
+        self.truncated_pc_recalc_iter = truncated_pc_recalc_iter
+        self.truncated_pc_selection = truncated_pc_selection
+        self.truncated_pc_groups = truncated_pc_groups
+        self.truncated_pc_error_tolerance = truncated_pc_error_tolerance
+        self.truncated_pc_diagnostics: dict[str, Any] = {}
+        self._truncated_pc_force_full = False
+        self._truncated_pc_last_error: float | None = None
+        self._truncated_pc_previous_field = None
+        self._truncated_pc_group_key = None
+        self._truncated_pc_groups: list[np.ndarray] = []
+        self._truncated_pc_cache_key = None
+        self._validate_truncated_pc_settings()
+
         polarization_links = self._validate_polarizable_mm(embedding, charges)
 
         # Reject an unsupported native-site partition before assigning charges
@@ -182,14 +205,19 @@ class QMMMTheory:
                 self._topology_neighbors[first].append(second)
                 self._topology_neighbors[second].append(first)
 
+        image_links = list(polarization_links)
+        mm_system = getattr(self.mm_theory, "system", None)
+        if self.mm_theory_name == "OpenMMTheory" and mm_system is not None:
+            for index in range(mm_system.getNumParticles()):
+                if mm_system.isVirtualSite(index):
+                    site = mm_system.getVirtualSite(index)
+                    image_links.extend((index, site.getParticle(parent)) for parent in range(site.getNumParticles()))
+        self._embedding_atom_links = [*topology_bonds, *image_links]
+        self._embedding_atom_groups = [] if topology is not None else copy.deepcopy(self.connectivity)
+
         self._periodic_geometry: PeriodicQMGeometry | None = None
         self._current_periodic_box_vectors: np.ndarray | None = None
         if self.mm_theory_name == "OpenMMTheory" and getattr(self.mm_theory, "periodic", False):
-            image_links = list(polarization_links)
-            for index in range(self.mm_theory.system.getNumParticles()):
-                if self.mm_theory.system.isVirtualSite(index):
-                    site = self.mm_theory.system.getVirtualSite(index)
-                    image_links.extend((index, site.getParticle(parent)) for parent in range(site.getNumParticles()))
             self._periodic_geometry = PeriodicQMGeometry(
                 self.num_allatoms,
                 topology_bonds,
@@ -296,15 +324,11 @@ class QMMMTheory:
         # the same order as the virtual coordinates appended to pointchargecoords.
         self._virtual_site_gradient_mappings: list[tuple[tuple[int, float], ...]] = []
 
-        self.truncated_pc = truncated_pc
-        self.truncated_pc_radius = truncated_pc_radius
-        self.truncated_pc_calls = 0
-        self.truncated_pc_recalc_flag = False
-        self.truncated_pc_recalc_iter = truncated_pc_recalc_iter
-        self._validate_truncated_pc_settings()
-
         if self.truncated_pc is True:
-            logger.info("Truncated PC approximation in QM/MM is active.")
+            if self.truncated_pc_recalc_iter == 1:
+                logger.info("Full-field embedding: refresh interval 1 uses one full QM calculation per evaluation.")
+            else:
+                logger.info("Cached point-charge energies are enabled; error checks occur only at refresh geometries.")
             logger.info("truncated_pc_radius: %s", self.truncated_pc_radius)
             logger.info("truncated_pc_recalc_iter: %s", self.truncated_pc_recalc_iter)
 
@@ -538,6 +562,9 @@ class QMMMTheory:
 
     def _validate_truncated_pc_settings(self, *, require_gradients: bool = False) -> None:
         """Validate truncation controls and refuse nonconservative cached gradients."""
+        if not isinstance(self.truncated_pc, (bool, np.bool_)):
+            raise InputError("truncated_pc must be a Boolean")
+        self.truncated_pc = bool(self.truncated_pc)
         self.truncated_pc_radius = require_positive_finite(
             self.truncated_pc_radius, "truncated_pc_radius must be a positive finite number"
         )
@@ -545,12 +572,100 @@ class QMMMTheory:
             self.truncated_pc_recalc_iter, "truncated_pc_recalc_iter must be an integer greater than or equal to 1"
         )
         self.truncated_pc_recalc_iter = interval
-        if require_gradients and interval != 1:
+        if not isinstance(self.truncated_pc_selection, str) or self.truncated_pc_selection not in {
+            "nearest",
+            "centroid",
+        }:
+            raise InputError("truncated_pc_selection must be 'nearest' or 'centroid'")
+        if self.truncated_pc_error_tolerance is not None:
+            self.truncated_pc_error_tolerance = require_positive_finite(
+                self.truncated_pc_error_tolerance, "truncated_pc_error_tolerance must be a positive finite energy in Eh"
+            )
+        try:
+            groups = (
+                () if self.truncated_pc_groups is None else tuple(tuple(group) for group in self.truncated_pc_groups)
+            )
+        except TypeError:
+            raise InputError("truncated_pc_groups must be a sequence of atom-index groups") from None
+        for group in groups:
+            if not group or any(
+                isinstance(index, (bool, np.bool_))
+                or not isinstance(index, (int, np.integer))
+                or not 0 <= index < self.num_allatoms
+                for index in group
+            ):
+                raise InputError("truncated_pc_groups must contain nonempty groups of valid full-system atom indices")
+            if len(set(group)) != len(group):
+                raise InputError("truncated_pc_groups must not repeat an atom within a group")
+        self.truncated_pc_groups = tuple(sorted({tuple(sorted(int(index) for index in group)) for group in groups}))
+        if require_gradients and self.truncated_pc and interval != 1:
             raise InputError(
                 "Cached truncated-PC corrections do not provide gradients consistent with the reported energy. "
                 "Disable truncated_pc or set truncated_pc_recalc_iter=1 for gradients, optimization, "
                 "or numerical frequencies. Cached corrections remain available for energy-only calculations."
             )
+
+    def _invalidate_truncated_pc_cache(self) -> None:
+        """Discard corrections that no longer match the selected field or QM state."""
+        self._truncated_pc_cache_key = None
+        for name in ("truncPC_E_correction", "original_QMcorrection_gradient", "original_PCcorrection_gradient"):
+            with contextlib.suppress(AttributeError):
+                delattr(self, name)
+
+    def reset_truncated_pc_cache(self) -> None:
+        """Clear corrections, error diagnostics and full-field fallback after changing backend settings.
+
+        The next cached energy evaluation recalibrates against the full field.
+        Resetting does not make cached energies suitable for derivatives or MD.
+        """
+        self._invalidate_truncated_pc_cache()
+        self._truncated_pc_force_full = False
+        self._truncated_pc_last_error = None
+        self._truncated_pc_previous_field = None
+        self.truncated_pc_diagnostics = {}
+
+    def _charge_groups(self) -> list[np.ndarray]:
+        """Build complete charge groups from molecular and charge-placement dependencies."""
+        virtual_parents = tuple(
+            tuple(index for index, _weight in mapping) for mapping in self._virtual_site_gradient_mappings
+        )
+        group_key = (self.truncated_pc_groups, virtual_parents)
+        if self._truncated_pc_group_key != group_key:
+            # In topology-free boundary models, preserve every known boundary
+            # bond and charge-redistribution dependency as well.
+            links = list(self._embedding_atom_links)
+            links.extend((qm, mm) for qm, atoms in getattr(self, "boundaryatoms", {}).items() for mm in atoms)
+            links.extend((mm1, mm2) for mm1, atoms in getattr(self, "MMboundarydict", {}).items() for mm2 in atoms)
+            self._truncated_pc_groups = build_charge_groups(
+                self.num_allatoms,
+                self.mmatoms,
+                atom_groups=(*self._embedding_atom_groups, *self.truncated_pc_groups),
+                atom_links=links,
+                virtual_site_parents=virtual_parents,
+            )
+            self._truncated_pc_group_key = group_key
+        return self._truncated_pc_groups
+
+    def _record_truncated_pc_diagnostics(self, mode: str, indices: Sequence[int]) -> None:
+        charges = np.asarray(self.pointcharges_original)
+        selected_charge = float(charges[np.asarray(indices, dtype=int)].sum())
+        self.truncated_pc_diagnostics = {
+            "mode": mode,
+            "selected_count": len(indices),
+            "full_count": len(charges),
+            "selected_charge": selected_charge,
+            "full_charge": float(charges.sum()),
+            "last_refresh_error": self._truncated_pc_last_error,
+            "fallback": self._truncated_pc_force_full,
+        }
+        logger.info(
+            "Embedding field: %s, %s/%s sites, selected charge %.8f e (full %.8f e)",
+            mode,
+            len(indices),
+            len(charges),
+            selected_charge,
+            float(charges.sum()),
+        )
 
     def truncated_pc_function(self, used_qmcoords: np.ndarray, *, require_gradients: bool) -> None:
         """Reduce the point-charge field to the atoms near the QM region."""
@@ -558,26 +673,39 @@ class QMMMTheory:
         self.truncated_pc_calls += 1
         logger.info("TruncatedPC approximation!")
         energy_correction_missing = not hasattr(self, "truncPC_E_correction")
-        gradient_correction_missing = require_gradients and not all(
-            hasattr(self, name) for name in ("original_QMcorrection_gradient", "original_PCcorrection_gradient")
-        )
+        self._truncated_pc_previous_field = None
         scheduled_recalculation = (
             self.truncated_pc_calls == 1 or self.truncated_pc_calls % self.truncated_pc_recalc_iter == 0
         )
-        if scheduled_recalculation or energy_correction_missing or gradient_correction_missing:
+        if scheduled_recalculation or energy_correction_missing:
+            if not energy_correction_missing:
+                self._truncated_pc_previous_field = (self.truncated_PC_region_indices.copy(), self.truncPC_E_correction)
+            # Selection changes before the two QM calls complete. A failed refresh
+            # must never leave an old correction available for the new selection.
+            self._invalidate_truncated_pc_cache()
             self.truncated_pc_recalc_flag = True
             logger.debug(
                 f"This is QM/MM run no. {self.truncated_pc_calls}.  Will calculate Full-Trunc correction in this step"
             )
-            origincoords = openmmqmmm.coords.get_centroid(used_qmcoords)
-            self.determine_truncated_pc_indices(origincoords)
+            reference_coords = (
+                used_qmcoords[: len(self.qmatoms)] if self.truncated_pc_selection == "nearest" else used_qmcoords
+            )
+            self.determine_truncated_pc_indices(reference_coords)
             logger.info(f"Truncated PC-region size: {len(self.truncated_PC_region_indices)} charges")
             # self.pointcharges may already be truncated by an earlier call; runprep's copy is the full field.
             self.pointcharges_full = copy.copy(self.pointcharges_original)
             self.pointchargecoords_full = copy.copy(self.pointchargecoords)
 
-            self.pointcharges = [self.pointcharges_full[i] for i in self.truncated_PC_region_indices]
-            self.pointchargecoords = np.take(self.pointchargecoords_full, self.truncated_PC_region_indices, axis=0)
+            # Evaluate the previous field first when measuring its actual error
+            # at this geometry. A changed selection is evaluated before the full
+            # field, which stays last so backend properties match the result.
+            initial_indices = (
+                self._truncated_pc_previous_field[0]
+                if self._truncated_pc_previous_field is not None
+                else self.truncated_PC_region_indices
+            )
+            self.pointcharges = [self.pointcharges_full[i] for i in initial_indices]
+            self.pointchargecoords = np.take(self.pointchargecoords_full, initial_indices, axis=0)
         else:
             self.truncated_pc_recalc_flag = False
             logger.info(
@@ -589,9 +717,14 @@ class QMMMTheory:
             self.pointchargecoords = np.take(self.pointchargecoords, self.truncated_PC_region_indices, axis=0)
 
     def determine_truncated_pc_indices(self, origincoords: Sequence[float] | np.ndarray) -> None:
-        """Select into self.truncated_PC_region_indices the point charges within truncated_pc_radius of origincoords."""
-        self.truncated_PC_region_indices = openmmqmmm.coords._indices_within_radius(
-            self.pointchargecoords, origincoords, self.truncated_pc_radius
+        """Select complete charge groups near the supplied QM reference coordinates."""
+        reference_coords = np.asarray(origincoords).reshape(-1, 3)
+        self.truncated_PC_region_indices = select_charge_groups(
+            self.pointchargecoords,
+            reference_coords,
+            self._charge_groups(),
+            self.truncated_pc_radius,
+            selection=self.truncated_pc_selection,
         ).tolist()
 
     def calculate_trunc_pc_gradient_correction(
@@ -1255,32 +1388,15 @@ class QMMMTheory:
         PCgradient: np.ndarray,
         used_qmcoords: np.ndarray,
         current_coords: np.ndarray,
-        charge: int,
-        mult: int,
-        numcores: int,
     ) -> None:
         """Turn this step's QM and point-charge gradients into self.QM_PC_gradient."""
         prep_start = time.time()
 
-        if self.truncated_pc is not True:
-            self.QMenergy = QMenergy
-            self.QMgradient = QMgradient
-            self.PCgradient = PCgradient
-        elif self.truncated_pc_recalc_flag is True:
-            self._recalculate_truncated_pc_correction(
-                QMenergy=QMenergy,
-                QMgradient=QMgradient,
-                PCgradient=PCgradient,
-                used_qmcoords=used_qmcoords,
-                charge=charge,
-                mult=mult,
-                numcores=numcores,
-            )
-        else:
-            checkpoint = time.time()
-            self.QMenergy = QMenergy + self.truncPC_E_correction
-            self.QMgradient, self.PCgradient = self.truncated_pc_gradient_update(QMgradient, PCgradient)
-            log_time_since(checkpoint, "trunc pcgrad update")
+        # Derivative validation permits only the full field. Interval 1 now
+        # evaluates that field directly, with no second QM call or reconstruction.
+        self.QMenergy = QMenergy
+        self.QMgradient = QMgradient
+        self.PCgradient = PCgradient
 
         self.QMgradient_wo_linkatoms = self._qm_gradient_without_linkatoms(self.QMgradient)
         checkpoint = time.time()
@@ -1292,45 +1408,6 @@ class QMMMTheory:
             log_time_since(checkpoint, "linkatomgrad prepare")
         log_time_since(prep_start, "QM/MM gradient prepare")
 
-    def _recalculate_truncated_pc_correction(
-        self,
-        *,
-        QMenergy: float,
-        QMgradient: np.ndarray,
-        PCgradient: np.ndarray,
-        used_qmcoords: np.ndarray,
-        charge: int,
-        mult: int,
-        numcores: int,
-    ) -> None:
-        """Run the full point-charge field once to calibrate the truncated-PC energy and gradient."""
-        full_start = time.time()
-        logger.info("Now calculating full QM and PC gradient")
-        logger.info("Number of PCs provided to QM-program: %s", len(self.pointcharges_full))
-        QMenergy_full, QMgradient_full, PCgradient_full = self._run_qm(
-            used_qmcoords,
-            pointchargecoords=self.pointchargecoords_full,
-            pointcharges=self.pointcharges_full,
-            charge=charge,
-            mult=mult,
-            grad=True,
-            numcores=numcores,
-        )
-        log_time_since(full_start, "trunc-pc full calculation")
-
-        self.truncPC_E_correction = QMenergy_full - QMenergy
-        logger.info(f"Truncated PC energy correction: {self.truncPC_E_correction} Eh")
-        self.QMenergy = QMenergy + self.truncPC_E_correction
-
-        checkpoint = time.time()
-        self.calculate_trunc_pc_gradient_correction(QMgradient_full, PCgradient_full, QMgradient, PCgradient)
-        log_time_since(checkpoint, "calculate_truncPC_gradient_correction")
-
-        checkpoint = time.time()
-        self.QMgradient, self.PCgradient = self.truncated_pc_gradient_update(QMgradient, PCgradient)
-        log_time_since(checkpoint, "truncPC_gradient update ")
-        log_time_since(full_start, "trunc-full-step pcgrad update")
-
     def _prepare_truncated_pc_energy(
         self,
         *,
@@ -1341,24 +1418,64 @@ class QMMMTheory:
         numcores: int,
     ) -> None:
         """Apply or refresh the full-field correction for an energy-only call."""
+        selection_is_full = len(self.truncated_PC_region_indices) == len(self.pointcharges_original)
         if self.truncated_pc_recalc_flag:
-            full_energy = self._run_qm(
-                used_qmcoords,
-                pointchargecoords=self.pointchargecoords_full,
-                pointcharges=self.pointcharges_full,
-                charge=charge,
-                mult=mult,
-                grad=False,
-                numcores=numcores,
+            previous = self._truncated_pc_previous_field
+            previous_prediction = None if previous is None else QMenergy + previous[1]
+            if previous is not None and previous[0] != self.truncated_PC_region_indices:
+                self.pointcharges = [self.pointcharges_full[i] for i in self.truncated_PC_region_indices]
+                self.pointchargecoords = np.take(self.pointchargecoords_full, self.truncated_PC_region_indices, axis=0)
+                QMenergy = self._run_qm(
+                    used_qmcoords,
+                    pointchargecoords=self.pointchargecoords,
+                    pointcharges=self.pointcharges,
+                    charge=charge,
+                    mult=mult,
+                    grad=False,
+                    numcores=numcores,
+                )
+            # Complete-molecule grouping can select the entire environment. The
+            # subset result is already full in that case; do not run it twice.
+            full_energy = (
+                QMenergy
+                if selection_is_full
+                else self._run_qm(
+                    used_qmcoords,
+                    pointchargecoords=self.pointchargecoords_full,
+                    pointcharges=self.pointcharges_full,
+                    charge=charge,
+                    mult=mult,
+                    grad=False,
+                    numcores=numcores,
+                )
             )
             self.truncPC_E_correction = full_energy - QMenergy
-            # A scheduled energy-only recalibration has no current full-field
-            # gradients. Do not let a later gradient call reuse an older geometry's
-            # correction merely because those attributes still exist.
-            for name in ("original_QMcorrection_gradient", "original_PCcorrection_gradient"):
-                with contextlib.suppress(AttributeError):
-                    delattr(self, name)
-        self.QMenergy = QMenergy + self.truncPC_E_correction
+            if previous_prediction is not None:
+                self._truncated_pc_last_error = float(previous_prediction - full_energy)
+                logger.info(
+                    "Observed cached embedding energy error at refresh: %.12g Eh", self._truncated_pc_last_error
+                )
+                if (
+                    self.truncated_pc_error_tolerance is not None
+                    and abs(self._truncated_pc_last_error) > self.truncated_pc_error_tolerance
+                ):
+                    self._truncated_pc_force_full = True
+                    logger.warning(
+                        "Cached embedding error %.12g Eh exceeds tolerance %.12g Eh. "
+                        "Using the full field until reset_truncated_pc_cache() or a configuration change. "
+                        "This check does not bound errors between refreshes.",
+                        self._truncated_pc_last_error,
+                        self.truncated_pc_error_tolerance,
+                    )
+            self.QMenergy = full_energy
+            self._record_truncated_pc_diagnostics(
+                "full" if selection_is_full else "refresh", self.truncated_PC_region_indices
+            )
+        else:
+            self.QMenergy = QMenergy + self.truncPC_E_correction
+            self._record_truncated_pc_diagnostics(
+                "full" if selection_is_full else "cached", self.truncated_PC_region_indices
+            )
 
     def elstat_run(
         self,
@@ -1372,19 +1489,45 @@ class QMMMTheory:
         mult: int | None = None,
     ) -> float | tuple[float, np.ndarray]:
         """Run electrostatic embedding: the QM region sees the MM charges as point charges."""
-        if self.truncated_pc is True:
-            self._validate_truncated_pc_settings(require_gradients=grad)
+        self._validate_truncated_pc_settings(require_gradients=grad)
         module_init_time = time.time()
         CheckpointTime = time.time()
 
         used_mmcoords, used_qmcoords = self._prepare_run(current_coords, "Electrostatic")
 
+        # Every call starts from matching full charge/coordinate arrays, including
+        # the first call after truncation has been disabled.
+        self.pointcharges = copy.copy(self.pointcharges_original)
         self.pointchargecoords = self._pointcharge_coords(used_mmcoords, current_coords)
 
+        cached_field = False
         if self.truncated_pc is True:
-            self.truncated_pc_function(used_qmcoords, require_gradients=grad)
-
-            # Modifies self.pointcharges and self.pointchargecoords
+            cache_key = (
+                id(self.qm_theory),
+                charge,
+                mult,
+                self.truncated_pc_radius,
+                self.truncated_pc_recalc_iter,
+                self.truncated_pc_selection,
+                self.truncated_pc_groups,
+                self.truncated_pc_error_tolerance,
+            )
+            if self._truncated_pc_cache_key != cache_key:
+                self.reset_truncated_pc_cache()
+            if self.truncated_pc_recalc_iter == 1 or self._truncated_pc_force_full:
+                self.truncated_pc_calls += 1
+                self.truncated_pc_recalc_flag = True
+                self._invalidate_truncated_pc_cache()
+                # No approximate correction exists in this path. Preserve the
+                # fallback latch even if the full-field backend call fails.
+                self._truncated_pc_cache_key = cache_key
+            else:
+                cached_field = True
+                self.truncated_pc_function(used_qmcoords, require_gradients=grad)
+                # Commit only after successful QM work; retry failed refreshes.
+                self._truncated_pc_cache_key = None
+        else:
+            self.reset_truncated_pc_cache()
 
         numcores = self._resolve_numcores(numcores)
 
@@ -1425,11 +1568,8 @@ class QMMMTheory:
                 PCgradient=PCgradient,
                 used_qmcoords=used_qmcoords,
                 current_coords=current_coords,
-                charge=charge,
-                mult=mult,
-                numcores=numcores,
             )
-        elif self.truncated_pc:
+        elif cached_field:
             self._prepare_truncated_pc_energy(
                 QMenergy=QMenergy,
                 used_qmcoords=used_qmcoords,
@@ -1439,6 +1579,11 @@ class QMMMTheory:
             )
         else:
             self.QMenergy = QMenergy
+
+        if self.truncated_pc:
+            self._truncated_pc_cache_key = cache_key
+            if not cached_field:
+                self._record_truncated_pc_diagnostics("full", range(len(self.pointcharges_original)))
 
         return self._finish(
             current_coords,
@@ -1481,7 +1626,7 @@ class QMMMTheory:
             )
             logger.info("Note: MM energy also contains the QM-MM Lennard-Jones interaction\n")
         energywarning = ""
-        if electrostatic and self.truncated_pc:
+        if electrostatic and self.truncated_pc and self.truncated_pc_diagnostics.get("mode") == "cached":
             logger.warning("Truncated PC approximation is active. QM and QM/MM energies are approximate.")
             energywarning = "(approximate)"
 

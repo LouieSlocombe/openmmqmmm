@@ -31,7 +31,7 @@ class _HarmonicFieldQM:
 def _theory(**kwargs):
     fragment = Fragment(elems=["H", "He"], coords=[[0.0, 0, 0], [5.0, 0, 0]], charge=0, mult=1, conncalc=False)
     qm = _HarmonicFieldQM()
-    options = {"truncated_pc": True, "truncated_pc_radius": 1.0}
+    options = {"truncated_pc": True, "truncated_pc_radius": 1.0, "truncated_pc_recalc_iter": 50}
     options.update(kwargs)
     theory = QMMMTheory(
         fragment=fragment,
@@ -178,3 +178,144 @@ def test_optimizer_rejects_cached_corrections_before_setup(num_grad, tmp_path):
         optimize_geometry(theory=theory, fragment=fragment, num_grad=num_grad)
     assert qm.calls == []
     assert set(tmp_path.iterdir()) == before
+
+
+@pytest.mark.parametrize("enabled", [np.bool_(True), np.bool_(False)])
+def test_numpy_boolean_truncation_runs_consistently(enabled):
+    theory, fragment, _qm = _theory(truncated_pc=enabled, truncated_pc_recalc_iter=1)
+    reference, _fragment, _qm = _theory(truncated_pc=False)
+    assert theory.truncated_pc is bool(enabled)
+    assert theory.run(current_coords=fragment.coords) == reference.run(current_coords=fragment.coords)
+
+
+@pytest.mark.parametrize("enabled", [0, 1, "true", None, [], np.array([True, False])])
+def test_invalid_truncation_flag_is_rejected(enabled):
+    with pytest.raises(InputError, match="truncated_pc must be a Boolean"):
+        _theory(truncated_pc=enabled)
+    theory, fragment, qm = _theory()
+    theory.truncated_pc = enabled
+    with pytest.raises(InputError, match="truncated_pc must be a Boolean"):
+        theory.run(current_coords=fragment.coords)
+    assert qm.calls == []
+    assert theory.runcalls == 0
+
+
+def test_disable_and_reenable_truncation_restores_full_field_and_refreshes():
+    theory, fragment, qm = _theory()
+    reference, _fragment, _qm = _theory(truncated_pc=False)
+    theory.run(current_coords=fragment.coords)
+    theory.truncated_pc = False
+    changed = fragment.coords.copy()
+    changed[1, 0] += 1
+    energy, gradient = theory.run(current_coords=changed, grad=True)
+    expected_energy, expected_gradient = reference.run(current_coords=changed, grad=True)
+    assert energy == expected_energy
+    assert gradient == pytest.approx(expected_gradient)
+
+    theory.truncated_pc = True
+    assert theory.run(current_coords=changed) == expected_energy
+    assert qm.calls[-2:] == [(False, 0), (False, 1)]
+
+
+@pytest.mark.parametrize("state", [{"charge": 1, "mult": 1}, {"charge": 0, "mult": 3}])
+def test_changed_electronic_state_refreshes_correction(state, monkeypatch):
+    theory, fragment, qm = _theory()
+    theory.qm_charge = theory.qm_mult = None
+    original_run = qm.run
+
+    def state_dependent_run(*, charge, mult, **kwargs):
+        return (charge + mult) * original_run(**kwargs)
+
+    monkeypatch.setattr(qm, "run", state_dependent_run)
+    initial = theory.run(current_coords=fragment.coords, charge=0, mult=1)
+    energy = theory.run(current_coords=fragment.coords, **state)
+    assert energy == pytest.approx((state["charge"] + state["mult"]) * initial)
+    assert len(qm.calls) == 4
+
+
+@pytest.mark.parametrize("control", ["radius", "interval", "backend"])
+def test_changed_truncation_configuration_refreshes_correction(control):
+    theory, fragment, qm = _theory()
+    theory.run(current_coords=fragment.coords)
+    changed = fragment.coords.copy()
+    changed[1, 0] += 1
+    if control == "radius":
+        theory.truncated_pc_radius = 10.0
+    elif control == "interval":
+        theory.truncated_pc_recalc_iter = 10
+    else:
+        qm = theory.qm_theory = _HarmonicFieldQM()
+    reference, _fragment, _qm = _theory(truncated_pc=False)
+    before = len(qm.calls)
+    assert theory.run(current_coords=changed) == reference.run(current_coords=changed)
+    assert theory.truncated_pc_recalc_flag is True
+    assert qm.calls[before:] == ([(False, 1)] if control == "radius" else [(False, 0), (False, 1)])
+
+
+@pytest.mark.parametrize("failed_call", [1, 2])
+def test_failed_refresh_is_recalculated_before_reusing_correction(failed_call, monkeypatch):
+    theory, fragment, qm = _theory(truncated_pc_recalc_iter=3)
+    theory.run(current_coords=fragment.coords)
+    theory.run(current_coords=fragment.coords)
+    changed = fragment.coords.copy()
+    changed[1, 0] = 0.5  # The scheduled refresh now selects the previously omitted site.
+    original_run = qm.run
+    attempts = 0
+
+    def fail_during_refresh(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == failed_call:
+            raise RuntimeError("simulated SCF failure")
+        return original_run(**kwargs)
+
+    monkeypatch.setattr(qm, "run", fail_during_refresh)
+    with pytest.raises(RuntimeError, match="simulated SCF failure"):
+        theory.run(current_coords=changed)
+    monkeypatch.setattr(qm, "run", original_run)
+
+    reference, _fragment, _qm = _theory(truncated_pc=False)
+    before = len(qm.calls)
+    assert theory.run(current_coords=changed) == reference.run(current_coords=changed)
+    assert theory.truncated_pc_recalc_flag is True
+    assert qm.calls[before:] == [(False, 1)]
+
+
+def test_failed_cached_evaluation_forces_full_refresh_on_retry(monkeypatch):
+    theory, fragment, qm = _theory()
+    theory.run(current_coords=fragment.coords)
+    changed = fragment.coords.copy()
+    changed[1, 0] += 1
+    original_run = qm.run
+
+    def fail_cached_call(**_kwargs):
+        raise RuntimeError("simulated SCF failure")
+
+    monkeypatch.setattr(qm, "run", fail_cached_call)
+    with pytest.raises(RuntimeError, match="simulated SCF failure"):
+        theory.run(current_coords=changed)
+    monkeypatch.setattr(qm, "run", original_run)
+
+    reference, _fragment, _qm = _theory(truncated_pc=False)
+    assert theory.run(current_coords=changed) == reference.run(current_coords=changed)
+    assert qm.calls[-2:] == [(False, 0), (False, 1)]
+
+
+@pytest.mark.parametrize("grad", [False, True])
+def test_refresh_returns_full_backend_result_without_cancellation(grad, monkeypatch):
+    theory, fragment, qm = _theory(truncated_pc_recalc_iter=1)
+
+    def disparate_fields(*, current_coords, current_mm_coords, grad, **_kwargs):
+        value = 1.0 if len(current_mm_coords) else 1e20
+        if grad:
+            return value, np.full_like(current_coords, value), np.full_like(current_mm_coords, value)
+        return value
+
+    monkeypatch.setattr(qm, "run", disparate_fields)
+    result = theory.run(current_coords=fragment.coords, grad=grad)
+    if grad:
+        energy, gradient = result
+        assert energy == 1.0
+        assert gradient == pytest.approx(np.ones_like(fragment.coords))
+    else:
+        assert result == 1.0

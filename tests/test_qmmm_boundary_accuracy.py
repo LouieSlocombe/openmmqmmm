@@ -110,7 +110,7 @@ def test_truncated_full_refresh_includes_cap_and_virtual_charge_gradients(placem
     energy, gradient = theory.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
     gradient = gradient.copy()
 
-    assert theory.original_QMcorrection_gradient.shape == (len(theory.qmatoms) + theory.num_linkatoms, 3)
+    assert theory.QMgradient.shape == (len(theory.qmatoms) + theory.num_linkatoms, 3)
     assert energy == pytest.approx(reference_energy, abs=1.0e-14)
     assert gradient == pytest.approx(reference_gradient, abs=1.0e-14)
     assert gradient == pytest.approx(_finite_difference(theory, fragment), abs=2.0e-9)
@@ -144,7 +144,7 @@ def test_zero_theory_supports_truncated_pc_full_refresh(grad):
     )
     result = theory.run(current_coords=fragment.coords, grad=grad)
     assert theory.linkatoms is True
-    assert theory.truncPC_E_correction == 0.0
+    assert theory.truncated_pc_diagnostics["mode"] == "full"
     if grad:
         energy, gradient = result
         assert energy == 0.0

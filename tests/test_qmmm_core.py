@@ -265,7 +265,7 @@ class _PointChargeHarmonicQM(_ConstantGradientQM):
         return energy, qm_gradient
 
 
-def test_truncated_pc_energy_then_gradient_initializes_both_corrections():
+def test_truncated_pc_energy_then_gradient_uses_the_full_field():
     fragment = Fragment(
         elems=["H", "H"],
         coords=[[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]],
@@ -306,8 +306,8 @@ def test_truncated_pc_energy_then_gradient_initializes_both_corrections():
     assert energy_only == pytest.approx(expected_energy)
     assert energy_with_gradient == pytest.approx(expected_energy)
     assert gradient[1] == pytest.approx([-0.25 * 5.0 * ANG_TO_BOHR, 0.0, 0.0])
-    assert hasattr(theory, "original_QMcorrection_gradient")
-    assert hasattr(theory, "original_PCcorrection_gradient")
+    assert theory.truncated_pc_diagnostics["mode"] == "full"
+    assert len(theory.pointcharges) == len(theory.mmatoms)
 
 
 def _boundary_qmmm(chargeboundary_method):
