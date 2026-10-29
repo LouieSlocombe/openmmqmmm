@@ -167,6 +167,10 @@ special-atom, energy and native OpenMM reporters share compatible States, and st
 output do not retrieve positions or energy. This reduces reporting overhead; electronic
 calculations still follow the integrator's force requests and the existing geometry cache.
 
+Set `profile_file="profile.jsonl"` for optional structured force-evaluation and per-step
+statistics; `profile_interval` controls the step-record cadence. See {doc}`output` for the
+timing definitions, cache accounting and profiling overhead.
+
 `datafilename=`
 : The step-by-step state report. Left unset, that report goes to the package logger; set it
   and it goes to a file instead.

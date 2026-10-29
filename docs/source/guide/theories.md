@@ -44,6 +44,10 @@ Useful beyond those:
   copy in long trajectories. Labelled and numbered copies remain independently configurable;
   see {doc}`output`. Output retention does not disable GBW orbital reuse.
 
+`profile=True`
+: Retain JSON-serializable timing, SCF and execution metadata for the latest evaluation in
+  `last_evaluation_stats`; see {doc}`output` for the separate wall and ORCA timing fields.
+
 The theory raises {exc}`~openmmqmmm.ExternalProgramError` when ORCA fails, having scanned the
 output for the error and warning patterns ORCA prints. `ignore_orca_error=True` turns that
 off, for the rare case where a non-zero exit is expected.

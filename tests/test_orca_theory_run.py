@@ -1,6 +1,7 @@
 """ORCATheory.run option branches, driven by a fake orca binary that replays committed ORCA 6.1.1 output."""
 
 import builtins
+import json
 import logging
 import os
 import re
@@ -138,6 +139,13 @@ def test_run_without_gradient_returns_only_the_energy(fake_orca):
     assert Path("orca.args").read_text() == "orca.inp\n"
 
 
+def test_backend_restored_without_new_profile_attributes_still_runs(fake_orca):
+    theory = _theory(fake_orca())
+    del theory.profile, theory.last_evaluation_stats, theory._evaluation_profile
+    assert _run(theory) == _final_energy("h2o_engrad")
+    assert theory.last_evaluation_stats is None
+
+
 def test_plain_scf_run_reads_common_output_once_and_skips_ice_parsing(fake_orca, monkeypatch):
     theory = _theory(fake_orca(), keep_last_output=False)
     original_open = builtins.open
@@ -219,6 +227,89 @@ def test_common_output_summary_preserves_warnings_and_unconverged_energy(fake_or
         _run(theory)
     assert "A useful diagnostic" in caplog.text
     assert Path("orca.out").read_text() == output
+
+
+def test_profile_reports_current_execution_and_separate_orca_timings(fake_orca):
+    theory = _theory(fake_orca("h2o_pc", engrad=FIXTURES / "h2o_engrad.engrad"), profile=True, keep_last_output=False)
+    _run(theory, grad=True, pc=True, current_mm_coords=MM_COORDS, mm_charges=MM_CHARGES, numcores=2)
+
+    stats = json.loads(json.dumps(theory.last_evaluation_stats, allow_nan=False))
+    assert stats["status"] == "success"
+    assert stats["scf_iterations"] == 11
+    assert stats["normal_termination"] is True
+    assert stats["runcall"] == 1
+    assert stats["qm_atom_count"] == 3
+    assert stats["charge_site_count"] == 2
+    assert stats["numcores"] == 2
+    assert (stats["charge"], stats["mult"], stats["grad"], stats["pc"]) == (0, 1, True, True)
+    assert stats["orca_timings_s"]["total_time"] == 0.357
+    assert stats["orca_timings_s"]["time_scfiterations"] == 0.162
+    assert stats["orca_timings_s"]["time_scfgrad"] == 0.117
+    assert stats["orca_timings_s"]["pc_gradient"] == 0.0
+    wall = stats["wall_times_s"]
+    assert all(value >= 0 for value in wall.values())
+    assert wall["total"] == pytest.approx(sum(value for key, value in wall.items() if key != "total"))
+
+    _run(theory)
+    current = theory.last_evaluation_stats
+    assert current["runcall"] == 2
+    assert current["charge_site_count"] == 0
+    assert current["numcores"] == 1
+    assert not current["grad"] and not current["pc"]
+    assert stats["charge_site_count"] == 2
+
+
+@pytest.mark.parametrize("failure", ["validation", "process", "termination", "gradient"])
+def test_profile_failure_replaces_successful_statistics(fake_orca, failure):
+    theory = _theory(fake_orca(), profile=True)
+    _run(theory)
+    previous = theory.last_evaluation_stats
+    options = {}
+    if failure == "validation":
+        options["current_coords"] = None
+    elif failure == "process":
+        theory.orcadir = fake_orca(None, exit_code=1)
+    elif failure == "termination":
+        theory.orcadir = fake_orca(None)
+    else:
+        theory.orcadir = fake_orca("h2o_ice")
+        Path("orca.engrad").unlink()
+        options["grad"] = True
+
+    with pytest.raises((InputError, ExternalProgramError, FileNotFoundError)):
+        _run(theory, **options)
+
+    current = json.loads(json.dumps(theory.last_evaluation_stats, allow_nan=False))
+    assert current["status"] == "failed"
+    assert current["runcall"] == 2
+    assert current["wall_times_s"]["total"] >= 0
+    assert current["error_type"]
+    assert previous["status"] == "success"
+    if failure != "gradient":
+        assert current["scf_iterations"] is None
+        assert current["orca_timings_s"] == {}
+    assert theory._evaluation_profile is None
+
+
+def test_profile_marks_ignored_process_errors(fake_orca):
+    theory = _theory(fake_orca(None, exit_code=1), profile=True, ignore_orca_error=True)
+    assert _run(theory) == 0.0
+    assert theory.last_evaluation_stats["status"] == "ignored_error"
+    assert theory.last_evaluation_stats["error_count"] == 1
+    assert theory.last_evaluation_stats["scf_iterations"] is None
+
+
+def test_disabled_profile_does_not_construct_instrumentation(fake_orca, monkeypatch):
+    theory = _theory(fake_orca(), profile=True)
+    _run(theory)
+    theory.profile = False
+
+    def unexpected_profile(*args, **kwargs):
+        pytest.fail("Disabled profiling must not allocate its instrumentation")
+
+    monkeypatch.setattr(orca, "_ORCAEvaluationProfile", unexpected_profile)
+    _run(theory)
+    assert theory.last_evaluation_stats is None
 
 
 def test_run_with_point_charges_returns_the_point_charge_gradient(fake_orca):

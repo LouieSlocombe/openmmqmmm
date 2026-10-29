@@ -20,6 +20,7 @@ from openmmqmmm.exceptions import (
     InternalError,
 )
 from openmmqmmm.periodic_embedding import PeriodicQMGeometry
+from openmmqmmm.profiling import _profile_phase
 from openmmqmmm.utils import (
     log_time_since,
     main_header,
@@ -413,6 +414,7 @@ class QMMMTheory:
             ]
         ).reshape(-1, 3)
 
+    @_profile_phase("charge_sites")
     def _pointcharge_coords(self, used_mmcoords: np.ndarray, fullcoords: np.ndarray) -> np.ndarray:
         sites = self._boundary_site_coords(fullcoords)
         if hasattr(self, "dipole_coords"):
@@ -817,6 +819,7 @@ class QMMMTheory:
             self._native_virtual_sites = native_sites
         return self._native_virtual_sites
 
+    @_profile_phase("periodic_imaging")
     def _image_periodic_coords(
         self, current_coords: np.ndarray, periodic_box_vectors: np.ndarray | None = None
     ) -> np.ndarray:
@@ -934,6 +937,7 @@ class QMMMTheory:
             raise InternalError("QM/MM force evaluation must return an (energy, gradient) pair.")
         return result
 
+    @_profile_phase("embedding_preparation")
     def _prepare_run(self, current_coords: np.ndarray, embedding_label: str) -> tuple[np.ndarray, np.ndarray]:
         logger.info("Embedding: %s", embedding_label)
 
@@ -988,6 +992,7 @@ class QMMMTheory:
         """Fall back to the theory's own core count when run() was not given one."""
         return self.numcores if numcores == 1 else numcores
 
+    @_profile_phase("qm_backend")
     def _run_qm(
         self,
         used_qmcoords: np.ndarray,
@@ -1241,6 +1246,7 @@ class QMMMTheory:
         self.QMgradient = QMgradient
         return QMgradient[0 : -self.num_linkatoms] if self.linkatoms else QMgradient
 
+    @_profile_phase("gradient_projection")
     def _prepare_qm_pc_gradient(
         self,
         *,

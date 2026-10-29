@@ -73,6 +73,47 @@ ignored errors follow the usual copy policy.
 The common run summary reads termination, SCF iterations, energy, warnings, errors and timings
 in one pass. Optional property tables are read only when requested or detected in the output.
 
+## ORCA evaluation statistics
+
+`ORCATheory(..., profile=True)` sets `theory.last_evaluation_stats` after each `run()`.
+The record contains the current QM atom and point-charge counts, execution settings, SCF
+iterations and status. It is JSON serializable and replaced on every call, including failures;
+profiling is disabled by default and the attribute is then `None`.
+
+`orca_timings_s` contains ORCA's reported component times. `wall_times_s` measures input
+preparation, subprocess execution, common parsing, remaining wrapper work, output copies and
+postprocessing with a monotonic clock. Its `total` includes these phases: do not add it to
+them, or add ORCA component timings to the subprocess wall time. A failed call records only
+the phases it reached. Explicitly ignored ORCA failures have status `ignored_error`.
+
+## QM/MM dynamics profiling
+
+Pass `profile_file="profile.jsonl"` to `MolecularDynamicsEngine` or `openmm_md` to append
+structured records for every force callback and each MD step. `profile_interval=10` groups
+step records into ten-step intervals; the final partial interval is also recorded. Profiling
+is off by default. Enabling it adds clock, file-I/O and scheduling overhead, so compare
+throughput separately with profiling disabled.
+
+`force_evaluation` records identify cache hits versus fresh calculations, atom/QM/cap/charge-site
+counts, the platform and its properties, timestep, bead/contraction settings and callback wall
+time. QM/MM wrapper phases measure periodic imaging, embedding preparation, charge-site
+construction, the QM backend and gradient projection. Fresh ORCA evaluations include the
+backend record described above; cache hits have no backend timings. The backend's original
+`profile` setting is restored after each callback. Failed callbacks produce an error record.
+
+`md_step` records contain the ending step, number of steps, elapsed wall time, fresh-evaluation
+and cache-hit counts, callback wall time and `other_wall_s`. The latter is the remainder,
+including native MM integration, reporting and I/O; it is not an isolated MM kernel timer.
+Step timing starts after initialization and restarts exclude time spent idle between runs.
+Neither record type requests additional energies or forces. Full-ring diagnostic work, when
+enabled, appears as ordinary force evaluations.
+
+Force records carry `simulation_time_ps` and `context_step`. OpenMM's RPMD integrator does not
+advance the Context step counter within a batch, so `context_step` can lag the actual progress;
+use the time and `md_step` records when examining RPMD intervals. Files append across restarts;
+serialized Systems do not retain profiling destinations or timer state. Wrapper/backend totals
+are inclusive: do not add them to their nested phases or ORCA component timings.
+
 ## Errors
 
 Every error the package raises derives from {exc}`~openmmqmmm.OpenMMQMMMError`, and each

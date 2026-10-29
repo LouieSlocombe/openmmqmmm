@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Sequence
 from typing import Any
@@ -13,6 +14,7 @@ import openmm.unit
 
 import openmmqmmm.constants
 from openmmqmmm.exceptions import InputError, InternalError, MissingDependencyError
+from openmmqmmm.profiling import _PHASES, _MDProfile
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,7 @@ class _RPMDPythonForceProvider:
         self.cache_size = max(1, int(cache_size))
         self.evaluation_count = 0
         self.cache_hits = 0
+        self.profile: _MDProfile | None = None
         self._cache = OrderedDict()
         self._lock = threading.RLock()
 
@@ -70,11 +73,13 @@ class _RPMDPythonForceProvider:
         state.pop("_lock", None)
         # Cached force arrays are disposable and can make serialized Systems very large.
         state["_cache"] = OrderedDict()
+        state["profile"] = None
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._cache = OrderedDict(self._cache)
+        self.profile = None
         self._lock = threading.RLock()
 
     def _evaluate(
@@ -92,6 +97,59 @@ class _RPMDPythonForceProvider:
         return tuple(key)
 
     def __call__(self, state: openmm.State) -> tuple[float, npt.NDArray[np.float64]]:
+        if self.profile is None:
+            return self._call(state)
+        # The provider lock also keeps phase/counter snapshots paired with their evaluation.
+        with self._lock:
+            profile = self.profile
+            phases: dict[str, float] = {}
+            token = _PHASES.set(phases)
+            start = time.perf_counter()
+            previous_hits = self.cache_hits
+            backend = getattr(self.theory, "qm_theory", self.theory)
+            previous_backend_stats = getattr(backend, "last_evaluation_stats", None)
+            backend_profiling = getattr(backend, "profile", None)
+            if isinstance(backend_profiling, bool):
+                backend.profile = True
+            status = "success"
+            try:
+                return self._call(state)
+            except Exception:
+                status = "error"
+                raise
+            finally:
+                elapsed = time.perf_counter() - start
+                _PHASES.reset(token)
+                hit = self.cache_hits > previous_hits
+                profile.callback_wall_s += elapsed
+                profile.cache_hits += int(hit)
+                profile.evaluations += int(not hit and status == "success")
+                backend_stats = getattr(backend, "last_evaluation_stats", None)
+                if isinstance(backend_profiling, bool):
+                    backend.profile = backend_profiling
+                if hit or backend_stats is previous_backend_stats:
+                    backend_stats = None
+                profile.emit(
+                    {
+                        "event": "force_evaluation",
+                        "status": status,
+                        "context_step": state.getStepCount(),
+                        "simulation_time_ps": state.getTime().value_in_unit(openmm.unit.picosecond),
+                        "cache_hit": hit,
+                        "evaluation_count": self.evaluation_count,
+                        "atom_count": len(self.elems),
+                        "qm_atom_count": len(getattr(self.theory, "qmatoms", self.elems)),
+                        "qm_cap_count": getattr(self.theory, "num_linkatoms", 0),
+                        "charge_site_count": len(getattr(self.theory, "pointcharges", ()))
+                        if getattr(self.theory, "embedding", None) == "elstat"
+                        else 0,
+                        "wall_time_s": elapsed,
+                        "wrapper_phases_s": phases,
+                        "backend": backend_stats,
+                    }
+                )
+
+    def _call(self, state: openmm.State) -> tuple[float, npt.NDArray[np.float64]]:
         positions_nm = np.asarray(
             state.getPositions(asNumpy=True).value_in_unit(openmm.unit.nanometer), dtype=np.float64
         )

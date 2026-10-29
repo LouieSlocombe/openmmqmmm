@@ -39,6 +39,7 @@ from openmmqmmm.openmm.rpmd_force import (
 )
 from openmmqmmm.openmm.systemsetup import openmm_minimize
 from openmmqmmm.openmm.theory import NUCLEAR_QUANTUM_INTEGRATORS, ForceReporter, OpenMMTheory
+from openmmqmmm.profiling import _MDProfile
 from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
     log_time_since,
@@ -251,6 +252,8 @@ def openmm_md(
     rpmd_num_copies: int | None = None,
     rpmd_qm_num_copies: int | None = None,
     rpmd_energy_frequency: int | None = None,
+    profile_file: str | os.PathLike[str] | None = None,
+    profile_interval: int = 1,
     barostat: str | None = None,
     pressure: float = 1,
     trajectory_file_option: str = "DCD",
@@ -326,6 +329,8 @@ class MolecularDynamicsEngine:
         rpmd_num_copies: int | None = None,
         rpmd_qm_num_copies: int | None = None,
         rpmd_energy_frequency: int | None = None,
+        profile_file: str | os.PathLike[str] | None = None,
+        profile_interval: int = 1,
         barostat: str | None = None,
         pressure: float = 1,
         trajectory_file_option: str = "DCD",
@@ -367,6 +372,8 @@ class MolecularDynamicsEngine:
         if fragment is None:
             raise InputError("No fragment object.")
         self.fragment = fragment
+        profile_interval = require_int_in_range(profile_interval, "profile_interval must be a positive integer.")
+        self._profile = None
 
         is_rpmd = integrator == "RPMDIntegrator"
         if rpmd_energy_frequency is not None:
@@ -430,6 +437,21 @@ class MolecularDynamicsEngine:
         )
 
         self._attach_qm_force(is_rpmd)
+        if profile_file is not None:
+            self._profile = _MDProfile(
+                os.fspath(profile_file),
+                profile_interval,
+                {
+                    "platform": self.openmmobject.platform_choice,
+                    "platform_properties": dict(self.openmmobject.properties),
+                    "integrator": integrator,
+                    "num_beads": self.rpmd_num_copies if is_rpmd else 1,
+                    "qm_copies": self.rpmd_qm_num_copies if is_rpmd else 1,
+                    "timestep_ps": float(timestep),
+                },
+            )
+            if self.rpmd_force_provider is not None:
+                self.rpmd_force_provider.profile = self._profile
         self._add_restraints(restraints)
 
         self.chkfile = chkfile
@@ -646,6 +668,8 @@ class MolecularDynamicsEngine:
             steps_to_event = [target_step - current_step]
             next_reports = [(reporter, self._rpmd_report_description(reporter)) for reporter in self._rpmd_reporters]
             steps_to_event.extend(description["steps"] for _, description in next_reports if description["steps"] > 0)
+            if self._profile is not None:
+                steps_to_event.append(self._profile.interval - current_step % self._profile.interval)
             if self.restartfile_frequency > 0:
                 steps_to_event.append(self.restartfile_frequency - current_step % self.restartfile_frequency)
             steps = min(steps_to_event)
@@ -661,6 +685,8 @@ class MolecularDynamicsEngine:
                 self._report_rpmd_state(due_reporters)
             if self.restartfile_frequency > 0 and current_step % self.restartfile_frequency == 0:
                 self.write_state_and_chk_files(current_step)
+            if self._profile is not None and current_step % self._profile.interval == 0:
+                self._profile.report_step(current_step)
 
     def _save_rpmd_restart(self, filename: str | os.PathLike[str]) -> None:
         integrator = self.simulation.integrator
@@ -1262,6 +1288,7 @@ class MolecularDynamicsEngine:
         """Run the bead-resolved PythonForce path and log its evaluation statistics."""
         logger.debug("Running bead-resolved %s through OpenMM PythonForce", description)
         self._run_rpmd_mm(simulation_steps)
+        self._finish_profile_interval()
         logger.info(
             "%s RPMD external evaluations: %s (%s cache hits)",
             description,
@@ -1270,6 +1297,24 @@ class MolecularDynamicsEngine:
         )
         logger.info(small_header("OpenMM MD simulation finished!"))
         log_time_since(module_init_time, "OpenMM_MD run")
+
+    def _finish_profile_interval(self) -> None:
+        if self._profile is not None and self._profile._last_step != self.simulation.currentStep:
+            self._profile.report_step(self.simulation.currentStep)
+
+    def _run_classical_steps(self, steps: int) -> None:
+        if self._profile is None:
+            self.simulation.step(steps)
+            return
+        target = self.simulation.currentStep + steps
+        while self.simulation.currentStep < target:
+            count = min(
+                target - self.simulation.currentStep,
+                self._profile.interval - self.simulation.currentStep % self._profile.interval,
+            )
+            self.simulation.step(count)
+            # All native and user reporters have finished before the interval is closed.
+            self._profile.report_step(self.simulation.currentStep)
 
     @_close_on_error
     def run(
@@ -1365,6 +1410,8 @@ class MolecularDynamicsEngine:
 
         if new_simulation:
             self._write_first_frame()
+        if self._profile is not None:
+            self._profile.reset_interval(self.simulation.currentStep)
 
         if self.theory_runtype in {"QMMM", "QM"}:
             if self._is_rpmd_simulation(self.simulation):
@@ -1373,19 +1420,20 @@ class MolecularDynamicsEngine:
 
             # OpenMM batches integration between reporter events and shares each State.
             # PythonForce still evaluates the physical potential at every requested geometry.
-            self.simulation.step(simulation_steps)
+            self._run_classical_steps(simulation_steps)
         elif self.theory_runtype == "MM":
             logger.info("OpenMM MM dynamics option chosen.")
             if self._is_rpmd_simulation(self.simulation):
                 self._run_rpmd_mm(simulation_steps)
             else:
-                self.simulation.step(simulation_steps)
+                self._run_classical_steps(simulation_steps)
         else:
             raise InputError(
                 f"Unrecognized theory runtype ({self.theory_runtype}) for MD. This might mean that this theory "
                 f"object is not yet supported for running MD."
             )
 
+        self._finish_profile_interval()
         logger.info(small_header("OpenMM MD simulation finished!"))
         log_time_since(module_init_time, "OpenMM_MD run")
 

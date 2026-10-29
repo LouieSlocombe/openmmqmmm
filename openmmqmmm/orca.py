@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
 import glob
 import logging
 import os
 import shutil
 import subprocess as sp
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TextIO
 
 import numpy as np
@@ -56,6 +57,68 @@ class _ORCAOutput:
     unconverged_wavefunction: bool = False
 
 
+class _ORCAEvaluationProfile:
+    def __init__(self, stats: dict[str, Any]) -> None:
+        self.stats = stats
+        self.started = self.phase_started = time.perf_counter()
+        self.phase: str | None = "input"
+
+    def advance(self, phase: str | None) -> float:
+        now = time.perf_counter()
+        if self.phase is not None:
+            durations = self.stats["wall_times_s"]
+            durations[self.phase] = durations.get(self.phase, 0.0) + now - self.phase_started
+        self.phase, self.phase_started = phase, now
+        return now
+
+    def finish(self) -> None:
+        self.stats["wall_times_s"]["total"] = self.advance(None) - self.started
+
+
+def _profile_orca_run(method: Callable[..., ORCARunResult]) -> Callable[..., ORCARunResult]:
+    @functools.wraps(method)
+    def measured(theory: ORCATheory, **kwargs: Any) -> ORCARunResult:
+        theory.last_evaluation_stats = None
+        if not getattr(theory, "profile", False):
+            return method(theory, **kwargs)
+        stats = {
+            "schema_version": 1,
+            "backend": "ORCA",
+            "status": "running",
+            "runcall": theory.runcalls + 1,
+            "qm_atom_count": None,
+            "charge_site_count": None,
+            "numcores": None,
+            "charge": None,
+            "mult": None,
+            "grad": bool(kwargs.get("grad", False)),
+            "hessian": bool(kwargs.get("hessian", False)),
+            "pc": bool(kwargs.get("pc", False)),
+            "filename": str(theory.filename),
+            "orcasimpleinput": theory.orcasimpleinput,
+            "bind_to_core_option": bool(theory.bind_to_core_option),
+            "scf_iterations": None,
+            "orca_timings_s": {},
+            "wall_times_s": {},
+        }
+        theory.last_evaluation_stats = stats
+        profile = theory._evaluation_profile = _ORCAEvaluationProfile(stats)
+        try:
+            result = method(theory, **kwargs)
+        except BaseException as error:
+            stats.update(status="failed", error_type=type(error).__name__, error_message=str(error))
+            raise
+        else:
+            if stats["status"] == "running":
+                stats["status"] = "success"
+            return result
+        finally:
+            profile.finish()
+            theory._evaluation_profile = None
+
+    return measured
+
+
 class ORCATheory:
     """Interface to the ORCA quantum chemistry program."""
 
@@ -89,6 +152,7 @@ class ORCATheory:
         save_output_with_label: bool = False,
         keep_each_run_output: bool = False,
         keep_last_output: bool = True,
+        profile: bool = False,
         print_population_analysis: bool = False,
         filename: str = "orca",
         check_for_errors: bool = True,
@@ -138,6 +202,11 @@ class ORCATheory:
         self.check_for_warnings = check_for_warnings
 
         self.runcalls = 0
+        if not isinstance(profile, bool):
+            raise InputError("profile must be a bool")
+        self.profile = profile
+        self.last_evaluation_stats: dict[str, Any] | None = None
+        self._evaluation_profile: _ORCAEvaluationProfile | None = None
 
         self.keep_each_run_output = keep_each_run_output
         if save_output_with_label is True and label is None:
@@ -515,6 +584,7 @@ class ORCATheory:
             self.properties["TDDFT_transition_energies"] = transition_energies
             self.properties["TDDFT_transition_intensities"] = transition_intensities
 
+    @_profile_orca_run
     def run(
         self,
         *,
@@ -569,6 +639,15 @@ class ORCATheory:
 
         if numcores is None:
             numcores = self.numcores
+        profile = getattr(self, "_evaluation_profile", None)
+        if profile is not None:
+            profile.stats.update(
+                qm_atom_count=len(qm_elems),
+                charge_site_count=len(mm_charges) if pc and mm_charges is not None else 0,
+                numcores=int(numcores),
+                charge=int(charge),
+                mult=int(mult),
+            )
 
         self._append_basis_blocks()
 
@@ -659,6 +738,7 @@ class ORCATheory:
             check_for_errors=self.check_for_errors,
             check_for_warnings=self.check_for_warnings,
             ignore_orca_error=self.ignore_orca_error,
+            profile=profile,
         )
         logger.info("ORCA Calculation done.")
 
@@ -680,7 +760,11 @@ class ORCATheory:
             logger.info("There was an ORCA error that was ignored by user-input")
 
         self._reset_one_shot_options()
+        if profile is not None:
+            profile.advance("output_copy")
         self._save_output_copies(charge, mult)
+        if profile is not None:
+            profile.advance("postprocess")
         if self.print_population_analysis is True:
             self._log_population_analysis(qm_elems)
 
@@ -878,6 +962,7 @@ def _run_orca_sp_parallel(
     check_for_errors: bool = True,
     bind_to_core_option: bool = True,
     ignore_orca_error: bool = False,
+    profile: _ORCAEvaluationProfile | None = None,
 ) -> _ORCAOutput:
     if numcores > 1:
         palstring = f"%pal \nnprocs {numcores}\nend"
@@ -887,6 +972,8 @@ def _run_orca_sp_parallel(
 
     failure = None
     with open(basename + ".out", "w") as ofile:
+        if profile is not None:
+            profile.advance("execute")
         try:
             if bind_to_core_option is True:
                 sp.run(
@@ -904,7 +991,19 @@ def _run_orca_sp_parallel(
             logger.error("Problem running ORCA. Something went wrong, most likely ORCA ran into an error.")
             logger.error(f"Please check the ORCA outputfile: {basename + '.out'} for error messages")
 
+    if profile is not None:
+        profile.advance("parse")
     output = _read_orca_output(basename + ".out")
+    if profile is not None:
+        profile.stats.update(
+            scf_iterations=int(output.scf_iterations) if output.scf_iterations is not None else None,
+            orca_timings_s=dict(output.timings),
+            normal_termination=output.finished,
+            warning_count=len(output.warnings),
+            error_count=len(output.errors),
+        )
+        if ignore_orca_error and (failure is not None or not output.finished):
+            profile.stats["status"] = "ignored_error"
     if check_for_errors and output.errors:
         logger.error("Found fatal error messages in ORCA outputfile:")
         for line in output.errors:
@@ -915,6 +1014,8 @@ def _run_orca_sp_parallel(
         logger.info("ignore_ORCA_error: %s", ignore_orca_error)
         if not ignore_orca_error:
             raise ExternalProgramError(f"ORCA run failed - check the output file: {basename}.out") from failure
+    if profile is not None:
+        profile.advance("wrapper")
     return output
 
 
