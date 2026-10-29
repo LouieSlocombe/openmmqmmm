@@ -65,9 +65,11 @@ from .mlmm import MLMMTheory
 from .numgrad import NumGrad
 from .openmm import (
     MolecularDynamicsEngine,
+    MTSPotentialExport,
     OpenMMTheory,
     RPMDPotentialExport,
     check_gradient_for_bad_atoms,
+    export_mts_potential,
     export_rpmd_potential,
     gentle_warmup_md,
     merge_pdb_files,
@@ -164,6 +166,8 @@ __all__ = [
     "merge_pdb_files",
     "solvate_small_molecule",
     # NQE-driver export (openmmnqe and friends)
+    "MTSPotentialExport",
+    "export_mts_potential",
     "RPMDPotentialExport",
     "export_rpmd_potential",
     "modeller_from_topology",

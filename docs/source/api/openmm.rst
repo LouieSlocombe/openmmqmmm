@@ -89,6 +89,21 @@ The seam with openmmnqe and anything else that drives OpenMM itself; see
 
 .. autofunction:: modeller_from_topology
 
+Experimental multiple-time-step dynamics
+-----------------------------------------
+
+NVE QM/MM with an inexpensive embedded reference and a high-level correction;
+see :doc:`../guide/mts`.
+
+.. autosummary::
+
+   export_mts_potential
+   MTSPotentialExport
+
+.. autofunction:: export_mts_potential
+
+.. autoclass:: MTSPotentialExport
+
 Lower-level helpers
 -------------------
 

@@ -99,6 +99,7 @@ Where to go next
    guide/jobs
    guide/dynamics
    guide/rpmd
+   guide/mts
    guide/nqe_interop
    guide/ase
    guide/output

@@ -7,6 +7,7 @@ from openmmqmmm.openmm.md import (
     openmm_box_equilibration,
     openmm_md,
 )
+from openmmqmmm.openmm.mts import MTSPotentialExport, export_mts_potential
 from openmmqmmm.openmm.nqe_export import (
     RPMDPotentialExport,
     export_rpmd_potential,
@@ -27,10 +28,12 @@ from openmmqmmm.openmm.theory import (
 )
 
 __all__ = [
+    "MTSPotentialExport",
     "MolecularDynamicsEngine",
     "OpenMMTheory",
     "RPMDPotentialExport",
     "check_gradient_for_bad_atoms",
+    "export_mts_potential",
     "export_rpmd_potential",
     "find_alternate_locations_residues",
     "gentle_warmup_md",
