@@ -162,6 +162,11 @@ remaining MM potential, plus any configured restraints or biases. Reported force
 evaluated at the saved coordinates. These energy and force outputs can therefore be used
 to check the dynamics of the chosen QM/MM model.
 
+Classical QM/MM and external-QM runs advance between scheduled output events. XYZ,
+special-atom, energy and native OpenMM reporters share compatible States, and steps without
+output do not retrieve positions or energy. This reduces reporting overhead; electronic
+calculations still follow the integrator's force requests and the existing geometry cache.
+
 `datafilename=`
 : The step-by-step state report. Left unset, that report goes to the package logger; set it
   and it goes to a file instead.

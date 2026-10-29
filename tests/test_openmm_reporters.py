@@ -5,6 +5,7 @@ from pathlib import Path
 from sys import stdout
 from types import SimpleNamespace
 
+import numpy as np
 import openmm
 import pytest
 
@@ -38,6 +39,7 @@ def test_trajectory_reporters_preserve_format_and_restart(monkeypatch, rpmd, res
         force_file_option=True,
         atomic_units_force_reporter=True,
         energy_file_option=None,
+        theory_runtype="MM",
         dataoutputoption=stdout,
         datafilename=None,
         volume=False,
@@ -82,6 +84,79 @@ def test_classical_restart_pair_uses_restart_frequency(kind):
     assert Path("OpenMM_MD_checkpoint.chk").is_file()
     assert Path("OpenMM_MD_state.xml").is_file()
     assert not Path("OpenMM_MD.chk").exists()
+
+
+@pytest.mark.parametrize("kind", ["QMMM", "QM"])
+def test_classical_output_events_batch_steps_share_states_and_continue_on_restart(monkeypatch, kind):
+    from conftest import _make_analytic_qmmm
+
+    qmmm, fragment, qm = _make_analytic_qmmm()
+    engine = md.MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm if kind == "QMMM" else qm,
+        platform="Reference",
+        integrator="VerletIntegrator",
+        timestep=1e-7,
+        traj_frequency=6,
+        restartfile_frequency=5,
+        trajectory_file_option="XYZ",
+        energy_file_option="energies.txt",
+        specialatoms=[0],
+        specialtraj_frequency=4,
+    )
+    batches, states, extra_steps = [], [], []
+
+    class ExtraReporter:
+        def describeNextReport(self, simulation):  # noqa: N802
+            return {"steps": 7 - simulation.currentStep % 7, "include": []}
+
+        def report(self, simulation, state):
+            extra_steps.append(simulation.currentStep)
+
+    def instrument(current_engine):
+        simulation = current_engine.simulation
+        simulation.context.setVelocities(np.zeros((2, 3)))
+        step = simulation.integrator.step
+        get_state = simulation.context.getState
+
+        def record_step(count):
+            batches.append(count)
+            return step(count)
+
+        def record_state(*args, **kwargs):
+            if simulation.currentStep:
+                states.append((simulation.currentStep, kwargs))
+            return get_state(*args, **kwargs)
+
+        monkeypatch.setattr(simulation.integrator, "step", record_step)
+        monkeypatch.setattr(simulation.context, "getState", record_state)
+
+    engine.run(simulation_steps=13, extra_reporters=[ExtraReporter()], pre_dynamics_hook=instrument)
+
+    assert sum(batches) == 13 and max(batches) > 1
+    assert {step for step, _ in states} == {4, 5, 6, 7, 8, 10, 12}
+    for step in (4, 8):
+        requests = [options for report_step, options in states if report_step == step]
+        assert len(requests) == 1
+        assert requests[0].get("positions") and not requests[0].get("energy")
+    for step in (6, 12):
+        requests = [options for report_step, options in states if report_step == step]
+        assert len(requests) == 1, "XYZ, energy and state reporters must share one State"
+        assert requests[0].get("positions") and requests[0].get("energy")
+    assert extra_steps == [7]
+    assert Path("OpenMM_MD_checkpoint.chk").is_file()
+    assert Path("OpenMM_MD_state.xml").is_file()
+
+    engine.run(simulation_steps=6, restart=True)
+    assert engine.simulation.currentStep == 19
+    assert extra_steps == [7, 14]
+    assert Path("OpenMMMD_traj.xyz").read_text().splitlines().count("2") == 3
+    assert Path("wrapped_special_traj.xyz").read_text().splitlines().count("1") == 4
+    assert len(Path("energies.txt").read_text().splitlines()) == 3
+    final_positions = engine.simulation.context.getState(getPositions=True).getPositions(asNumpy=True)
+    engine.finalize_simulation()
+    np.testing.assert_allclose(fragment.coords, final_positions.value_in_unit(openmm.unit.angstrom))
+    assert Path("OpenMM_MD_final_checkpoint.chk").is_file()
 
 
 @pytest.mark.parametrize("option", ["special_wrapping", "special_wrapping_updatepos"])

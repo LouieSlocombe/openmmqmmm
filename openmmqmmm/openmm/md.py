@@ -80,6 +80,53 @@ class _LoggerWriter(io.TextIOBase):
         return True
 
 
+class _XYZReporter:
+    """Write coordinates through OpenMM's shared-state reporting scheduler."""
+
+    def __init__(
+        self,
+        filename: str,
+        interval: int,
+        elems: Sequence[str],
+        periodic: bool,
+        atoms: Sequence[int] | None = None,
+    ) -> None:
+        self.filename = filename
+        self.interval = interval
+        self.elems = elems if atoms is None else [elems[index] for index in atoms]
+        self.periodic = periodic
+        self.atoms = atoms
+
+    def describeNextReport(self, simulation: openmm.app.Simulation) -> dict[str, Any]:  # noqa: N802
+        return {
+            "steps": self.interval - simulation.currentStep % self.interval,
+            "periodic": self.periodic,
+            "include": ["positions"],
+        }
+
+    def report(self, simulation: openmm.app.Simulation, state: openmm.State) -> None:
+        coords = state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom)
+        if self.atoms is not None:
+            coords = np.take(coords, self.atoms, axis=0)
+        write_xyzfile(self.elems, coords, self.filename, writemode="a")
+
+
+class _EnergyReporter:
+    """Write the full potential in Hartree using the scheduler's shared State."""
+
+    def __init__(self, filename: str | os.PathLike[str], interval: int) -> None:
+        self.filename = filename
+        self.interval = interval
+
+    def describeNextReport(self, simulation: openmm.app.Simulation) -> dict[str, Any]:  # noqa: N802
+        return {"steps": self.interval - simulation.currentStep % self.interval, "include": ["energy"]}
+
+    def report(self, simulation: openmm.app.Simulation, state: openmm.State) -> None:
+        energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole)
+        with open(self.filename, "a") as output:
+            output.write(f"{energy / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL}\n")
+
+
 class _RPMDStateDataReporter:
     """Write state data for one RPMD copy plus the full ring-polymer energy."""
 
@@ -689,13 +736,34 @@ class MolecularDynamicsEngine:
             self._add_simulation_reporter(simulation, reporter)
         if self.trajectory_file_option == "XYZ":
             logger.info("XYZ trajectory format selected (not available for classical MD). Warning: not very fast")
-            with contextlib.suppress(OSError):
-                os.remove("OpenMMMD_traj.xyz")
+            if not restart:
+                with contextlib.suppress(OSError):
+                    os.remove("OpenMMMD_traj.xyz")
 
         if self.energy_file_option is not None:
             logger.info("Energyfile  selected.")
-            with contextlib.suppress(OSError):
-                os.remove(self.energy_file_option)
+            if not restart:
+                with contextlib.suppress(OSError):
+                    os.remove(self.energy_file_option)
+        if self.theory_runtype in {"QMMM", "QM"}:
+            if self.trajectory_file_option == "XYZ":
+                self._add_simulation_reporter(
+                    simulation,
+                    _XYZReporter("OpenMMMD_traj", self.traj_frequency, self.fragment.elems, self.enforce_periodic_box),
+                )
+            if self.specialatoms is not None:
+                self._add_simulation_reporter(
+                    simulation,
+                    _XYZReporter(
+                        "wrapped_special_traj",
+                        self.specialtraj_frequency,
+                        self.fragment.elems,
+                        self.enforce_periodic_box,
+                        self.specialatoms,
+                    ),
+                )
+            if self.energy_file_option is not None:
+                self._add_simulation_reporter(simulation, _EnergyReporter(self.energy_file_option, self.traj_frequency))
         logger.debug("Simulation reporters: %s", simulation.reporters)
 
     def write_state_and_chk_files(self, step: int) -> None:
@@ -1135,27 +1203,6 @@ class MolecularDynamicsEngine:
         logger.info(small_header("OpenMM MD simulation finished!"))
         log_time_since(module_init_time, "OpenMM_MD run")
 
-    def _current_step_coords(self, checkpoint: float) -> tuple[openmm.State, npt.NDArray[np.float64]]:
-        """Return this step's state and coordinates in Angstrom."""
-        current_state = self.simulation.context.getState(
-            getPositions=True, enforcePeriodicBox=self.enforce_periodic_box, getEnergy=True
-        )
-        log_time_since(checkpoint, "get OpenMM state")
-        checkpoint = time.time()
-        current_coords = np.array(current_state.getPositions(asNumpy=True)) * 10
-        log_time_since(checkpoint, "get current_coords")
-
-        return current_state, current_coords
-
-    def _write_special_atoms_frame(self, step: int, current_coords: npt.ArrayLike) -> None:
-        """Append this step's special-atom subset to its own XYZ trajectory."""
-        if self.specialatoms is None or step % self.specialtraj_frequency != 0:
-            return
-        specialelems = [self.fragment.elems[i] for i in self.specialatoms]
-        special_coords = np.take(current_coords, self.specialatoms, axis=0)
-        logger.info("Writing wrapped coords to trajfile: only for special atoms")
-        write_xyzfile(specialelems, special_coords, "wrapped_special_traj", writemode="a")
-
     @_close_on_error
     def run(
         self,
@@ -1256,22 +1303,9 @@ class MolecularDynamicsEngine:
                 self._finish_rpmd_run(simulation_steps, self.theory_runtype, module_init_time)
                 return
 
-            # PythonForce supplies the actual energy and force at every integrator,
-            # barostat-trial, and reporter geometry. Native reporters therefore receive
-            # the physical total potential and forces at their saved positions.
-            for _step in range(simulation_steps):
-                self.simulation.step(1)
-                step = self.simulation.currentStep
-                _, current_coords = self._current_step_coords(time.time())
-                if step % self.traj_frequency == 0:
-                    if self.trajectory_file_option == "XYZ":
-                        write_xyzfile(self.fragment.elems, current_coords, "OpenMMMD_traj", writemode="a")
-                    if self.energy_file_option is not None:
-                        state = self.simulation.context.getState(getEnergy=True)
-                        energy = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole)
-                        with open(self.energy_file_option, "a") as output:
-                            output.write(f"{energy / openmmqmmm.constants.HARTREE_TO_KJ_PER_MOL}\n")
-                self._write_special_atoms_frame(step, current_coords)
+            # OpenMM batches integration between reporter events and shares each State.
+            # PythonForce still evaluates the physical potential at every requested geometry.
+            self.simulation.step(simulation_steps)
         elif self.theory_runtype == "MM":
             logger.info("OpenMM MM dynamics option chosen.")
             if self._is_rpmd_simulation(self.simulation):
