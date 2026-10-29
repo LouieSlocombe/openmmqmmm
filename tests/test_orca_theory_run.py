@@ -1,5 +1,6 @@
 """ORCATheory.run option branches, driven by a fake orca binary that replays committed ORCA 6.1.1 output."""
 
+import builtins
 import logging
 import os
 import re
@@ -135,6 +136,89 @@ def test_run_without_gradient_returns_only_the_energy(fake_orca):
     assert "! Engrad" not in Path("orca.inp").read_text()
     assert not theory.grad.any()
     assert Path("orca.args").read_text() == "orca.inp\n"
+
+
+def test_plain_scf_run_reads_common_output_once_and_skips_ice_parsing(fake_orca, monkeypatch):
+    theory = _theory(fake_orca(), keep_last_output=False)
+    original_open = builtins.open
+    output_reads = []
+
+    def counted_open(file, mode="r", *args, **kwargs):
+        if os.fspath(file) == "orca.out" and mode == "r":
+            output_reads.append(file)
+        return original_open(file, mode, *args, **kwargs)
+
+    def unexpected_ice_scan(*args, **kwargs):
+        pytest.fail("A plain SCF run must not invoke the ICE-CI property parsers")
+
+    monkeypatch.setattr(builtins, "open", counted_open)
+    monkeypatch.setattr(orca, "pygrep", unexpected_ice_scan)
+    monkeypatch.setattr(orca, "_grab_ice_wf_cfg_ci_size", unexpected_ice_scan)
+
+    assert _run(theory) == _final_energy("h2o_engrad")
+    assert output_reads == ["orca.out"]
+
+
+@pytest.mark.parametrize(
+    ("options", "copies"),
+    [
+        ({"keep_last_output": False}, []),
+        ({"keep_last_output": True}, ["orca_last.out"]),
+        ({"keep_last_output": False, "keep_each_run_output": True}, ["orca_run1.out"]),
+        ({"keep_last_output": False, "save_output_with_label": True}, ["orca_ORCA_0_1.out"]),
+    ],
+)
+def test_output_copy_policy_preserves_raw_output_and_orbital_reuse(fake_orca, options, copies, monkeypatch):
+    theory = _theory(fake_orca(), **options)
+    Path("orca.gbw").write_text("reusable orbitals")
+
+    _run(theory)
+
+    output = Path("orca.out").read_text()
+    assert sorted(path.name for path in Path.cwd().glob("orca*.out")) == sorted(["orca.out", *copies])
+    assert all(Path(copy).read_text() == output for copy in copies)
+    assert Path("orca.gbw").read_text() == "reusable orbitals"
+    Path("next").mkdir()
+    monkeypatch.chdir("next")
+    theory._prepare_orbital_guess()
+    assert Path("orca.gbw").read_text() == "reusable orbitals"
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_disabled_last_copy_keeps_failed_output_and_previous_success(fake_orca, exit_code, caplog):
+    theory = _theory(fake_orca(None, exit_code=exit_code), keep_last_output=False)
+    Path("orca_last.out").write_text("previous successful output")
+    Path("orca.gbw").write_text("previous orbitals")
+
+    with caplog.at_level(logging.ERROR, logger="openmmqmmm.orca"), pytest.raises(ExternalProgramError):
+        _run(theory)
+
+    assert "error termination in SCF" in Path("orca.out").read_text()
+    assert "error termination in SCF" in caplog.text
+    assert Path("orca_last.out").read_text() == "previous successful output"
+    assert Path("orca.gbw").read_text() == "previous orbitals"
+
+
+def test_common_output_summary_preserves_warnings_and_unconverged_energy(fake_orca, monkeypatch, caplog):
+    theory = _theory(fake_orca())
+    output = (
+        "WARNING: A useful diagnostic\n"
+        "SCF CONVERGED AFTER  11 CYCLES\n"
+        "FINAL SINGLE POINT ENERGY -75.0 (Wavefunction not fully converged!)\n"
+        "TOTAL RUN TIME: 0 days 0 hours 0 minutes 1 seconds\n"
+    )
+
+    def replay(*args, stdout, **kwargs):
+        stdout.write(output)
+
+    monkeypatch.setattr(orca.sp, "run", replay)
+    with (
+        caplog.at_level(logging.WARNING, logger="openmmqmmm.orca"),
+        pytest.raises(ExternalProgramError, match="WF not fully converged"),
+    ):
+        _run(theory)
+    assert "A useful diagnostic" in caplog.text
+    assert Path("orca.out").read_text() == output
 
 
 def test_run_with_point_charges_returns_the_point_charge_gradient(fake_orca):

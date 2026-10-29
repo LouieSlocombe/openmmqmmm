@@ -38,9 +38,11 @@ Useful beyond those:
 `extrabasis=` / `extrabasisatoms=` / `basis_per_element=` / `ecp_dict=`
 : Per-element and per-atom basis sets and ECPs.
 
-`label=`, `filename=`, `save_output_with_label=`, `keep_each_run_output=`
-: Naming and retention of the ORCA input and output files. By default each run overwrites the
-  last; keep them when you need to inspect what ORCA actually did.
+`label=`, `filename=`, `save_output_with_label=`, `keep_each_run_output=`, `keep_last_output=`
+: Naming and retention of ORCA files. Each evaluation overwrites `<filename>.out` and by
+  default copies it to `<filename>_last.out`. Set `keep_last_output=False` to avoid that
+  copy in long trajectories. Labelled and numbered copies remain independently configurable;
+  see {doc}`output`. Output retention does not disable GBW orbital reuse.
 
 The theory raises {exc}`~openmmqmmm.ExternalProgramError` when ORCA fails, having scanned the
 output for the error and warning patterns ORCA prints. `ignore_orca_error=True` turns that

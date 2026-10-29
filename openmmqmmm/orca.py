@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import glob
 import logging
 import os
@@ -43,6 +44,18 @@ type RunLabel = str | float | tuple[object, ...]
 type ORCARunResult = float | tuple[float, np.ndarray] | tuple[float, np.ndarray, np.ndarray]
 
 
+@dataclasses.dataclass
+class _ORCAOutput:
+    finished: bool = False
+    scf_iterations: str | None = None
+    energy_line: str | None = None
+    timings: dict[str, float] = dataclasses.field(default_factory=dict)
+    errors: list[str] = dataclasses.field(default_factory=list)
+    warnings: list[str] = dataclasses.field(default_factory=list)
+    has_ice_properties: bool = False
+    unconverged_wavefunction: bool = False
+
+
 class ORCATheory:
     """Interface to the ORCA quantum chemistry program."""
 
@@ -75,6 +88,7 @@ class ORCATheory:
         propertyblock: str | None = None,
         save_output_with_label: bool = False,
         keep_each_run_output: bool = False,
+        keep_last_output: bool = True,
         print_population_analysis: bool = False,
         filename: str = "orca",
         check_for_errors: bool = True,
@@ -212,7 +226,9 @@ class ORCATheory:
         # Set by QMMMTheory to its QM-region atom indices
         self.qmatoms = []
 
-        self.keep_last_output = True
+        if not isinstance(keep_last_output, bool):
+            raise InputError("keep_last_output must be a bool")
+        self.keep_last_output = keep_last_output
 
         self.nmf = nmf
         self.nmf_sigma = nmf_sigma
@@ -462,7 +478,7 @@ class ORCATheory:
         if self.xdm:
             self.orcasimpleinput += " AIM"
 
-    def _collect_optional_properties(self, outfile: StrPath) -> None:
+    def _collect_optional_properties(self, outfile: StrPath, *, has_ice_properties: bool | None = None) -> None:
         """Parse the NMF, ICE-CI and TDDFT properties that only some ORCA outputs carry."""
         if self.nmf is True:
             logger.info("NMF option is active.")
@@ -478,16 +494,19 @@ class ORCATheory:
             self.properties["NMF_Ec"] = Ec
             self.energy = self.energy + Ec
 
-        try:
-            E_PT2_rest = float(pygrep("'rest' energy", self.filename + ".out")[-1])
-            num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = _grab_ice_wf_cfg_ci_size(self.filename + ".out")
-            self.properties["E_var"] = self.energy
-            self.properties["E_PT2_rest"] = E_PT2_rest
-            self.properties["num_genCFGs"] = num_genCFGs
-            self.properties["num_selected_CFGs"] = num_selected_CFGs
-            self.properties["num_after_SD_CFGs"] = num_after_SD_CFGs
-        except Exception:  # noqa: BLE001 - best-effort: ICE-CI properties only in ICE-CI outputs
-            pass
+        if has_ice_properties is None:
+            has_ice_properties = _read_orca_output(outfile).has_ice_properties
+        if has_ice_properties:
+            try:
+                E_PT2_rest = float(pygrep("'rest' energy", outfile)[-1])
+                num_genCFGs, num_selected_CFGs, num_after_SD_CFGs = _grab_ice_wf_cfg_ci_size(outfile)
+                self.properties["E_var"] = self.energy
+                self.properties["E_PT2_rest"] = E_PT2_rest
+                self.properties["num_genCFGs"] = num_genCFGs
+                self.properties["num_selected_CFGs"] = num_selected_CFGs
+                self.properties["num_after_SD_CFGs"] = num_after_SD_CFGs
+            except Exception:  # noqa: BLE001 - best-effort: incomplete ICE-CI outputs
+                pass
 
         if self.tddft is True:
             transition_energies = _grab_tddft_transition_energies(f"{self.filename}.out")
@@ -632,7 +651,7 @@ class ORCATheory:
 
         logger.info("ORCA Calculation starting.")
 
-        _run_orca_sp_parallel(
+        output = _run_orca_sp_parallel(
             self.orcadir,
             self.filename + ".inp",
             numcores=numcores,
@@ -648,8 +667,7 @@ class ORCATheory:
         pcgradfile = self.filename + ".pcgrad"
 
         if self.ignore_orca_error is False:
-            ORCAfinished, numiterations = check_orca_finished(outfile)
-            if ORCAfinished is False:
+            if output.finished is False:
                 logger.error("Problem with ORCA run")
                 logger.info("------------ENDING ORCA-INTERFACE-------------")
                 log_time_since(module_init_time, "ORCA run")
@@ -657,7 +675,7 @@ class ORCATheory:
                     f"ORCA calculation did not terminate normally - check the output file: {outfile}"
                 )
 
-            logger.info(f"ORCA converged in {numiterations} iterations")
+            logger.info(f"ORCA converged in {output.scf_iterations} iterations")
         else:
             logger.info("There was an ORCA error that was ignored by user-input")
 
@@ -666,19 +684,19 @@ class ORCATheory:
         if self.print_population_analysis is True:
             self._log_population_analysis(qm_elems)
 
-        if self.ignore_orca_error is False:
-            self.energy = grab_orca_final_energy(outfile)
-            logger.info("ORCA energy: %s", self.energy)
-        else:
-            self.energy = grab_orca_final_energy(outfile)
-
+        if output.unconverged_wavefunction:
+            raise ExternalProgramError("ORCA WF not fully converged!\nNot using energy. Modify ORCA settings")
+        self.energy = _final_energy_from_line(output.energy_line, outfile)
+        if self.ignore_orca_error:
             if self.energy is None:
                 logger.info("No energy could be found in ORCA outputfile.")
                 logger.info("Setting energy to 0.0 and returning")
                 return 0.0
-        self._collect_optional_properties(outfile)
+        else:
+            logger.info("ORCA energy: %s", self.energy)
+        self._collect_optional_properties(outfile, has_ice_properties=output.has_ice_properties)
 
-        orca_timings = grab_orca_timings(outfile)
+        orca_timings = output.timings
 
         self.grad = np.zeros((len(qm_elems), 3))
 
@@ -860,13 +878,14 @@ def _run_orca_sp_parallel(
     check_for_errors: bool = True,
     bind_to_core_option: bool = True,
     ignore_orca_error: bool = False,
-) -> None:
+) -> _ORCAOutput:
     if numcores > 1:
         palstring = f"%pal \nnprocs {numcores}\nend"
         with open(inpfile):
             insert_line_into_file(inpfile, "!", palstring, once=True)
     basename = file_basename(inpfile)
 
+    failure = None
     with open(basename + ".out", "w") as ofile:
         try:
             if bind_to_core_option is True:
@@ -879,24 +898,24 @@ def _run_orca_sp_parallel(
                 )
             else:
                 sp.run([orcadir + "/orca", inpfile], check=True, stdout=ofile, stderr=ofile, text=True)
-            if check_for_errors:
-                grab_orca_errors(basename + ".out")
-            if check_for_warnings:
-                grab_orca_warnings(basename + ".out")
-        except Exception as e:
+        except (OSError, sp.SubprocessError) as e:
+            failure = e
             logger.info("Subprocess error! Exception message: %s", e)
-
             logger.error("Problem running ORCA. Something went wrong, most likely ORCA ran into an error.")
             logger.error(f"Please check the ORCA outputfile: {basename + '.out'} for error messages")
-            if check_for_errors:
-                grab_orca_errors(basename + ".out")
-            if check_for_warnings:
-                grab_orca_warnings(basename + ".out")
-            logger.info("ignore_ORCA_error: %s", ignore_orca_error)
-            if ignore_orca_error is True:
-                logger.info("ignore_ORCA_error here")
-                return
-            raise ExternalProgramError(f"ORCA run failed - check the output file: {basename}.out") from e
+
+    output = _read_orca_output(basename + ".out")
+    if check_for_errors and output.errors:
+        logger.error("Found fatal error messages in ORCA outputfile:")
+        for line in output.errors:
+            logger.error("%s", line.strip())
+    if check_for_warnings:
+        _report_warning_lines(output.warnings)
+    if failure is not None:
+        logger.info("ignore_ORCA_error: %s", ignore_orca_error)
+        if not ignore_orca_error:
+            raise ExternalProgramError(f"ORCA run failed - check the output file: {basename}.out") from failure
+    return output
 
 
 # Lines matching "warning" that carry no information: banner headings and notices ORCA
@@ -926,37 +945,49 @@ def _is_fatal_orca_line(line: str) -> bool:
     return normalized.startswith(_FATAL_ERROR_PREFIXES) or any(phrase in normalized for phrase in _FATAL_ERROR_PHRASES)
 
 
-def _report_matching_lines(
-    filename: StrPath,
-    needles: Sequence[str],
-    benign_prefixes: str | tuple[str, ...],
-    headline: str,
-    level: int,
-) -> None:
-    with open(filename, errors="ignore") as f:
-        matches = [
-            line
-            for line in f
-            if any(needle in line.casefold() for needle in needles) and not line.startswith(benign_prefixes)
-        ]
-    if matches:
-        logger.log(level, headline)
-        for match in matches:
-            message = match.strip()
+def _read_orca_output(filename: StrPath) -> _ORCAOutput:
+    output = _ORCAOutput()
+    with open(filename, errors="ignore") as stream:
+        for line in stream:
+            if _is_fatal_orca_line(line):
+                output.errors.append(line)
+            if "warning" in line.casefold() and not line.startswith(_BENIGN_WARNING_PREFIXES):
+                output.warnings.append(line)
+            if "SCF CONVERGED AFTER" in line:
+                output.scf_iterations = line.split()[-3]
+            if "TOTAL RUN TIME:" in line:
+                output.finished = True
+            if "FINAL SINGLE POINT ENERGY" in line:
+                output.energy_line = line
+                output.unconverged_wavefunction |= "Wavefunction not fully converged!" in line
+            if "'rest' energy" in line:
+                output.has_ice_properties = True
+            stripped = line.strip()
+            for label, key in ORCA_TIMING_LABELS.items():
+                if stripped.startswith(label):
+                    seconds = _seconds_from_timing_line(stripped)
+                    if seconds is not None:
+                        output.timings[key] = seconds
+                    break
+    return output
+
+
+def _report_warning_lines(lines: Sequence[str]) -> None:
+    if lines:
+        logger.warning("Found warning messages in ORCA outputfile:")
+        for line in lines:
+            message = line.strip()
             prefix, separator, remainder = message.partition(":")
             if separator and prefix.casefold() in {"warning", "error"}:
                 message = remainder.lstrip()
-            logger.log(level, "%s", message)
+            logger.warning("%s", message)
 
 
 def grab_orca_warnings(filename: StrPath) -> None:
-    _report_matching_lines(
-        filename,
-        ("warning",),
-        _BENIGN_WARNING_PREFIXES,
-        "Found warning messages in ORCA outputfile:",
-        logging.WARNING,
-    )
+    with open(filename, errors="ignore") as stream:
+        _report_warning_lines(
+            [line for line in stream if "warning" in line.casefold() and not line.startswith(_BENIGN_WARNING_PREFIXES)]
+        )
 
 
 def grab_orca_errors(filename: StrPath) -> None:
@@ -1009,23 +1040,27 @@ def _read_optimized_geometry(fragment: Fragment, basename: str) -> float:
 
 
 def grab_orca_final_energy(file: StrPath, errors: str | None = "ignore") -> float | None:
-    Energy = None
+    energy_line = None
     with open(file, errors=errors) as f:
         for line in f:
             if "FINAL SINGLE POINT ENERGY" in line:
                 if "Wavefunction not fully converged!" in line:
                     raise ExternalProgramError("ORCA WF not fully converged!\nNot using energy. Modify ORCA settings")
-                # Index from the left: ORCA sometimes adds info to the right of the energy
-                value = line.split("FINAL SINGLE POINT ENERGY", 1)[1].strip()
-                for marker in ("(MM)", "(From external program)"):
-                    value = value.removeprefix(marker).lstrip()
-                Energy = float(value.split()[0])
-    if Energy is None:
+                energy_line = line
+    return _final_energy_from_line(energy_line, file)
+
+
+def _final_energy_from_line(line: str | None, file: StrPath) -> float | None:
+    if line is None:
         logger.error("Found no energy in file: %s", file)
         logger.error("Something went wrong with ORCA run. Check ORCA outputfile: %s", file)
         logger.info("------------ENDING ORCA-INTERFACE-------------")
         return None
-    return Energy
+    # Index from the left: ORCA sometimes adds info to the right of the energy.
+    value = line.split("FINAL SINGLE POINT ENERGY", 1)[1].strip()
+    for marker in ("(MM)", "(From external program)"):
+        value = value.removeprefix(marker).lstrip()
+    return float(value.split()[0])
 
 
 # ORCA timing lines, as "line label" -> "key in the returned dictionary". The labels

@@ -45,6 +45,12 @@ def test_save_output_with_label_requires_a_label():
         _theory(save_output_with_label=True, label=None)
 
 
+@pytest.mark.parametrize("value", [None, 0, 1, "false"])
+def test_last_output_policy_requires_a_boolean(value):
+    with pytest.raises(InputError, match="keep_last_output must be a bool"):
+        _theory(keep_last_output=value)
+
+
 def test_autostart_false_adds_the_noautostart_keyword():
     assert _theory(autostart=False, extraline="! TightSCF").extraline == "! TightSCF\n! Noautostart\n"
     assert _theory(autostart=True, extraline="! TightSCF").extraline == "! TightSCF"

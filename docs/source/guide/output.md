@@ -53,6 +53,26 @@ attach your own handler to the `openmmqmmm` logger, filter by module
 (`openmmqmmm.orca`, `openmmqmmm.openmm.md`), or route the output into an application's
 logging configuration and skip `configure_logging` entirely.
 
+## ORCA output files
+
+ORCA always writes `<filename>.out`, which the next evaluation overwrites. The constructor
+options control additional copies:
+
+| Option | Default | Additional output |
+|---|---|---|
+| `keep_last_output` | `True` | `<filename>_last.out`, replaced after each completed run |
+| `keep_each_run_output` | `False` | `<filename>_run<N>.out`, one file per evaluation |
+| `save_output_with_label` | `False` | `<filename>_<label>_<charge>_<mult>.out` |
+
+For trajectories where the current output is enough, use `ORCATheory(..., keep_last_output=False)`.
+This skips the full-file copy; it keeps the current output and GBW orbital reuse. Disabling
+copies does not delete files left by earlier runs. A failed subprocess or abnormal termination
+leaves its diagnostics in `<filename>.out` and preserves previous successful copies. Explicitly
+ignored errors follow the usual copy policy.
+
+The common run summary reads termination, SCF iterations, energy, warnings, errors and timings
+in one pass. Optional property tables are read only when requested or detected in the output.
+
 ## Errors
 
 Every error the package raises derives from {exc}`~openmmqmmm.OpenMMQMMMError`, and each
