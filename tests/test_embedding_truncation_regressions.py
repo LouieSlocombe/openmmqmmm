@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from conftest import central_difference_gradient
 
-from openmmqmmm import Fragment, QMMMTheory, numerical_frequencies
+from openmmqmmm import Fragment, NumGrad, QMMMTheory, numerical_frequencies, optimize_geometry
 from openmmqmmm.constants import ANG_TO_BOHR
 from openmmqmmm.exceptions import InputError
 
@@ -122,11 +122,12 @@ def test_refresh_every_call_gradients_match_full_field_and_energy_derivatives():
 
 
 @pytest.mark.parametrize("runmode", ["serial", "parallel"])
-def test_numerical_frequencies_reject_cached_gradients_before_workspace_setup(runmode, tmp_path):
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_numerical_frequencies_reject_cached_gradients_before_workspace_setup(runmode, wrapped, tmp_path):
     theory, fragment, qm = _theory()
     with pytest.raises(InputError, match="truncated_pc_recalc_iter=1"):
         numerical_frequencies(
-            theory=theory,
+            theory=NumGrad(theory) if wrapped else theory,
             fragment=fragment,
             hessatoms=[0],
             runmode=runmode,
@@ -135,3 +136,45 @@ def test_numerical_frequencies_reject_cached_gradients_before_workspace_setup(ru
         )
     assert qm.calls == []
     assert not (tmp_path / "Numfreq_dir").exists()
+
+
+@pytest.mark.parametrize("runmode", ["serial", "parallel"])
+@pytest.mark.parametrize("depth", [1, 2])
+def test_numgrad_rejects_cached_corrections_before_any_displacement(runmode, depth):
+    theory, fragment, qm = _theory(truncated_pc_recalc_iter=3)
+    wrapped = theory
+    for _ in range(depth):
+        wrapped = NumGrad(wrapped, runmode=runmode)
+    with pytest.raises(InputError, match="truncated_pc_recalc_iter=1"):
+        wrapped.run(current_coords=fragment.coords, elems=fragment.elems, grad=True)
+    assert qm.calls == []
+    assert theory.truncated_pc_calls == 0
+
+
+def test_numgrad_allows_energy_only_caching_and_refresh_every_call_derivatives():
+    theory, fragment, qm = _theory(truncated_pc_recalc_iter=3)
+    wrapped = NumGrad(theory)
+    energy = wrapped.run(current_coords=fragment.coords, elems=fragment.elems)
+    assert np.isfinite(energy)
+    assert qm.calls
+    theory.truncated_pc_recalc_iter = 1
+    kwargs = {"current_coords": fragment.coords, "elems": fragment.elems, "grad": True}
+    _, expected = theory.run(**kwargs)
+    for _ in range(2):
+        _, gradient = wrapped.run(**kwargs)
+        assert gradient == pytest.approx(expected, abs=1e-9)
+    theory.truncated_pc_recalc_iter = 3
+    calls = len(qm.calls)
+    with pytest.raises(InputError, match="truncated_pc_recalc_iter=1"):
+        wrapped.run(**kwargs)
+    assert len(qm.calls) == calls
+
+
+@pytest.mark.parametrize("num_grad", [False, True])
+def test_optimizer_rejects_cached_corrections_before_setup(num_grad, tmp_path):
+    theory, fragment, qm = _theory()
+    before = set(tmp_path.iterdir())
+    with pytest.raises(InputError, match="truncated_pc_recalc_iter=1"):
+        optimize_geometry(theory=theory, fragment=fragment, num_grad=num_grad)
+    assert qm.calls == []
+    assert set(tmp_path.iterdir()) == before

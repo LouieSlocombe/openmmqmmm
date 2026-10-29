@@ -27,7 +27,7 @@ import openmmqmmm.orca
 from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.exceptions import ExternalProgramError, InputError, InternalError
 from openmmqmmm.numgrad import _displaced_geometries, _displacement_label
-from openmmqmmm.qmmm import QMMMTheory
+from openmmqmmm.qmmm import QMMMTheory, _validate_qmmm_derivatives
 from openmmqmmm.results import Results
 from openmmqmmm.utils import (
     clean_number,
@@ -570,8 +570,7 @@ def numerical_frequencies(
     logger.info("------------NUMERICAL FREQUENCIES-------------")
     if fragment is None or theory is None:
         raise InputError("numerical_frequencies requires a fragment and a theory object")
-    if isinstance(theory, QMMMTheory) and theory.embedding == "elstat" and theory.truncated_pc:
-        theory._validate_truncated_pc_settings(require_gradients=True)
+    _validate_qmmm_derivatives(theory)
 
     npoint = require_int_in_range(
         npoint, "Unknown npoint option. npoint should be 1 (forward) or 2 (central difference).", maximum=2

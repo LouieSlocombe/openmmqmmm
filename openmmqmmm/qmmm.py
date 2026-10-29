@@ -36,6 +36,16 @@ _DIPOLE_REFERENCE_DISTANCE_ANGSTROM = 2.5
 _DIPOLE_POSITION_SCALE = _DIPOLE_SHIFT_ANGSTROM / _DIPOLE_REFERENCE_DISTANCE_ANGSTROM
 
 
+def _validate_qmmm_derivatives(theory: Any) -> None:
+    """Check the underlying potential before wrappers turn energy calls into derivatives."""
+    seen = set()
+    while theory is not None and id(theory) not in seen:
+        seen.add(id(theory))
+        if isinstance(theory, QMMMTheory) and theory.embedding == "elstat" and theory.truncated_pc:
+            theory._validate_truncated_pc_settings(require_gradients=True)
+        theory = getattr(theory, "theory", None)
+
+
 class QMMMTheory:
     """QM/MM theory coupling a QM theory to an MM theory by electrostatic or mechanical embedding."""
 

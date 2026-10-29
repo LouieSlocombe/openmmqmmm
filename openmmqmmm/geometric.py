@@ -44,7 +44,7 @@ from openmmqmmm.exceptions import (
 from openmmqmmm.freq import approximate_full_hessian_from_smaller, read_hessian, write_hessian
 from openmmqmmm.numgrad import NumGrad
 from openmmqmmm.openmm import OpenMMTheory
-from openmmqmmm.qmmm import QMMMTheory
+from openmmqmmm.qmmm import QMMMTheory, _validate_qmmm_derivatives
 from openmmqmmm.results import Results
 from openmmqmmm.utils import log_time_since, main_header, pygrep2, sub_header
 
@@ -238,6 +238,7 @@ def optimize_geometry(
 
     if theory is None or fragment is None:
         raise InputError("optimize_geometry requires theory and fragment objects.")
+    _validate_qmmm_derivatives(theory)
     optimizer = GeometricOptimizer(
         theory=theory,
         coordsystem=coordsystem,

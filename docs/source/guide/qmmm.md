@@ -260,6 +260,9 @@ that is a lot of charges:
   an energy-only, history-dependent approximation. Gradient evaluations, optimization,
   and numerical frequencies require `truncated_pc_recalc_iter=1`, or `truncated_pc=False`:
   independently cached energy and gradient corrections are not consistent derivatives.
+  This restriction also applies through `NumGrad`, `optimize_geometry(num_grad=True)`,
+  and numerical frequencies of wrapped theories: a refresh inside a finite-difference
+  stencil otherwise makes its result depend on the order of energy evaluations.
   With interval 1, every evaluation restores the full-field energy and all QM, cap, and
   point-charge gradients. This mode provides no truncation speedup. The radius must be
   finite and positive, and the refresh interval a positive integer. Classical and

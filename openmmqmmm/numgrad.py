@@ -10,6 +10,7 @@ import openmmqmmm
 import openmmqmmm.constants
 from openmmqmmm.coords import print_coords_all
 from openmmqmmm.exceptions import InputError
+from openmmqmmm.qmmm import _validate_qmmm_derivatives
 from openmmqmmm.utils import require_int_in_range, require_positive_finite
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,8 @@ class NumGrad:
         coords, element_list = _validate_geometry(current_coords, element_source)
         if hessian:
             raise InputError("NumGrad does not compute Hessians; request a gradient instead")
+        if grad:
+            _validate_qmmm_derivatives(self.theory)
         if grad and pc:
             raise InputError(
                 "NumGrad does not support point-charge gradients; use a theory with analytic QM and point-charge "
