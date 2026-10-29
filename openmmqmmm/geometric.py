@@ -642,6 +642,7 @@ class GeometricOptimizer:
         constrainvalue: bool = False,
     ) -> Results:
         """Optimize a geometry with geomeTRIC."""
+        _validate_qmmm_derivatives(theory)
         logger.info(sub_header("Running geomeTRIC object"))
         logger.debug(
             f"\nDoing geometry optimization on fragment. Formula: {fragment.prettyformula} Label: {fragment.label} "
@@ -756,23 +757,9 @@ class GeometricOptimizer:
 
         logger.info(f"\ngeomeTRIC Geometry optimization converged in {engine.iteration_count + 1} steps!\n")
 
-        if isinstance(theory, QMMMTheory):
-            if theory.truncated_pc is True:
-                logger.info(
-                    "Truncated PC approximation was active. Doing final energy calculation with full PC environment"
-                )
-                theory.truncated_pc = False
-                finalenergy, _finalgrad = theory.run(
-                    current_coords=engine.full_current_coords,
-                    elems=fragment.elems,
-                    grad=True,
-                    charge=charge,
-                    mult=mult,
-                )
-            else:
-                finalenergy = engine.energy
-        else:
-            finalenergy = engine.energy
+        # The derivative guard permits truncated-PC optimization only with a
+        # refresh on every call, so the engine already has the full-field energy.
+        finalenergy = engine.energy
 
         logger.info("Final optimized energy: %s", finalenergy)
 

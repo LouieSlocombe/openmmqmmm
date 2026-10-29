@@ -243,6 +243,43 @@ def test_num_grad_option_wraps_the_theory_before_geometric_sees_it(monkeypatch):
     assert isinstance(handed[0]["customengine"].theory, NumGrad)
 
 
+def test_truncated_pc_optimization_keeps_the_full_field_energy_and_settings(monkeypatch):
+    import geometric.optimize
+
+    theory, fragment, _qm = _make_analytic_qmmm(
+        embedding="elstat", truncated_pc=True, truncated_pc_radius=1.0, truncated_pc_recalc_iter=1
+    )
+    expected_energy = 0.5 * 0.01 * np.sum((fragment.coords * ANG_TO_BOHR) ** 2)
+
+    def evaluate_final_geometry(**kwargs):
+        engine = kwargs["customengine"]
+        Path("geometric_OPTtraj.log").write_text("Step 0: converged\n")
+        engine.calc((fragment.coords * ANG_TO_BOHR).flatten(), ".")
+
+    monkeypatch.setattr(geometric.optimize, "run_optimizer", evaluate_final_geometry)
+
+    result = optimize_geometry(theory=theory, fragment=fragment)
+
+    assert result.energy == pytest.approx(expected_energy)
+    assert theory.truncated_pc is True
+    assert theory.runcalls == 1
+    assert Path("Fragment-optimized.xyz").is_file()
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_direct_optimizer_rejects_cached_truncation_before_cleanup(wrapped):
+    theory, fragment, qm = _make_analytic_qmmm(embedding="elstat", truncated_pc=True, truncated_pc_recalc_iter=50)
+    previous_output = Path("Fragment-optimized.xyz")
+    previous_output.write_text("previous optimization\n")
+
+    with pytest.raises(InputError, match="truncated_pc_recalc_iter=1"):
+        GeometricOptimizer().run(theory=NumGrad(theory) if wrapped else theory, fragment=fragment)
+
+    assert qm.calls == []
+    assert previous_output.read_text() == "previous optimization\n"
+    assert not Path("initialxyzfiletric.xyz").exists()
+
+
 def test_a_single_atom_is_evaluated_as_a_single_point_instead_of_optimized():
     result = optimize_geometry(
         theory=ZeroTheory(), fragment=Fragment(elems=["He"], coords=[[0, 0, 0]], charge=0, mult=1)
