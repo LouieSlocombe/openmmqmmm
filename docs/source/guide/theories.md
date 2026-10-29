@@ -46,6 +46,68 @@ The theory raises {exc}`~openmmqmmm.ExternalProgramError` when ORCA fails, havin
 output for the error and warning patterns ORCA prints. `ignore_orca_error=True` turns that
 off, for the rare case where a non-zero exit is expected.
 
+## MACESCFTheory
+
+{class}`~openmmqmmm.MACESCFTheory` adapts a MACE-SCF ASE calculator for standalone jobs
+or the QM side of {class}`~openmmqmmm.QMMMTheory`. Unlike the mechanically embedded
+OpenMM-ML route in {doc}`mlmm`, MM point charges enter the model's electrostatic
+calculation and receive the corresponding forces. Install the optional backend as
+described in {ref}`install-mace-scf`.
+
+```python
+from openmmqmmm import MACESCFTheory, QMMMTheory
+
+backend = MACESCFTheory(
+    model_path="/path/to/fixedpoint.model",
+    model_type="fixedpoint",  # use "qeq" for a QEq checkpoint
+    device="cpu",  # or "cuda" with a compatible PyTorch installation
+    default_dtype="float64",
+)
+qm_mm = QMMMTheory(
+    qm_theory=backend,
+    mm_theory=mm,
+    fragment=fragment,
+    qmatoms=qmatoms,
+    qm_charge=0,
+    qm_mult=1,
+    embedding="elstat",
+)
+```
+
+Supply either `model_path` or a preconfigured ASE calculator via
+`MACESCFTheory(calculator=calculator)`. FixedPoint and QEq are the supported model
+families. A supplied calculator must implement energy, forces and the MACE-SCF
+`embed(charges, positions=...)` point-charge protocol, including forces on the external
+charges and a constrained `total_charge` input. Local-source models are not supported
+by this adapter because their charge conventions differ.
+
+`calculator_kwargs` passes additional constructor settings to the checkpoint-based
+calculator. The adapter defaults to real-space electrostatics (`pbc_handling="realspace"`),
+eager evaluation, and fixed total charge. Keep these settings for point-charge embedding;
+compiled evaluation and a variable-charge reservoir are unsupported. For a supplied
+calculator, configure the same finite-environment behavior before wrapping it. OpenMM's
+`platform` and the MACE-SCF `device` are separate settings. `numcores` records the theory's
+core-count metadata; configure PyTorch's thread count separately. Do not share an injected
+calculator between concurrent calculations, because the adapter owns its embedding state.
+
+`qm_charge` becomes the ASE `total_charge` information field (or the calculator's
+configured total-charge key). MACE-SCF has no multiplicity input in this interface;
+`qm_mult=1` is required, but it does not impose a spin state on the model. Use a checkpoint
+whose elements, charge states and training domain cover the intended system, including
+any link atoms.
+
+The adapter uses the model's **total energy**, which already contains QM–MM electrostatic
+coupling, and converts eV to Hartree. It converts both atomic and point-charge forces
+from eV/Å to gradients in Hartree/Bohr, reversing their sign. Do not add
+`point_charge_energy` a second time. OpenMM retains MM interactions and the configured
+QM–MM Lennard-Jones terms through the normal QM/MM partition.
+
+The model always sees nonperiodic QM atoms and a finite MM environment, even when the
+OpenMM system is periodic. The molecule imaging, link-atom projection and MM virtual-site
+force redistribution described in {doc}`qmmm` still apply, subject to model suitability;
+this is not periodic MACE-SCF/Ewald embedding. The
+{doc}`../examples` water-dimer script runs an energy and gradient with a local checkpoint.
+
 ## OpenMMTheory
 
 {class}`~openmmqmmm.OpenMMTheory` wraps an OpenMM `System`. It accepts every topology format

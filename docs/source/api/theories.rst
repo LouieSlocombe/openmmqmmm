@@ -2,8 +2,8 @@ Theory objects
 ==============
 
 A theory object knows how to turn coordinates into an energy and a gradient. Every job
-function in :doc:`jobs` takes one. ``ORCATheory`` is the QM side, ``OpenMMTheory`` the MM
-side, and ``QMMMTheory`` couples them by electrostatic embedding. ``MLMMTheory`` combines
+function in :doc:`jobs` takes one. ``ORCATheory`` or ``MACESCFTheory`` supplies the QM side,
+``OpenMMTheory`` the MM side, and ``QMMMTheory`` couples them by electrostatic embedding. ``MLMMTheory`` combines
 an OpenMM-ML potential with a classical MM environment by mechanical embedding.
 
 See :doc:`../guide/theories` and :doc:`../guide/qmmm` for how to configure them.
@@ -18,6 +18,18 @@ Quantum mechanics
    ORCATheory
 
 .. autoclass:: ORCATheory
+
+MACE-SCF
+--------
+
+An optional MACE-SCF calculator supplies energies and gradients, including the response
+to MM point charges. See :doc:`../install` for the separate backend installation.
+
+.. autosummary::
+
+   MACESCFTheory
+
+.. autoclass:: MACESCFTheory
 
 Molecular mechanics
 -------------------

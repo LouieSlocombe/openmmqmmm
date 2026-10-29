@@ -55,11 +55,10 @@ from .freq import (
     write_hessian,
 )
 
-# geomeTRIC and mdtraj interfaces
+# Geometry, model, and trajectory interfaces
 from .geometric import GeometricOptimizer, optimize_geometry
+from .mace_scf import MACESCFTheory
 from .mdtraj import mdtraj_image_trajectory, mdtraj_rmsf
-
-# Machine-learning/MM
 from .mlmm import MLMMTheory
 
 # Numerical gradient and OpenMM
@@ -121,6 +120,7 @@ __all__ = [
     # Core classes
     "Fragment",
     "GeometricOptimizer",
+    "MACESCFTheory",
     "MLMMTheory",
     "MolecularDynamicsEngine",
     "NumGrad",

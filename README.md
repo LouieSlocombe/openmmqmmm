@@ -10,11 +10,13 @@ Electrostatically embedded QM/MM for biomolecular systems, combining the
 ORCA + OpenMM QM/MM stack, with a modernized, PEP8-style Python API. Optional
 [OpenMM-ML](https://github.com/openmm/openmm-ml) potentials provide mechanically embedded
 ML/MM calculations and dynamics.
+Optional MACE-SCF models provide electrostatically embedded ML/MM through the same
+`QMMMTheory` interface, including forces on the MM point charges.
 
 **📖 Full documentation: [openmmqmmm.readthedocs.io](https://openmmqmmm.readthedocs.io)**
 
 `openmmqmmm.__all__` is the public API. Its core is the theory classes `ORCATheory`,
-`OpenMMTheory`, `QMMMTheory`, `MLMMTheory`, `OpenMMQMMMCalculator` and `Fragment`, the job functions
+`MACESCFTheory`, `OpenMMTheory`, `QMMMTheory`, `MLMMTheory`, `OpenMMQMMMCalculator` and `Fragment`, the job functions
 `single_point`, `optimize_geometry` (via [geomeTRIC](https://github.com/leeping/geomeTRIC)),
 `numerical_frequencies`, `analytic_frequencies`, `openmm_md` and `job_parallel`, and the OpenMM
 setup helpers `openmm_modeller`, `openmm_minimize`, `openmm_box_equilibration`,
@@ -48,6 +50,11 @@ For MACE-POLAR, the
 `conda env update -n openmmqmmm -f build_tools/environment_mace_polar.yml` overlay also
 installs a compatible MACE and graph-electrostatics pair. Model weights are fetched on
 first use or supplied as a local checkpoint.
+
+For MACE-SCF, install the separate `mace-scf` checkout and supply a compatible FixedPoint
+or QEq checkpoint. The local backend currently requires Python 3.14 or newer; it needs
+neither OpenMM-ML nor ORCA. See the
+[MACE-SCF installation notes](https://openmmqmmm.readthedocs.io/en/latest/install.html#optional-mace-scf).
 
 Python 3.12 or newer is required. For a pip-only install from a checkout, every runtime
 dependency resolves from PyPI, but forcefill and PLUMED are left out, so
@@ -109,6 +116,34 @@ or `DrudeSCFIntegrator` for Drude dynamics. AMOEBA coupling to the QM electron d
 not implemented. See the
 [polarizable QM/MM guide](https://openmmqmmm.readthedocs.io/en/latest/guide/qmmm.html#polarizable-mm-force-fields)
 and [system preparation](https://openmmqmmm.readthedocs.io/en/latest/guide/system_setup.html#polarizable-force-fields).
+
+## MACE-SCF electrostatic embedding
+
+With an existing `fragment`, `mm` and `qmatoms`, replace the QM backend with:
+
+```py
+from openmmqmmm import MACESCFTheory, QMMMTheory, single_point
+
+mace_scf = MACESCFTheory(model_path="/path/to/fixedpoint.model", device="cpu")
+qm_mm = QMMMTheory(
+    qm_theory=mace_scf,
+    mm_theory=mm,
+    fragment=fragment,
+    qmatoms=qmatoms,
+    qm_charge=0,
+    qm_mult=1,
+    embedding="elstat",
+)
+result = single_point(theory=qm_mm, fragment=fragment, grad=True)
+```
+
+Use `model_type="qeq"` for a QEq checkpoint. The model receives the QM region's total
+charge and the finite MM point-charge environment; spin input is unsupported, so
+`qm_mult` must be 1. Periodic MM systems still use a finite imaged embedding cluster.
+Choose a checkpoint trained for the selected chemistry and charge state. See the
+[MACE-SCF guide](https://openmmqmmm.readthedocs.io/en/latest/guide/theories.html#macescftheory)
+and the runnable
+[water-dimer example](https://github.com/LouieSlocombe/openmmqmmm/blob/main/examples/mace_scf_qmmm.py).
 
 ## ML/MM example
 

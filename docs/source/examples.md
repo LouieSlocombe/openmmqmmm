@@ -25,6 +25,21 @@ Electrostatically embedded QM/MM: a CHARMM36 protein, an ORCA QM region of eight
 geometry optimization restricted to that region. The shape of most QM/MM work — see
 {doc}`guide/qmmm`.
 
+## mace_scf_qmmm.py
+
+```bash
+python examples/mace_scf_qmmm.py /path/to/fixedpoint.model
+python examples/mace_scf_qmmm.py /path/to/qeq.model --model-type qeq --device cuda
+```
+
+Electrostatically embedded MACE-SCF/MM on a generated, nonperiodic water dimer: the
+first water is described by the model and the second by OpenMM TIP3P. The script computes
+the energy and all atomic gradients, including forces from the MM charge field, and
+writes `results_singlepoint.json`. Supply a checkpoint supporting neutral water and
+the optional MACE-SCF dependencies from {doc}`install`; no PDB, ORCA or OpenMM-ML is
+needed. `--platform` chooses the OpenMM platform independently of the model's `--device`.
+This small example demonstrates the interface, not a validated water potential.
+
 ## mlmm_dynamics.py
 
 ```bash

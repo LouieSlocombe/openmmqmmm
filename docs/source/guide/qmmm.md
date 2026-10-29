@@ -57,6 +57,14 @@ QM/MM gradient and adds every molecule whose point-charge gradient exceeds `thre
 QM Hamiltonian, so the QM region is polarized by its environment. `embedding="mech"` is
 mechanical embedding, where the two regions interact only through the MM force field.
 
+For electrostatically embedded ML/MM, pass {class}`~openmmqmmm.MACESCFTheory` as
+`qm_theory`. Its FixedPoint or QEq model receives the same MM point charges and returns
+both QM forces and forces on those charges. Set `qm_mult=1`; the adapter passes the QM
+total charge but has no spin input. The model's total energy already includes the
+electrostatic coupling. The usual force-field partition, link atoms and MM virtual-site
+handling apply, while periodic systems retain the finite embedding model below. See
+{doc}`theories` for checkpoint and calculator setup.
+
 ## Polarizable MM force fields
 
 Both Drude and AMOEBA force fields can be used as the MM model, with different QM/MM

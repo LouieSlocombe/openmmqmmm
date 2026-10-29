@@ -7,8 +7,8 @@
   pulls ASE, OpenMM 8.6, PDBFixer, mdtraj, ParmEd, OpenBabel, geomeTRIC, rmsd,
   multiprocess, numpy, scipy and packaging.
 - [ORCA](https://www.faccts.de/orca/), installed separately (free for academic use). It is
-  needed for {class}`~openmmqmmm.ORCATheory` and therefore for QM/MM, but not for the
-  pure-MM or ML/MM functionality.
+  needed for {class}`~openmmqmmm.ORCATheory`, but not for pure-MM, OpenMM-ML or
+  MACE-SCF calculations.
 
 Two pieces cannot come from PyPI, and both are optional in the sense that everything else
 works without them:
@@ -91,6 +91,31 @@ separately on the source MM theory.
 The import check does not download model weights. Named models download and cache their
 checkpoints on first use; `potential_kwargs={"modelPath": "/path/to/MACE-POLAR.model"}`
 uses a local checkpoint. See {doc}`guide/mlmm` for model names and ML-region charge and spin.
+
+(install-mace-scf)=
+## Optional MACE-SCF
+
+{class}`~openmmqmmm.MACESCFTheory` loads the separate `mace-scf` package only when
+constructing a checkpoint-based calculator. It does not require OpenMM-ML or ORCA,
+and it is not included in the base environment or a pip extra.
+
+The MACE-SCF checkout used for this integration (version 0.4.4) declares
+**Python ≥ 3.14**, above openmmqmmm's Python 3.12 floor. Use an environment that
+satisfies both packages and their dependencies, then install from the openmmqmmm
+repository root:
+
+```bash
+python -m pip install -e .
+python -m pip install -e ../mace-scf
+python -c "from openmmqmmm import MACESCFTheory; from mace_scf.calculators.fixedpoint_scf import MACEFixedPointSCF"
+```
+
+Adjust the checkout path if it is elsewhere. The editable installation resolves the
+backend's own MACE and PyTorch dependencies; CUDA execution also requires a compatible
+PyTorch/CUDA setup. A compatible FixedPoint or QEq model checkpoint is a separate input,
+and the adapter does not download weights. Select one trained for the intended chemistry
+and charge states. See {doc}`guide/theories` for construction and finite point-charge
+embedding restrictions, and {doc}`examples` for a water-dimer calculation.
 
 ## pip
 
