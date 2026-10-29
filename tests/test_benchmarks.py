@@ -110,3 +110,17 @@ def test_benchmark_rejects_invalid_repetitions(tmp_path, value):
     config["repeats"] = value
     with pytest.raises(ValueError, match="positive integer"):
         RUNNER["run_benchmark"](config)
+
+
+def test_rpmd_audit_measures_serialization_contraction_and_reporting():
+    runner = runpy.run_path(str(Path(__file__).resolve().parents[1] / "examples/benchmark_rpmd.py"))
+    report = runner["run_benchmark"](beads=(4,), steps=2, repeats=1, delay_seconds=0)
+    probe = report["serialization_probe"]
+    assert probe["distinct_evaluations"] == probe["submitted_workers"] == 4
+    assert probe["peak_simultaneous_backend_calls"] == 1
+    cases = {(case["qm_copies"], case["energy_frequency"]): case for case in report["cases"]}
+    calls = {key: case["samples"][0]["fresh_qm_evaluations"] for key, case in cases.items()}
+    assert calls[1, 0] < calls[4, 0]
+    assert calls[1, 1] > calls[1, 0]
+    assert all(case["peak_simultaneous_backend_calls"] == 1 for case in report["cases"])
+    assert all(case["wall_seconds_per_step"]["count"] == 1 for case in report["cases"])

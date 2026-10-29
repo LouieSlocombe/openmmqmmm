@@ -43,8 +43,11 @@ away, because both methods need physical nuclear masses.
 
 ## Cost, and contracting the QM force
 
-By default the QM force is evaluated independently on every bead. `RPMDIntegrator` evaluates
-the potential twice per step, so the example above performs 64 QM/MM evaluations per MD step.
+By default the QM force is evaluated independently on every bead. The number of fresh QM
+jobs depends on startup, integrator force reuse and the exact-coordinate cache. A warmed
+Reference-platform probe needs one fresh evaluation per bead per step; force requests do
+not necessarily start new electronic calculations. See the measured counts and reproducible
+parallelism audit in {doc}`performance`.
 
 `rpmd_qm_num_copies=` applies OpenMM's ring-polymer contraction to the QM force alone:
 `rpmd_qm_num_copies=1` evaluates it at the centroid, and any value up to `rpmd_num_copies`

@@ -83,3 +83,75 @@ performed by that path. Dynamics reuses an OpenMM Context and invokes the QM pro
 inside the integrator, so these times are not persistent-context MD step throughput. Use
 the MD profiling records to measure propagation, cache use and reporting in that workload.
 The report records the Git revision and whether the checkout contained uncommitted changes.
+
+## RPMD parallelism audit
+
+The current PythonForce provider owns one QM/MM theory and holds a reentrant lock around
+cache lookup, the complete QM evaluation, and insertion. Fresh bead evaluations therefore
+enter that backend serially. The theory's coordinates, gradients, charge-site arrays and
+ORCA scratch/GBW state are shared. `job_parallel` is not used by the RPMD callback path;
+removing the provider lock would not create a safe bead-parallel implementation.
+
+`ORCATheory(numcores=p)` instead requests `p` processes *within one electronic calculation*.
+The ORCA driver launches its MPI modules; the package supplies `%pal nprocs` and waits for
+that calculation to finish. See the [ORCA parallel execution manual](https://www.faccts.de/docs/orca/6.1/manual/contents/essentialelements/parallel.html).
+OpenMM CPU `numcores` controls native MM work and does not allocate ORCA bead workers.
+
+Ring-polymer contraction reduces the copies at which a force group is evaluated; it does
+not make those evaluations concurrent. Full-ring energy includes every bead's potential,
+kinetic energy and ring springs, so its cost can exceed contracted propagation. See
+[OpenMM's RPMDIntegrator API](https://docs.openmm.org/latest/api-python/generated/openmm.openmm.RPMDIntegrator.html).
+The exact-coordinate cache can reuse endpoint forces, so count fresh provider evaluations
+and cache hits separately rather than assuming every force request starts an electronic job.
+
+Run the scheduling and serialization probe without ORCA:
+
+```bash
+OPENMM_CPU_THREADS=1 OMP_NUM_THREADS=1 python examples/benchmark_rpmd.py \
+    --beads 1 4 8 --energy-frequencies 0 1 --steps 4 --warmup-steps 1 \
+    --repeats 3 --delay-seconds 0.002 --output rpmd-benchmark.json
+```
+
+The probe runs the real QM/MM PythonForce and RPMD engine with a two-atom harmonic backend,
+zero native MM potential, distinct deterministic initial bead coordinates, and the thermostat
+disabled. A synthetic 2 ms delay per fresh evaluation represents latency while releasing the
+Python GIL. Each case measures three four-step blocks after a warmup step, retains the same
+Context, and writes a positions-only DCD every step. `--energy-frequencies 0 1` compares
+disabled diagnostics with full-ring energy every step. Wall time includes the public
+`run(restart=True)` bookkeeping and trajectory I/O. JSON records each block's fresh calls,
+cache hits, wall time, backend concurrency and software/host metadata. The timing is a
+scheduling diagnostic, not an ORCA or biomolecular MM throughput estimate.
+
+Measured on 29 October 2026 with Python 3.13.14, OpenMM 8.6.1, Reference platform, x86-64:
+
+| Beads | QM copies | Energy every step | Fresh QM calls/step | Median ms/step |
+| ---: | ---: | :---: | ---: | ---: |
+| 1 | 1 | no | 1 | 2.19 |
+| 4 | 4 | no | 4 | 8.51 |
+| 4 | 1 | no | 1 | 2.23 |
+| 4 | 1 | yes | 5 | 10.64 |
+| 8 | 8 | no | 8 | 16.87 |
+| 8 | 1 | no | 1 | 2.27 |
+| 8 | 1 | yes | 9 | 19.18 |
+
+All three blocks had the same call counts. These counts exclude startup and depend on cache
+reuse; they are not universal integrator guarantees. A separate simultaneous four-thread
+submission of distinct geometries to one provider measured peak backend concurrency **1**
+and 41.7 ms total with a 10 ms delay per evaluation, confirming provider serialization.
+Timing will vary by host; the regression test checks concurrency and relative call counts,
+not elapsed-time thresholds. Contraction accuracy requires independent validation of the
+physical system and is not established by this harmonic probe.
+
+For a current production run, benchmark ORCA process count on the target QM region, allocate
+OpenMM's CPU threads or GPU explicitly, and reserve memory for ORCA's per-process settings.
+Record full-ring diagnostic cadence when comparing throughput. Additional cores do not
+automatically add bead workers. Independent trajectories can use separate processes,
+directories and theory objects under the scheduler's total CPU/GPU and memory allocation.
+
+A future bead-worker design would need a batching interface beyond the present synchronous
+single-state callback, independent mutable theory/MM state, unique scratch and output files,
+controlled per-bead GBW reuse, ordered results and worker-failure cleanup. With `w` workers
+and `p` ORCA processes each, budget at least `w*p` process slots plus native MM/runtime
+resources, and validate energy/force equivalence and restart behavior before claiming speedup.
+This audit establishes the existing serialization and contraction/reporting costs; it does
+not introduce concurrent bead execution.
