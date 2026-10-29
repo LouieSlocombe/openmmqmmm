@@ -982,6 +982,8 @@ def test_rpmd_restart_round_trip_preserves_every_copy(tmp_path):
 def test_rpmd_state_report_labels_copy_and_ring_polymer_energy():
     import io
 
+    import openmm
+
     from openmmqmmm.openmm.md import _RPMDStateDataReporter
 
     simulation, _system = _make_minimal_rpmd_simulation(2)
@@ -990,7 +992,11 @@ def test_rpmd_state_report_labels_copy_and_ring_polymer_energy():
     output = io.StringIO()
     reporter = _RPMDStateDataReporter(output, copy_index=1, degrees_of_freedom=3)
     state = simulation.integrator.getState(1, getEnergy=True, getVelocities=True)
-    reporter.report(simulation, state)
+    reporter.report(
+        simulation,
+        state,
+        total_energy=simulation.integrator.getTotalEnergy().value_in_unit(openmm.unit.kilojoule_per_mole),
+    )
 
     report = output.getvalue()
     assert "RPMD Copy" in report
@@ -1014,6 +1020,7 @@ def test_rpmd_reporters_bypass_simulation_context_reporting(tmp_path, caplog):
     engine.trajectory_file_option = "DCD"
     engine.trajfilename = str(tmp_path / "rpmd_trajectory")
     engine.traj_frequency = 1
+    engine.rpmd_energy_frequency = 1
     engine.enforce_periodic_box = False
     engine.force_file_option = None
     engine.atomic_units_force_reporter = False

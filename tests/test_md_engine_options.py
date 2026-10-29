@@ -91,7 +91,11 @@ def test_rpmd_state_report_without_degrees_of_freedom_reports_nan_temperature_an
     output = io.StringIO()
     reporter = _RPMDStateDataReporter(output, copy_index=0, degrees_of_freedom=None, append=True)
 
-    reporter.report(engine.simulation, engine.simulation.integrator.getState(0, getEnergy=True, getVelocities=True))
+    reporter.report(
+        engine.simulation,
+        engine.simulation.integrator.getState(0, getEnergy=True, getVelocities=True),
+        total_energy=engine.simulation.integrator.getTotalEnergy().value_in_unit(openmm.unit.kilojoule_per_mole),
+    )
 
     lines = output.getvalue().splitlines()
     assert len(lines) == 1

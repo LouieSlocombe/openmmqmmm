@@ -137,14 +137,19 @@ class _RPMDStateDataReporter:
         degrees_of_freedom: int | None,
         separator: str = ",",
         append: bool = False,
+        interval: int = 1,
     ) -> None:
         self._output = output
         self._copy_index = copy_index
         self._degrees_of_freedom = degrees_of_freedom
         self._separator = separator
         self._header_written = append
+        self.interval = interval
 
-    def report(self, simulation: openmm.app.Simulation, state: openmm.State) -> None:
+    def describeNextReport(self, simulation: openmm.app.Simulation) -> dict[str, Any]:  # noqa: N802
+        return {"steps": self.interval - simulation.currentStep % self.interval, "include": ["energy"]}
+
+    def report(self, simulation: openmm.app.Simulation, state: openmm.State, *, total_energy: float) -> None:
         if not self._header_written:
             headers = (
                 "Step",
@@ -168,7 +173,6 @@ class _RPMDStateDataReporter:
             temperature = 2 * kinetic_energy / (self._degrees_of_freedom * gas_constant)
         else:
             temperature = float("nan")
-        total_energy = simulation.integrator.getTotalEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
         simulation_time = state.getTime().value_in_unit(openmm.unit.picosecond)
         values = (
             simulation.currentStep,
@@ -246,6 +250,7 @@ def openmm_md(
     integrator: str = "LangevinMiddleIntegrator",
     rpmd_num_copies: int | None = None,
     rpmd_qm_num_copies: int | None = None,
+    rpmd_energy_frequency: int | None = None,
     barostat: str | None = None,
     pressure: float = 1,
     trajectory_file_option: str = "DCD",
@@ -320,6 +325,7 @@ class MolecularDynamicsEngine:
         integrator: str = "LangevinMiddleIntegrator",
         rpmd_num_copies: int | None = None,
         rpmd_qm_num_copies: int | None = None,
+        rpmd_energy_frequency: int | None = None,
         barostat: str | None = None,
         pressure: float = 1,
         trajectory_file_option: str = "DCD",
@@ -363,6 +369,12 @@ class MolecularDynamicsEngine:
         self.fragment = fragment
 
         is_rpmd = integrator == "RPMDIntegrator"
+        if rpmd_energy_frequency is not None:
+            if not is_rpmd:
+                raise InputError("rpmd_energy_frequency is only valid for RPMD dynamics.")
+            rpmd_energy_frequency = require_int_in_range(
+                rpmd_energy_frequency, "rpmd_energy_frequency must be a nonnegative integer or None.", minimum=0
+            )
         if is_rpmd and barostat is not None:
             raise InputError(
                 "RPMDIntegrator cannot be used with a barostat. Remove the barostat or explicitly select a "
@@ -428,12 +440,14 @@ class MolecularDynamicsEngine:
         self.integrator = integrator
         self.rpmd_report_copy = 0
         self._rpmd_reporters = []
+        self._rpmd_extra_reporters = []
         self._rpmd_reporter_owner: openmm.app.Simulation | None = None
         self._simulation_reporters: list[Any] = []
         self._simulation_reporter_owner: openmm.app.Simulation | None = None
         self.coupling_frequency = coupling_frequency
         self.timestep = timestep
         self.traj_frequency = int(traj_frequency)
+        self.rpmd_energy_frequency = self.traj_frequency if rpmd_energy_frequency is None else rpmd_energy_frequency
         self.restartfile_frequency = restartfile_frequency
         self.barostat_frequency = barostat_frequency
         self.trajectory_file_option = trajectory_file_option
@@ -496,25 +510,33 @@ class MolecularDynamicsEngine:
     def _set_rpmd_reporters(self, simulation: openmm.app.Simulation, restart: bool = False) -> None:
         old_reporters = self._rpmd_reporters
         self._rpmd_reporters = []
+        self._rpmd_extra_reporters = []
         self._rpmd_reporter_owner = simulation
         old_reporters.clear()
 
         logger.debug("Creating RPMD-aware state and trajectory reporters for copy %s", self.rpmd_report_copy)
-        self._rpmd_reporters.append(
-            _RPMDStateDataReporter(_LoggerWriter(logger), self.rpmd_report_copy, self.openmmobject.dof, separator=",")
-        )
-        if self.dataoutputoption != stdout:
+        if self.rpmd_energy_frequency > 0:
             self._rpmd_reporters.append(
                 _RPMDStateDataReporter(
-                    self.dataoutputoption,
+                    _LoggerWriter(logger),
                     self.rpmd_report_copy,
                     self.openmmobject.dof,
-                    separator=",",
-                    append=restart,
+                    interval=self.rpmd_energy_frequency,
                 )
             )
+            if self.dataoutputoption != stdout:
+                self._rpmd_reporters.append(
+                    _RPMDStateDataReporter(
+                        self.dataoutputoption,
+                        self.rpmd_report_copy,
+                        self.openmmobject.dof,
+                        append=restart,
+                        interval=self.rpmd_energy_frequency,
+                    )
+                )
 
-        self._rpmd_reporters.extend(self._trajectory_reporters(restart))
+        if self.traj_frequency > 0:
+            self._rpmd_reporters.extend(self._trajectory_reporters(restart))
         logger.info("RPMD restart data will be written to %s", RPMD_RESTART_FILENAME)
 
     def _trajectory_reporters(self, restart: bool) -> list[Any]:
@@ -557,25 +579,73 @@ class MolecularDynamicsEngine:
             )
         return reporters
 
-    def _report_rpmd_state(self) -> None:
-        state = self.simulation.integrator.getState(
-            self.rpmd_report_copy,
-            getPositions=True,
-            getVelocities=True,
-            getForces=self.force_file_option is not None,
-            getEnergy=True,
-            enforcePeriodicBox=self.enforce_periodic_box,
-        )
-        for reporter in self._rpmd_reporters:
-            reporter.report(self.simulation, state)
+    def _rpmd_report_description(self, reporter: Any) -> dict[str, Any]:
+        """Normalize OpenMM reporter requirements while preserving extra-reporter cadence."""
+        if hasattr(reporter, "describeNextReport"):
+            description = reporter.describeNextReport(self.simulation)
+            if isinstance(description, tuple):
+                description = {
+                    "steps": description[0],
+                    "include": [
+                        name
+                        for name, requested in zip(
+                            ("positions", "velocities", "forces", "energy"), description[1:5], strict=True
+                        )
+                        if requested
+                    ],
+                    "periodic": description[5] if len(description) > 5 else None,
+                }
+            else:
+                description = dict(description)
+        else:
+            description = {"include": ["positions", "velocities", "energy"]}
+        if reporter in self._rpmd_extra_reporters or "steps" not in description:
+            description["steps"] = (
+                self.traj_frequency - self.simulation.currentStep % self.traj_frequency
+                if self.traj_frequency > 0
+                else 0
+            )
+        return description
+
+    def _report_rpmd_state(self, reporters: Sequence[Any] | None = None) -> None:
+        """Share bead States and one full-ring diagnostic between the due reporters."""
+        reporters = self._rpmd_reporters if reporters is None else reporters
+        total_energy = None
+        if any(isinstance(reporter, _RPMDStateDataReporter) for reporter in reporters):
+            total_energy = self.simulation.integrator.getTotalEnergy().value_in_unit(openmm.unit.kilojoule_per_mole)
+        groups = {}
+        for reporter in reporters:
+            description = self._rpmd_report_description(reporter)
+            periodic = description.get("periodic")
+            if "positions" not in description["include"]:
+                periodic = None
+            elif periodic is None:
+                periodic = self.enforce_periodic_box
+            groups.setdefault(periodic, []).append((reporter, description["include"]))
+        if None in groups:
+            either = groups.pop(None)
+            periodic = max(groups, key=lambda key: len(groups[key])) if groups else self.enforce_periodic_box
+            groups.setdefault(periodic, []).extend(either)
+        for periodic, group in groups.items():
+            includes = {name for _, requested in group for name in requested}
+            state = self.simulation.integrator.getState(
+                self.rpmd_report_copy,
+                enforcePeriodicBox=periodic,
+                **{f"get{name.title()}": True for name in includes},
+            )
+            for reporter, _ in group:
+                if isinstance(reporter, _RPMDStateDataReporter):
+                    reporter.report(self.simulation, state, total_energy=total_energy)
+                else:
+                    reporter.report(self.simulation, state)
 
     def _run_rpmd_mm(self, simulation_steps: int) -> None:
         target_step = self.simulation.currentStep + simulation_steps
         while self.simulation.currentStep < target_step:
             current_step = self.simulation.currentStep
             steps_to_event = [target_step - current_step]
-            if self.traj_frequency > 0:
-                steps_to_event.append(self.traj_frequency - current_step % self.traj_frequency)
+            next_reports = [(reporter, self._rpmd_report_description(reporter)) for reporter in self._rpmd_reporters]
+            steps_to_event.extend(description["steps"] for _, description in next_reports if description["steps"] > 0)
             if self.restartfile_frequency > 0:
                 steps_to_event.append(self.restartfile_frequency - current_step % self.restartfile_frequency)
             steps = min(steps_to_event)
@@ -586,8 +656,9 @@ class MolecularDynamicsEngine:
             self.simulation.currentStep = current_step + steps
 
             current_step = self.simulation.currentStep
-            if self.traj_frequency > 0 and current_step % self.traj_frequency == 0:
-                self._report_rpmd_state()
+            due_reporters = [reporter for reporter, description in next_reports if description["steps"] == steps]
+            if due_reporters:
+                self._report_rpmd_state(due_reporters)
             if self.restartfile_frequency > 0 and current_step % self.restartfile_frequency == 0:
                 self.write_state_and_chk_files(current_step)
 
@@ -1141,9 +1212,8 @@ class MolecularDynamicsEngine:
             return
         extra_reporters = list(extra_reporters)
         if is_rpmd:
-            # The RPMD event loop drives these at traj_frequency alongside the
-            # engine's own reporters; describeNextReport is not consulted.
             self._rpmd_reporters.extend(extra_reporters)
+            self._rpmd_extra_reporters.extend(extra_reporters)
         else:
             self.simulation.reporters.extend(extra_reporters)
         logger.info("Attached %s extra reporter(s)", len(extra_reporters))
@@ -1174,9 +1244,7 @@ class MolecularDynamicsEngine:
 
     def _write_first_frame(self) -> None:
         """Write the initial frame next to the trajectory as both PDB and PDBx/mmCIF."""
-        state = self._get_simulation_state(
-            getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=self.enforce_periodic_box
-        )
+        state = self._get_simulation_state(getPositions=True, enforcePeriodicBox=self.enforce_periodic_box)
         positions = state.getPositions(asNumpy=True).value_in_unit(openmm.unit.angstrom)
         topology = self.openmmobject.topology
 
@@ -1332,6 +1400,7 @@ class MolecularDynamicsEngine:
 
         rpmd_reporters = getattr(self, "_rpmd_reporters", [])
         self._rpmd_reporters = []
+        self._rpmd_extra_reporters = []
         self._rpmd_reporter_owner = None
         rpmd_reporters.clear()
 
@@ -1349,9 +1418,7 @@ class MolecularDynamicsEngine:
         if self.datafilename is not None:
             self.dataoutputoption.close()
 
-        self.state = self._get_simulation_state(
-            getEnergy=True, getPositions=True, getForces=True, enforcePeriodicBox=self.enforce_periodic_box
-        )
+        self.state = self._get_simulation_state(getPositions=True, enforcePeriodicBox=self.enforce_periodic_box)
 
         if self.openmmobject.periodic is True:
             logger.debug("Checking PBC vectors:")

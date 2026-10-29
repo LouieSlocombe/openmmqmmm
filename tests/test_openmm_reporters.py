@@ -34,6 +34,7 @@ def test_trajectory_reporters_preserve_format_and_restart(monkeypatch, rpmd, res
         trajectory_file_option=format_name,
         trajfilename="trajectory",
         traj_frequency=7,
+        rpmd_energy_frequency=7,
         restartfile_frequency=11,
         enforce_periodic_box=False,
         force_file_option=True,
@@ -157,6 +158,133 @@ def test_classical_output_events_batch_steps_share_states_and_continue_on_restar
     engine.finalize_simulation()
     np.testing.assert_allclose(fragment.coords, final_positions.value_in_unit(openmm.unit.angstrom))
     assert Path("OpenMM_MD_final_checkpoint.chk").is_file()
+
+
+@pytest.mark.parametrize("frequency,diagnostic_steps", [(None, [2, 4, 6]), (3, [3, 6]), (0, [])])
+def test_contracted_rpmd_reports_energy_once_at_its_own_cadence(monkeypatch, frequency, diagnostic_steps):
+    from conftest import _make_analytic_qmmm
+
+    qmmm, fragment, _ = _make_analytic_qmmm()
+    engine = md.MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=8,
+        rpmd_qm_num_copies=1,
+        rpmd_energy_frequency=frequency,
+        timestep=1e-6,
+        traj_frequency=2,
+        restartfile_frequency=0,
+        datafilename="state.csv",
+    )
+    diagnostics, state_requests = [], []
+
+    def instrument(current_engine):
+        simulation = current_engine.simulation
+        integrator = simulation.integrator
+        for index in range(8):
+            coords = np.array([[0.05 * index - 0.05, 0, 0], [0.05 * index + 0.05, 0, 0]])
+            integrator.setPositions(index, coords * openmm.unit.nanometer)
+            integrator.setVelocities(index, np.zeros((2, 3)))
+        total_energy = integrator.getTotalEnergy
+        get_state = integrator.getState
+
+        def record_total_energy():
+            before = current_engine.rpmd_force_provider.evaluation_count
+            value = total_energy()
+            diagnostics.append((simulation.currentStep, current_engine.rpmd_force_provider.evaluation_count - before))
+            return value
+
+        def record_state(*args, **kwargs):
+            before = current_engine.rpmd_force_provider.evaluation_count
+            value = get_state(*args, **kwargs)
+            state_requests.append(
+                (simulation.currentStep, kwargs, current_engine.rpmd_force_provider.evaluation_count - before)
+            )
+            return value
+
+        monkeypatch.setattr(integrator, "getTotalEnergy", record_total_energy)
+        monkeypatch.setattr(integrator, "getState", record_state)
+
+    engine.run(simulation_steps=6, pre_dynamics_hook=instrument)
+    engine.finalize_simulation()
+
+    assert diagnostics == [(step, 8) for step in diagnostic_steps], "Log and file must share one full-ring evaluation"
+    assert all(extra_evaluations == 0 for _, _, extra_evaluations in state_requests)
+    for step, options, _ in state_requests:
+        if step not in diagnostic_steps:
+            assert not options.get("getEnergy") and not options.get("getForces")
+    rows = Path("state.csv").read_text().splitlines()
+    assert len(rows) == (1 + len(diagnostic_steps) if diagnostic_steps else 0)
+    assert [int(row.split(",")[0]) for row in rows[1:]] == diagnostic_steps
+    trajectory = md.mdtraj.load("trajectory.dcd", top="trajectory_firstframe.pdb")
+    assert trajectory.n_frames == 3
+
+
+def test_rpmd_disabled_diagnostics_preserve_explicit_force_reports(monkeypatch):
+    from conftest import _make_analytic_qmmm
+
+    qmmm, fragment, _ = _make_analytic_qmmm()
+    engine = md.MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+        rpmd_qm_num_copies=1,
+        rpmd_energy_frequency=0,
+        timestep=1e-6,
+        traj_frequency=1,
+        force_file_option="enabled",
+    )
+
+    def reject_full_ring(current_engine):
+        def unexpected():
+            pytest.fail("Explicit bead force output must not request full-ring diagnostics")
+
+        monkeypatch.setattr(current_engine.simulation.integrator, "getTotalEnergy", unexpected)
+
+    engine.run(simulation_steps=1, pre_dynamics_hook=reject_full_ring)
+    state = engine.simulation.integrator.getState(0, getEnergy=True, getForces=True)
+    expected = state.getForces(asNumpy=True).value_in_unit(openmm.unit.kilojoule_per_mole / openmm.unit.nanometer)
+    engine.close()
+    lines = Path("trajectory_force.txt").read_text().splitlines()
+    assert np.array([[float(value) for value in line.split()] for line in lines[-2:]]) == pytest.approx(
+        expected, rel=1e-5
+    )
+
+
+@pytest.mark.parametrize("frequency", [-1, True, 1.5])
+def test_rpmd_energy_frequency_rejects_invalid_intervals_before_mutating_theory(frequency):
+    from conftest import _make_analytic_qmmm
+
+    from openmmqmmm.exceptions import InputError
+
+    qmmm, fragment, _ = _make_analytic_qmmm()
+    with pytest.raises(InputError, match="rpmd_energy_frequency"):
+        md.MolecularDynamicsEngine(
+            fragment=fragment, theory=qmmm, integrator="RPMDIntegrator", rpmd_energy_frequency=frequency
+        )
+    assert not qmmm.openmm_externalforce
+
+
+def test_rpmd_diagnostic_cadence_works_without_trajectory_output():
+    from conftest import _make_analytic_qmmm
+
+    qmmm, fragment, _ = _make_analytic_qmmm()
+    engine = md.MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=qmmm,
+        integrator="RPMDIntegrator",
+        rpmd_num_copies=2,
+        rpmd_energy_frequency=2,
+        traj_frequency=0,
+        timestep=1e-6,
+        datafilename="state.csv",
+    )
+    engine.run(simulation_steps=3)
+    engine.close()
+    assert [int(row.split(",")[0]) for row in Path("state.csv").read_text().splitlines()[1:]] == [2]
+    assert not Path("trajectory.dcd").exists()
 
 
 @pytest.mark.parametrize("option", ["special_wrapping", "special_wrapping_updatepos"])

@@ -53,6 +53,22 @@ is allowed. The MM forces stay on the full ring.
 Final bead evaluations are cached, so the state and force reporting an exact-RPMD run does
 between steps does not relaunch identical QM jobs.
 
+## Energy diagnostics and trajectory output
+
+`rpmd_energy_frequency=` controls the state report, including the full-ring total energy,
+independently of `traj_frequency`. Its default, `None`, uses `traj_frequency` for compatibility.
+Set a positive integer to sample energies less often, or `0` to disable these diagnostics.
+For example, `traj_frequency=10, rpmd_energy_frequency=1000` writes coordinates every ten
+steps and energies every thousand steps. The log and optional `datafilename` share one
+full-ring evaluation at each diagnostic event.
+
+Full-ring energy evaluates the potential on every bead even when propagation contracts the
+QM force. An eight-bead centroid-contracted system can therefore need eight additional QM
+calculations per diagnostic event. With `rpmd_energy_frequency=0`, DCD/PDB trajectory output
+and initial/final structures request positions only. Explicit force output and trajectory
+formats or extra reporters that request energies still evaluate the reported bead's potential.
+Restart archives continue to store every bead's positions and velocities.
+
 ## What RPMD does not support
 
 These are rejected rather than silently approximated, because each keeps state that is shared

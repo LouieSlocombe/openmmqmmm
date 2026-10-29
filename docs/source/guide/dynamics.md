@@ -171,6 +171,11 @@ calculations still follow the integrator's force requests and the existing geome
 : The step-by-step state report. Left unset, that report goes to the package logger; set it
   and it goes to a file instead.
 
+`rpmd_energy_frequency=`
+: RPMD state and full-ring energy diagnostic interval. `None` uses `traj_frequency`, a
+  positive integer sets an independent interval, and `0` disables diagnostics. Coordinate
+  trajectories keep their own cadence; see {doc}`rpmd` for contracted-run reporting costs.
+
 `restartfile_frequency=` with `chkfile=` / `statefile=`
 : Checkpoint and state files for restarting. A checkpoint is binary and tied to the exact
   System; a state file is portable XML. Classical MM, QM and QM/MM runs write
