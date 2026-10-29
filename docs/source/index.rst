@@ -102,6 +102,7 @@ Where to go next
    guide/nqe_interop
    guide/ase
    guide/output
+   guide/performance
 
 .. toctree::
    :maxdepth: 2
