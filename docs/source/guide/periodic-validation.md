@@ -136,10 +136,30 @@ For total QM/MM comparisons, use the identical full MM energy/forces at every ex
 Record the same A/B energy and force differences as for the cell series, using the full
 charge list as the finite reference. Report field-only and combined results distinctly.
 
-`truncated_pc_radius` is not an independent extent-convergence control:
-`truncated_pc_recalc_iter=1` reconstructs the full field every evaluation. Larger refresh
-intervals introduce cached, history-dependent corrections and are unsuitable for
-conservative force or NVE validation. QM/MM dynamics rejects `truncated_pc=True`.
+`truncated_pc_radius` is not an independent extent-convergence control. With
+`truncated_pc_recalc_iter=1` (the default), each evaluation performs one full-field QM
+calculation and does not use a subset. Explicitly larger refresh intervals enable cached,
+history-dependent energy corrections and remain unsuitable for conservative force or NVE
+validation. QM/MM dynamics rejects `truncated_pc=True` at every interval.
+
+Cached selection now preserves complete topology molecules, native-site and Drude parents,
+and boundary charge dependencies. Its default radius measures distance to the nearest real
+QM atom; the optional `"centroid"` mode includes link atoms in the QM centroid. Explicit
+`truncated_pc_groups` use full-system atom indices to merge automatic groups, for example
+to keep ions together. These guarantees depend on available connectivity metadata and do
+not by themselves guarantee a neutral field or converged electrostatics. A molecule that
+contains QM atoms can bring its entire MM portion into the selected field. See
+{doc}`qmmm` for topology-free grouping and migration details.
+
+For a separate study of cached-energy accuracy, record
+`theory.truncated_pc_diagnostics`: selection counts and charges, mode, fallback status, and
+`last_refresh_error` in Eh. The latter compares the previous cached prediction at the
+current refresh geometry against a full-field calculation, including when group selection
+changes. It is not just correction drift. An optional `truncated_pc_error_tolerance` can
+latch full-field evaluation after an excessive observed error, but cannot bound errors
+between checks or validate force accuracy. Compare additional independently chosen
+geometries with `truncated_pc=False`. After changing settings inside a QM backend object,
+call `theory.reset_truncated_pc_cache()` before starting a new cached comparison.
 
 ## Scan an image-switching surface
 

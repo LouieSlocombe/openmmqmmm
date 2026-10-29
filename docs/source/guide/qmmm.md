@@ -251,22 +251,103 @@ and never across a bond in a conjugated or charged group.
 
 ## Point charges
 
-Every MM atom is a point charge in the QM calculation by default. For a large periodic system
-that is a lot of charges:
+Every MM atom is a point charge in the QM calculation by default. Truncation is disabled
+unless requested with `truncated_pc=True`.
 
 `truncated_pc=True`
-: Uses only the charges within `truncated_pc_radius` (55 Å by default) for most steps,
-  recomputing the full set every `truncated_pc_recalc_iter` calls. Cached corrections are
-  an energy-only, history-dependent approximation. Gradient evaluations, optimization,
-  and numerical frequencies require `truncated_pc_recalc_iter=1`, or `truncated_pc=False`:
-  independently cached energy and gradient corrections are not consistent derivatives.
-  This restriction also applies through `NumGrad`, `optimize_geometry(num_grad=True)`,
-  and numerical frequencies of wrapped theories: a refresh inside a finite-difference
-  stencil otherwise makes its result depend on the order of energy evaluations.
-  With interval 1, every evaluation restores the full-field energy and all QM, cap, and
-  point-charge gradients. This mode provides no truncation speedup. The radius must be
-  finite and positive, and the refresh interval a positive integer. Classical and
-  ring-polymer QM/MM dynamics reject `truncated_pc` ({doc}`dynamics`, {doc}`rpmd`).
+: With the default `truncated_pc_recalc_iter=1`, performs **one full-field QM calculation**
+  per evaluation. It does not calculate a subset or reuse a correction, and returns the
+  full energy and all QM, cap, and point-charge gradients. This has no truncation speedup.
+  Cached energy calculations require an explicit refresh interval greater than 1.
+
+`truncated_pc_selection="nearest"`
+: For cached calculations, selects a charge group if any of its sites lies strictly within
+  `truncated_pc_radius` (55 Å by default) of any **real QM atom**. Link atoms are excluded
+  from this distance calculation. `truncated_pc_selection="centroid"` instead uses the
+  arithmetic centroid of the QM coordinates including link atoms, retaining the historical
+  distance definition. A centroid radius can omit charges near the edge of an extended
+  QM region. Both modes preserve complete charge groups; neither uses smooth switching.
+
+  Groups follow complete OpenMM topology molecules, including connectivity through QM
+  atoms. Drude particles, native virtual sites, and boundary dipole/RCD sites stay with
+  their parents and charge-redistribution dependencies. Thus the MM portion of a large
+  QM-containing macromolecule may all be selected. When OpenMM topology is unavailable,
+  grouping uses `Fragment.connectivity` and known boundary dependencies. Sites without
+  connectivity metadata are independent; provide explicit groups when they belong together.
+
+`truncated_pc_groups=`
+: Optional groups of **full-system atom indices** that merge automatic groups, without
+  splitting existing molecules or site dependencies. For example, groups can keep a charged
+  solute and chosen counterions together. Complete molecules do not guarantee a neutral
+  selected field; inspect its net charge and converge the extent for the intended observable.
+
+With a refresh interval greater than 1, the first evaluation and scheduled refreshes return
+the full-field energy. Other calls reuse the selected site indices, update their coordinates,
+and return `E_subset(current) + E_full(refresh) - E_subset(refresh)`. This scalar correction
+does not restore the full-field electronic state between refreshes. These energies depend on
+calculation history and have no guaranteed error bound.
+
+At a scheduled refresh, the old subset is evaluated at the current geometry to measure
+`E_old_subset(current) + old_correction - E_full(current)`. If the new selection differs,
+its energy is also calculated to initialize the new correction. The full field is evaluated
+last, so backend properties correspond to the returned full-field energy. Refreshes normally
+cost two QM calls, or three when the selection changes; cached calls cost one. If complete
+groups select every charge site, the subset is already the full field and its calculation
+is reused, avoiding a duplicate call. These evaluations report mode `"full"`.
+
+`theory.truncated_pc_diagnostics` reports `mode` (`"full"`, `"refresh"`, or `"cached"`),
+`selected_count`, `full_count`, `selected_charge`, `full_charge`, `last_refresh_error`, and
+`fallback`. Charges are in elementary-charge units. `last_refresh_error` is the signed
+old-prediction-minus-full-field error in Eh at the last checked refresh, or `None` before
+such a comparison. It measures the actual cached prediction at that geometry, even when
+selection changes; it is not merely the change in correction values. Counts and charges in
+`"refresh"` mode describe the subset selected for subsequent cached calls.
+
+Set `truncated_pc_error_tolerance` to a positive finite energy in Eh to stop reusing cached
+corrections when the absolute observed refresh error exceeds that tolerance. The triggering
+call returns the full energy, and subsequent calls each perform one full-field calculation.
+This fallback stays active until `theory.reset_truncated_pc_cache()` or a configuration
+change. The tolerance is a checkpoint test: it does **not** bound errors between refreshes
+or retroactively correct earlier energies. Its default is `None`.
+
+Changing selection settings, groups, refresh interval, error tolerance, QM charge/multiplicity,
+or the QM backend object resets the cache and fallback. An evaluation with truncation disabled
+also clears them. Call `theory.reset_truncated_pc_cache()` after changing settings inside the
+same QM backend object, since those changes cannot be detected automatically. Failed QM
+evaluations cannot reuse a partially refreshed correction.
+
+For example, an explicitly cached energy calculation can use:
+
+```python
+theory = QMMMTheory(
+    fragment=fragment,
+    qm_theory=qm,
+    mm_theory=mm,
+    qmatoms=qmatoms,
+    qm_charge=0,
+    qm_mult=1,
+    truncated_pc=True,
+    truncated_pc_radius=20.0,  # Å from the nearest real QM atom
+    truncated_pc_recalc_iter=10,  # explicitly enable cached energies
+    truncated_pc_error_tolerance=1e-4,  # Eh; choose for the intended observable
+)
+energy = theory.run(current_coords=fragment.coords)
+print(theory.truncated_pc_diagnostics)
+```
+
+The radius must be finite and positive, and the refresh interval a positive integer.
+Gradients, optimization, and numerical frequencies require interval 1 or
+`truncated_pc=False`; independently cached energy and gradient corrections are not
+consistent derivatives. This restriction includes `NumGrad`,
+`optimize_geometry(num_grad=True)`, and numerical frequencies of wrapped theories.
+The fallback does not relax these restrictions. Classical and ring-polymer QM/MM dynamics
+reject `truncated_pc=True` even at interval 1 ({doc}`dynamics`, {doc}`rpmd`).
+
+**Migration:** the refresh-interval default changed from 50 to 1, and the distance default
+changed from centroid to nearest real QM atom. Existing `truncated_pc=True` setups without
+an explicit interval now use the full field on every call. Choose an interval greater than 1
+to request cached energies, and `"centroid"` if the historical distance definition is needed.
+Complete-group selection applies in both distance modes.
 
 `charges=`
 : Supply the MM charges yourself instead of taking them from the MM theory.
