@@ -275,7 +275,7 @@ def test_single_point_theories_does_not_carry_one_theorys_charge_into_the_next()
     assert (result.charge, result.mult) == (None, None), "Mixed theory states cannot be represented by one pair"
 
 
-def test_worker_par_reads_charge_from_a_fragment_file(tmp_path):
+def test_worker_par_reads_charge_from_a_fragment_file():
     fragment = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [0, 0, 1]], charge=0, mult=1, label="frag0")
     fragment.print_system(filename="frag0.frag")
 

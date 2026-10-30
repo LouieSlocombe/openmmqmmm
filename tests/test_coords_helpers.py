@@ -102,7 +102,7 @@ def test_xyzfile_roundtrip(tmp_path):
     assert np.allclose(read_coords, coords)
 
 
-def test_rmsd_subset_writes_the_full_aligned_structure(tmp_path, monkeypatch):
+def test_rmsd_subset_writes_the_full_aligned_structure():
     original = Fragment(coords=UNIT_SQUARE, elems=["C", "C", "C", "C"], charge=0, mult=1)
     shifted_coords = UNIT_SQUARE + np.array([3.0, -2.0, 1.0])
     shifted = Fragment(coords=shifted_coords, elems=["C", "C", "C", "C"], charge=0, mult=1)
@@ -180,7 +180,7 @@ class _PCGradientTheory(QMMMTheory):
         self.PCgradient = pcgradient
 
 
-def test_expand_qm_pc_region_maps_gradient_rows_through_mmatoms(tmp_path, monkeypatch):
+def test_expand_qm_pc_region_maps_gradient_rows_through_mmatoms(monkeypatch):
     # Two H2 molecules, the second one QM. Row 0 is MM atom 0; the last row is a charge with
     # no atom behind it (a dipole or virtual-site charge).
     fragment = Fragment(coords=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.7], [5.0, 0.0, 0.0], [5.0, 0.0, 0.7]], elems=["H"] * 4)
@@ -237,7 +237,7 @@ def test_combine_and_place_fragments_tries_each_displacement_from_the_original_p
     assert mover.coords == pytest.approx(chain)
 
 
-def test_insert_solute_into_solvent_leaves_the_solute_unchanged(tmp_path, monkeypatch):
+def test_insert_solute_into_solvent_leaves_the_solute_unchanged():
     solute_coords = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.7]])
     solute = Fragment(coords=solute_coords.copy(), elems=["H", "H"])
     solvent = Fragment(

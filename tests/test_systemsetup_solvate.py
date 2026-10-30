@@ -140,35 +140,17 @@ def test_solvation_adds_tip3p_waters_around_the_solute_in_the_requested_box(capl
     for message in EXPECTED_LOG[style]:
         assert message in caplog.text
 
-
-def test_bonded_xml_routes_the_solute_through_openbabel_connectivity(caplog):
-    caplog.set_level(logging.INFO, logger="openmmqmmm")
-
-    _, topology, _ = solvate_small_molecule(
-        fragment=_methanol(),
-        charge=0,
-        mult=1,
-        watermodel="tip3p",
-        solvent_boxdims=BOX,
-        xmlfile=_write_xml("amber-bonded"),
-    )
-
-    assert "XML-file contains bonded parameters" in caplog.text
-    assert "CONECT" in Path("smallmol.pdb").read_text()
-    solute = next(topology.residues())
-    solute_bonds = {frozenset((a.name, b.name)) for a, b in topology.bonds() if a.residue is solute}
-    assert solute_bonds == {frozenset(bond) for bond in METHANOL_BONDS}
-
-
-def test_bond_free_xml_writes_the_solute_with_indexed_dummy_names():
-    solvate_small_molecule(
-        fragment=_methanol(), charge=0, mult=1, watermodel="tip3p", solvent_boxdims=BOX, xmlfile=_write_xml("amber")
-    )
-
-    solute = openmm.app.PDBFile("smallmol.pdb").topology
-    assert [atom.name for atom in solute.atoms()] == ["CY0", "OY1", "HY2", "HY3", "HY4", "HY5"]
-    assert [residue.name for residue in solute.residues()] == ["LIG"]
-    assert solute.getNumBonds() == 0
+    if style == "amber-bonded":
+        assert "XML-file contains bonded parameters" in caplog.text
+        assert "CONECT" in Path("smallmol.pdb").read_text()
+        solute = next(topology.residues())
+        solute_bonds = {frozenset((a.name, b.name)) for a, b in topology.bonds() if a.residue is solute}
+        assert solute_bonds == {frozenset(bond) for bond in METHANOL_BONDS}
+    else:
+        solute = openmm.app.PDBFile("smallmol.pdb").topology
+        assert [atom.name for atom in solute.atoms()] == ["CY0", "OY1", "HY2", "HY3", "HY4", "HY5"]
+        assert [residue.name for residue in solute.residues()] == ["LIG"]
+        assert solute.getNumBonds() == 0
 
 
 def test_solvation_requires_a_fragment():

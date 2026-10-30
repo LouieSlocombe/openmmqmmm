@@ -111,10 +111,35 @@ def test_mechanical_amoeba_matches_native_full_minus_isolated_qm(qm_waters):
 def test_mechanical_amoeba_gradient_is_conservative():
     mm, fragment = _amoeba_mm()
     theory = _qmmm(mm, fragment, list(range(6)))
-    _energy, gradient = theory.run(current_coords=fragment.coords, grad=True)
-    for atom, axis in [(0, 0), (1, 1), (6, 2), (8, 0)]:
-        numerical = central_difference(lambda coords: theory.run(current_coords=coords), fragment.coords, atom, axis)
-        assert gradient[atom, axis] == pytest.approx(numerical, abs=2e-8)
+    energy, gradient = theory.run(current_coords=fragment.coords, grad=True)
+    integrators = [openmm.VerletIntegrator(0.001) for _ in range(2)]
+    contexts = [
+        openmm.Context(_native_system(waters), integrator, openmm.Platform.getPlatformByName("Reference"))
+        for waters, integrator in zip((3, 2), integrators, strict=True)
+    ]
+
+    def native_energy(coords):
+        # Reuse the two independent native references for every displacement;
+        # AMOEBA Context compilation dominates the cost of these tiny systems.
+        energies = []
+        for context, positions in zip(contexts, (coords, coords[:6]), strict=True):
+            context.setPositions(positions / 10)
+            energies.append(
+                context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(openmm.unit.kilojoules_per_mole)
+            )
+        return (energies[0] - energies[1]) / constants.HARTREE_TO_KJ_PER_MOL
+
+    try:
+        assert native_energy(fragment.coords) == pytest.approx(energy, abs=1e-11)
+        displaced = fragment.coords.copy()
+        displaced[0, 0] += 0.01
+        assert theory.run(current_coords=displaced) == pytest.approx(native_energy(displaced), abs=1e-11)
+        for atom, axis in [(0, 0), (1, 1), (6, 2), (8, 0)]:
+            numerical = central_difference(native_energy, fragment.coords, atom, axis)
+            assert gradient[atom, axis] == pytest.approx(numerical, abs=2e-8)
+    finally:
+        contexts.clear()
+        integrators.clear()
 
 
 def test_amoeba_python_force_matches_native_subtraction_and_quantum_force():

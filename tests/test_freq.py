@@ -442,9 +442,7 @@ class SoftModeHessianTheory:
 @pytest.fixture
 def soft_mode_theory(water):
     """A water Hessian softened until its lowest real mode falls under 100 cm-1."""
-    numfreq = numerical_frequencies(theory=ZeroTheory(), fragment=water, charge=0, mult=1)
-    # ZeroTheory gives a zero Hessian; add a small diagonal so the modes are real but soft.
-    return SoftModeHessianTheory(np.eye(numfreq.hessian.shape[0]) * 1e-5)
+    return SoftModeHessianTheory(np.eye(3 * water.numatoms) * 1e-5)
 
 
 def test_analytic_frequencies_forwards_the_qrrho_method(water, soft_mode_theory):
@@ -482,7 +480,7 @@ FORCE_CONSTANTS = np.array([0.4, 0.7, 1.1, 0.3, 0.9, 0.5, 0.6, 0.2, 0.8])
 HARMONIC_COORDS = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.98], [0.93, 0.0, -0.26]]
 
 
-def _numerical_hessian(tmp_path, monkeypatch, **kwargs):
+def _numerical_hessian(**kwargs):
     fragment = Fragment(elems=["O", "H", "H"], coords=HARMONIC_COORDS, charge=0, mult=1)
     numerical_frequencies(
         fragment=fragment,
@@ -496,16 +494,16 @@ def _numerical_hessian(tmp_path, monkeypatch, **kwargs):
 
 
 @pytest.mark.parametrize("npoint", [1, 2])
-def test_numerical_hessian_reproduces_an_analytic_one(tmp_path, monkeypatch, npoint):
+def test_numerical_hessian_reproduces_an_analytic_one(tmp_path, npoint):
     """A linear gradient makes both difference formulas exact, so this pins the whole pipeline."""
-    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=npoint)
+    hessian = _numerical_hessian(npoint=npoint)
     assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS), abs=1e-10)
     assert (tmp_path / "Numfreq_dir" / "Hessian").is_file()
     assert (tmp_path / "results_numfreq.json").is_file()
 
 
-def test_partial_numerical_hessian_covers_only_the_requested_atoms(tmp_path, monkeypatch):
-    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=2, hessatoms=[1, 2])
+def test_partial_numerical_hessian_covers_only_the_requested_atoms():
+    hessian = _numerical_hessian(npoint=2, hessatoms=[1, 2])
     assert hessian.shape == (6, 6)
     assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS[3:]), abs=1e-10)
 
@@ -552,8 +550,8 @@ def test_numfreq_refuses_to_delete_an_unmanaged_existing_directory(water):
     assert sentinel.read_text() == "keep me"
 
 
-def test_numfreq_refreshes_its_own_managed_workspace(tmp_path, monkeypatch):
-    _numerical_hessian(tmp_path, monkeypatch, npoint=2)
+def test_numfreq_refreshes_its_own_managed_workspace(tmp_path):
+    _numerical_hessian(npoint=2)
     scratch = tmp_path / "Numfreq_dir"
     stale_file = scratch / "stale-output.txt"
     stale_directory = scratch / "stale-directory"
@@ -561,7 +559,7 @@ def test_numfreq_refreshes_its_own_managed_workspace(tmp_path, monkeypatch):
     stale_directory.mkdir()
     (stale_directory / "old.txt").write_text("old")
 
-    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=2)
+    hessian = _numerical_hessian(npoint=2)
 
     assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS), abs=1e-10)
     assert not stale_file.exists()
@@ -590,20 +588,20 @@ def test_numfreq_does_not_clean_an_active_managed_workspace(water):
     assert sentinel.read_text() == "still running"
 
 
-def test_numfreq_recovers_a_lock_file_left_by_a_dead_process(tmp_path, monkeypatch):
-    _numerical_hessian(tmp_path, monkeypatch, npoint=2)
+def test_numfreq_recovers_a_lock_file_left_by_a_dead_process(tmp_path):
+    _numerical_hessian(npoint=2)
     scratch = tmp_path / "Numfreq_dir"
     lock = scratch / ".openmmqmmm-active.lock"
     lock.write_text("dead-process")
 
-    hessian = _numerical_hessian(tmp_path, monkeypatch, npoint=2)
+    hessian = _numerical_hessian(npoint=2)
 
     assert hessian == pytest.approx(np.diag(FORCE_CONSTANTS), abs=1e-10)
     assert lock.read_text() == ""
 
 
 @pytest.mark.parametrize("custom_masses", [[2.5, 12.5], None], ids=["custom", "fragment-default"])
-def test_hessatom_order_keeps_metadata_and_masses_aligned(tmp_path, monkeypatch, custom_masses):
+def test_hessatom_order_keeps_metadata_and_masses_aligned(custom_masses):
     fragment = Fragment(elems=["O", "H", "H"], coords=HARMONIC_COORDS, charge=0, mult=1)
 
     result = numerical_frequencies(

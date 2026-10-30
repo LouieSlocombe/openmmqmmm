@@ -1,9 +1,14 @@
+import importlib.util
+import shutil
+import sys
 from pathlib import Path
 
 import openmm
 import pytest
 
-from openmmqmmm import openmm_modeller
+from openmmqmmm import Fragment, openmm_modeller
+from openmmqmmm.exceptions import InputError, MissingDependencyError
+from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
 
 TEST_DIR = Path(__file__).parent
 
@@ -17,6 +22,135 @@ def _write_dipeptide_pdb():
     ]
     Path("dipeptide.pdb").write_text("\n".join([*lines, "END"]) + "\n")
     return "dipeptide.pdb"
+
+
+@pytest.mark.parametrize(
+    ("watermodel", "expected"),
+    [
+        (None, "tip3p"),
+        ("TIP3P", "tip3p"),
+        ("tip3pfb", "tip3p"),
+        ("tip3p-fb", "tip3p"),
+        ("SPCE", "spce"),
+        ("tip4pew", "tip4pew"),
+    ],
+)
+def test_modeller_solvent_name_is_defined_for_every_water_model(watermodel, expected):
+    assert _normalise_modeller_solvent_name(watermodel) == expected
+
+
+@pytest.mark.parametrize(
+    "forcefield_route", ["name", "xmlfile", "object"], ids=["name-protein", "xmlfile-dipeptide", "object-dipeptide"]
+)
+def test_openmm_modeller(forcefield_route):
+    import openmm.app
+
+    if forcefield_route == "name":
+        pdbfile = TEST_DIR / "pdbfiles" / "1aki.pdb"
+        forcefield_kwargs = {"forcefield": "CHARMM36", "watermodel": "tip3p"}
+    else:
+        pdbfile = Path(_write_dipeptide_pdb())
+        if forcefield_route == "xmlfile":
+            forcefield_kwargs = {"xmlfile": "charmm36.xml", "waterxmlfile": "charmm36/water.xml"}
+        else:
+            forcefield_kwargs = {"forcefield_object": openmm.app.ForceField("charmm36.xml", "charmm36/water.xml")}
+
+    openmmobject, fragment = openmm_modeller(
+        pdbfile=str(pdbfile),
+        ph=7.0,
+        solvent_padding=10.0,
+        ionicstrength=0.1 if forcefield_route == "name" else 0.5,  # Include salt pairs even in the small box.
+        platform="CPU",
+        **forcefield_kwargs,
+    )
+
+    topology = openmmobject.topology
+    residues = list(topology.residues())
+    protein = [
+        residue for residue in residues if any(atom.element == openmm.app.element.carbon for atom in residue.atoms())
+    ]
+    assert len(protein) == (129 if forcefield_route == "name" else 2)
+    assert all(any(atom.element == openmm.app.element.hydrogen for atom in residue.atoms()) for residue in protein)
+    expected_disulfides = {
+        frozenset((int(line[17:21]), int(line[31:35])))
+        for line in pdbfile.read_text().splitlines()
+        if line.startswith("SSBOND")
+    }
+    disulfides = {
+        frozenset((int(first.residue.id), int(second.residue.id)))
+        for first, second in topology.bonds()
+        if first.element == second.element == openmm.app.element.sulfur
+    }
+    assert disulfides == expected_disulfides
+    waters = [residue for residue in residues if residue.name == "HOH"]
+    assert waters
+    assert {len(list(residue.atoms())) for residue in waters} == {3}
+    elements = {atom.element for atom in topology.atoms()}
+    assert {openmm.app.element.sodium, openmm.app.element.chlorine} <= elements
+    assert fragment.numatoms == topology.getNumAtoms() == openmmobject.system.getNumParticles()
+    assert len(fragment.elems) == fragment.numatoms
+
+
+def _write_methanol_pdb():
+    fragment = Fragment(
+        elems=["C", "O", "H", "H", "H", "H"],
+        coords=[
+            [-0.046, 0.662, 0.000],
+            [-0.046, -0.755, 0.000],
+            [-1.086, 0.976, 0.000],
+            [0.438, 1.071, 0.890],
+            [0.438, 1.071, -0.890],
+            [0.860, -1.057, 0.000],
+        ],
+        charge=0,
+        mult=1,
+    )
+    return fragment.write_pdbfile_openmm(filename="methanol.pdb", resname="LIG")
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("forcefill") is None or shutil.which("antechamber") is None,
+    reason="needs forcefill and AmberTools",
+)
+def test_openmm_modeller_parameterize_nonstandard():
+    pdbfile = _write_methanol_pdb()
+
+    openmmobject, fragment = openmm_modeller(
+        pdbfile=pdbfile,
+        forcefield="Amber14",
+        watermodel="tip3p",
+        parameterize_nonstandard=True,
+        net_charges={"LIG": 0},
+        solvent_boxdims=[30.0, 30.0, 30.0],
+    )
+
+    assert openmmobject is not None, "openmm_modeller should return an OpenMMTheory object"
+    assert Path("nonstandard_ff.xml").is_file(), "forcefill should write the generated ligand XML to CWD"
+    assert fragment.numatoms > 6, "Solvation should add water around the methanol"
+
+
+def test_openmm_modeller_parameterize_rejects_forcefield_object():
+    import openmm.app
+
+    pdbfile = _write_methanol_pdb()
+    with pytest.raises(InputError, match="parameterize_nonstandard"):
+        openmm_modeller(
+            pdbfile=pdbfile,
+            forcefield_object=openmm.app.ForceField("amber14-all.xml", "amber14/tip3p.xml"),
+            parameterize_nonstandard=True,
+        )
+
+
+def test_openmm_modeller_parameterize_missing_forcefill(monkeypatch):
+    monkeypatch.setitem(sys.modules, "forcefill", None)
+    pdbfile = _write_methanol_pdb()
+    with pytest.raises(MissingDependencyError, match="forcefill"):
+        openmm_modeller(
+            pdbfile=pdbfile,
+            forcefield="Amber14",
+            watermodel="tip3p",
+            parameterize_nonstandard=True,
+        )
 
 
 @pytest.mark.parametrize("implicit_solvent_xmlfile", [None, "implicit/gbn2.xml"])

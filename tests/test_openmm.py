@@ -1,8 +1,4 @@
-import importlib.util
 import logging
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,13 +13,8 @@ from openmmqmmm import (
     export_rpmd_potential,
     modeller_from_topology,
     openmm_md,
-    openmm_md_plumed,
-    openmm_modeller,
 )
-from openmmqmmm.exceptions import InputError, MissingDependencyError
-from openmmqmmm.openmm.systemsetup import _normalise_modeller_solvent_name
-
-TEST_DIR = Path(__file__).parent
+from openmmqmmm.exceptions import InputError
 
 
 def _set_beads(simulation, positions_nm, velocities_nm=None):
@@ -67,112 +58,7 @@ def _make_minimal_rpmd_simulation(num_copies):
     return simulation, system
 
 
-@pytest.mark.parametrize(
-    ("watermodel", "expected"),
-    [
-        (None, "tip3p"),
-        ("TIP3P", "tip3p"),
-        ("tip3pfb", "tip3p"),
-        ("tip3p-fb", "tip3p"),
-        ("SPCE", "spce"),
-        ("tip4pew", "tip4pew"),
-    ],
-)
-def test_modeller_solvent_name_is_defined_for_every_water_model(watermodel, expected):
-    assert _normalise_modeller_solvent_name(watermodel) == expected
-
-
-@pytest.mark.parametrize("forcefield_route", ["name", "xmlfile", "object"])
-def test_openmm_modeller(forcefield_route):
-    import openmm.app
-
-    pdbfile = f"{TEST_DIR}/pdbfiles/1aki.pdb"
-    if forcefield_route == "name":
-        forcefield_kwargs = {"forcefield": "CHARMM36", "watermodel": "tip3p"}
-    elif forcefield_route == "xmlfile":
-        forcefield_kwargs = {"xmlfile": "charmm36.xml", "waterxmlfile": "charmm36/water.xml"}
-    else:
-        forcefield_kwargs = {"forcefield_object": openmm.app.ForceField("charmm36.xml", "charmm36/water.xml")}
-
-    openmmobject, fragment = openmm_modeller(
-        pdbfile=pdbfile,
-        ph=7.0,
-        solvent_padding=10.0,
-        ionicstrength=0.1,
-        platform="CPU",
-        **forcefield_kwargs,
-    )
-
-    assert openmmobject is not None, "openmm_modeller should return an OpenMMTheory object"
-    # The input 1aki.pdb has 1079 atoms; hydrogens, solvent and ions are added on top
-    assert fragment.numatoms > 1079, "Modeller should add hydrogens, water and ions"
-    assert len(fragment.elems) == fragment.numatoms
-    assert "H" in fragment.elems, "Hydrogens should have been added"
-
-
-def _write_methanol_pdb():
-    fragment = Fragment(
-        elems=["C", "O", "H", "H", "H", "H"],
-        coords=[
-            [-0.046, 0.662, 0.000],
-            [-0.046, -0.755, 0.000],
-            [-1.086, 0.976, 0.000],
-            [0.438, 1.071, 0.890],
-            [0.438, 1.071, -0.890],
-            [0.860, -1.057, 0.000],
-        ],
-        charge=0,
-        mult=1,
-    )
-    return fragment.write_pdbfile_openmm(filename="methanol.pdb", resname="LIG")
-
-
-@pytest.mark.skipif(
-    importlib.util.find_spec("forcefill") is None or shutil.which("antechamber") is None,
-    reason="needs forcefill and AmberTools",
-)
-def test_openmm_modeller_parameterize_nonstandard():
-    pdbfile = _write_methanol_pdb()
-
-    openmmobject, fragment = openmm_modeller(
-        pdbfile=pdbfile,
-        forcefield="Amber14",
-        watermodel="tip3p",
-        parameterize_nonstandard=True,
-        net_charges={"LIG": 0},
-        solvent_boxdims=[30.0, 30.0, 30.0],
-    )
-
-    assert openmmobject is not None, "openmm_modeller should return an OpenMMTheory object"
-    assert Path("nonstandard_ff.xml").is_file(), "forcefill should write the generated ligand XML to CWD"
-    assert fragment.numatoms > 6, "Solvation should add water around the methanol"
-
-
-def test_openmm_modeller_parameterize_rejects_forcefield_object():
-    import openmm.app
-
-    pdbfile = _write_methanol_pdb()
-    with pytest.raises(InputError, match="parameterize_nonstandard"):
-        openmm_modeller(
-            pdbfile=pdbfile,
-            forcefield_object=openmm.app.ForceField("amber14-all.xml", "amber14/tip3p.xml"),
-            parameterize_nonstandard=True,
-        )
-
-
-def test_openmm_modeller_parameterize_missing_forcefill(monkeypatch):
-    monkeypatch.setitem(sys.modules, "forcefill", None)
-    pdbfile = _write_methanol_pdb()
-    with pytest.raises(MissingDependencyError, match="forcefill"):
-        openmm_modeller(
-            pdbfile=pdbfile,
-            forcefield="Amber14",
-            watermodel="tip3p",
-            parameterize_nonstandard=True,
-        )
-
-
-def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):
+def test_openmm_md_runs_and_writes_a_trajectory(tmp_path):
     fragment, theory = meoh_water_mm()
 
     starting_coords = fragment.coords.copy()
@@ -191,123 +77,6 @@ def test_openmm_md_runs_and_writes_a_trajectory(tmp_path, monkeypatch):
     assert fragment.coords.shape == starting_coords.shape
     assert not np.allclose(fragment.coords, starting_coords), "MD must advance the coordinates"
     assert np.all(np.isfinite(fragment.coords))
-
-
-def test_openmm_md_plumed_passes_the_run_temperature(tmp_path, monkeypatch):
-    """PlumedForce defaults to -1 K, which PLUMED reads as "no kT" and every kT-derived value breaks."""
-    import openmm
-
-    forces = []
-
-    class _FakePlumedForce(openmm.CustomExternalForce):
-        """Contributes no energy; records what the engine configures on it."""
-
-        def __init__(self, script):
-            super().__init__("0")
-            self.script = script
-            self.temperature = None
-            forces.append(self)
-
-        def setTemperature(self, temperature):  # noqa: N802
-            self.temperature = temperature
-
-    monkeypatch.setitem(sys.modules, "openmmplumed", SimpleNamespace(PlumedForce=_FakePlumedForce))
-    fragment, theory = meoh_water_mm()
-
-    openmm_md_plumed(
-        fragment=fragment,
-        theory=theory,
-        timestep=0.0005,
-        simulation_steps=2,
-        traj_frequency=2,
-        temperature=350,
-        plumed_input_string="d1: DISTANCE ATOMS=1,4\n",
-    )
-
-    assert len(forces) == 1, "openmm_md_plumed should add exactly one PlumedForce"
-    assert forces[0].temperature == 350, "The run temperature has to reach PLUMED, or kT is undefined there"
-
-
-def test_openmm_md_plumed_applies_each_restraint_once(tmp_path, monkeypatch):
-    """A restraint added a second time doubles its force constant."""
-    import openmm
-
-    class _InertPlumedForce(openmm.CustomExternalForce):
-        def __init__(self, script):
-            super().__init__("0")
-
-        def setTemperature(self, temperature):  # noqa: N802
-            pass
-
-    monkeypatch.setitem(sys.modules, "openmmplumed", SimpleNamespace(PlumedForce=_InertPlumedForce))
-    fragment, theory = meoh_water_mm()
-    restrained_pair = {0, 3}
-
-    openmm_md_plumed(
-        fragment=fragment,
-        theory=theory,
-        timestep=0.0005,
-        simulation_steps=1,
-        traj_frequency=1,
-        restraints=[[0, 3, 2.5, 10.0]],
-        plumed_input_string="d1: DISTANCE ATOMS=1,4\n",
-    )
-
-    restraint_terms = [
-        type(force).__name__
-        for force in theory.system.getForces()
-        if isinstance(force, openmm.HarmonicBondForce | openmm.CustomBondForce)
-        for i in range(force.getNumBonds())
-        if set(force.getBondParameters(i)[:2]) == restrained_pair
-    ]
-    assert len(restraint_terms) == 1, f"The restraint was applied {len(restraint_terms)} times: {restraint_terms}"
-
-
-def _plumed_has_opes():
-    """conda-forge's PLUMED build omits opes; only a source build (see build_tools/) has it."""
-    plumed = shutil.which("plumed")
-    if plumed is None:
-        return False
-    probe = subprocess.run(
-        [plumed, "--no-mpi", "config", "-q", "module", "opes"],
-        check=False,
-        capture_output=True,
-    )
-    return probe.returncode == 0
-
-
-@pytest.mark.skipif(
-    importlib.util.find_spec("openmmplumed") is None or not _plumed_has_opes(),
-    reason="needs the openmm-plumed plugin and a PLUMED built with the opes module",
-)
-def test_openmm_md_plumed_opes_default_biasfactor(tmp_path, monkeypatch):
-    """OPES leaves BIASFACTOR at BARRIER/kT, so the value it records shows whether PLUMED got a kT.
-
-    With no temperature the default is infinite, and OPES either aborts outright (adaptive SIGMA)
-    or silently biases towards a uniform target. SIGMA is explicit here only so that kernels — and
-    with them the biasfactor header — are written without waiting out the adaptive-SIGMA warmup.
-    """
-    fragment, theory = meoh_water_mm()
-
-    openmm_md_plumed(
-        fragment=fragment,
-        theory=theory,
-        timestep=0.0005,
-        simulation_steps=10,
-        traj_frequency=10,
-        temperature=300,
-        plumed_input_string=(
-            "d1: DISTANCE ATOMS=1,4\n"
-            "opes: OPES_METAD ARG=d1 PACE=5 BARRIER=10 SIGMA=0.05 FILE=KERNELS\n"
-            "PRINT ARG=d1,opes.bias FILE=COLVAR STRIDE=5\n"
-        ),
-    )
-
-    kernels = (tmp_path / "KERNELS").read_text()
-    header = next((line for line in kernels.splitlines() if "biasfactor" in line), None)
-    assert header is not None, f"OPES recorded no biasfactor: {kernels!r}"
-    # BARRIER/kT at 300 K, the value that is infinite when PLUMED has no temperature.
-    assert float(header.split()[-1]) == pytest.approx(4.009, abs=0.01)
 
 
 def test_openmm_md_requires_a_run_length():

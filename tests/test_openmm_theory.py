@@ -127,7 +127,7 @@ def test_atom_charges_sum_to_the_system_charge(solvated_theory):
 
 
 def test_constraints_can_be_added_and_removed():
-    theory = _make_theory()
+    theory = _dummy_theory()
     before = theory.system.getNumConstraints()
 
     theory.add_bondconstraints(constraints=[[0, 1, 1.0]])
