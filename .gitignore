@@ -4,6 +4,7 @@ __pycache__/
 build/
 dist/
 venv/
+.venv/
 .env
 
 # Tool caches
@@ -30,3 +31,7 @@ results_*.json
 
 # Local Claude Code guidance, not part of the package
 CLAUDE.md
+AGENTS.md
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
