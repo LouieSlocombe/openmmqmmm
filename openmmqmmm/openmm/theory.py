@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -35,6 +36,7 @@ from openmmqmmm.utils import (
     log_time_since,
     main_header,
     require_int_in_range,
+    require_positive_finite,
     small_header,
     sub_header,
 )
@@ -79,6 +81,8 @@ NONBONDED_METHODS_NO_PBC = {
 NUCLEAR_QUANTUM_INTEGRATORS = frozenset({"RPMDIntegrator", "QTBIntegrator"})
 
 
+ADAPTIVE_INTEGRATORS = ("VariableVerletIntegrator", "VariableLangevinIntegrator")
+
 # These integrators share the temperature, collision frequency and timestep contract.
 _THERMOSTAT_INTEGRATORS = {
     name: getattr(openmm, name)
@@ -86,10 +90,23 @@ _THERMOSTAT_INTEGRATORS = {
         "LangevinIntegrator",
         "LangevinMiddleIntegrator",
         "NoseHooverIntegrator",
-        "VariableLangevinIntegrator",
         "QTBIntegrator",
     )
 }
+
+
+def _step_adaptive_context(context: openmm.Context, steps: int) -> None:
+    """Keep the clock consistent with the step actually integrated before reporters run."""
+    integrator = context.getIntegrator()
+    native_step = type(integrator).step
+    current_time = context.getTime()
+    for _ in range(steps):
+        native_step(integrator, 1)
+        current_time += integrator.getStepSize()
+        # OpenMM 8.6.1's Reference and CPU kernels can set time to infinity when
+        # an adaptive step reaches its maximum. Coordinates used the finite dt.
+        if context.getTime() != current_time:
+            context.setTime(current_time)
 
 
 def _state_energy_gradient(
@@ -1233,8 +1250,15 @@ class OpenMMTheory:
         coupling_frequency: float = 1,
         temperature: float = 300,
         integrator: str = "VerletIntegrator",
+        adaptive_error_tolerance: float = 0.001,
     ) -> None:
         """Set the integrator and thermostat parameters used by create_simulation."""
+        if integrator in ADAPTIVE_INTEGRATORS:
+            timestep = require_positive_finite(timestep, "Adaptive timestep must be a finite positive maximum in ps.")
+            adaptive_error_tolerance = require_positive_finite(
+                adaptive_error_tolerance, "adaptive_error_tolerance must be finite and positive."
+            )
+        self.adaptive_error_tolerance = adaptive_error_tolerance
         self.timestep = timestep
         self.coupling_frequency = coupling_frequency
         self.temperature = temperature
@@ -1338,8 +1362,15 @@ class OpenMMTheory:
         # Built per simulation, not in set_simulation_parameters: OpenMM binds an Integrator to one Context.
         if self.integrator_name == "VerletIntegrator":
             self.integrator = openmm.VerletIntegrator(self.timestep * openmm.unit.picoseconds)
-        elif self.integrator_name == "VariableVerletIntegrator":
-            self.integrator = openmm.VariableVerletIntegrator(self.timestep * openmm.unit.picoseconds)
+        elif self.integrator_name in ADAPTIVE_INTEGRATORS:
+            tolerance = getattr(self, "adaptive_error_tolerance", 0.001)
+            if self.integrator_name == "VariableVerletIntegrator":
+                self.integrator = openmm.VariableVerletIntegrator(tolerance)
+            else:
+                self.integrator = openmm.VariableLangevinIntegrator(
+                    self.temperature * openmm.unit.kelvin, self.coupling_frequency / openmm.unit.picosecond, tolerance
+                )
+            self.integrator.setMaximumStepSize(self.timestep * openmm.unit.picoseconds)
         elif self.integrator_name in _THERMOSTAT_INTEGRATORS:
             self.integrator = _THERMOSTAT_INTEGRATORS[self.integrator_name](
                 self.temperature * openmm.unit.kelvin,
@@ -1376,7 +1407,7 @@ class OpenMMTheory:
         else:
             names = (
                 "VerletIntegrator",
-                "VariableVerletIntegrator",
+                *ADAPTIVE_INTEGRATORS,
                 *_THERMOSTAT_INTEGRATORS,
                 "DrudeLangevinIntegrator",
                 "DrudeSCFIntegrator",
@@ -1406,6 +1437,10 @@ class OpenMMTheory:
             openmm.Platform.getPlatformByName(self.platform_choice),
             self.properties,
         )
+        if self.integrator_name in ADAPTIVE_INTEGRATORS:
+            # Leave OpenMM's Simulation in charge of reporter scheduling. A weak reference
+            # avoids retaining the Context through its own integrator.
+            simulation.integrator.step = functools.partial(_step_adaptive_context, weakref.proxy(simulation.context))
         if self.platform_choice == "CPU":
             _ACTIVE_CPU_CONTEXTS.setdefault(self, weakref.WeakSet()).add(simulation.context)
         # Store internal simulations on the theory; run() uses a transient one.

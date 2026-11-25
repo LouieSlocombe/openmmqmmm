@@ -5,6 +5,7 @@ import functools
 import inspect
 import io
 import logging
+import math
 import os
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -38,7 +39,7 @@ from openmmqmmm.openmm.rpmd_force import (
     rpmd_cache_size,
 )
 from openmmqmmm.openmm.systemsetup import openmm_minimize
-from openmmqmmm.openmm.theory import ForceReporter, OpenMMTheory
+from openmmqmmm.openmm.theory import ADAPTIVE_INTEGRATORS, ForceReporter, OpenMMTheory
 from openmmqmmm.profiling import _MDProfile
 from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
@@ -243,6 +244,7 @@ def openmm_md(
     fragment: Fragment | None = None,
     theory: Any = None,
     timestep: float = 0.001,
+    adaptive_error_tolerance: float = 0.001,
     simulation_steps: int | None = None,
     simulation_time: float | None = None,
     traj_frequency: int = 1000,
@@ -323,6 +325,7 @@ class MolecularDynamicsEngine:
         charge: int | None = None,
         mult: int | None = None,
         timestep: float = 0.001,
+        adaptive_error_tolerance: float = 0.001,
         traj_frequency: int = 1000,
         restartfile_frequency: int = 1000,
         temperature: float = 300,
@@ -464,6 +467,7 @@ class MolecularDynamicsEngine:
         self._simulation_reporter_owner: openmm.app.Simulation | None = None
         self.coupling_frequency = coupling_frequency
         self.timestep = timestep
+        self.adaptive_error_tolerance = adaptive_error_tolerance
         self.traj_frequency = int(traj_frequency)
         self.rpmd_energy_frequency = self.traj_frequency if rpmd_energy_frequency is None else rpmd_energy_frequency
         self.restartfile_frequency = restartfile_frequency
@@ -1147,6 +1151,7 @@ class MolecularDynamicsEngine:
             temperature=self.temperature,
             integrator=self.integrator,
             coupling_frequency=self.coupling_frequency,
+            adaptive_error_tolerance=self.adaptive_error_tolerance,
         )
         has_barostat = has_andersen = False
         for index in reversed(range(system.getNumForces())):
@@ -1212,13 +1217,14 @@ class MolecularDynamicsEngine:
             distance=centerforce_distance,
         )
 
-    def _log_run_parameters(self, simulation_time: float, simulation_steps: int) -> None:
+    def _log_run_parameters(self, simulation_time: float | None, simulation_steps: int | None) -> None:
         """Log the run-level parameters and the forces the System carries."""
         logger.info(small_header("MD run parameters"))
-        logger.info(
-            f"Simulation time: {simulation_time} ps\nSimulation steps: {simulation_steps}\n"
-            f"Timestep: {self.timestep} ps\nSet temperature: {self.temperature} K"
-        )
+        if simulation_time is not None:
+            logger.info("Simulation time: %s ps", simulation_time)
+        if simulation_steps is not None:
+            logger.info("Simulation steps: %s", simulation_steps)
+        logger.info("Timestep: %s ps\nSet temperature: %s K", self.timestep, self.temperature)
         logger.info("OpenMM integrator: %s", self.openmmobject.integrator_name)
         forceclassnames = [force.__class__.__name__ for force in self.openmmobject.system.getForces()]
         logger.info("OpenMM System forces present before run: %s", forceclassnames)
@@ -1338,7 +1344,39 @@ class MolecularDynamicsEngine:
             )
             self.simulation.step(count)
             # All native and user reporters have finished before the interval is closed.
-            self._profile.report_step(self.simulation.currentStep)
+            if self.simulation.currentStep % self._profile.interval == 0:
+                self._profile.report_step(self.simulation.currentStep)
+
+    def _run_adaptive_duration(self, duration: float) -> None:
+        """Advance by physical time while retaining the Simulation's step-based reporters."""
+        integrator = self.simulation.integrator
+        context = self.simulation.context
+        ps = openmm.unit.picosecond
+        original_max = integrator.getMaximumStepSize().value_in_unit(ps)
+        current = context.getTime().value_in_unit(ps)
+        target = current + duration
+        if not math.isfinite(target):
+            raise InputError("Adaptive dynamics requires a finite target simulation time.")
+        if duration == 0:
+            return
+        # A pre-dynamics hook can explicitly disable the step cap.
+        max_step = original_max or duration
+        try:
+            if original_max == 0:
+                integrator.setMaximumStepSize(max_step * ps)
+            while target - current > math.ulp(target):
+                remaining = target - current
+                # Batches of this many steps cannot exceed the remaining duration.
+                # Limit the final step for a target between regular reporting events.
+                if remaining < max_step:
+                    integrator.setMaximumStepSize(remaining * ps)
+                self._run_classical_steps(max(1, int(remaining / max_step)))
+                updated = context.getTime().value_in_unit(ps)
+                if not math.isfinite(updated) or updated <= current:
+                    raise InputError("The adaptive integrator failed to advance the simulation clock.")
+                current = updated
+        finally:
+            integrator.setMaximumStepSize(original_max * ps)
 
     @_close_on_error
     def run(
@@ -1370,9 +1408,14 @@ class MolecularDynamicsEngine:
 
         if simulation_steps is None and simulation_time is None:
             raise InputError("Either simulation_steps or simulation_time needs to be set.")
-        if simulation_time is not None:
-            simulation_steps = round(simulation_time / self.timestep)
-        if simulation_steps is not None:
+        if simulation_time is not None and (not math.isfinite(simulation_time) or simulation_time < 0):
+            raise InputError("simulation_time must be finite and nonnegative (ps).")
+        if self.integrator in ADAPTIVE_INTEGRATORS:
+            if simulation_time is not None:
+                simulation_steps = None
+        else:
+            if simulation_time is not None:
+                simulation_steps = round(simulation_time / self.timestep)
             simulation_time = simulation_steps * self.timestep
 
         if chkfile is None and statefile is None:
@@ -1438,25 +1481,20 @@ class MolecularDynamicsEngine:
         if self._profile is not None:
             self._profile.reset_interval(self.simulation.currentStep)
 
-        if self.theory_runtype in {"QMMM", "QM"}:
-            if self._is_rpmd_simulation(self.simulation):
-                self._finish_rpmd_run(simulation_steps, self.theory_runtype, module_init_time)
-                return
-
-            # OpenMM batches integration between reporter events and shares each State.
-            # PythonForce still evaluates the physical potential at every requested geometry.
-            self._run_classical_steps(simulation_steps)
-        elif self.theory_runtype == "MM":
-            logger.info("OpenMM MM dynamics option chosen.")
-            if self._is_rpmd_simulation(self.simulation):
-                self._run_rpmd_mm(simulation_steps)
-            else:
-                self._run_classical_steps(simulation_steps)
-        else:
+        if self.theory_runtype not in {"MM", "QMMM", "QM"}:
             raise InputError(
                 f"Unrecognized theory runtype ({self.theory_runtype}) for MD. This might mean that this theory "
                 f"object is not yet supported for running MD."
             )
+        if self._is_rpmd_simulation(self.simulation):
+            if self.theory_runtype in {"QMMM", "QM"}:
+                self._finish_rpmd_run(simulation_steps, self.theory_runtype, module_init_time)
+                return
+            self._run_rpmd_mm(simulation_steps)
+        elif simulation_steps is None:
+            self._run_adaptive_duration(simulation_time)
+        else:
+            self._run_classical_steps(simulation_steps)
 
         self._finish_profile_interval()
         logger.info(small_header("OpenMM MD simulation finished!"))

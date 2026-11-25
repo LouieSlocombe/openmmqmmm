@@ -436,6 +436,49 @@ def test_gentle_warmup_requires_theory_and_fragment():
         gentle_warmup_md(fragment=fragment)
 
 
+@pytest.mark.parametrize("name", ["VariableVerletIntegrator", "VariableLangevinIntegrator"])
+@pytest.mark.parametrize("platform,tolerance", [("Reference", 0.00003), ("CPU", 0.00000003)])
+def test_adaptive_integrators_honor_duration_tolerance_step_count_and_reporters(name, platform, tolerance):
+    fragment, mm = _helium_pair(platform=platform)
+    engine = MolecularDynamicsEngine(
+        fragment=fragment,
+        theory=mm,
+        integrator=name,
+        timestep=0.001,
+        adaptive_error_tolerance=tolerance,
+        restraints=[[0, 1, 2, 1]],
+        traj_frequency=1,
+        datafilename="state.csv",
+    )
+    engine.run(simulation_time=0.0025)
+    sim = engine.simulation
+    ps = openmm.unit.picosecond
+    assert sim.integrator.getErrorTolerance() == pytest.approx(tolerance)
+    if platform == "CPU":
+        assert sim.currentStep > 3  # The tighter tolerance actually selects submaximum steps.
+    assert sim.integrator.getMaximumStepSize().value_in_unit(ps) == pytest.approx(0.001)
+    assert sim.context.getTime().value_in_unit(ps) == pytest.approx(0.0025, abs=1e-14)
+    engine.run(simulation_time=0.0004, restart=True)
+    assert sim.context.getTime().value_in_unit(ps) == pytest.approx(0.0029, abs=1e-14)
+    steps = sim.currentStep
+    engine.run(simulation_steps=2, restart=True)
+    assert sim.currentStep == steps + 2
+    assert 0.0029 < sim.context.getTime().value_in_unit(ps) <= 0.0049 + 1e-14
+    rows = Path("state.csv").read_text().splitlines()[1:]
+    assert len(rows) == sim.currentStep
+    times = [float(line.split(",")[1]) for line in rows]
+    assert all(np.isfinite(times)) and all(np.diff(times) > 0)
+    assert times[-1] == pytest.approx(sim.context.getTime().value_in_unit(ps))
+    engine.close()
+
+
+@pytest.mark.parametrize("bad", [{"adaptive_error_tolerance": 0}, {"timestep": float("nan")}])
+def test_adaptive_integrators_reject_invalid_step_controls(bad):
+    fragment, mm = _helium_pair()
+    with pytest.raises(InputError, match="positive"):
+        MolecularDynamicsEngine(fragment=fragment, theory=mm, integrator="VariableVerletIntegrator", **bad)
+
+
 def test_box_equilibration_stops_once_volume_and_density_settle_and_returns_the_box(caplog):
     fragment, mm = _helium_pair()
     use_pme(mm)

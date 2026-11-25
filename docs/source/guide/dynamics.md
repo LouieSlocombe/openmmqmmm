@@ -81,6 +81,12 @@ see {doc}`rpmd`.
 `anderson_thermostat=True` uses an Andersen thermostat with a Verlet integrator instead of a
 Langevin one.
 
+For `VariableVerletIntegrator` and `VariableLangevinIntegrator`, `timestep` is the
+maximum step size in ps. Set the dimensionless `adaptive_error_tolerance` (default
+`0.001`) to control integration accuracy. A `simulation_time` run advances the
+simulation clock by the requested duration, including on a live restart. A
+`simulation_steps` run takes the requested number of adaptive steps.
+
 The timestep has to match the constraints on the MM theory. With the default
 `autoconstraints="HBonds"` and `hydrogenmass=1.5`, 4 fs works with the middle integrator;
 with `autoconstraints=None`, expect to drop to around 0.5 fs. The engine warns when it sees
@@ -256,7 +262,11 @@ theory objects for a separate engine.
 Both exist so another package can drive an openmmqmmm run without either importing the other;
 see {doc}`nqe_interop`.
 
-`run` also takes `restart=True` with `chkfile=` or `statefile=` to continue a previous run. A constructor checkpoint or state is loaded on the first run. Later calls with `restart=True` continue the live simulation, and an explicit file requests a fresh restore. State-data output appends to existing history and writes a header for a new file. Configure restraints and PLUMED before creating the simulation.
+Pass `chkfile=` or `statefile=` to restore a saved simulation. The engine loads a
+constructor checkpoint or state on its first run. Later calls with `restart=True`
+continue the live simulation. Passing an explicit file to `run` requests a fresh restore.
+State-data output appends to existing history and writes a header for a new file.
+Configure restraints and PLUMED before creating the simulation.
 
 ## Metadynamics and other biases
 
