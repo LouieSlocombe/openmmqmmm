@@ -243,6 +243,17 @@ class RPMDExternalQMForceProvider(_RPMDPythonForceProvider):
         return result
 
 
+def native_force_groups(system: openmm.System) -> set[int]:
+    """Collect direct and independently scheduled reciprocal-space force groups."""
+    groups = {force.getForceGroup() for force in system.getForces()}
+    for force in system.getForces():
+        if isinstance(force, openmm.NonbondedForce):
+            reciprocal = force.getReciprocalSpaceForceGroup()
+            if reciprocal >= 0:
+                groups.add(reciprocal)
+    return groups
+
+
 def add_rpmd_python_force(
     system: openmm.System,
     provider: _RPMDPythonForceProvider,
@@ -260,7 +271,7 @@ def add_rpmd_python_force(
             "QM force; reuse the existing engine or export, or build a fresh theory object."
         )
 
-    used_groups = {force.getForceGroup() for force in system.getForces()}
+    used_groups = native_force_groups(system)
     force_group = next((group for group in range(31, -1, -1) if group not in used_groups), None)
     if force_group is None:
         raise InputError(

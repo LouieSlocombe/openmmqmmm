@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from conftest import _AnalyticQM, _make_analytic_qmmm, meoh_water_mm
+from conftest import _AnalyticQM, _make_analytic_qmmm, meoh_water_mm, use_pme
 
 from openmmqmmm import (
     Fragment,
@@ -620,6 +620,20 @@ def test_qmmm_rpmd_can_contract_only_the_qm_force_to_the_centroid():
     simulation.integrator.step(1)
     assert len(qm.calls) == 2
     assert np.mean(qm.calls[0][:, 0]) == pytest.approx(2.0), "The contracted QM force sees the centroid geometry"
+
+
+def test_rpmd_contraction_preserves_the_native_reciprocal_space_group():
+    qmmm, fragment, _ = _make_analytic_qmmm()
+    mm = qmmm.mm_theory
+    use_pme(mm)
+    mm.nonbonded_force.setReciprocalSpaceForceGroup(31)
+    engine = MolecularDynamicsEngine(
+        fragment=fragment, theory=qmmm, integrator="RPMDIntegrator", rpmd_num_copies=4, rpmd_qm_num_copies=1
+    )
+    mm.create_integrator()
+    assert engine.rpmd_external_force_group != 31
+    assert dict(mm.integrator.getContractions()) == {engine.rpmd_external_force_group: 1}
+    engine.close()
 
 
 def test_external_qm_rpmd_uses_the_same_bead_specific_force_path():

@@ -16,7 +16,7 @@ import openmm.unit
 from openmmqmmm.coords import check_charge_mult
 from openmmqmmm.exceptions import InputError, MissingDependencyError
 from openmmqmmm.openmm.nqe_export import modeller_from_topology
-from openmmqmmm.openmm.rpmd_force import RPMD_PYTHON_FORCE_NAME, RPMDQMMMForceProvider
+from openmmqmmm.openmm.rpmd_force import RPMD_PYTHON_FORCE_NAME, RPMDQMMMForceProvider, native_force_groups
 from openmmqmmm.openmm.theory import OpenMMTheory
 from openmmqmmm.qmmm import QMMMTheory
 from openmmqmmm.utils import require_int_in_range, require_positive_finite
@@ -81,16 +81,6 @@ def _validate_reference(high: Any, reference: Any) -> None:
     require_int_in_range(getattr(reference, "numcores", 1), "The reference QM numcores must be a positive integer")
 
 
-def _native_groups(system: openmm.System) -> set[int]:
-    groups = {force.getForceGroup() for force in system.getForces()}
-    for force in system.getForces():
-        if isinstance(force, openmm.NonbondedForce):
-            reciprocal = force.getReciprocalSpaceForceGroup()
-            if reciprocal >= 0:
-                groups.add(reciprocal)
-    return groups
-
-
 def export_mts_potential(
     *,
     theory: QMMMTheory,
@@ -140,7 +130,7 @@ def export_mts_potential(
     charge, mult = check_charge_mult(
         charge, mult, theory.theorytype, theory.fragment, "export_mts_potential", theory=theory
     )
-    groups = _native_groups(system)
+    groups = native_force_groups(system)
     available = [group for group in range(31, -1, -1) if group not in groups]
     if len(available) < 2:
         raise InputError("MTS requires two unused force groups, including any reciprocal-space groups")
