@@ -1113,13 +1113,12 @@ class GeometricEngine:
         H_geo = currcoords[-3:] - origin
 
         logger.info("Enforcing orientation")
-        origin[:] = 0.0
         # Rows are the cell vectors; keep H_geo in the lower-triangular standard orientation.
         H_geo[0, 1] = 0.0  # ay = 0
         H_geo[0, 2] = 0.0  # az = 0
         H_geo[1, 2] = 0.0  # bz = 0
-        s = np.dot(R_geo - origin, self.H_ref_inv)
-        R_phys = np.dot(s, H_geo) + origin
+        s = np.dot(R_geo, self.H_ref_inv)
+        R_phys = np.dot(s, H_geo)
         self.theory.update_cell(H_geo)
 
         logger.info(f"Current cell vectors (Å):{H_geo}")
@@ -1133,7 +1132,7 @@ class GeometricEngine:
         grad_Rgeo = np.dot(grad_phys, M.T)
 
         # Total lattice gradient: current theory cell-gradient + convection
-        grad_latt_total = self.theory.get_cell_gradient()
+        grad_latt_total = self.theory.get_cell_gradient() + s.T @ grad_phys
         # Standard orientation mask:
         mask = np.array(
             [
@@ -1143,7 +1142,7 @@ class GeometricEngine:
             ]
         )
         grad_latt_masked = grad_latt_total * mask
-        grad_origin = np.zeros((1, 3))
+        grad_origin = -grad_latt_masked.sum(axis=0, keepdims=True)
         mod_gradient = np.concatenate(
             [
                 grad_Rgeo,  # (N, 3)

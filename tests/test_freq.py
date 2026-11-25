@@ -982,3 +982,19 @@ def test_parallel_displacements_keep_explicit_qm_region_state():
     serial = numerical_frequencies(**options)
     parallel = numerical_frequencies(**options, runmode="parallel", numcores=1)
     np.testing.assert_allclose(parallel.hessian, serial.hessian)
+
+
+def test_unprojected_embedded_atom_contributes_three_vibrations(water):
+    result = numerical_frequencies(fragment=water, theory=_HarmonicTheory(water.coords), hessatoms=[1], IR=False)
+    assert result.freq_tr_modenum == 0
+    assert len(result.thermochemistry["frequencies"]) == 3
+    assert result.thermochemistry["ZPVE"] == pytest.approx(0.5 * HC_HARTREE_PER_WAVENUMBER * sum(result.frequencies))
+
+
+def test_isotope_masses_reach_translational_and_rotational_entropy():
+    f = Fragment(elems=["H", "H"], coords=[[0, 0, 0], [0, 0, 0.74]], charge=0, mult=1)
+    theory = SoftModeHessianTheory(np.eye(6))
+    light, heavy = [analytic_frequencies(theory=theory, fragment=f, masses=[m, m]).thermochemistry for m in (1, 2)]
+    rt_log2 = 298.15 * constants.GAS_CONSTANT_HARTREE_PER_K * math.log(2)
+    assert heavy["TS_trans"] - light["TS_trans"] == pytest.approx(1.5 * rt_log2)
+    assert heavy["TS_rot"] - light["TS_rot"] == pytest.approx(rt_log2)

@@ -104,7 +104,8 @@ def test_pbc_step_maps_geometric_coordinates_through_the_current_cell_and_masks_
     assert engine.iteration_count == 7
     assert result["energy"] == 0.0
     transform = np.linalg.inv(LOWER_CELL) @ lower_cell
-    expected_gradient = np.vstack([gradient @ transform.T, np.zeros((1, 3)), np.tril(cell_gradient)])
+    lattice = np.tril(cell_gradient + (WATER @ np.linalg.inv(LOWER_CELL)).T @ gradient)
+    expected_gradient = np.vstack([gradient @ transform.T, -lattice.sum(axis=0), lattice])
     np.testing.assert_allclose(result["gradient"], expected_gradient.flatten())
 
 
@@ -336,3 +337,26 @@ def test_active_region_step_moves_only_active_atoms_and_writes_every_qmmm_trajec
     assert Path("geometric_OPTtraj-PDB.pdb").is_file()
     assert Path("Grad").is_file()
     assert Path("Grad_act").is_file()
+
+
+def test_periodic_optimizer_gradient_matches_displaced_energy():
+    class HarmonicCellTheory(_PeriodicTheory):
+        def run(self, current_coords, **kwargs):
+            coords_bohr = current_coords * ANG_TO_BOHR
+            return 0.5 * np.sum(coords_bohr**2), coords_bohr
+
+    fragment = _water()
+    engine = _bare_engine(
+        HarmonicCellTheory(LOWER_CELL),
+        fragment,
+        pbc_active=True,
+        elems_phys=fragment.elems,
+        H_ref_inv=np.linalg.inv(LOWER_CELL),
+    )
+    Path("geometric_OPTtraj.log").write_text("Step 1: test\n")
+    coords = np.vstack([WATER, np.zeros(3), LOWER_CELL]).ravel() * ANG_TO_BOHR
+    actual = engine.calc(coords, ".")["gradient"]
+    for direction, gradient in zip(np.eye(len(coords)), actual, strict=True):
+        plus = engine.calc(coords + 1e-4 * direction, ".")["energy"]
+        minus = engine.calc(coords - 1e-4 * direction, ".")["energy"]
+        assert gradient == pytest.approx((plus - minus) / 2e-4, abs=1e-9)

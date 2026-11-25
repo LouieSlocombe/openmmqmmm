@@ -97,7 +97,9 @@ Thermochemistry comes back in the same `Results`: ZPE, enthalpy, entropy and Gib
 it off). `IR=True` gives intensities, `Raman=True` activities, and `scaling_factor` applies a
 uniform frequency scaling. `rotmode_threshold` is measured in amu·Å². Projection and
 mode padding use the Hessian geometry and its supplied masses, including a forced
-projection of a partial Hessian.
+projection of a partial Hessian. For an unprojected partial Hessian, each positive frequency
+contributes to vibrational thermochemistry. Isotope mass overrides also enter the total
+mass and moments of inertia used for translational and rotational entropy.
 
 {func}`~openmmqmmm.analytic_frequencies` uses a theory's analytic Hessian where it has one.
 {func}`~openmmqmmm.read_hessian` and {func}`~openmmqmmm.write_hessian` move a Hessian between

@@ -774,7 +774,9 @@ def _analyse_hessian(
     """Analyse either source of Hessians, preserving the Hessian atom ordering."""
     hesselems = [fragment.elems[index] for index in hessatoms]
     hesscoords = np.take(fragment.coords, hessatoms, axis=0)
-    tr_modenum = _tr_mode_count(hesscoords, hessmasses, thermo_options["rotmode_threshold"])
+    tr_modenum = 0
+    if projection or len(hessatoms) == fragment.numatoms:
+        tr_modenum = _tr_mode_count(hesscoords, hessmasses, thermo_options["rotmode_threshold"])
     # Evectors: eigenvectors of the mass-weighted Hessian
     # Normal modes: unweighted
     frequencies, nmodes, evectors, _mode_order = _diagonalize_hessian(
@@ -830,6 +832,8 @@ def _analyse_hessian(
         hessatoms,
         fragment,
         mult,
+        hessmasses=hessmasses,
+        tr_modenum=tr_modenum,
         **thermo_options,
     )
 
@@ -900,6 +904,9 @@ def _diagonalize_hessian(
     nmodes = evectors * massmatrix
 
     vfreqs = _eigenvalues_to_wavenumbers(evalues)
+
+    if tr_modenum == 0:
+        return vfreqs, nmodes, evectors, list(range(len(vfreqs)))
 
     logger.info("Calculated frequencies: %s", vfreqs)
     # Unprojected, the lowest modes mix TR modes with saddle-point modes. Heuristic: modes below
@@ -1014,9 +1021,8 @@ def _rotational_temperature(moment_of_inertia_si: float) -> float:
 
 def _rotational_thermochemistry(
     *,
-    fragment: Fragment,
     coords: np.ndarray,
-    elems: Sequence[str],
+    masses: Sequence[float],
     moltype: str,
     temp: float,
     symmetry_number: int | None,
@@ -1033,7 +1039,7 @@ def _rotational_thermochemistry(
         }
 
     logger.debug("\nDoing rotatational analysis:")
-    rinertia = [float(i) for i in inertia(elems, coords, _get_center(coords, elems=elems))]
+    rinertia = np.linalg.eigvalsh(_inertia_tensor(coords, masses))
     logger.info("Moments of inertia (amu Å^2): %s", rinertia)
     inertia_si = np.array(rinertia) * openmmqmmm.constants.AMU_TO_KG * openmmqmmm.constants.ANG_TO_M**2
     inertia_avg = float(np.mean(inertia_si))
@@ -1143,46 +1149,35 @@ def calc_thermochemistry(
     qrrho_method: str = "Grimme",
     qrrho_omega_0: float = 100,
     use_full_geo_in_rotational_analysis: bool = True,
+    hessmasses: Sequence[float] | None = None,
+    tr_modenum: int | None = None,
     symmetry_number: int | None = None,
     rotmode_threshold: float = 1e-4,
 ) -> dict[str, Any]:
     module_init_time = time.time()
     logger.info(main_header("Thermochemistry via rigid-rotor harmonic oscillator approximation"))
-    if len(atoms) == 1:
-        logger.info("System is an atom.")
+    masses = np.array(fragment.masses, dtype=float, copy=True)
+    if hessmasses is not None:
+        masses[list(atoms)] = hessmasses
+    region_masses = masses[list(atoms)]
+    totalmass = masses.sum()
+    coords = fragment.coords
+    if not use_full_geo_in_rotational_analysis:
+        coords = coords[list(atoms)]
+        masses = region_masses
+    rigid_modes = _tr_mode_count(coords, masses, rotmode_threshold)
+    if len(coords) == 1:
         moltype = "atom"
-        # 3 translations, no rotations and no vibrations
-        tr_modenum = 3
-    elif len(atoms) == 2:
-        logger.info("System contains 2 atoms and thus linear.")
+    elif rigid_modes < 6:
         moltype = "linear"
-        tr_modenum = 5
     else:
-        logger.info("System size > 2, checking if linear")
-        linearcheck = detect_linear(fragment, threshold=rotmode_threshold)
-        if linearcheck is True:
-            logger.info("Structure is linear. 5 translational+rotational modes present")
-            moltype = "linear"
-            tr_modenum = 5
-        else:
-            logger.info("Structure is non-linear. 6 translational+rotational modes present")
-            moltype = "nonlinear"
-            tr_modenum = 6
-
-    if use_full_geo_in_rotational_analysis:
-        logger.info("Using full geometry in rotational analysis")
-        coords = fragment.coords
-        elems = fragment.elems
-    else:
-        logger.info("Using Hessian-geometry in rotational analysis")
-        coords = np.take(fragment.coords, atoms, axis=0)
-        elems = [fragment.elems[i] for i in atoms]
-
-    totalmass = sum(fragment.masses)
+        moltype = "nonlinear"
+    if tr_modenum is None:
+        tr_modenum = _tr_mode_count(fragment.coords[list(atoms)], region_masses, rotmode_threshold)
     logger.info("Total mass of molecule: %s", totalmass)
 
     rotational = _rotational_thermochemistry(
-        fragment=fragment, coords=coords, elems=elems, moltype=moltype, temp=temp, symmetry_number=symmetry_number
+        coords=coords, masses=masses, moltype=moltype, temp=temp, symmetry_number=symmetry_number
     )
     E_rot, TS_rot = rotational["E_rot"], rotational["TS_rot"]
     rinertia, rotconstants, sigma_r = rotational["rinertia"], rotational["rotconstants"], rotational["sigma_r"]
