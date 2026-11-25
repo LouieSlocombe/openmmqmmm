@@ -31,14 +31,14 @@ from openmmqmmm.exceptions import (
     InputError,
 )
 from openmmqmmm.mdtraj import mdtraj_image_trajectory, mdtraj_rmsf
-from openmmqmmm.openmm.nqe_export import attach_qmmm_python_force
+from openmmqmmm.openmm.nqe_export import bind_qmmm_python_force, prepare_qmmm_python_force
 from openmmqmmm.openmm.rpmd_force import (
     RPMDExternalQMForceProvider,
-    add_rpmd_python_force,
+    prepare_rpmd_python_force,
     rpmd_cache_size,
 )
 from openmmqmmm.openmm.systemsetup import openmm_minimize
-from openmmqmmm.openmm.theory import NUCLEAR_QUANTUM_INTEGRATORS, ForceReporter, OpenMMTheory
+from openmmqmmm.openmm.theory import ForceReporter, OpenMMTheory
 from openmmqmmm.profiling import _MDProfile
 from openmmqmmm.singlepoint import single_point
 from openmmqmmm.utils import (
@@ -314,6 +314,7 @@ def openmm_md(
 class MolecularDynamicsEngine:
     """Driver for OpenMM molecular-dynamics simulations (also used for QM/MM MD)."""
 
+    @_close_on_error
     def __init__(
         self,
         *,
@@ -371,6 +372,8 @@ class MolecularDynamicsEngine:
 
         if fragment is None:
             raise InputError("No fragment object.")
+        if center_on_atoms is not None:
+            raise InputError("center_on_atoms is accepted but not implemented. Remove it from the call.")
         self.fragment = fragment
         profile_interval = require_int_in_range(profile_interval, "profile_interval must be a positive integer.")
         self._profile = None
@@ -429,14 +432,10 @@ class MolecularDynamicsEngine:
             if dummyatomrestraint:
                 raise InputError("PythonForce dynamics does not support dummyatomrestraint.")
 
-        if integrator in NUCLEAR_QUANTUM_INTEGRATORS:
-            self.openmmobject._disable_hydrogen_mass_repartitioning()
-
         self._configure_rpmd_copies(
             is_rpmd=is_rpmd, rpmd_num_copies=rpmd_num_copies, rpmd_qm_num_copies=rpmd_qm_num_copies
         )
 
-        self._attach_qm_force(is_rpmd)
         if profile_file is not None:
             self._profile = _MDProfile(
                 os.fspath(profile_file),
@@ -450,15 +449,12 @@ class MolecularDynamicsEngine:
                     "timestep_ps": float(timestep),
                 },
             )
-            if self.rpmd_force_provider is not None:
-                self.rpmd_force_provider.profile = self._profile
-        self._add_restraints(restraints)
 
         self.chkfile = chkfile
         self.statefile = statefile
 
-        self.temperature = temperature
-        self.pressure = pressure
+        self.temperature = float(temperature)
+        self.pressure = float(pressure)
         self.integrator = integrator
         self.rpmd_report_copy = 0
         self._rpmd_reporters = []
@@ -471,7 +467,11 @@ class MolecularDynamicsEngine:
         self.traj_frequency = int(traj_frequency)
         self.rpmd_energy_frequency = self.traj_frequency if rpmd_energy_frequency is None else rpmd_energy_frequency
         self.restartfile_frequency = restartfile_frequency
-        self.barostat_frequency = barostat_frequency
+        self.barostat_frequency = (
+            require_int_in_range(barostat_frequency, "barostat_frequency must be a nonnegative integer.", minimum=0)
+            if barostat is not None
+            else barostat_frequency
+        )
         self.trajectory_file_option = trajectory_file_option
         self.force_file_option = force_file_option
         self.energy_file_option = energy_file_option
@@ -502,18 +502,39 @@ class MolecularDynamicsEngine:
             logger.debug("Will continue...")
         self._set_initial_positions(dummyatomrestraint=dummyatomrestraint, solute_indices=solute_indices)
 
-        if center_on_atoms is not None:
-            raise InputError("center_on_atoms is accepted but not implemented. Remove it from the call.")
-
-        self._configure_integrator_and_barostat(barostat=barostat, anderson_thermostat=anderson_thermostat)
-        if add_centerforce is True:
-            self._add_centerforce(
-                centerforce_atoms=centerforce_atoms,
-                centerforce_center=centerforce_center,
-                centerforce_constant=centerforce_constant,
-                centerforce_distance=centerforce_distance,
-            )
         self._open_data_output(datafilename)
+        # Prepare the new forces before changing the existing ensemble or particle masses.
+        # A rejected restraint, contraction or callback must leave the supplied theory reusable.
+        mm = self.openmmobject
+        original_forces = {int(force.this) for force in mm.system.getForces()}
+        initial_copies = mm.rpmd_num_copies
+        initial_contractions = mm.rpmd_contractions
+        try:
+            mm.set_rpmd_num_copies(self.rpmd_num_copies)
+            mm.set_rpmd_contractions(initial_contractions)
+            self._add_restraints(restraints)
+            if add_centerforce:
+                self._add_centerforce(
+                    centerforce_atoms=centerforce_atoms,
+                    centerforce_center=centerforce_center,
+                    centerforce_constant=centerforce_constant,
+                    centerforce_distance=centerforce_distance,
+                )
+            self._prepare_qm_force(is_rpmd)
+            self._configure_integrator_and_barostat(barostat=barostat, anderson_thermostat=anderson_thermostat)
+            if self.rpmd_python_force is not None:
+                self.rpmd_force_provider.profile = self._profile
+                if self.QM_MM_object is None:
+                    mm.system.addForce(self.rpmd_python_force)
+                else:
+                    bind_qmmm_python_force(self.QM_MM_object, self.rpmd_python_force)
+        except Exception:
+            for index in reversed(range(mm.system.getNumForces())):
+                if int(mm.system.getForce(index).this) not in original_forces:
+                    mm.system.removeForce(index)
+            mm.rpmd_num_copies = initial_copies
+            mm.rpmd_contractions = initial_contractions
+            raise
 
         logger.info("enforcePeriodicBox: %s", self.enforce_periodic_box)
         logger.info("OpenMM Forces defined: %s", self.openmmobject.system.getForces())
@@ -985,9 +1006,11 @@ class MolecularDynamicsEngine:
         self, *, is_rpmd: bool, rpmd_num_copies: int | None, rpmd_qm_num_copies: int | None
     ) -> None:
         """Resolve the bead count and how many beads the QM force is evaluated on."""
-        if rpmd_num_copies is not None:
-            self.openmmobject.set_rpmd_num_copies(rpmd_num_copies)
-        self.rpmd_num_copies = self.openmmobject.rpmd_num_copies
+        self.rpmd_num_copies = (
+            self.openmmobject.rpmd_num_copies
+            if rpmd_num_copies is None
+            else require_int_in_range(rpmd_num_copies, "rpmd_num_copies must be a positive integer.")
+        )
 
         if rpmd_qm_num_copies is not None and (not is_rpmd or self.theory_runtype not in {"QMMM", "QM"}):
             raise InputError("rpmd_qm_num_copies is only valid for QM/MM or external-QM RPMD dynamics.")
@@ -1000,7 +1023,7 @@ class MolecularDynamicsEngine:
             maximum=self.rpmd_num_copies,
         )
 
-    def _attach_qm_force(self, is_rpmd: bool) -> None:
+    def _prepare_qm_force(self, is_rpmd: bool) -> None:
         """Give every OpenMM energy/force evaluation the physical QM potential."""
         if self.theory_runtype not in {"QMMM", "QM"}:
             return
@@ -1011,14 +1034,13 @@ class MolecularDynamicsEngine:
                 self.rpmd_force_provider,
                 self.rpmd_python_force,
                 self.rpmd_external_force_group,
-            ) = attach_qmmm_python_force(
+            ) = prepare_qmmm_python_force(
                 theory=self.QM_MM_object,
                 elems=self.fragment.elems,
                 charge=self.charge,
                 mult=self.mult,
                 num_beads=num_beads,
                 periodic=self.openmmobject.periodic,
-                restore_physical_masses=is_rpmd,
             )
         else:
             self.rpmd_force_provider = RPMDExternalQMForceProvider(
@@ -1029,7 +1051,7 @@ class MolecularDynamicsEngine:
                 periodic=self.openmmobject.periodic,
                 cache_size=rpmd_cache_size(num_beads),
             )
-            self.rpmd_python_force, self.rpmd_external_force_group = add_rpmd_python_force(
+            self.rpmd_python_force, self.rpmd_external_force_group = prepare_rpmd_python_force(
                 self.openmmobject.system,
                 self.rpmd_force_provider,
                 periodic=self.openmmobject.periodic,
@@ -1116,6 +1138,16 @@ class MolecularDynamicsEngine:
         system = self.openmmobject.system
         temperature = self.temperature * openmm.unit.kelvin
         pressure = self.pressure * openmm.unit.bar
+        if barostat is not None and self.integrator not in {"DrudeLangevinIntegrator", "DrudeSCFIntegrator"}:
+            self.integrator = "LangevinMiddleIntegrator"
+        if use_andersen and self.integrator != "DrudeSCFIntegrator":
+            self.integrator = "VerletIntegrator"
+        self.openmmobject.set_simulation_parameters(
+            timestep=self.timestep,
+            temperature=self.temperature,
+            integrator=self.integrator,
+            coupling_frequency=self.coupling_frequency,
+        )
         has_barostat = has_andersen = False
         for index in reversed(range(system.getNumForces())):
             force = system.getForce(index)
@@ -1136,8 +1168,6 @@ class MolecularDynamicsEngine:
         if barostat is not None:
             if not has_barostat:
                 system.addForce(openmm.MonteCarloBarostat(pressure, temperature, self.barostat_frequency))
-            if self.integrator not in {"DrudeLangevinIntegrator", "DrudeSCFIntegrator"}:
-                self.integrator = "LangevinMiddleIntegrator"
             logger.info("Barostat uses integrator: %s", self.integrator)
         if use_andersen:
             logger.info("Anderson thermostat is on.")
@@ -1145,15 +1175,7 @@ class MolecularDynamicsEngine:
                 self.openmmobject.system.addForce(
                     openmm.AndersenThermostat(self.temperature * openmm.unit.kelvin, 1 / openmm.unit.picosecond)
                 )
-            if self.integrator != "DrudeSCFIntegrator":
-                self.integrator = "VerletIntegrator"
             logger.debug("Now using integrator: %s", self.integrator)
-        self.openmmobject.set_simulation_parameters(
-            timestep=self.timestep,
-            temperature=self.temperature,
-            integrator=self.integrator,
-            coupling_frequency=self.coupling_frequency,
-        )
         self.volume = self.density = barostat is not None
 
     def _open_data_output(self, datafilename: str | os.PathLike[str] | None) -> None:

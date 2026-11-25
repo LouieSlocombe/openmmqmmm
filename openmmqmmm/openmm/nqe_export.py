@@ -38,7 +38,7 @@ from openmmqmmm.coords import Fragment, check_charge_mult
 from openmmqmmm.exceptions import InputError
 from openmmqmmm.openmm.rpmd_force import (
     RPMDQMMMForceProvider,
-    add_rpmd_python_force,
+    prepare_rpmd_python_force,
     require_rpmd_unconstrained,
     rpmd_cache_size,
 )
@@ -75,7 +75,7 @@ def modeller_from_topology(*, topology: openmm.app.Topology, coords_angstrom: np
     return openmm.app.Modeller(topology, positions)
 
 
-def attach_qmmm_python_force(
+def prepare_qmmm_python_force(
     *,
     theory: QMMMTheory,
     elems: Sequence[str],
@@ -84,9 +84,8 @@ def attach_qmmm_python_force(
     num_beads: int,
     periodic: bool,
     cache_size: int | None = None,
-    restore_physical_masses: bool = False,
 ) -> tuple[RPMDQMMMForceProvider, openmm.PythonForce, int]:
-    """Attach the instantaneous QM/MM potential to the theory's MM System.
+    """Build and validate the instantaneous QM/MM potential without changing the MM System.
 
     Callback evaluations may be repeated at the same geometry or occur at trial
     coordinates, so history-dependent charge updates and truncated-PC corrections
@@ -107,8 +106,6 @@ def attach_qmmm_python_force(
     )
     if num_beads > 1:
         require_rpmd_unconstrained(theory.mm_theory.system)
-    if restore_physical_masses:
-        theory.mm_theory._disable_hydrogen_mass_repartitioning()
 
     if cache_size is None:
         cache_size = rpmd_cache_size(num_beads)
@@ -121,12 +118,43 @@ def attach_qmmm_python_force(
         periodic=periodic,
         cache_size=cache_size,
     )
-    python_force, force_group = add_rpmd_python_force(theory.mm_theory.system, provider, periodic=periodic)
+    python_force, force_group = prepare_rpmd_python_force(theory.mm_theory.system, provider, periodic=periodic)
+    return provider, python_force, force_group
+
+
+def bind_qmmm_python_force(theory: QMMMTheory, python_force: openmm.PythonForce) -> None:
+    theory.mm_theory.system.addForce(python_force)
     # Switch to external mode only after validation and attachment succeed.
     # A rejected engine/export must leave standalone QM/MM evaluation intact.
     # The provider owns QM and coupling terms; native forces own the MM terms.
     theory.exit_after_customexternalforce_update = True
     theory.openmm_externalforce = True
+
+
+def attach_qmmm_python_force(
+    *,
+    theory: QMMMTheory,
+    elems: Sequence[str],
+    charge: int,
+    mult: int,
+    num_beads: int,
+    periodic: bool,
+    cache_size: int | None = None,
+    restore_physical_masses: bool = False,
+) -> tuple[RPMDQMMMForceProvider, openmm.PythonForce, int]:
+    """Attach the validated external potential and transfer the QM terms to its callback."""
+    provider, python_force, force_group = prepare_qmmm_python_force(
+        theory=theory,
+        elems=elems,
+        charge=charge,
+        mult=mult,
+        num_beads=num_beads,
+        periodic=periodic,
+        cache_size=cache_size,
+    )
+    if restore_physical_masses:
+        theory.mm_theory._disable_hydrogen_mass_repartitioning()
+    bind_qmmm_python_force(theory, python_force)
     return provider, python_force, force_group
 
 

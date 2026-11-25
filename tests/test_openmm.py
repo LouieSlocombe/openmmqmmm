@@ -166,6 +166,54 @@ def test_rpmd_each_bead_gets_the_analytic_force_of_its_own_geometry(kind):
         assert forces == pytest.approx(expected_forces, rel=1e-9, abs=1e-9)
 
 
+@pytest.mark.parametrize(
+    "bad_options,error",
+    [
+        ({"center_on_atoms": [0]}, InputError),
+        ({"restraints": [[0, 1, 2, 1], [0, 1]]}, InputError),
+        ({"datafilename": Path("missing-directory/state.csv")}, FileNotFoundError),
+        ({"barostat": "MonteCarloBarostat", "barostat_frequency": -1}, InputError),
+    ],
+)
+def test_rejected_engine_preserves_standalone_qmmm_and_allows_retry(bad_options, error):
+    import openmm
+
+    qmmm, fragment, _ = _make_analytic_qmmm()
+    mm = qmmm.mm_theory
+    args = {"current_coords": fragment.coords, "elems": fragment.elems, "charge": 0, "mult": 1}
+    expected_energy = qmmm.run(**args)
+    original_system = openmm.XmlSerializer.serialize(mm.system)
+    original_copies = mm.rpmd_num_copies
+    with pytest.raises(error):
+        MolecularDynamicsEngine(fragment=fragment, theory=qmmm, rpmd_num_copies=3, **bad_options)
+    assert not qmmm.openmm_externalforce
+    assert not qmmm.exit_after_customexternalforce_update
+    assert mm.rpmd_num_copies == original_copies
+    assert openmm.XmlSerializer.serialize(mm.system) == original_system
+    assert qmmm.run(**args) == pytest.approx(expected_energy)
+    engine = MolecularDynamicsEngine(fragment=fragment, theory=qmmm)
+    engine.run(simulation_steps=0)
+    engine.close()
+
+
+def test_late_setup_failure_discards_prepared_qm_force_and_restraints(monkeypatch):
+    qmmm, fragment, _ = _make_analytic_qmmm()
+    mm = qmmm.mm_theory
+    count = mm.system.getNumForces()
+
+    def reject_settings(**_options):
+        raise InputError("unavailable ensemble")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mm, "set_simulation_parameters", reject_settings)
+        with pytest.raises(InputError, match="unavailable ensemble"):
+            MolecularDynamicsEngine(fragment=fragment, theory=qmmm, restraints=[[0, 1, 2, 1]])
+    assert mm.system.getNumForces() == count
+    assert not qmmm.openmm_externalforce
+    assert not qmmm.exit_after_customexternalforce_update
+    MolecularDynamicsEngine(fragment=fragment, theory=qmmm).close()
+
+
 def test_qmmm_rpmd_second_engine_on_the_same_theory_is_rejected():
     qmmm, fragment, _qm = _make_analytic_qmmm()
     engine_kwargs = {

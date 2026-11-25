@@ -254,13 +254,13 @@ def native_force_groups(system: openmm.System) -> set[int]:
     return groups
 
 
-def add_rpmd_python_force(
+def prepare_rpmd_python_force(
     system: openmm.System,
     provider: _RPMDPythonForceProvider,
     *,
     periodic: bool = False,
 ) -> tuple[openmm.PythonForce, int]:
-    """Add an isolated-force-group ``PythonForce`` and return it with its group index."""
+    """Build an isolated-force-group ``PythonForce`` and return it with its group index."""
     if not hasattr(openmm, "PythonForce"):
         raise MissingDependencyError("External QM dynamics requires OpenMM with openmm.PythonForce support.")
 
@@ -282,6 +282,17 @@ def add_rpmd_python_force(
     force.setName(RPMD_PYTHON_FORCE_NAME)
     force.setForceGroup(force_group)
     force.setUsesPeriodicBoundaryConditions(bool(periodic))
+    return force, force_group
+
+
+def add_rpmd_python_force(
+    system: openmm.System,
+    provider: _RPMDPythonForceProvider,
+    *,
+    periodic: bool = False,
+) -> tuple[openmm.PythonForce, int]:
+    """Build and attach an isolated external QM callback."""
+    force, force_group = prepare_rpmd_python_force(system, provider, periodic=periodic)
     system.addForce(force)
     logger.info("Added QM PythonForce in force group %s", force_group)
     return force, force_group
