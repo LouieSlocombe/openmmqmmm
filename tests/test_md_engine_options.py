@@ -137,8 +137,10 @@ def test_rpmd_restart_rejects_a_truncated_or_missing_file():
 
 def test_anderson_thermostat_is_added_once_and_forces_the_verlet_integrator():
     fragment, mm = _helium_pair()
-    for _ in range(2):
-        MolecularDynamicsEngine(fragment=fragment, theory=mm, anderson_thermostat=True).close()
+    for temperature in (285, 320):
+        MolecularDynamicsEngine(fragment=fragment, theory=mm, anderson_thermostat=True, temperature=temperature).close()
+    control = next(f for f in mm.system.getForces() if isinstance(f, openmm.AndersenThermostat))
+    assert control.getDefaultTemperature().value_in_unit(openmm.unit.kelvin) == 320
     assert _force_names(mm.system).count("AndersenThermostat") == 1
     assert mm.integrator_name == "VerletIntegrator"
 
@@ -159,7 +161,14 @@ def test_existing_barostat_is_reused_and_switches_volume_reporting_on():
     fragment, mm = _helium_pair()
     use_pme(mm)
     MolecularDynamicsEngine(fragment=fragment, theory=mm, barostat="MonteCarloBarostat").close()
-    engine = MolecularDynamicsEngine(fragment=fragment, theory=mm, barostat="MonteCarloBarostat", pressure=2)
+    engine = MolecularDynamicsEngine(
+        fragment=fragment, theory=mm, barostat="MonteCarloBarostat", pressure=4, temperature=330, barostat_frequency=7
+    )
+    engine.run(simulation_steps=0)
+    control = next(f for f in mm.system.getForces() if isinstance(f, openmm.MonteCarloBarostat))
+    assert control.getFrequency() == 7
+    assert engine.simulation.context.getParameter(control.Temperature()) == 330
+    assert engine.simulation.context.getParameter(control.Pressure()) == 4
     engine.close()
 
     assert _force_names(mm.system).count("MonteCarloBarostat") == 1
@@ -476,6 +485,26 @@ def test_box_equilibration_warns_at_the_cycle_limit_with_frozen_atoms_and_an_uni
     assert "Max NPT cycles reached (2)" in caplog.text
     assert "MDTraj reimaging failed" in caplog.text
     assert len(read_npt_statefile("nptsim.csv")["steps"]) == 4
+
+
+@pytest.mark.parametrize("frequency,expected_steps", [(25, 3), (2, 2)])
+def test_box_equilibration_accumulates_single_sample_cycles_until_a_volume_attempt(frequency, expected_steps, caplog):
+    fragment, mm = _helium_pair()
+    use_pme(mm)
+    with caplog.at_level(logging.INFO, logger=MD_LOGGER):
+        openmm_box_equilibration(
+            fragment=fragment,
+            theory=mm,
+            numsteps_per_npt=1,
+            traj_frequency=1,
+            max_npt_cycles=3,
+            barostat_frequency=frequency,
+            volume_threshold=1e9,
+            density_threshold=1e9,
+            use_mdtraj=False,
+        )
+    assert len(read_npt_statefile("nptsim.csv")["steps"]) == expected_steps
+    assert ("Max NPT cycles reached" in caplog.text) == (frequency == 25)
 
 
 def test_box_equilibration_validates_its_inputs_before_building_an_engine():

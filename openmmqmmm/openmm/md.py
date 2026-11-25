@@ -1112,29 +1112,36 @@ class MolecularDynamicsEngine:
         """Add or drop the barostat/thermostat, then hand the integrator settings to OpenMM."""
         # Remove controls disabled for this stage, including an old hot shell
         # thermostat when a Drude Langevin stage retains its barostat.
-        for index in reversed(range(self.openmmobject.system.getNumForces())):
-            force = self.openmmobject.system.getForce(index)
-            if (isinstance(force, openmm.AndersenThermostat) and not anderson_thermostat) or (
-                isinstance(force, openmm.MonteCarloBarostat) and barostat is None
-            ):
-                self.openmmobject.system.removeForce(index)
-        forceclassnames = [force.__class__.__name__ for force in self.openmmobject.system.getForces()]
+        use_andersen = anderson_thermostat and (barostat is None or self.integrator == "DrudeSCFIntegrator")
+        system = self.openmmobject.system
+        temperature = self.temperature * openmm.unit.kelvin
+        pressure = self.pressure * openmm.unit.bar
+        has_barostat = has_andersen = False
+        for index in reversed(range(system.getNumForces())):
+            force = system.getForce(index)
+            if isinstance(force, openmm.AndersenThermostat):
+                if use_andersen:
+                    force.setDefaultTemperature(temperature)
+                    has_andersen = True
+                else:
+                    system.removeForce(index)
+            elif isinstance(force, openmm.MonteCarloBarostat):
+                if barostat is None:
+                    system.removeForce(index)
+                else:
+                    force.setDefaultPressure(pressure)
+                    force.setDefaultTemperature(temperature)
+                    force.setFrequency(self.barostat_frequency)
+                    has_barostat = True
         if barostat is not None:
-            if "MonteCarloBarostat" in forceclassnames:
-                logger.info("Barostat already present. Skipping.")
-            else:
-                montecarlobarostat = openmm.MonteCarloBarostat(
-                    self.pressure * openmm.unit.bar, self.temperature * openmm.unit.kelvin
-                )
-                montecarlobarostat.setFrequency(self.barostat_frequency)
-                self.openmmobject.system.addForce(montecarlobarostat)
-                logger.info("Barostat added")
+            if not has_barostat:
+                system.addForce(openmm.MonteCarloBarostat(pressure, temperature, self.barostat_frequency))
             if self.integrator not in {"DrudeLangevinIntegrator", "DrudeSCFIntegrator"}:
                 self.integrator = "LangevinMiddleIntegrator"
             logger.info("Barostat uses integrator: %s", self.integrator)
-        if anderson_thermostat and (barostat is None or self.integrator == "DrudeSCFIntegrator"):
+        if use_andersen:
             logger.info("Anderson thermostat is on.")
-            if "AndersenThermostat" not in forceclassnames:
+            if not has_andersen:
                 self.openmmobject.system.addForce(
                     openmm.AndersenThermostat(self.temperature * openmm.unit.kelvin, 1 / openmm.unit.picosecond)
                 )
@@ -1551,7 +1558,11 @@ def openmm_box_equilibration(
             "during the equilibration!"
         )
 
-    numpoints_for_convergence_check = numsteps_per_npt // traj_frequency
+    traj_frequency = require_int_in_range(traj_frequency, "traj_frequency must be a positive integer.")
+    barostat_frequency = require_int_in_range(barostat_frequency, "barostat_frequency must be a positive integer.")
+    # Retain at least two samples separated by a possible volume move, even across cycles.
+    samples_per_move = (barostat_frequency + traj_frequency - 1) // traj_frequency
+    numpoints_for_convergence_check = max(numsteps_per_npt // traj_frequency, samples_per_move + 1)
 
     logger.info(small_header("Equilibration Parameters"))
     logger.info("Steps per NPT cycle: %s", numsteps_per_npt)
@@ -1570,8 +1581,6 @@ def openmm_box_equilibration(
         logger.warning("Check the results carefully!")
 
     steps = 0
-    volume_std = 10
-    density_std = 1
 
     md = MolecularDynamicsEngine(**engine_kwargs)
     try:
@@ -1608,7 +1617,9 @@ def openmm_box_equilibration(
             logger.info(f"\nCurrent Volume SD: {volume_std}   (threshold: {volume_threshold})")
             logger.info(f"Current Density SD: {density_std} (threshold: {density_threshold})")
 
-            if volume_std < volume_threshold and density_std < density_threshold:
+            sample_steps = NPTresults["steps"][-numpoints_for_convergence_check:]
+            sampled_move = int(sample_steps[-1]) // barostat_frequency > int(sample_steps[0]) // barostat_frequency
+            if sampled_move and volume_std < volume_threshold and density_std < density_threshold:
                 logger.info(f"Equilibration of periodic box finished after {steps} and {timestep * steps} ps !\n")
                 break
 
