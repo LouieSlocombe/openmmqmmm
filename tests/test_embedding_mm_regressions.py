@@ -8,7 +8,7 @@ from conftest import evaluate as _evaluate
 from conftest import nonbonded_mm as _system
 from openmm import unit
 
-from openmmqmmm import Fragment, QMMMTheory, ZeroTheory
+from openmmqmmm import Fragment, OpenMMTheory, QMMMTheory, ZeroTheory, single_point
 from openmmqmmm.constants import HARTREE_TO_KJ_PER_MOL
 from openmmqmmm.exceptions import InputError
 
@@ -220,3 +220,57 @@ def test_standalone_mm_recomputes_native_sites_and_returns_only_independent_grad
     for atom in range(4):
         difference = central_difference(lambda coords: mm.run(current_coords=coords), fragment.coords, atom, 0)
         assert gradient[atom, 0] == pytest.approx(difference, abs=1e-10)
+
+
+def test_partition_reuse_fails_before_changing_first_theory():
+    frag = Fragment(elems=["He", "He"], coords=[[0, 0, 0], [3, 0, 0]], conncalc=False)
+    mm = dummy_mm(frag)
+    mm.update_charges([0, 1], [1, -1])
+    options = {"fragment": frag, "qm_theory": ZeroTheory(), "mm_theory": mm, "qm_charge": 0, "qm_mult": 1}
+    first = QMMMTheory(**options, qmatoms=[0])
+    xml = openmm.XmlSerializer.serialize(mm.system)
+    with pytest.raises(InputError, match="already been prepared"):
+        QMMMTheory(**options, qmatoms=[1])
+    assert openmm.XmlSerializer.serialize(mm.system) == xml
+    single_point(fragment=frag, theory=first)
+    assert first.pointcharges == [-1]
+
+
+@pytest.mark.parametrize("layout", ["two forces", "offset"])
+def test_unrepresentable_embedding_charges_fail_before_partitioning(layout):
+    frag = Fragment(elems=["He", "He"], coords=[[0, 0, 0], [3, 0, 0]], conncalc=False)
+    mm = dummy_mm(frag)
+    if layout == "two forces":
+        force = openmm.NonbondedForce()
+        for _ in frag.elems:
+            force.addParticle(0, 0, 0)
+        mm.system.addForce(force)
+        message = "single NonbondedForce"
+    else:
+        mm.nonbonded_force.addGlobalParameter("lambda_q", 1)
+        mm.nonbonded_force.addParticleParameterOffset("lambda_q", 1, -1, 0, 0)
+        message = "charge offsets"
+    xml = openmm.XmlSerializer.serialize(mm.system)
+    with pytest.raises(InputError, match=message):
+        QMMMTheory(fragment=frag, qm_theory=ZeroTheory(), mm_theory=mm, qmatoms=[0])
+    assert openmm.XmlSerializer.serialize(mm.system) == xml
+
+
+def test_openmm_subclass_retains_mm_energy_and_partitions_custom_terms():
+    class TaggedMM(OpenMMTheory):
+        pass
+
+    f = Fragment(elems=["He"] * 5, coords=[[0, 0, 0], [2, 0, 0], [2, 2, 0], [5, 0, 0], [9, 0, 0]], conncalc=False)
+    mm = TaggedMM(fragment=f, dummysystem=True, autoconstraints=None, rigidwater=False, platform="Reference")
+    bond = openmm.CustomBondForce("k*r^2")
+    bond.addGlobalParameter("k", 100)
+    bond.addBond(0, 1, [])
+    bond.addBond(3, 4, [])
+    mm.system.addForce(bond)
+    angle = openmm.CustomAngleForce("10*theta^2")
+    angle.addAngle(0, 1, 2, [])
+    mm.system.addForce(angle)
+    theory = QMMMTheory(fragment=f, mm_theory=mm, qm_theory=ZeroTheory(), qmatoms=[0, 1, 2], qm_charge=0, qm_mult=1)
+    result = single_point(theory=theory, fragment=f, grad=True)
+    assert result.mm_energy * HARTREE_TO_KJ_PER_MOL == pytest.approx(16)
+    np.testing.assert_allclose(result.gradient[:3], 0, atol=1e-12)

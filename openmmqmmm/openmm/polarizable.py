@@ -87,10 +87,16 @@ def _validate_amoeba_qm_region(system: openmm.System, topology: openmm.app.Topol
                 raise InputError("AMOEBA QM/MM virtual sites and their parents must belong to the same region")
 
 
-def _copy_bonded_without_qm(force: openmm.Force, selected: set[int]) -> openmm.Force | None:
+def _copy_bonded_without_qm(
+    force: openmm.Force, selected: set[int], *, min_qm_atoms: int | None = None
+) -> openmm.Force | None:
     """Rebuild bonded terms through the API, preserving custom functions and settings."""
     terms = _bonded_terms(force)
-    retained = [parameters for particles, parameters in terms if not all(i in selected for i in particles)]
+    retained = [
+        parameters
+        for particles, parameters in terms
+        if sum(i in selected for i in particles) < (len(particles) if min_qm_atoms is None else min_qm_atoms)
+    ]
     if len(retained) == len(terms):
         return None
     if isinstance(force, openmm.AmoebaTorsionTorsionForce):

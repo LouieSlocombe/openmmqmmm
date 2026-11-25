@@ -128,6 +128,10 @@ class QMMMTheory:
         self.qm_theory = qm_theory
         self.qm_theory_name = self.qm_theory.__class__.__name__
         self.mm_theory = mm_theory
+        if getattr(mm_theory, "_qmmm_prepared", False):
+            raise InputError(
+                "This MM theory has already been prepared for QM/MM. Build a fresh MM theory for another partition."
+            )
         self.mm_theory_name = self.mm_theory.__class__.__name__
         if self.mm_theory_name == "str":
             self.mm_theory_name = "None"
@@ -195,7 +199,9 @@ class QMMMTheory:
         self._get_native_virtual_sites()
         self._topology_neighbors: list[list[int]] | None = None
         topology_bonds = []
-        topology = getattr(self.mm_theory, "topology", None) if self.mm_theory_name == "OpenMMTheory" else None
+        topology = (
+            getattr(self.mm_theory, "topology", None) if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory) else None
+        )
         if topology is not None:
             # Covalent topology is authoritative even without periodic imaging.
             # Virtual-site parent links are added only to the imaging graph below.
@@ -207,7 +213,7 @@ class QMMMTheory:
 
         image_links = list(polarization_links)
         mm_system = getattr(self.mm_theory, "system", None)
-        if self.mm_theory_name == "OpenMMTheory" and mm_system is not None:
+        if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory) and mm_system is not None:
             for index in range(mm_system.getNumParticles()):
                 if mm_system.isVirtualSite(index):
                     site = mm_system.getVirtualSite(index)
@@ -217,7 +223,7 @@ class QMMMTheory:
 
         self._periodic_geometry: PeriodicQMGeometry | None = None
         self._current_periodic_box_vectors: np.ndarray | None = None
-        if self.mm_theory_name == "OpenMMTheory" and getattr(self.mm_theory, "periodic", False):
+        if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory) and getattr(self.mm_theory, "periodic", False):
             self._periodic_geometry = PeriodicQMGeometry(
                 self.num_allatoms,
                 topology_bonds,
@@ -228,9 +234,6 @@ class QMMMTheory:
 
         logger.info(f"QM region ({len(self.qmatoms)} atoms): {self.qmatoms}")
         logger.info(f"MM region ({len(self.mmatoms)} atoms)")
-
-        # ORCATheory maps atomstoflip, extrabasisatoms and fragment_indices through qmatoms.
-        self.qm_theory.qmatoms = self.qmatoms
 
         # QMMMTheory's numcores wins unless it is the default 1.
         if numcores != 1:
@@ -284,10 +287,27 @@ class QMMMTheory:
 
         self.chargeshifting_done = False
 
+        if isinstance(mm_theory, openmmqmmm.OpenMMTheory) and (
+            self.pc or charges is not None or update_qm_region_charges
+        ):
+            forces = [f for f in mm_theory.system.getForces() if isinstance(f, openmm.NonbondedForce)]
+            if len(forces) > 1:
+                raise InputError("Fixed-charge QM/MM requires a single NonbondedForce for charge assignment")
+            if self.pc and charges is None and forces:
+                force = forces[0]
+                qm_indices = set(self.qmatoms)
+                for offset in range(force.getNumParticleParameterOffsets()):
+                    _, particle, charge_scale, _, _ = force.getParticleParameterOffset(offset)
+                    if charge_scale != 0 and particle not in qm_indices:
+                        raise InputError(
+                            "MM particle charge offsets cannot define a fixed embedding field. "
+                            "Supply explicit fixed charges or remove the charge offsets."
+                        )
+
         if charges is None:
             logger.info("No atomcharges list passed to QMMMTheory object")
             self.charges = []
-            if self.mm_theory_name == "OpenMMTheory":
+            if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory):
                 logger.info("Getting system charges from OpenMM object")
                 # Keep the original force-field charges as QMMM-owned state. OpenMM's
                 # charge list is mutated below when the QM-region charges are zeroed.
@@ -339,6 +359,8 @@ class QMMMTheory:
             self.dipole_correction = False
         else:
             self._setup_mm_theory(fragment)
+        # ORCATheory maps atomstoflip, extrabasisatoms and fragment_indices through qmatoms.
+        self.qm_theory.qmatoms = self.qmatoms
         log_time_since(module_init_time, "QM/MM object creation")
 
     def _validate_polarizable_mm(self, embedding: str, charges: Sequence[float] | None) -> list[tuple[int, int]]:
@@ -351,7 +373,7 @@ class QMMMTheory:
         drude = system is not None and any(isinstance(force, openmm.DrudeForce) for force in system.getForces())
         if embedding.lower() in {"drude", "polembed_drude"} and not drude:
             raise InputError("embedding='drude' requires an OpenMM MM system containing a DrudeForce")
-        if self.mm_theory_name != "OpenMMTheory" or system is None:
+        if not isinstance(self.mm_theory, openmmqmmm.OpenMMTheory) or system is None:
             return []
         amoeba = any(isinstance(force, openmm.AmoebaMultipoleForce) for force in system.getForces())
         if not (drude or amoeba):
@@ -887,7 +909,6 @@ class QMMMTheory:
 
         if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory):
             self.mm_theory._qmmm_prepared = True
-        if self.mm_theory_name == "OpenMMTheory":
             # Constraints act only when OpenMM integrates the system (QM/MM MD), not in energy calls.
             self.mm_theory.remove_constraints_for_atoms(self.qmatoms)
             logger.debug("Removing bonded terms for QM-region in MMtheory")
@@ -909,7 +930,7 @@ class QMMMTheory:
             logger.info("Charges of QM atoms set to 0 (since Electrostatic Embedding):")
             self.zero_qm_charges()
             self.mm_theory.update_charges(self.qmatoms, [0.0 for _ in self.qmatoms])
-            if self.mm_theory_name == "OpenMMTheory":
+            if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory):
                 self.mm_theory.delete_exceptions(self.qmatoms)
 
         self._log_region_charges()
@@ -935,7 +956,7 @@ class QMMMTheory:
         if not hasattr(self, "_native_virtual_sites"):
             system = getattr(self.mm_theory, "system", None)
             native_sites = None
-            if self.mm_theory_name == "OpenMMTheory" and system is not None:
+            if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory) and system is not None:
                 sites = [i for i in range(system.getNumParticles()) if system.isVirtualSite(i)]
                 if set(sites).intersection(self.qmatoms):
                     raise InputError("Native OpenMM virtual sites cannot be included in qmatoms")
@@ -1154,7 +1175,7 @@ class QMMMTheory:
 
     def _run_mm_theory(self, current_coords: np.ndarray, *, grad: bool) -> None:
         """Run the MM theory over the full system, or zero its contribution when there is none."""
-        if self.mm_theory_name != "OpenMMTheory":
+        if not isinstance(self.mm_theory, openmmqmmm.OpenMMTheory):
             self.MMenergy = 0.0
             if grad:
                 self.MMgradient = np.zeros((len(current_coords), 3))
@@ -1604,7 +1625,7 @@ class QMMMTheory:
     ) -> float | tuple[float, np.ndarray]:
         """Finish either embedding with its MM contribution and output artifacts."""
         electrostatic = self.embedding == "elstat"
-        if self.mm_theory_name == "OpenMMTheory":
+        if isinstance(self.mm_theory, openmmqmmm.OpenMMTheory):
             logger.info("Using OpenMM theory as part of QM/MM.")
             if electrostatic:
                 if not self.QMChargesZeroed:

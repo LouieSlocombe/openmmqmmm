@@ -17,7 +17,7 @@ from openmmqmmm.openmm.rpmd_force import RPMDQMMMForceProvider, add_rpmd_python_
 from openmmqmmm.virtual_sites import NativeVirtualSites
 
 
-def _theory(*, periodic):
+def _native_mm(*, periodic):
     fragment = Fragment(
         elems=["He"] * 5,
         coords=[[1, 1, 1], [6, 1.2, 1], [8, 1, 1.1], [99, -99, 99], [12, 2, 1.8]],
@@ -29,6 +29,11 @@ def _theory(*, periodic):
     if periodic:
         use_pme(mm)
     mm.update_charges(list(range(5)), [0, 0, 0, -1, 0.4])
+    return mm, fragment
+
+
+def _theory(*, periodic):
+    mm, fragment = _native_mm(periodic=periodic)
     theory = QMMMTheory(
         fragment=fragment,
         qm_theory=_CoulombQM(),
@@ -136,8 +141,7 @@ def test_native_site_helper_recreates_context_after_copying(copier):
 @pytest.mark.parametrize("qmatoms", [[3], [4], [1], [2]])
 @pytest.mark.parametrize("explicit_charges", [False, True])
 def test_native_partition_rejection_is_persistent_and_does_not_mutate_mm(periodic, qmatoms, explicit_charges):
-    initial, fragment = _theory(periodic=periodic)
-    mm = initial.mm_theory
+    mm, fragment = _native_mm(periodic=periodic)
     # Real host 1 is reached from site 3 only through site 4. Checking every
     # direct dependency edge must reject this transitive partition as well.
     mm.system.setParticleMass(4, 0)

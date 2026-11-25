@@ -363,6 +363,11 @@ Complete-group selection applies in both distance modes.
   implemented. Capped regions are rejected until a conserving map of cap populations is
   defined. Use fixed charges for these workflows.
 
+Prepare a fresh classical MM theory for each QM/MM partition. The constructor modifies its
+native force terms and charges in place. Fixed-charge embedding or charge reassignment
+requires a single native `NonbondedForce` when present. If an MM particle charge depends
+on a global parameter, supply explicit fixed charges to replace the offsets.
+
 Fixed charge assignment preserves known Coulomb exception scaling, including a charge
 passing through zero. Existing zero-product exceptions are treated as exclusions unless
 a previous update established their scaling. An ambiguous nonzero custom exception or

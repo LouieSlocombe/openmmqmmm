@@ -29,7 +29,7 @@ from openmmqmmm.exceptions import (
     InternalError,
 )
 from openmmqmmm.openmm._drude import _validate_drude_charge_updates
-from openmmqmmm.openmm.polarizable import _nonbonded_forces
+from openmmqmmm.openmm.polarizable import _copy_bonded_without_qm, _nonbonded_forces
 from openmmqmmm.openmm.rpmd_force import require_rpmd_unconstrained
 from openmmqmmm.utils import (
     log_time_since,
@@ -1912,10 +1912,8 @@ class OpenMMTheory:
         numharmangleterms_removed = 0
         numpertorsionterms_removed = 0
         numrbtorsionterms_removed = 0
-        numcustomtorsionterms_removed = 0
         numcmaptorsionterms_removed = 0
-        numcustombondterms_removed = 0
-        replacement_torsion_forces = []
+        replacements = []
 
         for force_index, force in enumerate(self.system.getForces()):
             # User restraints describe the intended geometry even when the underlying bonds are QM.
@@ -1984,35 +1982,11 @@ class OpenMMTheory:
                     if sum(p in atomlist for p in (p1, p2, p3, p4)) >= 3:
                         force.setTorsionParameters(i, p1, p2, p3, p4, 0, 0, 0, 0, 0, 0)
                         numrbtorsionterms_removed += 1
-            elif isinstance(force, openmm.CustomTorsionForce):
-                logger.debug("CustomTorsionForce force")
-                logger.debug("There are %s CustomTorsionForce terms defined", force.getNumTorsions())
-                retained_torsions = []
-                for i in range(force.getNumTorsions()):
-                    p1, p2, p3, p4, pars = force.getTorsionParameters(i)
-                    if sum(p in atomlist for p in (p1, p2, p3, p4)) >= 3:
-                        numcustomtorsionterms_removed += 1
-                    else:
-                        retained_torsions.append((p1, p2, p3, p4, pars))
-                if len(retained_torsions) != force.getNumTorsions():
-                    # No parameter value can universally disable an arbitrary
-                    # custom expression (which may use globals or no parameters).
-                    # Rebuild only this force and omit the selected terms.
-                    replacement = openmm.CustomTorsionForce(force.getEnergyFunction())
-                    for i in range(force.getNumPerTorsionParameters()):
-                        replacement.addPerTorsionParameter(force.getPerTorsionParameterName(i))
-                    for i in range(force.getNumGlobalParameters()):
-                        replacement.addGlobalParameter(
-                            force.getGlobalParameterName(i), force.getGlobalParameterDefaultValue(i)
-                        )
-                    for i in range(force.getNumEnergyParameterDerivatives()):
-                        replacement.addEnergyParameterDerivative(force.getEnergyParameterDerivativeName(i))
-                    replacement.setName(force.getName())
-                    replacement.setForceGroup(force.getForceGroup())
-                    replacement.setUsesPeriodicBoundaryConditions(force.usesPeriodicBoundaryConditions())
-                    for torsion in retained_torsions:
-                        replacement.addTorsion(*torsion)
-                    replacement_torsion_forces.append((force_index, replacement))
+            elif isinstance(force, (openmm.CustomBondForce, openmm.CustomAngleForce, openmm.CustomTorsionForce)):
+                minimum = 3 if isinstance(force, openmm.CustomTorsionForce) else 2
+                replacement = _copy_bonded_without_qm(force, atomlist, min_qm_atoms=minimum)
+                if replacement is not None:
+                    replacements.append((force_index, replacement))
             elif isinstance(force, openmm.CMAPTorsionForce):
                 logger.debug("CMAPTorsionForce force")
                 logger.debug("There are %s CMAP terms defined", force.getNumTorsions())
@@ -2028,23 +2002,14 @@ class OpenMMTheory:
                             zero_maps[size] = force.addMap(size, [0.0] * (size * size))
                         force.setTorsionParameters(i, zero_maps[size], p1, p2, p3, p4, v1, v2, v3, v4)
                         numcmaptorsionterms_removed += 1
-            elif isinstance(force, openmm.CustomBondForce):
-                logger.debug("CustomBondForce")
-                logger.debug("There are %s force terms defined", force.getNumBonds())
-                for i in range(force.getNumBonds()):
-                    p1, p2, params = force.getBondParameters(i)
-                    exclude = p1 in atomlist and p2 in atomlist
-                    if exclude is True:
-                        force.setBondParameters(i, p1, p2, [0.0 for _ in params])
-                        numcustombondterms_removed += 1
 
         # System has no replaceForce operation. Remove in reverse index order;
         # explicit force groups and every custom-force setting remain unchanged.
-        for force_index, _replacement in reversed(replacement_torsion_forces):
+        for force_index, _replacement in reversed(replacements):
             self.system.removeForce(force_index)
-        for _force_index, replacement in replacement_torsion_forces:
+        for _force_index, replacement in replacements:
             self.system.addForce(replacement)
-        if replacement_torsion_forces:
+        if replacements:
             self._refresh_forcegroups()
 
         logger.info("\nNumber of bonded terms removed:")
@@ -2052,9 +2017,7 @@ class OpenMMTheory:
         logger.info("Harmonic Angle terms: %s", numharmangleterms_removed)
         logger.info("Periodic Torsion terms: %s", numpertorsionterms_removed)
         logger.info("RB Torsion terms: %s", numrbtorsionterms_removed)
-        logger.info("Custom Torsion terms: %s", numcustomtorsionterms_removed)
         logger.info("CMAP Torsion terms: %s", numcmaptorsionterms_removed)
-        logger.info("CustomBond terms %s", numcustombondterms_removed)
         log_time_since(timeA, "modify_bonded_forces")
 
 

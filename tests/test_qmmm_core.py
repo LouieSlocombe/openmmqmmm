@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from conftest import _make_analytic_qmmm, central_difference_gradient
+from conftest import _make_analytic_qmmm, central_difference_gradient, dummy_mm
 
 import openmmqmmm.qmmm as qmmm_module
 from openmmqmmm import Fragment, QMMMTheory
@@ -192,27 +192,6 @@ def test_mm_boundary_neighbours_exclude_every_qm_atom(monkeypatch):
 
 
 def test_openmm_qmmm_keeps_an_independent_snapshot_of_original_charges():
-    class OpenMMTheory:
-        def __init__(self):
-            self.numatoms = 2
-            self.charges = [-1.0, 1.0]
-
-        def remove_constraints_for_atoms(self, _atoms):
-            pass
-
-        def modify_bonded_forces(self, _atoms):
-            pass
-
-        def addexceptions(self, _atoms):
-            pass
-
-        def delete_exceptions(self, _atoms):
-            pass
-
-        def update_charges(self, atom_indices, charges):
-            for atom_index, charge in zip(atom_indices, charges, strict=True):
-                self.charges[atom_index] = charge
-
     fragment = Fragment(
         elems=["H", "H"],
         coords=[[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]],
@@ -220,7 +199,8 @@ def test_openmm_qmmm_keeps_an_independent_snapshot_of_original_charges():
         mult=1,
         conncalc=False,
     )
-    mm_theory = OpenMMTheory()
+    mm_theory = dummy_mm(fragment)
+    mm_theory.update_charges([0, 1], [-1.0, 1.0])
 
     theory = QMMMTheory(
         fragment=fragment,
