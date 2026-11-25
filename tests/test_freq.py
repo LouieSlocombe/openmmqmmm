@@ -972,3 +972,13 @@ def test_numerical_frequency_stencil_options_reject_booleans(water, value, name)
 def test_analytic_frequency_masses_reject_booleans(water, value):
     with pytest.raises(InputError, match="masses"):
         analytic_frequencies(fragment=water, theory=SoftModeHessianTheory(np.eye(9)), masses=[16, 1, value])
+
+
+def test_parallel_displacements_keep_explicit_qm_region_state():
+    from conftest import make_subregion_qmmm
+
+    theory, fragment = make_subregion_qmmm()
+    options = {"theory": theory, "fragment": fragment, "charge": 0, "mult": 2, "hessatoms": [0], "IR": False}
+    serial = numerical_frequencies(**options)
+    parallel = numerical_frequencies(**options, runmode="parallel", numcores=1)
+    np.testing.assert_allclose(parallel.hessian, serial.hessian)

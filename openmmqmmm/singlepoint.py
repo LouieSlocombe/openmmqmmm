@@ -11,7 +11,7 @@ import numpy as np
 
 import openmmqmmm
 import openmmqmmm.constants
-from openmmqmmm.coords import Fragment, Reaction, _validate_stoichiometry, check_charge_mult
+from openmmqmmm.coords import Fragment, Reaction, _qm_region_owner, _validate_stoichiometry, check_charge_mult
 from openmmqmmm.exceptions import (
     InputError,
 )
@@ -33,9 +33,9 @@ def _archive_theory_output(theory: Any, calc_label: str) -> None:
         shutil.copyfile(theory.filename + ".out", f"./{calc_label}.out")
 
 
-def _fragment_calc_label(fragment: Fragment) -> str:
+def _fragment_calc_label(fragment: Fragment, index: int) -> str:
     """Return the per-fragment name for the archived output of a multi-fragment job."""
-    return f"Frag_{fragment.formula}_{fragment.charge}_{fragment.mult}_"
+    return f"Frag_{index}_{fragment.formula}_{fragment.charge}_{fragment.mult}_"
 
 
 def _common_state(resolved_states: Sequence[tuple[int | None, int | None]]) -> tuple[int | None, int | None]:
@@ -136,7 +136,7 @@ def single_point_theories(
     energies = []
     resolved_states = []
 
-    for theory in theories:
+    for i, theory in enumerate(theories):
         # Resolved per theory from the original arguments: rebinding charge here would carry one
         # theory's resolved value (e.g. a QM/MM region charge) into the next theory in the list.
         theory_charge, theory_mult = check_charge_mult(
@@ -144,7 +144,9 @@ def single_point_theories(
         )
         resolved_states.append((theory_charge, theory_mult))
 
-        result = _run_and_archive(theory, fragment, theory_charge, theory_mult, f"Frag_{theory.__class__.__name__}_")
+        result = _run_and_archive(
+            theory, fragment, theory_charge, theory_mult, f"Frag_{i}_{theory.__class__.__name__}_"
+        )
         logger.info(f"Theory Label: {theory.label} Energy: {result.energy} Eh")
         energies.append(result.energy)
 
@@ -193,11 +195,11 @@ def _log_fragments_table(
     _log_table_header(
         100,
         f"{tabletitle}Table of energies of each fragment:",
-        "{:15} {:<25} {:>7} {:>7} {:>30}".format("Formula", "Label", "Charge", "Mult", f"Energy({unit})"),
+        "{:15} {:<25} {:>7} {:>7} {:>30}".format("Formula", "Label", "Frag. Q", "Frag. M", f"Energy({unit})"),
     )
     for frag, e in zip(fragments, energies, strict=True):
         label = "None" if frag.label is None else str(frag.label)
-        logger.info(f"{frag.formula:15} {label:<25} {frag.charge:>7} {frag.mult:>7} {e:>30.10f}\n")
+        logger.info(f"{frag.formula:15} {label:<25} {frag.charge!s:>7} {frag.mult!s:>7} {e:>30.10f}\n")
 
 
 def single_point_fragments(
@@ -210,6 +212,22 @@ def single_point_fragments(
     result_write_to_disk: bool = True,
 ) -> Results:
     """Run single-point calculations of one theory over multiple fragments."""
+    return _single_point_fragments(
+        theory, fragments, stoichiometry, relative_energies, unit, moreadfiles, result_write_to_disk, archive_prefix=""
+    )
+
+
+def _single_point_fragments(
+    theory: Any,
+    fragments: Sequence[Fragment] | None,
+    stoichiometry: Sequence[float] | None,
+    relative_energies: bool,
+    unit: str,
+    moreadfiles: Sequence[str] | None,
+    result_write_to_disk: bool,
+    *,
+    archive_prefix: str,
+) -> Results:
     logger.info(main_header("Singlepoint_fragments function"))
     module_init_time = time.time()
     logger.debug("Will run single-point calculation on each fragment")
@@ -224,24 +242,26 @@ def single_point_fragments(
             f"moreadfiles contains {len(moreadfiles)} files for {len(fragments)} fragments; provide one per fragment"
         )
     missing_states = [index for index, frag in enumerate(fragments) if frag.charge is None or frag.mult is None]
-    if missing_states:
+    if missing_states and theory.theorytype == "QM" and _qm_region_owner(theory) is None:
         raise InputError(f"Fragments at indices {missing_states} are missing charge or multiplicity")
     if stoichiometry is not None:
         stoichiometry = _validate_stoichiometry(stoichiometry, len(fragments))
     conversion_factor = _energy_conversion_factor(unit) if relative_energies or stoichiometry is not None else 1.0
-    resolved_states = [(fragment.charge, fragment.mult) for fragment in fragments]
+    resolved_states = [
+        check_charge_mult(None, None, theory.theorytype, frag, "single_point_fragments", theory=theory)
+        for frag in fragments
+    ]
     logger.info("Theory: %s", theory.__class__.__name__)
 
     energies = []
 
     for i, frag in enumerate(fragments):
-        charge = frag.charge
-        mult = frag.mult
+        charge, mult = resolved_states[i]
 
         if moreadfiles is not None:
             theory.moreadfile = moreadfiles[i]
 
-        result = _run_and_archive(theory, frag, charge, mult, _fragment_calc_label(frag))
+        result = _run_and_archive(theory, frag, charge, mult, archive_prefix + _fragment_calc_label(frag, i))
         logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {result.energy} Eh")
         energies.append(result.energy)
 
@@ -289,12 +309,16 @@ def single_point_fragments_and_theories(
     all_energies = []
     reaction_energies = []
 
-    for theory in theories:
-        result = single_point_fragments(
+    for index, theory in enumerate(theories):
+        result = _single_point_fragments(
             theory=theory,
             fragments=fragments,
             stoichiometry=stoichiometry,
+            relative_energies=False,
+            unit="kcal/mol",
+            moreadfiles=None,
             result_write_to_disk=False,
+            archive_prefix=f"Theory_{index}_",
         )
         all_energies.append(result.energies)
         if stoichiometry is not None:
@@ -352,13 +376,17 @@ def single_point_reaction(
     logger.debug("Will run single-point calculation on each fragment defined in reaction")
     logger.info("Theory: %s", theory.__class__.__name__)
     logger.info("Resetting energies in reaction object")
+    states = [
+        check_charge_mult(None, None, theory.theorytype, frag, "single_point_reaction", theory=theory)
+        for frag in reaction.fragments
+    ]
     reaction.reset_energies()
 
     for i, frag in enumerate(reaction.fragments):
         if orbital_files is not None:
             theory.moreadfile = orbital_files[i]
             logger.info("Using orbital file: %s", theory.moreadfile)
-        result = _run_and_archive(theory, frag, frag.charge, frag.mult, _fragment_calc_label(frag))
+        result = _run_and_archive(theory, frag, *states[i], _fragment_calc_label(frag, i))
         energy = result.energy
         logger.info(f"Fragment {frag.formula} . Label: {frag.label} Energy: {energy} Eh")
         reaction.energies.append(energy)
@@ -378,7 +406,14 @@ def single_point_reaction(
 
     reaction.calculate_reaction_energy()
 
-    result = Results(label="Singlepoint_reaction", energies=reaction.energies, reaction_energy=reaction.reaction_energy)
+    charge, mult = _common_state(states)
+    result = Results(
+        label="Singlepoint_reaction",
+        energies=reaction.energies,
+        reaction_energy=reaction.reaction_energy,
+        charge=charge,
+        mult=mult,
+    )
 
     log_time_since(module_init_time, "Singlepoint_reaction")
     result.write_to_disk(filename="results_singlepoint_reaction.json")

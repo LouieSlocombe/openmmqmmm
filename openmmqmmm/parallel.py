@@ -224,6 +224,8 @@ def job_parallel(
     theories: Sequence[Any] | None = None,
     numcores: int | None = None,
     mofilesdir: str | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
     allow_theory_parallelization: bool = False,
     grad: bool = False,
     copytheory: bool = False,
@@ -335,6 +337,8 @@ def job_parallel(
             jobs=jobs,
             worker_options={
                 "mofilesdir": mofilesdir,
+                "charge": charge,
+                "mult": mult,
                 "grad": grad,
                 "copytheory": copytheory,
                 "optimizer": optimizer,
@@ -388,6 +392,8 @@ def worker_par(
     theory: Any | None = None,
     label: Label | None = None,
     mofilesdir: str | None = None,
+    charge: int | None = None,
+    mult: int | None = None,
     grad: bool = False,
     copytheory: bool = False,
     optimizer: GeometricOptimizer | None = None,
@@ -411,7 +417,7 @@ def worker_par(
         raise InputError("Worker_par requires either a fragment or a fragmentfile")
     if theory is None:
         raise InputError("Worker_par requires a theory")
-    charge, mult = check_charge_mult(None, None, theory.theorytype, fragment, "Worker_par", theory=theory)
+    charge, mult = check_charge_mult(charge, mult, theory.theorytype, fragment, "Worker_par", theory=theory)
 
     logger.info(f"label: {label} (type {type(label)})")
     if label is None:

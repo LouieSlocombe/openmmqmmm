@@ -2,9 +2,10 @@
 
 import logging
 import re
+from pathlib import Path
 
 import pytest
-from conftest import labelled_fragments
+from conftest import labelled_fragments, make_subregion_qmmm
 
 from openmmqmmm import (
     ORCATheory,
@@ -202,3 +203,31 @@ def test_reaction_energy_applies_a_correction_and_reports_the_error_against_a_re
     assert "User-correction was added" in caplog.text
     logged_correction = float(re.search(r"correction_in_unit in (\S+) kcal/mol", caplog.text).group(1))
     assert logged_correction == pytest.approx(0.1 * HARTREE_TO_KCAL_PER_MOL)
+
+
+def test_fragment_batches_use_the_configured_qm_state():
+    theory, frag = make_subregion_qmmm(qm_charge=-1, qm_mult=1)
+    result = single_point_fragments(theory=theory, fragments=[frag])
+    assert (result.charge, result.mult) == (-1, 1)
+    reaction = Reaction(fragments=[frag, frag], stoichiometry=[-1, 1])
+    assert single_point_reaction(theory=theory, reaction=reaction).reaction_energy == 0.0
+    unconfigured, frag = make_subregion_qmmm()
+    with pytest.raises(InputError, match="qm_charge"):
+        single_point_fragments(theory=unconfigured, fragments=[frag])
+
+
+def test_archives_preserve_all_theory_and_fragment_jobs(tmp_path):
+    class ArchivedTheory(_QueuedTheory):
+        def run(self, **kwargs):
+            energy = super().run(**kwargs)
+            Path(self.filename + ".out").write_text(str(energy))
+            return energy
+
+    def theories():
+        return [ArchivedTheory([1, 2]), ArchivedTheory([3, 4])]
+
+    fragments = labelled_fragments(2)
+    single_point_theories(theories=theories(), fragment=fragments[0])
+    assert sorted(p.read_text() for p in tmp_path.glob("Frag_*.out")) == ["1", "3"]
+    single_point_fragments_and_theories(theories=theories(), fragments=fragments)
+    assert sorted(p.read_text() for p in tmp_path.glob("Theory_*.out")) == ["1", "2", "3", "4"]

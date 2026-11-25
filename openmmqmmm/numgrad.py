@@ -192,6 +192,8 @@ class NumGrad:
             result = openmmqmmm.parallel.job_parallel(
                 fragments=all_disp_fragments,
                 theories=[self.theory],
+                charge=charge,
+                mult=mult,
                 numcores=effective_numcores,
                 allow_theory_parallelization=True,
                 grad=False,

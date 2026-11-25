@@ -398,7 +398,7 @@ def _run_displacements_serially(
 
 
 def _run_displacements_in_parallel(
-    *, theory: Any, fragments: Sequence[Fragment], numcores: int
+    *, theory: Any, fragments: Sequence[Fragment], numcores: int, charge: int | None, mult: int | None
 ) -> tuple[
     dict[str, np.ndarray],
     dict[str, Sequence[float] | np.ndarray],
@@ -415,6 +415,8 @@ def _run_displacements_in_parallel(
     result = openmmqmmm.job_parallel(
         fragments=fragments,
         theories=[theory],
+        charge=charge,
+        mult=mult,
         numcores=numcores,
         allow_theory_parallelization=True,
         grad=True,
@@ -690,7 +692,7 @@ def numerical_frequencies(
         )
     else:
         grads, dipoles, polarizabilities = _run_displacements_in_parallel(
-            theory=theory, fragments=all_disp_fragments, numcores=numcores
+            theory=theory, fragments=all_disp_fragments, numcores=numcores, charge=charge, mult=mult
         )
     displacement_grad_dictionary = grads
     displacement_dipole_dictionary = dipoles
