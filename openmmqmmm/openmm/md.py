@@ -552,7 +552,7 @@ class MolecularDynamicsEngine:
                         self.dataoutputoption,
                         self.rpmd_report_copy,
                         self.openmmobject.dof,
-                        append=restart,
+                        append=restart and self.dataoutputoption.tell() > 0,
                         interval=self.rpmd_energy_frequency,
                     )
                 )
@@ -825,7 +825,7 @@ class MolecularDynamicsEngine:
                 density=self.density,
                 temperature=True,
                 separator=",",
-                append=restart,
+                append=restart and self.dataoutputoption.tell() > 0,
             )
             self._add_simulation_reporter(simulation, statedatareporter_file)
 
@@ -1150,14 +1150,11 @@ class MolecularDynamicsEngine:
         self.volume = self.density = barostat is not None
 
     def _open_data_output(self, datafilename: str | os.PathLike[str] | None) -> None:
-        """Select package logging, or a freshly truncated append-mode data file."""
+        """Open state output without discarding history until the run mode is known."""
         self.datafilename = datafilename
         if datafilename is None:
             self.dataoutputoption = stdout
             return
-        # The reporter writes its header on every open, so a stale file would accumulate several
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(datafilename)
         self.dataoutputoption = open(datafilename, "a", encoding="utf-8")  # noqa: SIM115 - owned until close()
         logger.info("Will write data to file: %s", datafilename)
 
@@ -1220,10 +1217,8 @@ class MolecularDynamicsEngine:
                 logger.info("Deleting old datafile: %s", self.datafilename)
                 if self.dataoutputoption != stdout:
                     self.dataoutputoption.close()
-                with contextlib.suppress(OSError):
-                    os.remove(self.datafilename)
                 self.dataoutputoption = open(  # noqa: SIM115 - owned until close()
-                    self.datafilename, "a", encoding="utf-8"
+                    self.datafilename, "w", encoding="utf-8"
                 )
             self.set_sim_reporters(self.simulation)
             positions = self.positions
@@ -1261,7 +1256,7 @@ class MolecularDynamicsEngine:
             "Simulation velocities before: %s",
             self.simulation.context.getState(getVelocities=True).getVelocities(asNumpy=True),
         )
-        load(self.simulation, restart_file)
+        load(self.simulation, os.fspath(restart_file))
         logger.info(
             "Simulation velocities after loading %s: %s",
             description,
@@ -1351,12 +1346,13 @@ class MolecularDynamicsEngine:
         if simulation_steps is not None:
             simulation_time = simulation_steps * self.timestep
 
-        if chkfile is None and self.chkfile is not None:
-            logger.info("chkfile provided to init. Will use this for restart.")
-            chkfile = self.chkfile
-        if statefile is None and self.statefile is not None:
-            logger.info("statefile provided to init. Will use this for restart.")
-            statefile = self.statefile
+        if chkfile is None and statefile is None:
+            if not hasattr(self, "simulation"):
+                chkfile, statefile = self.chkfile, self.statefile
+                if restart and chkfile is None and statefile is None:
+                    raise InputError("A live simulation or a restart file is required for restart=True.")
+            elif restart and (plumedinput is not None or (restraints is not None and len(restraints) > 0)):
+                raise InputError("Configure restraints and PLUMED forces before creating the live simulation.")
 
         if plumedinput is not None:
             import openmmplumed

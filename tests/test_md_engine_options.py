@@ -276,6 +276,54 @@ def test_restart_file_given_at_construction_restores_the_saved_positions(restart
     assert not np.allclose(restored_nm, original_coords / 10)
 
 
+@pytest.mark.parametrize(
+    "option,filename", [("chkfile", "OpenMM_MD_final_checkpoint.chk"), ("statefile", "OpenMM_MD_final_state.xml")]
+)
+@pytest.mark.parametrize("existing_csv", [False, True])
+def test_file_then_live_restart_retains_state_history(option, filename, existing_csv):
+    fragment, mm = _helium_pair()
+    common = {"fragment": fragment, "theory": mm, "timestep": 1e-6, "traj_frequency": 1}
+    csv = Path("state.csv")
+    first = MolecularDynamicsEngine(**common, datafilename=csv)
+    first.run(simulation_steps=3)
+    first.finalize_simulation()
+    previous = csv.read_text()
+    if not existing_csv:
+        csv.unlink()
+
+    saved = {option: Path(filename)}
+    resumed = MolecularDynamicsEngine(**common, datafilename=csv, **saved)
+    resumed.run(simulation_steps=2)
+    live = resumed.simulation
+    resumed.run(simulation_steps=2, restart=True)
+    assert resumed.simulation is live
+    assert resumed.simulation.currentStep == 7
+    lines = csv.read_text().splitlines()
+    assert lines[0].startswith("#")
+    assert [int(line.split(",")[0]) for line in lines[1:]] == list(range(1 if existing_csv else 4, 8))
+    if existing_csv:
+        assert csv.read_text().startswith(previous)
+    # An explicit file on run() still requests a fresh restore.
+    resumed.run(simulation_steps=0, **saved)
+    assert resumed.simulation.currentStep == 3
+    resumed.close()
+
+
+@pytest.mark.parametrize("changes", [{"restraints": [[0, 1, 2, 1]]}, {"plumedinput": "d: DISTANCE ATOMS=1,2"}])
+def test_live_restart_rejects_force_changes_before_modifying_system(changes):
+    fragment, mm = _helium_pair()
+    engine = MolecularDynamicsEngine(fragment=fragment, theory=mm)
+    engine.run(simulation_steps=1)
+    count = mm.system.getNumForces()
+    with pytest.raises(InputError, match="live simulation"):
+        engine.run(simulation_steps=1, restart=True, **changes)
+    assert mm.system.getNumForces() == count
+    assert engine.simulation.currentStep == 1
+    engine.run(simulation_steps=1, restart=True)
+    assert engine.simulation.currentStep == 2
+    engine.close()
+
+
 def test_rpmd_restart_file_given_as_checkpoint_restores_every_bead():
     fragment, theory = meoh_water_mm(rpmd_num_copies=2)
     engine = MolecularDynamicsEngine(fragment=fragment, theory=theory, integrator="RPMDIntegrator", timestep=1e-6)

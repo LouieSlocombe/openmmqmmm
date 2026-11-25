@@ -256,7 +256,7 @@ theory objects for a separate engine.
 Both exist so another package can drive an openmmqmmm run without either importing the other;
 see {doc}`nqe_interop`.
 
-`run` also takes `restart=True` with `chkfile=` or `statefile=` to continue a previous run.
+`run` also takes `restart=True` with `chkfile=` or `statefile=` to continue a previous run. A constructor checkpoint or state is loaded on the first run. Later calls with `restart=True` continue the live simulation, and an explicit file requests a fresh restore. State-data output appends to existing history and writes a header for a new file. Configure restraints and PLUMED before creating the simulation.
 
 ## Metadynamics and other biases
 
